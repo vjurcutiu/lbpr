@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./ops/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./static/marketing:/srv/marketing:ro
+      - ./static/spa:/srv/spa:ro
+    depends_on:
+      - api
+
+  api:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8000:8000"  # optional: hit API directly if needed
