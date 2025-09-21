@@ -1,7 +1,16 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwind from "@tailwindcss/vite";
+import path from "path";
 
-// https://vite.dev/config/
+// Works in ESM without __dirname:
+const rootDir = process.cwd();
+
 export default defineConfig({
-  plugins: [react()],
-})
+  plugins: [react(), tailwind()],
+  resolve: {
+    alias: {
+      "@": path.resolve(rootDir, "src"),
+    },
+  },
+});
