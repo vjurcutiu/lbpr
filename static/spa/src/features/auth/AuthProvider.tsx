@@ -1,6 +1,6 @@
 /* eslint react-refresh/only-export-components: ["error", { "allowConstantExport": true }] */
 import { createContext, useContext, useEffect, useState } from "react";
-import { getJSON } from "../../shared/api";
+import { getJSON } from "@/shared/api";
 
 type User = {
   uid: string;
@@ -28,7 +28,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const load = async () => {
     try {
-      const data = await getJSON<SessionResponse>("/session");
+      // Same-origin call via Nginx -> FastAPI
+      const data = await getJSON<SessionResponse>("/api/session");
       setUser(data?.user ?? null);
     } catch {
       setUser(null);
