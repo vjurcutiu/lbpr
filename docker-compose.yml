@@ -10,12 +10,29 @@ services:
       - ./static/marketing:/srv/marketing:ro
       - ./static/spa:/srv/spa:ro
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    networks:
+      - appnet
 
   api:
     build: ./backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       - PYTHONUNBUFFERED=1
+      - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
     ports:
       - "8000:8000"  # optional: hit API directly if needed
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+    networks:
+      - appnet
+    volumes:
+      - ./backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json:/run/secrets/firebase_sa.json:ro
+
+networks:
+  appnet:
+    driver: bridge

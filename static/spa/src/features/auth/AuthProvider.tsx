@@ -1,3 +1,4 @@
+/* eslint react-refresh/only-export-components: ["error", { "allowConstantExport": true }] */
 import { createContext, useContext, useEffect, useState } from "react";
 import { getJSON } from "../../shared/api";
 
@@ -6,6 +7,10 @@ type User = {
   email?: string;
   name?: string;
   picture?: string;
+};
+
+type SessionResponse = {
+  user: User | null;
 };
 
 type AuthContextType = {
@@ -23,9 +28,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const load = async () => {
     try {
-      const data = await getJSON("/session");
-      setUser(data.user || null);
-    } catch (_) {
+      const data = await getJSON<SessionResponse>("/session");
+      setUser(data?.user ?? null);
+    } catch {
       setUser(null);
     } finally {
       setLoading(false);
@@ -49,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuthContext() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuthContext must be used within AuthProvider");

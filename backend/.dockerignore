@@ -1,0 +1,21 @@
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# git / editor
+.git
+.gitignore
+.vscode
+.idea
+
+# other junk
+*.log
+.DS_Store
+
+# optional: keep service account JSON out of the image by default
+lexbot-pro-firebase-adminsdk-*.json
+.env
