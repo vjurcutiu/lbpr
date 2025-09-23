@@ -29,7 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const load = async () => {
     try {
       // Same-origin call via Nginx -> FastAPI
-      const data = await getJSON<SessionResponse>("/api/session");
+      const data = await getJSON<SessionResponse>("/session");
       setUser(data?.user ?? null);
     } catch {
       setUser(null);
