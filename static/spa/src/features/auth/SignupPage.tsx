@@ -3,15 +3,16 @@ import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import AuthLayout from "./AuthLayout";
 import { useAuthContext } from "./AuthProvider";
-import { signInWithEmailPassword } from "./firebase";
+import { signUpWithEmailPassword } from "./firebase";
 
-export default function LoginPage() {
+export default function SignupPage() {
   const { user } = useAuthContext();
   const [params] = useSearchParams();
   const returnTo = params.get("returnTo") || "/files";
 
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -21,19 +22,23 @@ export default function LoginPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setErr(null);
+    if (pw !== pw2) {
+      setErr("Passwords do not match.");
+      return;
+    }
     setLoading(true);
     try {
-      await signInWithEmailPassword(email.trim(), password);
+      await signUpWithEmailPassword(email.trim(), pw);
       window.location.replace(returnTo);
     } catch (e: any) {
-      setErr(e?.message || "Unable to sign in.");
+      setErr(e?.message || "Unable to sign up.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <AuthLayout title="Welcome back" subtitle="Sign in with your email">
+    <AuthLayout title="Create your account" subtitle="Email only — nice and simple">
       <form onSubmit={onSubmit} className="space-y-4">
         <label className="block">
           <span className="text-sm text-gray-700">Email</span>
@@ -53,11 +58,24 @@ export default function LoginPage() {
           <input
             type="password"
             required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
             className="mt-1 w-full rounded-xl border px-4 py-2 outline-none focus:ring-2 ring-gray-200"
-            placeholder="••••••••"
+            placeholder="8+ characters"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-sm text-gray-700">Confirm password</span>
+          <input
+            type="password"
+            required
+            autoComplete="new-password"
+            value={pw2}
+            onChange={(e) => setPw2(e.target.value)}
+            className="mt-1 w-full rounded-xl border px-4 py-2 outline-none focus:ring-2 ring-gray-200"
+            placeholder="Repeat password"
           />
         </label>
 
@@ -72,16 +90,16 @@ export default function LoginPage() {
           disabled={loading}
           className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
         >
-          {loading ? "Signing in..." : "Sign in"}
+          {loading ? "Creating account..." : "Create account"}
         </button>
 
         <div className="text-sm text-center text-gray-600">
-          No account?{" "}
+          Already have an account?{" "}
           <Link
-            to={`/signup?returnTo=${encodeURIComponent(returnTo)}`}
+            to={`/login?returnTo=${encodeURIComponent(returnTo)}`}
             className="text-black underline underline-offset-4"
           >
-            Create one
+            Sign in
           </Link>
         </div>
       </form>

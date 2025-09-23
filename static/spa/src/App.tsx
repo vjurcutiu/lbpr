@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Suspense } from "react";
 import AppShell from "@/AppShell";
 import { routes, buildNavItems } from "@/routes";
@@ -10,17 +10,17 @@ export default function App() {
   const navItems = [
     ...buildNavItems("top"),
     ...buildNavItems("mobile"),
-  ].filter((v, i, a) => a.findIndex(x => x.to === v.to) === i);
+  ].filter((v, i, a) => a.findIndex((x) => x.to === v.to) === i);
 
   return (
     <AuthProvider>
       <BrowserRouter>
         <Suspense fallback={<div className="p-4">Loading…</div>}>
           <Routes>
-            {/* Public auth route */}
+            {/* Public route */}
             <Route path="/auth" element={<AuthPage />} />
 
-            {/* Everything else requires auth */}
+            {/* Everything else requires auth — this includes "/" */}
             <Route element={<ProtectedRoute />}>
               <Route
                 path="/*"
@@ -43,9 +43,6 @@ export default function App() {
                 }
               />
             </Route>
-
-            {/* Optional: normalize explicit root */}
-            <Route path="/" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
       </BrowserRouter>
