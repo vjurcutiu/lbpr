@@ -76,7 +76,7 @@ export default function LoginPage() {
         </button>
 
         <div className="text-sm text-center text-gray-600">
-          No account?{" "}
+          No account?as{" "}
           <Link
             to={`/signup?returnTo=${encodeURIComponent(returnTo)}`}
             className="text-black underline underline-offset-4"
