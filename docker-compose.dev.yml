@@ -2,19 +2,27 @@ version: "3.9"
 
 services:
   spa:
-    image: node:20-alpine
+    build:
+      context: ./static/spa
+      dockerfile: Dockerfile.dev
     working_dir: /app
-    command: sh -lc "corepack enable && pnpm install --frozen-lockfile=false && DOCKER_DEV=1 pnpm dev --host --strictPort"
+    command: sh -lc "DOCKER_DEV=1 pnpm dev --host --strictPort"
     environment:
       - NODE_ENV=development
       - DOCKER_DEV=1
       - VITE_API_BASE_URL=/api
-      - CHOKIDAR_USEPOLLING=1
-      - WATCHPACK_POLLING=true
-      - WATCHPACK_POLLING_INTERVAL=250
     volumes:
-      - ./static/spa:/app
-      - /app/node_modules
+      - ./static/spa/src:/app/src
+      - ./static/spa/public:/app/public
+      - ./static/spa/index.html:/app/index.html
+      - ./static/spa/vite.config.ts:/app/vite.config.ts
+      - ./static/spa/tailwind.config.ts:/app/tailwind.config.ts
+      - ./static/spa/postcss.config.cjs:/app/postcss.config.cjs
+      - ./static/spa/tsconfig.json:/app/tsconfig.json
+      - ./static/spa/tsconfig.app.json:/app/tsconfig.app.json         # <-- add this
+      # If you also have a node/ts-node config:
+      - ./static/spa/tsconfig.node.json:/app/tsconfig.node.json       # <-- optional
+      # - ./static/spa/.env:/app/.env                                  # optional
     expose:
       - "5173"
     healthcheck:

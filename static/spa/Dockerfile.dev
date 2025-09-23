@@ -1,0 +1,12 @@
+# Dev image that bakes in node_modules so we don't bind-mount it
+FROM node:20-alpine
+
+WORKDIR /app
+RUN corepack enable
+
+# Install deps once; they persist in the image layer
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm fetch && pnpm install --frozen-lockfile
+
+# At runtime we'll mount src, index.html, configs, etc.
+# This keeps HMR fast while letting you live-edit files.

@@ -1,4 +1,3 @@
-// static/spa/vite.config.ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwind from "@tailwindcss/vite";
@@ -22,15 +21,20 @@ export default defineConfig({
       ? {
           host: "app.localhost", // browser-visible host
           protocol: "ws",        // "wss" if Nginx terminates TLS
-          clientPort: 80,        // <-- key change
+          clientPort: 80,        // key when reverse-proxying HMR
         }
       : true,
 
-    // Bind-mount watching reliability in Docker/WSL/Win/macOS
-    watch: isDockerDev ? { usePolling: true, interval: 150 } : undefined,
+    // Prefer NO polling for speed; only enable if your host FS requires it
+    // watch: isDockerDev ? { usePolling: true, interval: 150 } : undefined,
 
     proxy: {}, // keep API on Nginx (/api → FastAPI)
   },
 
   esbuild: { target: "es2020" },
+
+  // Let Vite keep a stable prebundle cache inside the image/volume
+  optimizeDeps: {
+    force: false,
+  },
 });
