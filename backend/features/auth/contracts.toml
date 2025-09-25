@@ -1,0 +1,14 @@
+[GET./healthz]
+response.ok = true
+
+[GET./session]
+200.user = { uid = "string", email = "string?", name = "string?", picture = "string?" }
+401.detail = "No session" # or "Invalid or expired session"
+
+[POST./auth/session]
+request.json.id_token = "string (Firebase ID token)"
+200.ok = true
+401.detail = "Invalid ID token"
+
+[POST./auth/logout]
+200.ok = true

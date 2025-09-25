@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  api-test:
+    # since this file lives in /backend, build context is the current dir
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # uncomment if you have a "test" stage in your Dockerfile
+      # target: test
+
+    # Use the array form to avoid quoting issues on Windows/CRLF
+    command:
+      - sh
+      - -lc
+      - >
+        pytest -q
+        --maxfail=1
+        --disable-warnings
+        --cov=app
+        --cov-report=term-missing
+
+    environment:
+      PYTHONUNBUFFERED: "1"
+
+    # Mount backend code into /app (matches WORKDIR in your Dockerfile)
+    volumes:
+      - ./:/app
+
+    working_dir: /app
+    networks:
+      - appnet
+
+# Defines a local bridge network for the test service (and any deps you add)
+networks:
+  appnet:
+    driver: bridge
