@@ -1,15 +1,12 @@
 # features/auth/service.py
-import datetime
 from typing import Protocol
 from features.auth.models import SessionOut
 from core.config import settings
 
-# ---- Contract (interface) ----
 class AuthService(Protocol):
     def verify_id_token(self, id_token: str) -> SessionOut: ...
     def revoke_user(self, uid: str) -> None: ...
 
-# ---- Firebase implementation ----
 class FirebaseAuthService:
     def __init__(self):
         from firebase_admin import auth  # type: ignore
@@ -27,7 +24,16 @@ class FirebaseAuthService:
     def revoke_user(self, uid: str) -> None:
         self._auth.revoke_refresh_tokens(uid)
 
-# ---- Helpers shared by routes/deps ----
+# --- NEW: deterministic fake for tests ---
+class FakeAuthService:
+    def verify_id_token(self, id_token: str) -> SessionOut:
+        if id_token != "good-token":
+            raise ValueError("bad token")
+        return SessionOut(uid="u_test", email="test@example.com", name="Testy McTestface", picture=None)
+
+    def revoke_user(self, uid: str) -> None:
+        return  # no-op in tests
+
 def cookie_settings() -> dict:
     return {
         "max_age": settings.SESSION_HOURS * 3600,
@@ -37,6 +43,3 @@ def cookie_settings() -> dict:
         "path": settings.COOKIE_PATH,
         **({"domain": settings.COOKIE_DOMAIN} if settings.COOKIE_DOMAIN else {}),
     }
-
-def default_expiry() -> datetime.timedelta:
-    return datetime.timedelta(hours=settings.SESSION_HOURS)

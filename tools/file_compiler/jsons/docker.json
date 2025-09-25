@@ -1,0 +1,24 @@
+{
+  "output": "C:\\code2\\lbpr\\infra_context.txt",
+  "files": ["C:\\code2\\lbpr\\Makefile",
+            "C:\\code2\\lbpr\\docker-compose.yml",
+            "C:\\code2\\lbpr\\docker-compose.dev.yml",
+            "C:\\code2\\lbpr\\backend\\docker-compose.test.yml",
+            "C:\\code2\\lbpr\\backend\\Dockerfile",
+            "C:\\code2\\lbpr\\backend\\requirements-dev.txt",
+            "C:\\code2\\lbpr\\backend\\requirements.txt",
+            "C:\\code2\\lbpr\\backend\\.env",
+            "C:\\code2\\lbpr\\backend\\.dockerignore",
+            "C:\\code2\\lbpr\\ops\\nginx\\nginx.conf",
+            "C:\\code2\\lbpr\\ops\\nginx\\nginx.dev.conf",
+            "C:\\code2\\lbpr\\static\\spa\\Dockerfile.dev",
+            "C:\\code2\\lbpr\\static\\spa\\package.json",
+            "C:\\code2\\lbpr\\static\\spa\\pnpm-lock.yaml",
+            "C:\\code2\\lbpr\\static\\spa\\postcss.config.cjs",
+            "C:\\code2\\lbpr\\static\\spa\\tailwind.config.ts",
+            "C:\\code2\\lbpr\\static\\spa\\tsconfig.app.json",
+            "C:\\code2\\lbpr\\static\\spa\\tsconfig.json",
+            "C:\\code2\\lbpr\\static\\spa\\tsconfig.node.json",
+            "C:\\code2\\lbpr\\static\\spa\\vite.config.ts"
+        ]
+}

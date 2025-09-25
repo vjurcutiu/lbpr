@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, Response, Request
+# features/auth/routes.py
+from fastapi import APIRouter, Depends, Response, Request, HTTPException
 from features.auth.models import CreateSessionIn, EnvelopeOut, SessionOut
 from features.auth.deps import get_current_user, get_auth_service
-from features.auth.service import AuthService, cookie_settings, default_expiry
+from features.auth.service import AuthService, cookie_settings
+from features.auth.sessions import sessions
 from core.config import settings
 
 router = APIRouter(tags=["auth"])
@@ -13,24 +15,30 @@ def read_session(user: SessionOut = Depends(get_current_user)) -> EnvelopeOut:
 @router.post("/auth/session")
 def create_session(resp: Response, payload: CreateSessionIn, svc: AuthService = Depends(get_auth_service)):
     try:
-        session_cookie = svc.create_session_cookie(payload.id_token, default_expiry())
+        user = svc.verify_id_token(payload.id_token)
     except Exception:
-        # Avoid leaking details
-        from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Invalid ID token")
 
-    resp.set_cookie(key=settings.COOKIE_NAME, value=session_cookie, **cookie_settings())
+    sid = sessions.create(user, ttl_seconds=cookie_settings()["max_age"])
+    resp.set_cookie(settings.COOKIE_NAME, sid, **cookie_settings())
+    # Match your test’s expectation:
     return {"ok": True}
 
 @router.post("/auth/logout")
 def logout(resp: Response, req: Request, svc: AuthService = Depends(get_auth_service)):
-    cookie = req.cookies.get(settings.COOKIE_NAME)
-    if cookie:
+    sid = req.cookies.get(settings.COOKIE_NAME)
+    if sid:
+        # Revoke server-side session
+        sessions.revoke(sid)
+        # Optional: also revoke Firebase refresh tokens for defense-in-depth
         try:
-            # check_revoked=False for speed; we revoke below anyway
-            user = svc.verify_session_cookie(cookie, check_revoked=False)
-            svc.revoke_user(user.uid)
+            user = sessions.get_user(sid)
+            if user:
+                svc.revoke_user(user.uid)
         except Exception:
             pass
-    resp.delete_cookie(settings.COOKIE_NAME, path=settings.COOKIE_PATH)
+
+    # IMPORTANT: delete cookie with the same attributes
+    cs = cookie_settings()
+    resp.delete_cookie(settings.COOKIE_NAME, path=cs["path"], domain=cs.get("domain"), samesite=cs["samesite"])
     return {"ok": True}
