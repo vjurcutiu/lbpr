@@ -1,37 +1,39 @@
-version: "3.9"
-
 services:
   api-test:
-    # since this file lives in /backend, build context is the current dir
+    # Build the multi-stage Dockerfile's "test" target so dev/test deps (pytest, etc.) are present
     build:
       context: .
       dockerfile: Dockerfile
-      # uncomment if you have a "test" stage in your Dockerfile
-      # target: test
+      target: test
 
-    # Use the array form to avoid quoting issues on Windows/CRLF
-    command:
-      - sh
-      - -lc
-      - >
-        pytest -q
-        --maxfail=1
-        --disable-warnings
-        --cov=app
-        --cov-report=term-missing
+    # Let the test-stage CMD run (pytest ...). Don't override with a custom command.
 
     environment:
       PYTHONUNBUFFERED: "1"
+      # Avoid starting Firebase Admin in test runs; your app code should gate on this.
+      SKIP_FIREBASE_INIT: "1"
+      # Optionally also set:
+      # APP_ENV: "test"
 
-    # Mount backend code into /app (matches WORKDIR in your Dockerfile)
+    # Mount backend code into /app so you can iterate without rebuilds
     volumes:
       - ./:/app
 
     working_dir: /app
+
+    # If you need services like Redis/Postgres for tests, uncomment and define them:
+    # depends_on:
+    #   redis:
+    #     condition: service_started
+
     networks:
       - appnet
 
-# Defines a local bridge network for the test service (and any deps you add)
+  # Example optional test dependency:
+  # redis:
+  #   image: redis:7-alpine
+  #   networks: [appnet]
+
 networks:
   appnet:
     driver: bridge
