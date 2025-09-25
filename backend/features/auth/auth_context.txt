@@ -1,0 +1,343 @@
+C:/code2/lbpr/backend/core/firebase.py
+import os
+import sys
+from core.config import settings
+
+# Internal flag for lazy, idempotent init
+_firebase_initialized = False
+
+
+def _should_skip_init() -> bool:
+    """
+    Decide whether to skip Firebase initialization.
+
+    Priority:
+      - Explicit SKIP_FIREBASE_INIT=1
+      - Conventional test signals (APP_ENV=test, running under pytest)
+    """
+    if os.getenv("SKIP_FIREBASE_INIT") == "1":
+        return True
+    if os.getenv("APP_ENV", "").lower() == "test":
+        return True
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+    return False
+
+
+def choose_cred_path() -> str:
+    """
+    Return a path to a Firebase service account JSON file.
+
+    Order of precedence:
+      1) GOOGLE_APPLICATION_CREDENTIALS
+      2) settings.FIREBASE_CREDENTIALS
+      3) settings.FIREBASE_CREDENTIALS_DEFAULT
+
+    Notes:
+      - On Linux containers, Windows host paths like "C:/..." won't exist.
+        We log a helpful message in that case.
+    """
+    env_gac = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    candidates = [
+        env_gac,
+        settings.FIREBASE_CREDENTIALS,
+        settings.FIREBASE_CREDENTIALS_DEFAULT,
+    ]
+
+    for c in candidates:
+        if not c:
+            continue
+
+        # If we're inside Linux container and someone passed a Windows host path, warn once.
+        if ":" in c and os.name == "posix" and not os.path.exists(c):
+            print(f"[startup] Skipping non-existent host path: {c}", file=sys.stderr)
+            continue
+
+        if os.path.exists(c):
+            print(f"[startup] Using Firebase credentials: {c}", file=sys.stderr)
+            return c
+        else:
+            print(f"[startup] Candidate not found: {c}", file=sys.stderr)
+
+    raise RuntimeError(
+        "Firebase service account file not found. "
+        f"Tried {[env_gac, settings.FIREBASE_CREDENTIALS, settings.FIREBASE_CREDENTIALS_DEFAULT]}. "
+        "Mount the JSON and set FIREBASE_CREDENTIALS (or GOOGLE_APPLICATION_CREDENTIALS) "
+        "to an in-container path."
+    )
+
+
+def init_firebase():
+    """
+    Lazily initialize firebase_admin with a service account.
+
+    - No-op if already initialized.
+    - Skips entirely in tests when _should_skip_init() is True.
+    """
+    global _firebase_initialized
+    if _firebase_initialized:
+        return
+
+    # Allow tests to opt out of real Firebase Admin initialization.
+    if _should_skip_init():
+        print("[startup] SKIP_FIREBASE_INIT active — skipping Firebase Admin init.", file=sys.stderr)
+        _firebase_initialized = True
+        return
+
+    import firebase_admin
+    from firebase_admin import credentials
+
+    # If another part already initialized the default app, just mark done.
+    if getattr(firebase_admin, "_apps", None):
+        _firebase_initialized = True
+        return
+
+    cred_path = choose_cred_path()
+    cred = credentials.Certificate(cred_path)
+
+    # projectId can be inferred from the SA file, but keeping your explicit override:
+    firebase_admin.initialize_app(cred, {"projectId": settings.FIREBASE_PROJECT_ID})
+    _firebase_initialized = True
+
+
+C:/code2/lbpr/backend/features/auth/contracts.toml
+[GET./healthz]
+response.ok = true
+
+[GET./session]
+200.user = { uid = "string", email = "string?", name = "string?", picture = "string?" }
+401.detail = "No session" # or "Invalid or expired session"
+
+[POST./auth/session]
+request.json.id_token = "string (Firebase ID token)"
+200.ok = true
+401.detail = "Invalid ID token"
+
+[POST./auth/logout]
+200.ok = true
+
+
+C:/code2/lbpr/backend/features/auth/deps.py
+# features/auth/deps.py
+import os
+from fastapi import Depends, HTTPException, Request
+from features.auth.models import SessionOut
+from features.auth.service import AuthService, FirebaseAuthService, FakeAuthService
+from features.auth.sessions import sessions
+from core.config import settings
+
+def get_auth_service() -> AuthService:
+    # Use fake automatically when running under pytest or when AUTH_FAKE=1
+    if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("AUTH_FAKE") == "1":
+        return FakeAuthService()
+    return FirebaseAuthService()
+
+def get_current_user(req: Request, svc: AuthService = Depends(get_auth_service)) -> SessionOut:
+    sid = req.cookies.get(settings.COOKIE_NAME)
+    if not sid:
+        raise HTTPException(status_code=401, detail="No session")
+    user = sessions.get_user(sid)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    return user
+
+
+C:/code2/lbpr/backend/features/auth/models.py
+from pydantic import BaseModel
+from typing import Optional
+
+class SessionOut(BaseModel):
+    uid: str
+    email: Optional[str] = None
+    name: Optional[str] = None
+    picture: Optional[str] = None
+
+class EnvelopeOut(BaseModel):
+    user: Optional[SessionOut] = None
+
+class CreateSessionIn(BaseModel):
+    id_token: str
+
+
+C:/code2/lbpr/backend/features/auth/routes.py
+# features/auth/routes.py
+from fastapi import APIRouter, Depends, Response, Request, HTTPException
+from features.auth.models import CreateSessionIn, EnvelopeOut, SessionOut
+from features.auth.deps import get_current_user, get_auth_service
+from features.auth.service import AuthService, cookie_settings
+from features.auth.sessions import sessions
+from core.config import settings
+
+router = APIRouter(tags=["auth"])
+
+@router.get("/session", response_model=EnvelopeOut)
+def read_session(user: SessionOut = Depends(get_current_user)) -> EnvelopeOut:
+    return EnvelopeOut(user=user)
+
+@router.post("/auth/session")
+def create_session(resp: Response, payload: CreateSessionIn, svc: AuthService = Depends(get_auth_service)):
+    try:
+        user = svc.verify_id_token(payload.id_token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid ID token")
+
+    sid = sessions.create(user, ttl_seconds=cookie_settings()["max_age"])
+    resp.set_cookie(settings.COOKIE_NAME, sid, **cookie_settings())
+    # Match your test’s expectation:
+    return {"ok": True}
+
+@router.post("/auth/logout")
+def logout(resp: Response, req: Request, svc: AuthService = Depends(get_auth_service)):
+    sid = req.cookies.get(settings.COOKIE_NAME)
+    if sid:
+        # Revoke server-side session
+        sessions.revoke(sid)
+        # Optional: also revoke Firebase refresh tokens for defense-in-depth
+        try:
+            user = sessions.get_user(sid)
+            if user:
+                svc.revoke_user(user.uid)
+        except Exception:
+            pass
+
+    # IMPORTANT: delete cookie with the same attributes
+    cs = cookie_settings()
+    resp.delete_cookie(settings.COOKIE_NAME, path=cs["path"], domain=cs.get("domain"), samesite=cs["samesite"])
+    return {"ok": True}
+
+
+C:/code2/lbpr/backend/features/auth/service.py
+# features/auth/service.py
+from typing import Protocol
+from features.auth.models import SessionOut
+from core.config import settings
+
+class AuthService(Protocol):
+    def verify_id_token(self, id_token: str) -> SessionOut: ...
+    def revoke_user(self, uid: str) -> None: ...
+
+class FirebaseAuthService:
+    def __init__(self):
+        from firebase_admin import auth  # type: ignore
+        self._auth = auth
+
+    def verify_id_token(self, id_token: str) -> SessionOut:
+        decoded = self._auth.verify_id_token(id_token)
+        return SessionOut(
+            uid=decoded["uid"],
+            email=decoded.get("email"),
+            name=decoded.get("name"),
+            picture=decoded.get("picture"),
+        )
+
+    def revoke_user(self, uid: str) -> None:
+        self._auth.revoke_refresh_tokens(uid)
+
+# --- NEW: deterministic fake for tests ---
+class FakeAuthService:
+    def verify_id_token(self, id_token: str) -> SessionOut:
+        if id_token != "good-token":
+            raise ValueError("bad token")
+        return SessionOut(uid="u_test", email="test@example.com", name="Testy McTestface", picture=None)
+
+    def revoke_user(self, uid: str) -> None:
+        return  # no-op in tests
+
+def cookie_settings() -> dict:
+    return {
+        "max_age": settings.SESSION_HOURS * 3600,
+        "httponly": True,
+        "secure": settings.COOKIE_SECURE,
+        "samesite": settings.COOKIE_SAMESITE,
+        "path": settings.COOKIE_PATH,
+        **({"domain": settings.COOKIE_DOMAIN} if settings.COOKIE_DOMAIN else {}),
+    }
+
+
+C:/code2/lbpr/backend/features/auth/sessions.py
+# features/auth/sessions.py
+from __future__ import annotations
+import os, time, secrets, threading
+from typing import Optional, Dict, Any
+from features.auth.models import SessionOut
+
+class InMemoryStore:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._data: dict[str, dict] = {}  # sid -> {"user": SessionOut.dict(), "exp": int}
+
+    def get(self, sid: str) -> Optional[dict]:
+        with self._lock:
+            rec = self._data.get(sid)
+            if not rec:
+                return None
+            if rec["exp"] and rec["exp"] < int(time.time()):
+                del self._data[sid]
+                return None
+            return rec
+
+    def set(self, sid: str, payload: Dict[str, Any], ttl_seconds: int):
+        exp = int(time.time()) + ttl_seconds if ttl_seconds else 0
+        with self._lock:
+            self._data[sid] = {**payload, "exp": exp}
+
+    def delete(self, sid: str):
+        with self._lock:
+            self._data.pop(sid, None)
+
+try:
+    import redis  # type: ignore
+except Exception:
+    redis = None  # pragma: no cover
+
+class SessionStore:
+    def __init__(self):
+        url = os.getenv("REDIS_URL")
+        if url and redis:
+            self.kind = "redis"
+            self._r = redis.Redis.from_url(url, decode_responses=True)
+        else:
+            self.kind = "memory"
+            self._r = InMemoryStore()
+
+    def create(self, user: SessionOut, ttl_seconds: int) -> str:
+        sid = secrets.token_urlsafe(32)
+        if self.kind == "redis":
+            key = f"s:{sid}"
+            self._r.hset(key, mapping={
+                "uid": user.uid,
+                "email": user.email or "",
+                "name": user.name or "",
+                "picture": user.picture or "",
+            })
+            if ttl_seconds:
+                self._r.expire(key, ttl_seconds)
+        else:
+            self._r.set(sid, {"user": user.model_dump()}, ttl_seconds)
+        return sid
+
+    def get_user(self, sid: str) -> Optional[SessionOut]:
+        if self.kind == "redis":
+            data = self._r.hgetall(f"s:{sid}")
+            if not data:
+                return None
+            return SessionOut(
+                uid=data.get("uid", ""),
+                email=data.get("email") or None,
+                name=data.get("name") or None,
+                picture=data.get("picture") or None,
+            )
+        rec = self._r.get(sid)
+        if not rec:
+            return None
+        return SessionOut(**rec["user"])
+
+    def revoke(self, sid: str):
+        if self.kind == "redis":
+            self._r.delete(f"s:{sid}")
+        else:
+            self._r.delete(sid)
+
+sessions = SessionStore()
+
+
