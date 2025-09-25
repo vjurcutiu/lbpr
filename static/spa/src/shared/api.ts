@@ -14,7 +14,6 @@ async function handle(res: Response) {
       throw new Error(text || res.statusText);
     }
   }
-  // try json, else text
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) return res.json();
   return res.text();
@@ -36,6 +35,20 @@ export async function postJSON<T = any>(path: string, payload: any, init?: Reque
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+    body: JSON.stringify(payload),
+    ...init,
+  });
+  return handle(res) as Promise<T>;
+}
+
+export async function patchJSON<T = any>(path: string, payload: any, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers || {}),

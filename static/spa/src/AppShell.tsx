@@ -2,20 +2,11 @@
 import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
 import { Link, NavLink } from "react-router-dom"
-import { Menu, Sun, Moon, Search, Plus, ChevronDown } from "lucide-react"
+import { Menu, Sun, Moon, Search, Plus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   Sheet,
   SheetContent,
@@ -23,6 +14,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import ProfileMenu from "@/features/profile/ProfileMenu"
 
 type NavItem = { to: string; label: string; where?: "top" | "mobile" | "both" }
 
@@ -83,7 +75,7 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60" />
             <Input placeholder="Search files, chats, commands…" className="pl-9" />
           </div>
-        </div>
+        </div >
 
         {/* Actions */}
         <div className="flex items-center gap-2">
@@ -92,7 +84,7 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
             New Chat
           </Button>
           <ThemeToggle />
-          <UserMenu />
+          <ProfileMenu />
         </div>
       </div>
     </header>
@@ -238,41 +230,6 @@ function ThemeToggle({ compact = false }: { compact?: boolean }) {
     <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
       {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
     </Button>
-  )
-}
-
-/* -------------------------------- User Menu ------------------------------- */
-
-function UserMenu() {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-9 px-2">
-          <Avatar className="h-6 w-6">
-            <AvatarImage src="" alt="User" />
-            <AvatarFallback>U</AvatarFallback>
-          </Avatar>
-          <ChevronDown className="ml-2 h-4 w-4 opacity-60" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Signed in as user@example.com</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link to="/profile">Profile</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link to="/billing">Billing</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link to="/settings">Settings</Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => console.log("Sign out")}>
-          Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 

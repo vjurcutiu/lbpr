@@ -218,70 +218,57 @@ export default defineConfig([
 
 
 C:/code2/lbpr/static/spa/src/shared/api.ts
-// static/spa/src/shared/api.ts
-export const API_BASE =
-  import.meta.env.VITE_API_BASE_URL || "/api";
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api";
 
 async function handle(res: Response) {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    // Try to parse JSON error payloads from FastAPI if present
     try {
       const asJson = JSON.parse(text || "{}");
       const msg =
         typeof asJson.detail === "string"
           ? asJson.detail
-          : (Array.isArray(asJson.detail) && asJson.detail[0]?.msg) || "";
+          : (Array.isArray(asJson.detail) && (asJson.detail[0] as any)?.msg) || "";
       throw new Error(msg || res.statusText);
     } catch {
       throw new Error(text || res.statusText);
     }
   }
-
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) return res.json();
   return res.text();
 }
 
-export async function getJSON<T = unknown>(path: string, init?: RequestInit) {
+export async function getJSON<T = any>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
-    ...init,
     method: "GET",
+    headers: {
+      ...(init?.headers || {}),
+    },
+    ...init,
   });
   return handle(res) as Promise<T>;
 }
 
-export type Formish =
-  | Record<string, string>
-  | URLSearchParams;
-
-export async function postForm<T = unknown>(
-  path: string,
-  body: Formish
-) {
-  const params =
-    body instanceof URLSearchParams
-      ? body
-      : new URLSearchParams(body);
-
+export async function postJSON<T = any>(path: string, payload: any, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: params,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers || {}),
+    },
+    body: JSON.stringify(payload),
+    ...init,
   });
   return handle(res) as Promise<T>;
 }
 
-export async function postJSON<T = unknown, P = unknown>(
-  path: string,
-  payload: P,
-  init?: RequestInit
-) {
+export async function patchJSON<T = any>(path: string, payload: any, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
-    method: "POST",
+    method: "PATCH",
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers || {}),
@@ -369,7 +356,6 @@ export function buildNavItems(where: "top" | "mobile") {
 
 
 C:/code2/lbpr/static/spa/src/main.tsx
-// src/main.tsx
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
@@ -557,20 +543,11 @@ C:/code2/lbpr/static/spa/src/AppShell.tsx
 import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
 import { Link, NavLink } from "react-router-dom"
-import { Menu, Sun, Moon, Search, Plus, ChevronDown } from "lucide-react"
+import { Menu, Sun, Moon, Search, Plus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import {
   Sheet,
   SheetContent,
@@ -578,6 +555,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import ProfileMenu from "@/features/profile/ProfileMenu"
 
 type NavItem = { to: string; label: string; where?: "top" | "mobile" | "both" }
 
@@ -638,7 +616,7 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60" />
             <Input placeholder="Search files, chats, commands…" className="pl-9" />
           </div>
-        </div>
+        </div >
 
         {/* Actions */}
         <div className="flex items-center gap-2">
@@ -647,7 +625,7 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
             New Chat
           </Button>
           <ThemeToggle />
-          <UserMenu />
+          <ProfileMenu />
         </div>
       </div>
     </header>
@@ -796,41 +774,6 @@ function ThemeToggle({ compact = false }: { compact?: boolean }) {
   )
 }
 
-/* -------------------------------- User Menu ------------------------------- */
-
-function UserMenu() {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-9 px-2">
-          <Avatar className="h-6 w-6">
-            <AvatarImage src="" alt="User" />
-            <AvatarFallback>U</AvatarFallback>
-          </Avatar>
-          <ChevronDown className="ml-2 h-4 w-4 opacity-60" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Signed in as user@example.com</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link to="/profile">Profile</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link to="/billing">Billing</Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link to="/settings">Settings</Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => console.log("Sign out")}>
-          Sign out
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
 /* --------------------------------- Footer -------------------------------- */
 
 function SiteFooter({ appName }: { appName: string }) {
@@ -850,13 +793,11 @@ function SiteFooter({ appName }: { appName: string }) {
 
 
 C:/code2/lbpr/static/spa/src/App.tsx
-// src/App.tsx
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Suspense, lazy } from "react";
 import type { ReactNode } from "react";
 
 import AppShell from "@/AppShell";
-import { AuthProvider } from "@/features/auth/AuthProvider";
 import ProtectedRoute from "@/features/auth/ProtectedRoute";
 
 // ---- Types kept local so we don't need routes.tsx ----
@@ -881,6 +822,7 @@ const FilesPage = lazy(() => import("@/features/files/FilesPage"));
 const ChatPage = lazy(() => import("@/features/chat/ChatPage"));
 const BillingPage = lazy(() => import("@/features/billing/BillingPage"));
 const SupportPage = lazy(() => import("@/features/support/SupportPage"));
+const ProfilePage = lazy(() => import("@/features/profile/ProfilePage"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
 // ---- Route table (public + protected) ----
@@ -899,12 +841,12 @@ const ROUTES: AppRoute[] = [
       { path: "/chat", element: <ChatPage />, label: "Chat", nav: "both" },
       { path: "/billing", element: <BillingPage />, label: "Billing", nav: "both" },
       { path: "/support", element: <SupportPage />, label: "Support", nav: "mobile" },
-      { path: "/dashboard", element: <Navigate to="/files" replace />, nav: "none", hidden: true },
+      { path: "/profile", element: <ProfilePage />, nav: "none", hidden: true },
     ],
   },
 
-  // 404
-  { path: "*", element: <NotFound />, nav: "none" },
+  // Fallback
+  { path: "*", element: <NotFound />, nav: "none", hidden: true },
 ];
 
 // ---- Build nav items for AppShell ----
@@ -917,7 +859,7 @@ function buildNavItems(where: "top" | "mobile") {
   return flat
     .filter((r) => (r.nav === where || r.nav === "both") && !r.hidden && r.label)
     .map((r) => ({
-      to: r.path!, // paths exist for items in nav
+      to: r.path!,
       label: r.label!,
       where: (r.nav === "both" ? "both" : where) as "top" | "mobile" | "both",
     }));
@@ -925,51 +867,34 @@ function buildNavItems(where: "top" | "mobile") {
 
 // ---- App ----
 export default function App() {
-  // Merge and de-dupe in case a route appears in multiple nav placements
   const navItems = [...buildNavItems("top"), ...buildNavItems("mobile")].filter(
     (v, i, a) => a.findIndex((x) => x.to === v.to) === i
   );
 
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Suspense fallback={<div className="p-4">Loading…</div>}>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/" element={<Navigate to="/login" replace />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<SignupPage />} />
-            <Route path="/forbidden" element={<ForbiddenPage />} />
-            {/* Legacy: keep /auth working by redirecting to /login */}
-            <Route path="/auth" element={<Navigate to="/login" replace />} />
+    <BrowserRouter>
+      <Suspense fallback={<div className="p-4">Loading…</div>}>
+        <Routes>
+          {/* Public */}
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/signup" element={<SignupPage />} />
+          <Route path="/forbidden" element={<ForbiddenPage />} />
 
-            {/* Protected app shell wrapper (guards "/" and all app pages) */}
-            <Route element={<ProtectedRoute />}>
-              <Route
-                path="/*"
-                element={
-                  <AppShell appName="LBP React" navItems={navItems}>
-                    <Routes>
-                      {/* Protected child routes rendered inside AppShell */}
-                      {ROUTES.filter((r) => r.children)
-                        .flatMap((r) => r.children!)
-                        .map((c, i) => (
-                          <Route key={c.path ?? `p-${i}`} path={c.path} element={c.element} />
-                        ))}
-                      {/* 404 inside shell, if you want the chrome on not-found */}
-                      <Route path="*" element={<NotFound />} />
-                    </Routes>
-                  </AppShell>
-                }
-              />
-            </Route>
+          {/* Protected */}
+          <Route element={<ProtectedRoute />}>
+            <Route path="/files" element={<AppShell navItems={navItems} children={<FilesPage />} />} />
+            <Route path="/chat" element={<AppShell navItems={navItems} children={<ChatPage />} />} />
+            <Route path="/billing" element={<AppShell navItems={navItems} children={<BillingPage />} />} />
+            <Route path="/support" element={<AppShell navItems={navItems} children={<SupportPage />} />} />
+            <Route path="/profile" element={<AppShell navItems={navItems} children={<ProfilePage />} />} />
+          </Route>
 
-            {/* 404 outside shell for completely unknown paths */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-    </AuthProvider>
+          {/* Fallback */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
   );
 }
 

@@ -27,6 +27,7 @@ const FilesPage = lazy(() => import("@/features/files/FilesPage"));
 const ChatPage = lazy(() => import("@/features/chat/ChatPage"));
 const BillingPage = lazy(() => import("@/features/billing/BillingPage"));
 const SupportPage = lazy(() => import("@/features/support/SupportPage"));
+const ProfilePage = lazy(() => import("@/features/profile/ProfilePage"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
 // ---- Route table (public + protected) ----
@@ -45,6 +46,7 @@ const ROUTES: AppRoute[] = [
       { path: "/chat", element: <ChatPage />, label: "Chat", nav: "both" },
       { path: "/billing", element: <BillingPage />, label: "Billing", nav: "both" },
       { path: "/support", element: <SupportPage />, label: "Support", nav: "mobile" },
+      { path: "/profile", element: <ProfilePage />, nav: "none", hidden: true },
     ],
   },
 
@@ -90,6 +92,7 @@ export default function App() {
             <Route path="/chat" element={<AppShell navItems={navItems} children={<ChatPage />} />} />
             <Route path="/billing" element={<AppShell navItems={navItems} children={<BillingPage />} />} />
             <Route path="/support" element={<AppShell navItems={navItems} children={<SupportPage />} />} />
+            <Route path="/profile" element={<AppShell navItems={navItems} children={<ProfilePage />} />} />
           </Route>
 
           {/* Fallback */}
