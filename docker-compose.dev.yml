@@ -11,6 +11,8 @@ services:
       - NODE_ENV=development
       - DOCKER_DEV=1
       - VITE_API_BASE_URL=/api
+      - CHOKIDAR_USEPOLLING=1
+      - CHOKIDAR_INTERVAL=150
     volumes:
       - ./static/spa/src:/app/src
       - ./static/spa/public:/app/public
@@ -22,7 +24,7 @@ services:
       - ./static/spa/tsconfig.app.json:/app/tsconfig.app.json         # <-- add this
       # If you also have a node/ts-node config:
       - ./static/spa/tsconfig.node.json:/app/tsconfig.node.json       # <-- optional
-      # - ./static/spa/.env:/app/.env                                  # optional
+      - ./static/spa/.env:/app/.env                                  # optional
     expose:
       - "5173"
     healthcheck:

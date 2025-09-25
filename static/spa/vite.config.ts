@@ -26,7 +26,7 @@ export default defineConfig({
       : true,
 
     // Prefer NO polling for speed; only enable if your host FS requires it
-    // watch: isDockerDev ? { usePolling: true, interval: 150 } : undefined,
+    watch: isDockerDev ? { usePolling: true, interval: 150 } : undefined,
 
     proxy: {}, // keep API on Nginx (/api → FastAPI)
   },
