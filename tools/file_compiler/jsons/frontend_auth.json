@@ -1,0 +1,13 @@
+{
+  "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_auth_context.txt",
+  "files": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\auth\\AuthLayout.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\features\\auth\\AuthPage.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\features\\auth\\AuthProvider.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\features\\auth\\firebase.ts",
+            "C:\\code2\\lbpr\\static\\spa\\src\\features\\auth\\ForbiddenPage.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\features\\auth\\LoginPage.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\features\\auth\\ProtectedRoute.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\features\\auth\\SignupPage.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\features\\auth\\useSession.ts"
+        ]
+}

@@ -1,0 +1,424 @@
+C:/code2/lbpr/static/spa/src/features/auth/AuthLayout.tsx
+import type { ReactNode } from "react";
+
+type AuthLayoutProps = {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+};
+
+export default function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
+  return (
+    <main className="min-h-dvh grid grid-cols-1 md:grid-cols-5">
+      {/* Left: hero (hidden on small screens) */}
+      <section className="relative hidden md:block md:col-span-3">
+        <div className="absolute inset-0 bg-[url('/auth-hero.jpg')] bg-cover bg-center" />
+        <div className="absolute inset-0 bg-black/30" />
+        <div className="relative z-10 flex h-full items-end p-10">
+          <div className="text-white space-y-2">
+            <h1 className="text-3xl font-semibold drop-shadow">Your RAG chat, refined.</h1>
+            <p className="text-white/80 max-w-lg">
+              Index files, chat with context, ship faster. Sign in to get going.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Right: auth card */}
+      <section className="md:col-span-2 flex items-center justify-center p-6">
+        <div className="w-full max-w-md">
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <div className="mb-6">
+              <h2 className="text-2xl font-semibold">{title}</h2>
+              {subtitle ? (
+                <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
+              ) : null}
+            </div>
+            {children}
+          </div>
+          <p className="mt-6 text-center text-xs text-gray-500">
+            By continuing you agree to our Terms and Privacy Policy.
+          </p>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+
+C:/code2/lbpr/static/spa/src/features/auth/AuthPage.tsx
+import LoginPage from "./LoginPage";
+
+// Keep compatibility: anywhere the app still points to <AuthPage /> 
+// will just render LoginPage.
+export default function AuthPage() {
+  return <LoginPage />;
+}
+
+
+C:/code2/lbpr/static/spa/src/features/auth/AuthProvider.tsx
+/* eslint react-refresh/only-export-components: ["error", { "allowConstantExport": true }] */
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { getJSON } from "@/shared/api";
+
+type User = {
+  uid: string;
+  email?: string;
+  name?: string;
+  picture?: string;
+};
+
+type SessionResponse = {
+  user: User | null;
+};
+
+type AuthContextType = {
+  user: User | null;
+  loading: boolean;
+  refresh: () => Promise<void>;
+  clear: () => void;
+};
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    try {
+      // Same-origin call via Nginx -> FastAPI
+      const data = await getJSON<SessionResponse>("/session");
+      setUser(data?.user ?? null);
+    } catch {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const value: AuthContextType = {
+    user,
+    loading,
+    refresh: async () => {
+      setLoading(true);
+      await load();
+    },
+    clear: () => setUser(null),
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function useAuthContext() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuthContext must be used within AuthProvider");
+  return ctx;
+}
+
+
+C:/code2/lbpr/static/spa/src/features/auth/firebase.ts
+// src/features/auth/firebase.ts
+import { initializeApp } from "firebase/app";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  onAuthStateChanged,
+  signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  type User,
+} from "firebase/auth";
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID, // optional but good to include
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID, // optional if you don't use FCM
+};
+
+// Fail fast if something is missing
+for (const [k, v] of Object.entries(firebaseConfig)) {
+  if (!v) console.warn(`[firebase] Missing env: ${k}`);
+}
+
+export const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+
+// Keeping Google provider exported (even if unused) to avoid breaking imports elsewhere
+export const provider = new GoogleAuthProvider();
+
+export function loginWithGoogle() {
+  return signInWithPopup(auth, provider);
+}
+
+export function onAuth(cb: (user: User | null) => void) {
+  return onAuthStateChanged(auth, cb);
+}
+
+export function logoutFirebase() {
+  return signOut(auth);
+}
+
+/** Email-only helpers */
+export function signUpWithEmailPassword(email: string, password: string) {
+  return createUserWithEmailAndPassword(auth, email, password);
+}
+
+export function signInWithEmailPassword(email: string, password: string) {
+  return signInWithEmailAndPassword(auth, email, password);
+}
+
+
+C:/code2/lbpr/static/spa/src/features/auth/ForbiddenPage.tsx
+export default function ForbiddenPage() {
+  return (
+    <div style={{ padding: 24 }}>
+      <h1>403</h1>
+      <p>You do not have access to this page.</p>
+    </div>
+  );
+}
+
+
+C:/code2/lbpr/static/spa/src/features/auth/LoginPage.tsx
+import type { FormEvent } from "react";
+import { useState } from "react";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import AuthLayout from "./AuthLayout";
+import { useAuthContext } from "./AuthProvider";
+import { signInWithEmailPassword } from "./firebase";
+
+export default function LoginPage() {
+  const { user } = useAuthContext();
+  const [params] = useSearchParams();
+  const returnTo = params.get("returnTo") || "/files";
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  if (user) return <Navigate to={returnTo} replace />;
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setLoading(true);
+    try {
+      await signInWithEmailPassword(email.trim(), password);
+      window.location.replace(returnTo);
+    } catch (e: any) {
+      setErr(e?.message || "Unable to sign in.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AuthLayout title="Welcome back" subtitle="Sign in with your email">
+      <form onSubmit={onSubmit} className="space-y-4">
+        <label className="block">
+          <span className="text-sm text-gray-700">Email</span>
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1 w-full rounded-xl border px-4 py-2 outline-none focus:ring-2 ring-gray-200"
+            placeholder="you@company.com"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-sm text-gray-700">Password</span>
+          <input
+            type="password"
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="mt-1 w-full rounded-xl border px-4 py-2 outline-none focus:ring-2 ring-gray-200"
+            placeholder="••••••••"
+          />
+        </label>
+
+        {err ? (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">
+            {err}
+          </div>
+        ) : null}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
+        >
+          {loading ? "Signing in..." : "Sign in"}
+        </button>
+
+        <div className="text-sm text-center text-gray-600">
+          No account?as{" "}
+          <Link
+            to={`/signup?returnTo=${encodeURIComponent(returnTo)}`}
+            className="text-black underline underline-offset-4"
+          >
+            Create one
+          </Link>
+        </div>
+      </form>
+    </AuthLayout>
+  );
+}
+
+
+C:/code2/lbpr/static/spa/src/features/auth/ProtectedRoute.tsx
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useAuthContext } from "./AuthProvider";
+
+export default function ProtectedRoute() {
+  const { user, loading } = useAuthContext();
+  const location = useLocation();
+
+  if (loading) {
+    return <div className="p-6">Loading…</div>;
+  }
+
+  if (!user) {
+    const returnTo = encodeURIComponent(location.pathname + location.search + location.hash);
+    return <Navigate to={`/auth?returnTo=${returnTo}`} replace />;
+  }
+
+  return <Outlet />;
+}
+
+
+C:/code2/lbpr/static/spa/src/features/auth/SignupPage.tsx
+import type { FormEvent } from "react";
+import { useState } from "react";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import AuthLayout from "./AuthLayout";
+import { useAuthContext } from "./AuthProvider";
+import { signUpWithEmailPassword } from "./firebase";
+
+export default function SignupPage() {
+  const { user } = useAuthContext();
+  const [params] = useSearchParams();
+  const returnTo = params.get("returnTo") || "/files";
+
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  if (user) return <Navigate to={returnTo} replace />;
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    if (pw !== pw2) {
+      setErr("Passwords do not match.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await signUpWithEmailPassword(email.trim(), pw);
+      window.location.replace(returnTo);
+    } catch (e: any) {
+      setErr(e?.message || "Unable to sign up.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AuthLayout title="Create your account" subtitle="Email only — nice and simple">
+      <form onSubmit={onSubmit} className="space-y-4">
+        <label className="block">
+          <span className="text-sm text-gray-700">Email</span>
+          <input
+            type="email"
+            required
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="mt-1 w-full rounded-xl border px-4 py-2 outline-none focus:ring-2 ring-gray-200"
+            placeholder="you@company.com"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-sm text-gray-700">Password</span>
+          <input
+            type="password"
+            required
+            autoComplete="new-password"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            className="mt-1 w-full rounded-xl border px-4 py-2 outline-none focus:ring-2 ring-gray-200"
+            placeholder="8+ characters"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-sm text-gray-700">Confirm password</span>
+          <input
+            type="password"
+            required
+            autoComplete="new-password"
+            value={pw2}
+            onChange={(e) => setPw2(e.target.value)}
+            className="mt-1 w-full rounded-xl border px-4 py-2 outline-none focus:ring-2 ring-gray-200"
+            placeholder="Repeat password"
+          />
+        </label>
+
+        {err ? (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">
+            {err}
+          </div>
+        ) : null}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
+        >
+          {loading ? "Creating account..." : "Create account"}
+        </button>
+
+        <div className="text-sm text-center text-gray-600">
+          Already have an account?{" "}
+          <Link
+            to={`/login?returnTo=${encodeURIComponent(returnTo)}`}
+            className="text-black underline underline-offset-4"
+          >
+            Sign in
+          </Link>
+        </div>
+      </form>
+    </AuthLayout>
+  );
+}
+
+
+C:/code2/lbpr/static/spa/src/features/auth/useSession.ts
+import { useAuthContext } from "./AuthProvider";
+
+export function useSession() {
+  const { user, loading, refresh } = useAuthContext();
+  return { user, loading, isAuthenticated: !!user, refresh };
+}
+
+

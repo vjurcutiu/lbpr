@@ -11,7 +11,7 @@ export default function ProtectedRoute() {
 
   if (!user) {
     const returnTo = encodeURIComponent(location.pathname + location.search + location.hash);
-    return <Navigate to={`/auth?returnTo=${returnTo}`} replace />;
+    return <Navigate to={`/login?returnTo=${returnTo}`} replace />;
   }
 
   return <Outlet />;

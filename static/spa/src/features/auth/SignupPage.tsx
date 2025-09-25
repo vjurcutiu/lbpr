@@ -3,7 +3,8 @@ import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import AuthLayout from "./AuthLayout";
 import { useAuthContext } from "./AuthProvider";
-import { signUpWithEmailPassword } from "./firebase";
+import { auth, signUpWithEmailPassword } from "./firebase";
+import { postJSON } from "@/shared/api";
 
 export default function SignupPage() {
   const { user } = useAuthContext();
@@ -29,6 +30,8 @@ export default function SignupPage() {
     setLoading(true);
     try {
       await signUpWithEmailPassword(email.trim(), pw);
+      const idToken = await auth.currentUser!.getIdToken();
+      await postJSON("/auth/session", { id_token: idToken });
       window.location.replace(returnTo);
     } catch (e: any) {
       setErr(e?.message || "Unable to sign up.");
@@ -38,44 +41,39 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthLayout title="Create your account" subtitle="Email only — nice and simple">
-      <form onSubmit={onSubmit} className="space-y-4">
-        <label className="block">
+    <AuthLayout title="Create account" subtitle="Start your trial today">
+      <form className="space-y-4 max-w-sm mx-auto" onSubmit={onSubmit}>
+        <label className="block space-y-1">
           <span className="text-sm text-gray-700">Email</span>
           <input
-            type="email"
+            autoFocus
             required
-            autoComplete="email"
+            type="email"
+            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-xl border px-4 py-2 outline-none focus:ring-2 ring-gray-200"
-            placeholder="you@company.com"
           />
         </label>
 
-        <label className="block">
+        <label className="block space-y-1">
           <span className="text-sm text-gray-700">Password</span>
           <input
-            type="password"
             required
-            autoComplete="new-password"
+            type="password"
+            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
             value={pw}
             onChange={(e) => setPw(e.target.value)}
-            className="mt-1 w-full rounded-xl border px-4 py-2 outline-none focus:ring-2 ring-gray-200"
-            placeholder="8+ characters"
           />
         </label>
 
-        <label className="block">
+        <label className="block space-y-1">
           <span className="text-sm text-gray-700">Confirm password</span>
           <input
-            type="password"
             required
-            autoComplete="new-password"
+            type="password"
+            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
             value={pw2}
             onChange={(e) => setPw2(e.target.value)}
-            className="mt-1 w-full rounded-xl border px-4 py-2 outline-none focus:ring-2 ring-gray-200"
-            placeholder="Repeat password"
           />
         </label>
 
@@ -90,7 +88,7 @@ export default function SignupPage() {
           disabled={loading}
           className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
         >
-          {loading ? "Creating account..." : "Create account"}
+          {loading ? "Creating…" : "Create account"}
         </button>
 
         <div className="text-sm text-center text-gray-600">

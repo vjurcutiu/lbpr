@@ -1,6 +1,7 @@
 /* eslint react-refresh/only-export-components: ["error", { "allowConstantExport": true }] */
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { getJSON } from "@/shared/api";
+import { getJSON, postJSON } from "@/shared/api";
+import { onAuth, auth } from "./firebase";
 
 type User = {
   uid: string;
@@ -20,7 +21,7 @@ type AuthContextType = {
   clear: () => void;
 };
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -28,7 +29,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const load = async () => {
     try {
-      // Same-origin call via Nginx -> FastAPI
       const data = await getJSON<SessionResponse>("/session");
       setUser(data?.user ?? null);
     } catch {
@@ -39,16 +39,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    // Initial fetch of server session (cookie → user)
     load();
+
+    // Keep server cookie in sync with Firebase auth state
+    const unsub = onAuth(async (fbUser) => {
+      if (!fbUser) {
+        setUser(null);
+        return;
+      }
+      try {
+        const idToken = await auth.currentUser!.getIdToken();
+        await postJSON("/auth/session", { id_token: idToken });
+        await load();
+      } catch {
+        // If exchange fails, keep user null
+        setUser(null);
+      }
+    });
+
+    return () => unsub();
   }, []);
 
   const value: AuthContextType = {
     user,
     loading,
-    refresh: async () => {
-      setLoading(true);
-      await load();
-    },
+    refresh: async () => load(),
     clear: () => setUser(null),
   };
 
