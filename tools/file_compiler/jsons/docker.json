@@ -1,5 +1,5 @@
 {
-  "output": "C:\\code2\\lbpr\\infra_context.txt",
+  "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\infra_context.txt",
   "files": ["C:\\code2\\lbpr\\Makefile",
             "C:\\code2\\lbpr\\docker-compose.yml",
             "C:\\code2\\lbpr\\docker-compose.dev.yml",

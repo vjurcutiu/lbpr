@@ -1,5 +1,5 @@
 {
-  "output": "C:\\code2\\lbpr\\backend\\tests\\tests_context.txt",
+  "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\backend_tests_context.txt",
   "files": ["C:\\code2\\lbpr\\backend\\tests\\conftest.py",
             "C:\\code2\\lbpr\\backend\\tests\\test_auth.py",
             "C:\\code2\\lbpr\\backend\\pytest.ini"

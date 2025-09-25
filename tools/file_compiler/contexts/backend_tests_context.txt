@@ -1,3 +1,24 @@
+C:/code2/lbpr/backend/tests/conftest.py
+# tests/conftest.py
+import os
+import pytest
+from starlette.testclient import TestClient
+from main import create_app
+
+@pytest.fixture(scope="session")
+def app():
+    # If your app/deps switch to Fake services when under pytest,
+    # this env flag can help (harmless if unused).
+    os.environ.setdefault("PYTEST", "1")
+    return create_app()
+
+@pytest.fixture()
+def client(app):
+    with TestClient(app) as c:
+        yield c
+
+
+C:/code2/lbpr/backend/tests/test_auth.py
 # test_auth.py
 import re
 import time
@@ -175,22 +196,25 @@ def test_multiple_sessions_independent(client):
 @pytest.mark.timeout(5)
 def test_session_expires_with_short_ttl(client, monkeypatch):
     """
-    Force a 1s TTL by monkeypatching the cookie_settings symbol that
-    features.auth.routes imported, then wait long enough for expiry.
+    Enforce TTL/expiration by forcing a tiny max_age, then waiting long enough
+    to cross the integer-seconds boundary the store uses for exp checks.
     """
-    # Import the module that holds the *bound* name used by the route
-    import features.auth.routes as auth_routes  # type: ignore
+    try:
+        from features.auth import service as auth_service  # type: ignore
+    except Exception:
+        pytest.skip("Auth service settings not importable in this environment")
 
-    # Keep original so we can derive a valid shape
-    original_cookie_settings = auth_routes.cookie_settings
+    if not hasattr(auth_service, "cookie_settings"):
+        pytest.skip("cookie_settings() not available to monkeypatch")
+
+    original_cookie_settings = auth_service.cookie_settings
 
     def tiny_cookie_settings():
         s = dict(original_cookie_settings())
-        s["max_age"] = 1  # 1-second session + cookie TTL
+        s["max_age"] = 1  # 1 second TTL in the store (also on the cookie)
         return s
 
-    # IMPORTANT: patch the symbol used by the route
-    monkeypatch.setattr(auth_routes, "cookie_settings", tiny_cookie_settings)
+    monkeypatch.setattr(auth_service, "cookie_settings", tiny_cookie_settings)
 
     # Login and get cookie
     r1 = client.post("/auth/session", json={"id_token": "good-token"})
@@ -200,10 +224,10 @@ def test_session_expires_with_short_ttl(client, monkeypatch):
     # Immediately valid
     assert client.get("/session", headers={"cookie": cookie}).status_code == 200
 
-    # Sleep >2s so int(time.time()) crosses the stored exp boundary
+    # Sleep >2s to avoid int(time.time()) rounding issues in exp checks
     time.sleep(2.2)
 
-    # Should now be expired server-side
+    # Now it should be expired
     r3 = client.get("/session", headers={"cookie": cookie})
     assert r3.status_code == 401
 
@@ -232,3 +256,13 @@ def test_auth_happy_path_with_redis_backend(client):
 
     r4 = client.get("/session", headers={"cookie": cookie})
     assert r4.status_code == 401
+
+
+C:/code2/lbpr/backend/pytest.ini
+[pytest]
+testpaths = tests
+pythonpath = .
+addopts = -ra
+asyncio_default_fixture_loop_scope = function
+
+

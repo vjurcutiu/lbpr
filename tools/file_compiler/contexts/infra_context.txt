@@ -272,14 +272,18 @@ FROM base AS test
 COPY requirements-dev.txt .
 RUN pip install -r requirements-dev.txt
 
-# default command for the test image
-CMD ["pytest", "-q", "--maxfail=1", "--disable-warnings", "--cov=app", "--cov-report=term-missing"]
+# Ensure imports like "from core..." resolve
+ENV PYTHONPATH=/app
+# Avoid initializing Firebase Admin in test runs (optional; you can also set this in compose)
+ENV SKIP_FIREBASE_INIT=1
+
+# FIX: collect coverage for the whole repo, not a non-existent "app" package
+CMD ["pytest", "-q", "--maxfail=1", "--disable-warnings", "--cov=.", "--cov-report=term-missing"]
 
 # ---------- production runtime ----------
 FROM base AS runtime
 EXPOSE 8000
 # If your ASGI app is "main:app" in project root, keep this.
-# If it's "app.main:app", change accordingly.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
 
 
