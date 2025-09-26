@@ -1,0 +1,85 @@
+// Firestore Security Rules for Firebase Authentication + Stripe Extension
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Public Catalog (read-only) ----------
+    match /products/{productId} {
+      allow read: if true;
+      allow write: if false;
+
+      match /prices/{priceId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    // ---------- Per-User Stripe Mirror ----------
+    match /customers/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false; // managed by the extension
+
+      // --- Checkout Sessions ---
+      match /checkout_sessions/{sessionId} {
+        allow create: if request.auth != null
+                      && request.auth.uid == uid
+                      && request.resource.data.keys().hasOnly([
+                        // core
+                        "mode","success_url","cancel_url","client_reference_id","metadata",
+                        // pricing (either price+quantity or line_items[])
+                        "price","quantity","line_items",
+                        // promos/discounts
+                        "allow_promotion_codes","discounts","promotion_code",
+                        // address & tax
+                        "billing_address_collection","shipping_address_collection",
+                        "collect_shipping_address","shipping_options",
+                        "automatic_tax","tax_id_collection",
+                        // customer info
+                        "customer","customer_email","customer_update","phone_number_collection",
+                        // subscriptions
+                        "trial_from_plan","subscription_data","invoice_creation",
+                        // UI/locale
+                        "ui_mode","locale","consent_collection","custom_text",
+                        // payments
+                        "payment_method_types","payment_intent_data","automatic_payment_methods"
+                      ]);
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow update, delete: if false;
+      }
+
+      // --- Customer Portal Sessions ---
+      match /portal_sessions/{portalId} {
+        allow create: if request.auth != null
+                      && request.auth.uid == uid
+                      && request.resource.data.keys().hasOnly([
+                        "return_url","configuration","locale","flow_data"
+                      ]);
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow update, delete: if false;
+      }
+
+      // --- Subscriptions (extension-managed) ---
+      match /subscriptions/{subId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+
+      // --- Payments (extension-managed) ---
+      match /payments/{payId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+
+      // --- Invoices (extension-managed) ---
+      match /invoices/{invId} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    // Deny everything else by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

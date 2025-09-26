@@ -944,3 +944,11 @@ C:/code2/lbpr/static/spa/src/App.css
 }
 
 
+C:/code2/lbpr/static/spa/.env
+VITE_FIREBASE_API_KEY=REDACTED_FIREBASE_WEB_API_KEY
+VITE_FIREBASE_AUTH_DOMAIN=lexbot-pro.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=lexbot-pro
+VITE_FIREBASE_APP_ID=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+
+
