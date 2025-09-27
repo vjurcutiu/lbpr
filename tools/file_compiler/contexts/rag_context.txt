@@ -1,0 +1,256 @@
+C:/code2/lbpr/backend/features/rag/__init__.py
+
+
+C:/code2/lbpr/backend/features/rag/chunker.py
+
+from typing import List, Dict
+
+def simple_word_chunker(text: str, chunk_size: int = 200, overlap: int = 40) -> List[Dict]:
+    words = text.split()
+    chunks = []
+    i = 0
+    idx = 0
+    while i < len(words):
+        j = min(len(words), i + chunk_size)
+        chunk_words = words[i:j]
+        chunk_text = " ".join(chunk_words)
+        chunks.append({
+            "chunk_id": f"ch_{idx}",
+            "text": chunk_text,
+            "span": {"start": i, "end": j},
+        })
+        idx += 1
+        if j == len(words):
+            break
+        i = j - overlap if j - overlap > i else j
+    return chunks
+
+
+C:/code2/lbpr/backend/features/rag/embedder.py
+
+# Lightweight, dependency-free hashing embedder for MVP/happy-path.
+# Replace with a proper provider (OpenAI, Azure, local) later by implementing the same interface.
+
+import math
+from typing import List
+
+DIM = 768  # keep it modest for speed
+
+def _hash_token(t: str) -> int:
+    # A simple, stable hash across runs
+    h = 2166136261
+    for ch in t:
+        h ^= ord(ch)
+        h = (h * 16777619) & 0xFFFFFFFF
+    return h
+
+def embed_texts(texts: List[str]) -> List[List[float]]:
+    vectors = []
+    for txt in texts:
+        vec = [0.0] * DIM
+        # char 3-grams for a tiny bit of semantics
+        grams = [txt[i:i+3] for i in range(max(0, len(txt)-2))]
+        for g in grams:
+            idx = _hash_token(g) % DIM
+            vec[idx] += 1.0
+        # L2 normalize
+        norm = math.sqrt(sum(v*v for v in vec)) or 1.0
+        vec = [v / norm for v in vec]
+        vectors.append(vec)
+    return vectors
+
+def embed_one(text: str) -> List[float]:
+    return embed_texts([text])[0]
+
+
+C:/code2/lbpr/backend/features/rag/orchestrator.py
+
+from typing import List, Dict
+from .schemas import QueryRequest, QueryResponse, Source, IngestRequest, IngestResponse
+from .chunker import simple_word_chunker
+from .embedder import embed_texts, embed_one
+from .vectorstore import InMemoryVectorStore
+
+# Single in-process store for MVP; swap with Qdrant/pgvector later.
+_store = InMemoryVectorStore()
+
+def ingest(req: IngestRequest) -> IngestResponse:
+    if not req.text:
+        raise ValueError("text is required for MVP ingest")
+    chunks = simple_word_chunker(req.text)
+    vectors = embed_texts([c["text"] for c in chunks])
+    entries: List[Dict] = []
+    doc_id = req.doc_id or "doc_" + str(abs(hash(req.text)) % (10**8))
+    for c, v in zip(chunks, vectors):
+        entries.append({
+            "chunk_id": c["chunk_id"],
+            "doc_id": doc_id,
+            "text": c["text"],
+            "metadata": {**req.metadata, **{"span": c["span"]}},
+            "vector": v,
+        })
+    _store.upsert_chunks(req.dataset, entries)
+    return IngestResponse(dataset=req.dataset, doc_id=doc_id, chunk_ids=[e["chunk_id"] for e in entries])
+
+def _compose_answer(query: str, hits: List[Source]) -> str:
+    # Minimal, LLM-free answer composer for happy path:
+    # concatenate the best snippets with a tiny preface.
+    snippets = "\n\n".join([f"- {h.text.strip()}" for h in hits])
+    return f"Here are the most relevant snippets I found for: '{query}'\n\n{snippets}"
+
+def query(req: QueryRequest) -> QueryResponse:
+    qvec = embed_one(req.query)
+    results = _store.query(req.dataset, qvec, req.k)
+    sources: List[Source] = [
+        Source(
+            doc_id=e["doc_id"],
+            chunk_id=e["chunk_id"],
+            score=float(score),
+            text=e["text"],
+            metadata=e["metadata"],
+        )
+        for score, e in results
+    ]
+    answer = _compose_answer(req.query, sources)
+    return QueryResponse(dataset=req.dataset, query=req.query, answer=answer, sources=sources)
+
+
+C:/code2/lbpr/backend/features/rag/README.md
+
+# RAG Happy Path (MVP)
+
+This slice provides a minimal, dependency-light RAG flow to unblock frontend integration and end-to-end testing.
+
+## What it includes
+
+- **Chunker**: simple word-count chunker with overlap.
+- **Embedder**: hashing-based character trigram embedder (768-dim) with L2 normalization (no external deps).
+- **Vector Store**: in-memory store with cosine similarity.
+- **Orchestrator**: ingest & query pipeline; naive answer composer (no LLM yet).
+- **FastAPI Router**: mounts under `/features/rag`
+
+## Endpoints
+
+- `POST /features/rag/ingest`
+  ```json
+  { "dataset": "demo", "text": "Your document text here", "metadata": {} }
+  ```
+
+- `POST /features/rag/query`
+  ```json
+  { "dataset": "demo", "query": "what is this about?", "k": 5 }
+  ```
+
+## Integrating into your app
+
+```py
+# main.py
+from fastapi import FastAPI
+from features.rag.router import router as rag_router
+
+def create_app() -> FastAPI:
+    app = FastAPI()
+    app.include_router(rag_router)
+    return app
+
+app = create_app()
+```
+
+## Next steps
+
+- Swap embedder with a real provider.
+- Replace in-memory vector store with Qdrant/pgvector.
+- Add streaming + LLM answer generation.
+- Add doc/file loaders and storage for real ingestion.
+
+
+C:/code2/lbpr/backend/features/rag/router.py
+
+from fastapi import APIRouter, HTTPException
+from .schemas import IngestRequest, IngestResponse, QueryRequest, QueryResponse
+from . import orchestrator
+
+router = APIRouter(prefix="/features/rag", tags=["RAG"])
+
+@router.post("/ingest", response_model=IngestResponse)
+def ingest(req: IngestRequest):
+    try:
+        return orchestrator.ingest(req)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/query", response_model=QueryResponse)
+def query(req: QueryRequest):
+    try:
+        return orchestrator.query(req)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+C:/code2/lbpr/backend/features/rag/schemas.py
+
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+
+class IngestRequest(BaseModel):
+    dataset: str = Field(..., description="Logical dataset/collection name")
+    text: Optional[str] = Field(None, description="Raw text to ingest")
+    doc_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+class IngestResponse(BaseModel):
+    dataset: str
+    doc_id: str
+    chunk_ids: List[str]
+
+class QueryRequest(BaseModel):
+    dataset: str
+    query: str
+    k: int = 5
+    with_sources: bool = True
+
+class Source(BaseModel):
+    doc_id: str
+    chunk_id: str
+    score: float
+    text: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+class QueryResponse(BaseModel):
+    dataset: str
+    query: str
+    answer: str
+    sources: List[Source] = Field(default_factory=list)
+
+
+C:/code2/lbpr/backend/features/rag/vectorstore.py
+
+from typing import Dict, List, Tuple
+import math
+
+class InMemoryVectorStore:
+    def __init__(self):
+        # dataset -> list of entries
+        # entry: {chunk_id, doc_id, vector, text, metadata}
+        self._data: Dict[str, List[Dict]] = {}
+
+    def upsert_chunks(self, dataset: str, entries: List[Dict]):
+        self._data.setdefault(dataset, [])
+        # naive: append; in a real impl, dedup by (doc_id, chunk_id)
+        self._data[dataset].extend(entries)
+
+    @staticmethod
+    def _cosine(a: List[float], b: List[float]) -> float:
+        # vectors are expected to be normalized already
+        return sum(x*y for x, y in zip(a, b))
+
+    def query(self, dataset: str, query_vec: List[float], k: int = 5) -> List[Tuple[float, Dict]]:
+        entries = self._data.get(dataset, [])
+        scored = []
+        for e in entries:
+            s = self._cosine(query_vec, e["vector"])
+            scored.append((s, e))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        return scored[:k]
+
+

@@ -1,0 +1,13 @@
+
+{
+  "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\rag_context.txt",
+  "files": ["C:\\code2\\lbpr\\backend\\features\\rag\\__init__.py",
+            "C:\\code2\\lbpr\\backend\\features\\rag\\chunker.py",
+            "C:\\code2\\lbpr\\backend\\features\\rag\\embedder.py",
+            "C:\\code2\\lbpr\\backend\\features\\rag\\orchestrator.py",
+            "C:\\code2\\lbpr\\backend\\features\\rag\\README.md",
+            "C:\\code2\\lbpr\\backend\\features\\rag\\router.py",
+            "C:\\code2\\lbpr\\backend\\features\\rag\\schemas.py",
+            "C:\\code2\\lbpr\\backend\\features\\rag\\vectorstore.py"
+        ]
+}
