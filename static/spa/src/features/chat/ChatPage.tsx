@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Paperclip, Send, Loader2, Trash2, Plus } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Paperclip, Send, Loader2, Trash2, Plus, LinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -10,6 +9,13 @@ import { listFiles } from "@/features/files/api";
 
 type FileItem = { id: string; name: string; size: number; created_at?: string };
 
+/** If you already have tenant in auth state, wire it here */
+function useTenantId() {
+  // TODO: replace with your auth/tenant selector.
+  // Contract requires a tenant_id string.
+  return "tenant_demo";
+}
+
 const STARTER_SUGGESTIONS = [
   "Summarize the latest PRs in the repo",
   "Explain our RAG architecture in 3 bullets",
@@ -17,13 +23,23 @@ const STARTER_SUGGESTIONS = [
   "What should we log for chat retries?"
 ];
 
+type RenderMessage = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  citations?: chatApi.Citation[];
+  created_at?: string;
+};
+
 export default function ChatPage() {
-  const [messages, setMessages] = useState<chatApi.ChatMessage[]>([]);
+  const [messages, setMessages] = useState<RenderMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
+  const [streamEnabled] = useState(false); // optional: flip to true when WS is wired
   const listRef = useRef<HTMLDivElement>(null);
+  const tenantId = useTenantId();
 
   const hasThread = messages.length > 0;
   const canSend = input.trim().length > 0 && !sending;
@@ -33,7 +49,6 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    // autoscroll to bottom on new message
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
@@ -45,29 +60,61 @@ export default function ChatPage() {
 
   const onPickSuggestion = (s: string) => {
     setInput(s);
-    // optional: send immediately
-    // onSubmit();
   };
+
+  const historyForRequest: chatApi.ChatTurn[] = useMemo(
+    () => messages.map(m => ({ role: m.role, content: m.content })),
+    [messages]
+  );
 
   const onSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!canSend) return;
 
-    const userMsg: chatApi.ChatMessage = {
-      id: Math.random().toString(36).slice(2),
+    // If you want to hint attachments to the LLM while respecting contracts,
+    // fold them into the user content as a brief note (server still does RAG retrieval).
+    const attachmentNote =
+      selectedFileIds.length > 0
+        ? `\n\n[Attached files: ${selectedFileIds.join(", ")}]`
+        : "";
+
+    const userMsg: RenderMessage = {
+      id: cryptoRandomId(),
       role: "user",
-      content: input.trim(),
+      content: input.trim() + attachmentNote,
       created_at: new Date().toISOString(),
     };
+
     setMessages(prev => [...prev, userMsg]);
     setSending(true);
+
     try {
-      const res = await chatApi.sendMessage(userMsg.content, selectedFileIds);
-      setMessages(prev => [...prev, ...(res?.messages ?? [])]);
+      const req: chatApi.ChatRequest = {
+        tenant_id: tenantId,
+        message: userMsg.content,
+        history: historyForRequest,
+        // Let server default max_context; keep explicit if you want:
+        // max_context: 6,
+        stream: streamEnabled,
+      };
+
+      const res = await chatApi.sendChat(req);
+
+      // Contract: ChatResponse -> render as assistant message
+      const assistantMsg: RenderMessage = {
+        id: cryptoRandomId(),
+        role: "assistant",
+        content: res.answer,
+        citations: res.citations ?? [],
+        created_at: new Date().toISOString(),
+      };
+
+      setMessages(prev => [...prev, assistantMsg]);
       setInput("");
+      // res.usage available if you want to show token stats, etc.
     } catch (err: any) {
-      const errMsg: chatApi.ChatMessage = {
-        id: Math.random().toString(36).slice(2),
+      const errMsg: RenderMessage = {
+        id: cryptoRandomId(),
         role: "system",
         content: err?.message || "Failed to send message",
       };
@@ -84,7 +131,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl h/[calc(100vh-8rem)] card p-0 overflow-hidden flex flex-col">
+    <div className="mx-auto w-full max-w-5xl h-[calc(100vh-8rem)] card p-0 overflow-hidden flex flex-col">
       {/* Thread area */}
       <div ref={listRef} className="flex-1 overflow-auto">
         {!hasThread ? (
@@ -92,7 +139,7 @@ export default function ChatPage() {
         ) : (
           <div className="px-4 sm:px-6 py-6 space-y-6">
             {messages.map(m => (
-              <MessageRow key={m.id} role={m.role} content={m.content} />
+              <MessageRow key={m.id} role={m.role} content={m.content} citations={m.citations} />
             ))}
           </div>
         )}
@@ -100,7 +147,7 @@ export default function ChatPage() {
 
       <Separator />
 
-      {/* Composer */}
+      {/* Composer (sticky bottom) */}
       <form onSubmit={onSubmit} className="p-3 sm:p-4 sticky bottom-0 bg-background">
         <div className="rounded-2xl border border-input bg-background shadow-sm">
           {/* Attachments bar (chips) */}
@@ -111,7 +158,7 @@ export default function ChatPage() {
                 return (
                   <span
                     key={fid}
-                    className="pill px-2 py-1 text-xs text-muted-foreground bg-background"
+                    className="pill px-2 py-1 text-xs text-muted-foreground bg-background rounded-md"
                     title={f?.name}
                   >
                     {f?.name ?? fid}
@@ -122,11 +169,7 @@ export default function ChatPage() {
           )}
 
           <div className="p-2 sm:p-3 flex items-end gap-2">
-            <AttachPopover
-              files={files}
-              selected={selectedFileIds}
-              toggle={toggleAttach}
-            />
+            <AttachPopover files={files} selected={selectedFileIds} toggle={toggleAttach} />
             <Textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -186,9 +229,11 @@ function EmptyState({
 function MessageRow({
   role,
   content,
+  citations,
 }: {
   role: "user" | "assistant" | "system";
   content: string;
+  citations?: chatApi.Citation[];
 }) {
   const isUser = role === "user";
   const isSystem = role === "system";
@@ -207,17 +252,41 @@ function MessageRow({
         <Avatar className="size-8">
           <AvatarFallback>{isUser ? "U" : "A"}</AvatarFallback>
         </Avatar>
-        <div
-          className={[
-            "rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed",
-            isUser
-              ? "bg-primary text-primary-foreground"
-              : "bg-card border border-border"
-          ].join(" ")}
-        >
-          {content}
+        <div className="space-y-2">
+          <div
+            className={[
+              "rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed",
+              isUser
+                ? "bg-primary text-primary-foreground"
+                : "bg-card border border-border"
+            ].join(" ")}
+          >
+            {content}
+          </div>
+          {!isUser && !!citations?.length && (
+            <CitationList citations={citations} />
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function CitationList({ citations }: { citations: chatApi.Citation[] }) {
+  return (
+    <div className="text-xs text-muted-foreground">
+      <div className="flex items-center gap-2">
+        <LinkIcon className="h-3 w-3" />
+        <span>Citations</span>
+      </div>
+      <ul className="mt-1 ml-5 list-disc space-y-1">
+        {citations.map((c, idx) => (
+          <li key={idx}>
+            <span className="font-medium">{c.title ?? c.doc_id}</span>
+            {c.span ? <span className="opacity-80"> — {c.span}</span> : null}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -270,4 +339,15 @@ function AttachPopover({
       </details>
     </div>
   );
+}
+
+/** Utilities */
+function cryptoRandomId() {
+  // prefer crypto if available for fewer collisions
+  if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
+    const buf = new Uint32Array(2);
+    crypto.getRandomValues(buf);
+    return Array.from(buf).map(n => n.toString(36)).join("");
+  }
+  return Math.random().toString(36).slice(2);
 }
