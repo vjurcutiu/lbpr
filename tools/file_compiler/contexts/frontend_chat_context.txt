@@ -1,3 +1,20 @@
+C:/code2/lbpr/static/spa/src/features/chat/api.ts
+import { postJSON } from "@/shared/api";
+
+export type ChatMessage = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  created_at?: string;
+};
+
+export async function sendMessage(prompt: string, fileIds: string[] = []) {
+  // Adjust to your FastAPI route contract
+  return postJSON<{ messages: ChatMessage[] }>("/chat", { prompt, file_ids: fileIds });
+}
+
+
+C:/code2/lbpr/static/spa/src/features/chat/ChatPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Paperclip, Send, Loader2, Trash2, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -271,3 +288,5 @@ function AttachPopover({
     </div>
   );
 }
+
+

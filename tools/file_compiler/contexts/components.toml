@@ -1,0 +1,461 @@
+system = "Remote Server"
+
+# ─────────────────────────────────────────────────────────
+# Layers
+# ─────────────────────────────────────────────────────────
+[[layers]]
+name = "interface"
+pkg  = "app.interface"
+
+[[layers]]
+name = "application"
+pkg  = "app.application"
+
+[[layers]]
+name = "domain"
+pkg  = "app.domain"
+
+[[layers]]
+name = "infrastructure"
+pkg  = "app.infrastructure"
+
+invariants = [
+  "All data access is tenant-scoped",
+  "No PII in logs; tokens redacted",
+  "Interface → Application → Domain → Infrastructure (no back edges)"
+]
+
+# ─────────────────────────────────────────────────────────
+# Components
+# ─────────────────────────────────────────────────────────
+
+# ==== Interface ===============================================================
+
+[[components]]
+name  = "ApiGateway"
+layer = "interface"
+package = "app.interface.api"
+responsibilities = [
+  "FastAPI app; routing; OpenAPI",
+  "AuthN/AuthZ middleware; request shaping",
+  "Rate limiting; per-tenant context"
+]
+invariants = [
+  "Bearer required except /v1/health and /v1/auth/token",
+  "Never import infrastructure or domain directly"
+]
+forbidden_imports = ["app.infrastructure", "app.domain"]
+
+  [[components.provides.http]]
+  method = "GET"
+  path   = "/v1/health"
+  out    = { status = 200, body = { ok = "bool", version = "string" } }
+
+  [[components.provides.http]]
+  method = "POST"
+  path   = "/v1/auth/token"
+  in     = "application/json"
+  out    = { status = 200, body = { access_token = "string", expires_in = "int" } }
+
+  [[components.provides.http]]
+  method = "POST"
+  path   = "/v1/files"
+  in     = "multipart/form-data"
+  out    = { status = 202, body = { job_id = "string" } }
+  invariants = ["file<=50MB", "allowed content-type"]
+
+  [[components.provides.http]]
+  method = "GET"
+  path   = "/v1/search"
+  params = { q = "string", limit = "int=10" }
+  out    = { status = 200, body = "SearchResults" }
+
+  [[components.provides.http]]
+  method = "POST"
+  path   = "/v1/chat"
+  in     = "application/json"
+  out    = { status = 200, body = "ChatResponse" }
+
+  [[components.provides.http]]
+  method = "GET"
+  path   = "/v1/jobs/{id}"
+  out    = { status = 200, body = "JobStatus" }
+
+  [[components.provides.websockets]]
+  path   = "/v1/events"
+  msg_in  = "ClientEvent"
+  msg_out = "ServerEvent"
+
+# ==== Application =============================================================
+
+[[components]]
+name  = "AuthService"
+layer = "application"
+package = "app.application.auth"
+responsibilities = [
+  "Validate API keys/JWT; issue access tokens",
+  "Inject sub/tenant/scopes into request context"
+]
+invariants = ["Clock skew ≤ 60s", "TTL ≤ 1h"]
+
+  [[components.provides.queries]]
+  name = "validateToken"
+  in   = { token = "string" }
+  out  = { valid = "bool", sub = "string", tenant_id = "string", scopes = "array<string>" }
+
+[[components]]
+name  = "RateLimiter"
+layer = "application"
+package = "app.application.ratelimit"
+responsibilities = ["Sliding window rate limits per tenant/key"]
+
+  [[components.provides.queries]]
+  name = "checkAndConsume"
+  in   = { key = "string", cost = "int=1" }
+  out  = { allowed = "bool", remaining = "int" }
+
+[[components]]
+name  = "IngestionService"
+layer = "application"
+package = "app.application.ingestion"
+responsibilities = [
+  "Validate upload; compute checksum",
+  "Persist raw file to blob storage",
+  "Emit IndexJob to queue"
+]
+invariants = ["Idempotent on (tenant_id, checksum)", "Reject > 50MB"]
+
+  [components.consumes]
+  http_from = "ApiGateway"
+
+  [[components.provides.commands]]
+  queue   = "ingestion-jobs"
+  message = "IndexJob"
+
+# ==== Domain ==================================================================
+
+[[components]]
+name  = "MetadataService"
+layer = "domain"
+package = "app.domain.metadata"
+responsibilities = [
+  "AI metadata generation for documents: title/summary/keywords/topics",
+  "Quality heuristics; language detection"
+]
+invariants = [
+  "Use LLMAdapter; deterministic temperature for metadata",
+  "Attach metadata to document record prior to chunking"
+]
+
+  [[components.provides.queries]]
+  name = "generateMetadata"
+  in   = { tenant_id = "string", file_id = "string" }
+  out  = "MetadataRecord"
+
+[[components]]
+name  = "Indexer"
+layer = "domain"
+package = "app.domain.indexer"
+responsibilities = [
+  "Extract text → chunk → embed → upsert to vector store",
+  "Coordinate with MetadataService for enriched fields"
+]
+invariants = [
+  "Chunk size 1500 ±10%",
+  "Retries: 3 with exponential backoff",
+  "All vectors are namespace-per-tenant"
+]
+
+  [[components.consumes.commands]]
+  queue   = "ingestion-jobs"
+  message = "IndexJob"
+
+  [[components.provides.events]]
+  topic   = "jobs"
+  message = "IndexResult"
+
+[[components]]
+name  = "SearchService"
+layer = "domain"
+package = "app.domain.search"
+responsibilities = [
+  "Hybrid search (keyword + vector) and ranking per tenant",
+  "Return results with metadata & citation source references"
+]
+invariants = ["Latency p95 ≤ 800ms @ 50 conc/tenant"]
+
+  [[components.provides.queries]]
+  name = "search"
+  in   = { q = "string", limit = "int=10", tenant_id = "string" }
+  out  = "SearchResults"
+
+[[components]]
+name  = "ChatService"
+layer = "domain"
+package = "app.domain.chat"
+responsibilities = [
+  "RAG chat orchestration: retrieve context → synthesize answer with LLM",
+  "Streaming support (partial deltas) via WS events",
+  "Citations and safety filters"
+]
+invariants = [
+  "Always perform retrieval before answer unless user instructs otherwise",
+  "Citations include document IDs and spans",
+  "Redact secrets from prompts"
+]
+
+  [[components.consumes]]
+  # called by ApiGateway via HTTP route
+  http_from = "ApiGateway"
+
+  [[components.provides.queries]]
+  name = "chat"
+  in   = "ChatRequest"
+  out  = "ChatResponse"
+
+# ==== Infrastructure ===========================================================
+
+[[components]]
+name  = "VectorStoreAdapter"
+layer = "infrastructure"
+package = "app.infrastructure.vectorstore"
+responsibilities = ["KNN upsert/query; namespace per tenant"]
+
+[[components]]
+name  = "EmbeddingAdapter"
+layer = "infrastructure"
+package = "app.infrastructure.embedding"
+responsibilities = [
+  "Text → embedding calls (OpenAI/Local)",
+  "Batching & rate limits"
+]
+invariants = ["Pure adapter; no business logic"]
+
+[[components]]
+name  = "LLMAdapter"
+layer = "infrastructure"
+package = "app.infrastructure.llm"
+responsibilities = [
+  "LLM completion calls used by ChatService & MetadataService",
+  "Prompt/response logging with redaction"
+]
+invariants = ["Do not store raw prompts with PII", "Configurable model + temperature"]
+
+[[components]]
+name  = "BlobStorageAdapter"
+layer = "infrastructure"
+package = "app.infrastructure.blob"
+responsibilities = ["S3/MinIO object I/O; signed URLs"]
+
+# ─────────────────────────────────────────────────────────
+# Messages / Schemas
+# ─────────────────────────────────────────────────────────
+
+[[messages]]
+name = "IndexJob"
+fields = [
+  { name = "tenant_id", type = "string" },
+  { name = "file_id",   type = "string" },
+  { name = "checksum",  type = "string" },
+  { name = "mime",      type = "string" }
+]
+
+[[messages]]
+name = "IndexResult"
+fields = [
+  { name = "tenant_id", type = "string" },
+  { name = "file_id",   type = "string" },
+  { name = "chunks",    type = "int" },
+  { name = "embeddings",type = "int" },
+  { name = "status",    type = "enum<completed|failed>" },
+  { name = "error",     type = "string?" }
+]
+
+[[messages]]
+name = "MetadataRecord"
+fields = [
+  { name = "file_id",   type = "string" },
+  { name = "title",     type = "string?" },
+  { name = "summary",   type = "string?" },
+  { name = "keywords",  type = "array<string>" },
+  { name = "language",  type = "string?" }
+]
+
+[[messages]]
+name = "ChatRequest"
+fields = [
+  { name = "tenant_id",      type = "string" },
+  { name = "message",        type = "string" },
+  { name = "history",        type = "array<ChatTurn>?" },
+  { name = "max_context",    type = "int=6" },
+  { name = "stream",         type = "bool=false" }
+]
+
+[[messages]]
+name = "ChatTurn"
+fields = [
+  { name = "role",    type = "enum<user|assistant|system>" },
+  { name = "content", type = "string" }
+]
+
+[[messages]]
+name = "Citation"
+fields = [
+  { name = "doc_id",  type = "string" },
+  { name = "title",   type = "string?" },
+  { name = "span",    type = "string?" }
+]
+
+[[messages]]
+name = "ChatResponse"
+fields = [
+  { name = "answer",     type = "string" },
+  { name = "citations",  type = "array<Citation>" },
+  { name = "usage",      type = "object" }
+]
+
+[[messages]]
+name = "SearchResults"
+fields = [
+  { name = "total", type = "int" },
+  { name = "items", type = "array<DocHit>" }
+]
+
+[[messages]]
+name = "DocHit"
+fields = [
+  { name = "id",       type = "string" },
+  { name = "title",    type = "string" },
+  { name = "score",    type = "float" },
+  { name = "snippet",  type = "string?" }
+]
+
+[[messages]]
+name = "JobStatus"
+fields = [
+  { name = "id",     type = "string" },
+  { name = "status", type = "enum<pending|running|completed|failed>" },
+  { name = "detail", type = "string?" }
+]
+
+[[messages]]
+name = "ClientEvent"
+fields = [
+  { name = "type",  type = "enum<subscribe|ping>" },
+  { name = "topic", type = "string?" }
+]
+
+[[messages]]
+name = "ServerEvent"
+fields = [
+  { name = "type", type = "enum<job_update|notice|pong|chat_delta>" },
+  { name = "data", type = "any" }
+]
+
+# ─────────────────────────────────────────────────────────
+# Flows (for Mermaid sequences and relationship inference)
+# ─────────────────────────────────────────────────────────
+
+[[flows]]
+name = "UploadAndIndex"
+
+  [[flows.steps]]
+  from = "User"
+  to   = "ApiGateway"
+  note = "POST /v1/files (Bearer)"
+
+  [[flows.steps]]
+  from = "ApiGateway"
+  to   = "AuthService"
+  note = "validateToken"
+
+  [[flows.steps]]
+  from = "ApiGateway"
+  to   = "IngestionService"
+  note = "validate+checksum+persist → emit IndexJob"
+
+  [[flows.steps]]
+  from = "IngestionService"
+  to   = "Indexer"
+  note = "enqueue(IndexJob)"
+
+  [[flows.steps]]
+  from = "Indexer"
+  to   = "MetadataService"
+  note = "generateMetadata(file_id)"
+
+  [[flows.steps]]
+  from = "Indexer"
+  to   = "EmbeddingAdapter"
+  note = "embed(chunks)"
+
+  [[flows.steps]]
+  from = "Indexer"
+  to   = "VectorStoreAdapter"
+  note = "upsert(vectors@tenant)"
+
+  [[flows.steps]]
+  from = "Indexer"
+  to   = "ApiGateway"
+  note = "event: jobs(IndexResult)"
+
+[[flows]]
+name = "Search"
+
+  [[flows.steps]]
+  from = "User"
+  to   = "ApiGateway"
+  note = "GET /v1/search?q"
+
+  [[flows.steps]]
+  from = "ApiGateway"
+  to   = "AuthService"
+  note = "validateToken"
+
+  [[flows.steps]]
+  from = "ApiGateway"
+  to   = "SearchService"
+  note = "search(q, limit, tenant)"
+
+  [[flows.steps]]
+  from = "SearchService"
+  to   = "VectorStoreAdapter"
+  note = "query(knn @tenant)"
+
+  [[flows.steps]]
+  from = "SearchService"
+  to   = "ApiGateway"
+  note = "return SearchResults"
+
+[[flows]]
+name = "Chat"
+
+  [[flows.steps]]
+  from = "User"
+  to   = "ApiGateway"
+  note = "POST /v1/chat (message, stream?)"
+
+  [[flows.steps]]
+  from = "ApiGateway"
+  to   = "AuthService"
+  note = "validateToken"
+
+  [[flows.steps]]
+  from = "ApiGateway"
+  to   = "ChatService"
+  note = "chat(ChatRequest)"
+
+  [[flows.steps]]
+  from = "ChatService"
+  to   = "SearchService"
+  note = "retrieve top-k for grounding"
+
+  [[flows.steps]]
+  from = "ChatService"
+  to   = "LLMAdapter"
+  note = "synthesize answer (prompt+context)"
+
+  [[flows.steps]]
+  from = "ChatService"
+  to   = "ApiGateway"
+  note = "ChatResponse (or WS stream)"

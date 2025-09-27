@@ -1,8 +1,104 @@
+import { useEffect, useRef, useState } from "react";
+import { Upload, Download, Trash2, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { fileDownloadUrl, listFiles, uploadFile, deleteFile, type FileItem } from "./api";
+
 export default function FilesPage() {
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const refresh = async () => {
+    setBusy(true);
+    try {
+      const data = await listFiles();
+      setFiles(data);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const onPick = () => inputRef.current?.click();
+
+  const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setUploading(true);
+    try {
+      const saved = await uploadFile(f);
+      setFiles(prev => [saved, ...prev]);
+    } catch (err) {
+      console.error(err);
+      alert((err as any)?.message || "Upload failed");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  const onDelete = async (id: string) => {
+    if (!confirm("Delete file?")) return;
+    await deleteFile(id);
+    setFiles(prev => prev.filter(f => f.id !== id));
+  };
+
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-2">Files</h1>
-      <p>Upload, manage, and organize your files here.</p>
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Button onClick={onPick} disabled={uploading}>
+          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          <span className="ml-2">{uploading ? "Uploading…" : "Upload"}</span>
+        </Button>
+        <Input ref={inputRef} type="file" className="hidden" onChange={onChange} />
+        <div className="flex-1" />
+        <Button variant="outline" onClick={refresh} disabled={busy}>
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
+        </Button>
+      </div>
+
+      <Separator />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {files.map(f => (
+          <div key={f.id} className="card p-4 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="font-medium truncate" title={f.name}>{f.name}</div>
+              <div className="text-xs text-muted-foreground">{fmtSize(f.size)}</div>
+            </div>
+            <div className="text-xs text-muted-foreground">ID: <span className="font-mono">{f.id}</span></div>
+            {f.created_at && (
+              <div className="text-xs text-muted-foreground">
+                Uploaded {new Date(f.created_at).toLocaleString()}
+              </div>
+            )}
+            <div className="mt-2 flex items-center gap-2">
+              <a href={fileDownloadUrl(f.id)} className="inline-flex">
+                <Button variant="secondary" size="sm">
+                  <Download className="h-4 w-4 mr-2" /> Download
+                </Button>
+              </a>
+              <Button variant="destructive" size="sm" onClick={() => onDelete(f.id)}>
+                <Trash2 className="h-4 w-4 mr-2" /> Delete
+              </Button>
+            </div>
+          </div>
+        ))}
+        {files.length === 0 && !busy && (
+          <div className="text-sm text-muted-foreground">No files yet. Upload your first file.</div>
+        )}
+      </div>
     </div>
-  )
+  );
+}
+
+function fmtSize(n: number) {
+  const units = ["B","KB","MB","GB","TB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < units.length-1) { v /= 1024; i++; }
+  return `${v.toFixed(1)} ${units[i]}`;
 }
