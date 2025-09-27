@@ -1,0 +1,12 @@
+{
+  "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\design_context.txt",
+  "files": ["C:\\code2\\lbpr\\static\\spa\\src\\index.css",
+            "C:\\code2\\lbpr\\static\\spa\\src\\App.css",
+            "C:\\code2\\lbpr\\static\\spa\\src\\components\\ui\\avatar.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\components\\ui\\button.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\components\\ui\\dropdown-menu.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\components\\ui\\input.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\components\\ui\\separator.tsx",
+            "C:\\code2\\lbpr\\static\\spa\\src\\components\\ui\\sheet.tsx"
+        ]
+}
