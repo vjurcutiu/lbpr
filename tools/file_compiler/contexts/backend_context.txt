@@ -1,4 +1,6 @@
 C:/code2/lbpr/backend/main.py
+# C:/code2/lbpr/backend/main.py
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -6,7 +8,8 @@ from core.config import settings
 from core.firebase import init_firebase
 from routers import health
 from features.auth import routes as auth_routes
-from features.profile import routes as profile_routes  # <-- NEW
+from features.profile import routes as profile_routes
+from features.rag.router import router as rag_router  # <-- NEW
 
 def create_app() -> FastAPI:
     init_firebase()  # safe to call once; lazy guarded
@@ -27,11 +30,13 @@ def create_app() -> FastAPI:
     # Routers
     app.include_router(health.router)
     app.include_router(auth_routes.router)
-    app.include_router(profile_routes.router)          # <-- NEW: /me (GET/PATCH)
+    app.include_router(profile_routes.router)
+    app.include_router(rag_router)                     # <-- NEW: /features/rag/*
 
     # Versioned mirrors
     app.include_router(auth_routes.router, prefix="/v1")
-    app.include_router(profile_routes.router, prefix="/v1")  # <-- NEW
+    app.include_router(profile_routes.router, prefix="/v1")
+    app.include_router(rag_router, prefix="/v1")       # <-- NEW
 
     return app
 

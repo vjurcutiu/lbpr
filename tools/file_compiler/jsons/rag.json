@@ -1,6 +1,6 @@
 
 {
-  "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\rag_context.txt",
+  "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\backend_rag_context.txt",
   "files": ["C:\\code2\\lbpr\\backend\\features\\rag\\__init__.py",
             "C:\\code2\\lbpr\\backend\\features\\rag\\chunker.py",
             "C:\\code2\\lbpr\\backend\\features\\rag\\embedder.py",
