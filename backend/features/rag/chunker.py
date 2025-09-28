@@ -1,7 +1,10 @@
-
 from typing import List, Dict
+from math import floor
 
-def simple_word_chunker(text: str, chunk_size: int = 200, overlap: int = 40) -> List[Dict]:
+def simple_word_chunker(text: str, chunk_size: int = 1500, overlap: int = 150) -> List[Dict]:
+    min_cs, max_cs = floor(1500 * 0.9), floor(1500 * 1.1)
+    if chunk_size < min_cs: chunk_size = min_cs
+    if chunk_size > max_cs: chunk_size = max_cs
     words = text.split()
     chunks = []
     i = 0
@@ -18,5 +21,5 @@ def simple_word_chunker(text: str, chunk_size: int = 200, overlap: int = 40) -> 
         idx += 1
         if j == len(words):
             break
-        i = j - overlap if j - overlap > i else j
+        i = max(i + chunk_size - overlap, j - overlap)
     return chunks
