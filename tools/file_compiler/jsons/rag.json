@@ -1,18 +1,11 @@
-
-{
-  "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\backend_rag_context.txt",
-  "files": ["C:\\code2\\lbpr\\backend\\features\\rag\\__init__.py",
-            "C:\\code2\\lbpr\\backend\\features\\rag\\chunker.py",
-            "C:\\code2\\lbpr\\backend\\features\\rag\\embedder.py",
-            "C:\\code2\\lbpr\\backend\\features\\rag\\orchestrator.py",
-            "C:\\code2\\lbpr\\backend\\features\\rag\\README.md",
-            "C:\\code2\\lbpr\\backend\\features\\rag\\router.py",
-            "C:\\code2\\lbpr\\backend\\features\\rag\\schemas.py",
-            "C:\\code2\\lbpr\\backend\\features\\rag\\vectorstore.py",
-            "C:\\code2\\lbpr\\backend\\features\\rag\\contracts_router.py",
-            "C:\\code2\\lbpr\\backend\\features\\files\\__init__.py",
-            "C:\\code2\\lbpr\\backend\\features\\files\\router.py",
-            "C:\\code2\\lbpr\\backend\\features\\files\\schemas.py",
-            "C:\\code2\\lbpr\\backend\\features\\files\\service.py"
-        ]
-}
+ {
+   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\backend_rag_context.txt",
+   "folder": ["C:\\code2\\lbpr\\backend\\features\\rag",
+                "C:\\code2\\lbpr\\backend\\features\\rag\\adapters",
+                "C:\\code2\\lbpr\\backend\\features\\rag\\embedding",
+                "C:\\code2\\lbpr\\backend\\features\\rag\\ingest",
+                "C:\\code2\\lbpr\\backend\\features\\rag\\vector_store"
+            ],
+   "include_glob": "*",
+   "dedup": "path"
+ }

@@ -1,64 +1,53 @@
 C:/code2/lbpr/backend/main.py
-# C:/code2/lbpr/backend/main.py
-
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-
+from core.logging import get_logger, with_request
+from core.observability import try_init_tracing
 from core.config import settings
-from core.firebase import init_firebase
+from features.rag.ingest.routes import router as rag_router
+from features.files.routes import router as files_router
 
-from routers import health
-from features.auth import routes as auth_routes
-from features.profile import routes as profile_routes
+try_init_tracing("lbp-api")
+logger = get_logger(__name__)
 
-# RAG MVP router (ingest/query under /features/rag/*)
-from features.rag.router import router as rag_router
-# RAG Contracts router (already exposes /v1/search and /v1/chat)
-from features.rag.contracts_router import router as rag_contracts_router
-from features.files.router import router as files_router
+app = FastAPI(title="LBP API", version="0.1.0")
 
-def create_app() -> FastAPI:
-    # Initialize Firebase Admin once (skips in tests per core/firebase.py)
-    init_firebase()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    app = FastAPI(title=settings.APP_NAME)
+# Request ID middleware
+@app.middleware("http")
+async def add_request_id(request: Request, call_next):
+    rid = request.headers.get("X-Request-ID")
+    if not rid:
+        # generate and inject
+        import uuid
+        rid = str(uuid.uuid4())
+    response: Response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
 
-    # Trusted hosts (tighten in prod)
-    if settings.TRUSTED_HOSTS and settings.TRUSTED_HOSTS != ["*"]:
-        app.add_middleware(
-            TrustedHostMiddleware,
-            allowed_hosts=settings.TRUSTED_HOSTS,
-        )
+@app.get("/health")
+def health():
+    # Surface vector backend selection so you can see it instantly
+    info = {
+        "env": settings.ENV,
+        "vector_backend": settings.VECTOR_BACKEND,
+        "pinecone_index": settings.PINECONE_INDEX,
+        "pinecone_namespace": settings.PINECONE_NAMESPACE,
+        "embed_model": settings.OPENAI_EMBED_MODEL,
+        "embedding_dim": settings.EMBEDDING_DIM,
+    }
+    logger.info("health_read", extra={"extra": info})
+    return {"ok": True, **info}
 
-    # CORS
-    if settings.CORS_ALLOW_ORIGINS:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=settings.CORS_ALLOW_ORIGINS,
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-
-    # ---- Routers ----
-    app.include_router(health.router)
-    app.include_router(auth_routes.router)
-    app.include_router(profile_routes.router)
-    app.include_router(rag_router)               # /features/rag/ingest, /features/rag/query
-    app.include_router(rag_contracts_router)     # /v1/search, /v1/chat (contracts)
-    app.include_router(files_router)
-
-    # ---- Versioned mirrors ----
-    # Keep mirrors for non-contract routers
-    app.include_router(auth_routes.router, prefix="/v1")
-    app.include_router(profile_routes.router, prefix="/v1")
-    app.include_router(rag_router, prefix="/v1")
-
-    return app
-
-
-app = create_app()
+app.include_router(rag_router)
+app.include_router(files_router)
 
 
 C:/code2/lbpr/backend/routers/health.py
@@ -72,49 +61,33 @@ def healthz():
 
 
 C:/code2/lbpr/backend/core/config.py
-from pydantic_settings import BaseSettings
-from pydantic import Field
-from typing import Literal
+from pydantic import BaseSettings, Field
+from typing import Optional, Literal
 
 class Settings(BaseSettings):
-    APP_NAME: str = "LexBot Pro"
-    ENV: Literal["dev", "staging", "prod"] = "dev"
+    ENV: str = Field(default="dev")
+    LOG_LEVEL: str = Field(default="INFO")
 
-    # Firebase
-    FIREBASE_PROJECT_ID: str = ""
-    FIREBASE_CREDENTIALS: str | None = None
-    FIREBASE_CREDENTIALS_DEFAULT: str = "/run/secrets/firebase_sa.json"
-    FIREBASE_STORAGE_BUCKET: str | None = None  # used by Files feature
+    # Vector store routing
+    VECTOR_BACKEND: Literal["pinecone","memory"] = Field(default="pinecone")
+    PINECONE_API_KEY: Optional[str] = None
+    PINECONE_INDEX: Optional[str] = None
+    PINECONE_NAMESPACE: Optional[str] = None
+    PINECONE_PROJECT_ID: Optional[str] = None  # optional, new SDK supports projects
+    PINECONE_HOST: Optional[str] = None        # optional, direct host (serverless indexes use unique hosts)
 
-    # Auth / cookies
-    COOKIE_NAME: str = "fb_session"
-    SESSION_HOURS: int = 8
-    COOKIE_SECURE: bool = Field(default=False, description="True in prod (HTTPS)")
-    COOKIE_SAMESITE: Literal["lax", "none", "strict"] = "lax"
-    COOKIE_PATH: str = "/"
-    COOKIE_DOMAIN: str | None = None  # set your domain in prod if needed
+    # Embeddings
+    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_EMBED_MODEL: str = Field(default="text-embedding-3-small")
+    EMBEDDING_DIM: int = Field(default=512)
 
-    # CORS / Hosts (tune per deployment)
-    CORS_ALLOW_ORIGINS: list[str] = []
-    TRUSTED_HOSTS: list[str] = ["*"]  # lock down in prod
-
-    # ── RAG / Embeddings / Vector store (aligns with .env) ─────────────────
-    RAG_EMBEDDER: Literal["local", "openai"] = "local"
-    OPENAI_API_KEY: str | None = None
-    RAG_EMBED_MODEL: str = "text-embedding-3-small"
-
-    RAG_VECTORSTORE: Literal["memory", "pinecone"] = "memory"
-    PINECONE_API_KEY: str | None = None
-    PINECONE_INDEX: str | None = None
-    PINECONE_CLOUD: str | None = None
-    PINECONE_REGION: str | None = None
-
-    # Optional override when creating Pinecone index (dimension inference otherwise)
-    RAG_EMBED_DIM: int | None = None
+    # Chunking
+    CHUNK_SIZE: int = Field(default=1000)
+    CHUNK_OVERLAP: int = Field(default=200)
 
     class Config:
         env_file = ".env"
-        env_file_encoding = "utf-8"
+        case_sensitive = False
 
 settings = Settings()
 

@@ -30,6 +30,118 @@ def simple_word_chunker(text: str, chunk_size: int = 1500, overlap: int = 150) -
     return chunks
 
 
+C:/code2/lbpr/backend/features/rag/contracts_router.py
+
+from typing import Optional, List
+from fastapi import APIRouter, Header, HTTPException, Depends, Query
+from pydantic import BaseModel, Field
+
+from .embedder import embed_one
+from .vectorstore import InMemoryVectorStore
+from .chunker import simple_word_chunker
+from . import orchestrator
+
+router = APIRouter(tags=["RAG (Contracts)"])
+
+class DocHit(BaseModel):
+    id: str
+    title: str
+    score: float
+    snippet: Optional[str] = None
+
+class SearchResults(BaseModel):
+    total: int
+    items: List[DocHit]
+
+class ChatTurn(BaseModel):
+    role: str
+    content: str
+
+class Citation(BaseModel):
+    doc_id: str
+    title: Optional[str] = None
+    span: Optional[str] = None
+
+class ChatRequest(BaseModel):
+    tenant_id: str
+    message: str
+    history: Optional[List[ChatTurn]] = None
+    max_context: int = 6
+    stream: bool = False
+
+class ChatResponse(BaseModel):
+    answer: str
+    citations: List[Citation] = Field(default_factory=list)
+    usage: dict = Field(default_factory=dict)
+
+def _tenant_from_header(x_tenant_id: Optional[str]) -> Optional[str]:
+    return x_tenant_id
+
+_store: InMemoryVectorStore = orchestrator._store  # type: ignore[attr-defined]
+
+def _ns(dataset: str, tenant_id: str) -> str:
+    return f"t:{tenant_id}:{dataset}"
+
+def _mk_snippet(text: str, max_len: int = 280) -> str:
+    t = " ".join(text.split())
+    return (t[: max_len - 1] + "…") if len(t) > max_len else t
+
+@router.get("/v1/search", response_model=SearchResults)
+def search(
+    q: str = Query(..., description="Search query"),
+    limit: int = Query(10, ge=1, le=50),
+    x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False),
+    dataset: str = Query("default", description="Logical dataset (namespace within tenant)"),
+):
+    tenant_id = _tenant_from_header(x_tenant_id) or "demo"
+    ns = _ns(dataset, tenant_id)
+    qvec = embed_one(q)
+    results = _store.query(ns, qvec, k=limit)
+    items: List[DocHit] = []
+    for score, e in results:
+        title = e["metadata"].get("title") or e["doc_id"]
+        span = e["metadata"].get("span")
+        items.append(
+            DocHit(
+                id=f'{e["doc_id"]}:{e["chunk_id"]}',
+                title=str(title),
+                score=float(score),
+                snippet=_mk_snippet(e["text"]),
+            )
+        )
+    return SearchResults(total=len(items), items=items)
+
+@router.post("/v1/chat", response_model=ChatResponse)
+def chat(req: ChatRequest):
+    tenant_id = req.tenant_id or "demo"
+    ns = _ns("default", tenant_id)
+    qvec = embed_one(req.message)
+    hits = _store.query(ns, qvec, k=req.max_context)
+    snippets = []
+    citations: List[Citation] = []
+    for score, e in hits:
+        snippets.append(f"- {e['text'].strip()}")
+        span = e.get("metadata", {}).get("span")
+        citations.append(
+            Citation(
+                doc_id=e["doc_id"],
+                title=e.get("metadata", {}).get("title"),
+                span=str(span) if span else None,
+            )
+        )
+    answer = (
+        f"Here are the most relevant snippets for: '{req.message}'\n\n"
+        + "\n\n".join(snippets)
+        if snippets
+        else "I couldn’t find relevant context yet."
+    )
+    return ChatResponse(
+        answer=answer,
+        citations=citations,
+        usage={"retrieved": len(hits)},
+    )
+
+
 C:/code2/lbpr/backend/features/rag/embedder.py
 
 # Embedding dispatcher: defaults to local hashing embedder, can switch to OpenAI via env.
@@ -269,358 +381,416 @@ def get_store():
     return InMemoryVectorStore()
 
 
-C:/code2/lbpr/backend/features/rag/contracts_router.py
+C:/code2/lbpr/backend/features/rag/adapters/openai_embedder.py
+# OpenAI Embedding Adapter
+# Uses the modern OpenAI Python SDK (>=1.0): `from openai import OpenAI`
+# Respects: OPENAI_API_KEY, RAG_EMBED_MODEL (default: text-embedding-3-small)
+from __future__ import annotations
 
-from typing import Optional, List
-from fastapi import APIRouter, Header, HTTPException, Depends, Query
-from pydantic import BaseModel, Field
+import os
+import time
+from typing import List
 
-from .embedder import embed_one
-from .vectorstore import InMemoryVectorStore
-from .chunker import simple_word_chunker
-from . import orchestrator
+try:
+    from openai import OpenAI
+except Exception as e:  # pragma: no cover - import error surfaced at runtime
+    OpenAI = None  # type: ignore
 
-router = APIRouter(tags=["RAG (Contracts)"])
+DEFAULT_MODEL = os.getenv("RAG_EMBED_MODEL", "text-embedding-3-small")
 
-class DocHit(BaseModel):
-    id: str
-    title: str
-    score: float
-    snippet: Optional[str] = None
+class OpenAIEmbedder:
+    def __init__(self, model: str | None = None, timeout: float = 30.0, max_retries: int = 3):
+        self.model = model or DEFAULT_MODEL
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        if OpenAI is None:
+            raise RuntimeError("OpenAI SDK not installed. Install `openai>=1.0`.")
+        self.client = OpenAI(api_key=api_key)
+        self.timeout = timeout
+        self.max_retries = max_retries
 
-class SearchResults(BaseModel):
-    total: int
-    items: List[DocHit]
+    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+        # Basic exponential backoff
+        delay = 1.0
+        for attempt in range(self.max_retries):
+            try:
+                resp = self.client.embeddings.create(model=self.model, input=texts, timeout=self.timeout)
+                # SDK returns `data[i].embedding` as list[float]
+                return [d.embedding for d in resp.data]
+            except Exception as e:
+                if attempt == self.max_retries - 1:
+                    raise
+                time.sleep(delay)
+                delay *= 2
 
-class ChatTurn(BaseModel):
-    role: str
-    content: str
+    def embed_one(self, text: str) -> List[float]:
+        return self.embed_texts([text])[0]
 
-class Citation(BaseModel):
-    doc_id: str
-    title: Optional[str] = None
-    span: Optional[str] = None
 
-class ChatRequest(BaseModel):
-    tenant_id: str
-    message: str
-    history: Optional[List[ChatTurn]] = None
-    max_context: int = 6
-    stream: bool = False
+C:/code2/lbpr/backend/features/rag/adapters/pinecone_store.py
+# Pinecone Vector Store Adapter
+# Uses the pinecone SDK (`pip install pinecone-client` or `pinecone`)
+# Required env: PINECONE_API_KEY, PINECONE_INDEX. Optional: PINECONE_CLOUD, PINECONE_REGION
+# The adapter will auto-create the index if it does not exist, inferring the dimension
+# from the first vector you upsert (or via RAG_EMBED_DIM env override).
 
-class ChatResponse(BaseModel):
-    answer: str
-    citations: List[Citation] = Field(default_factory=list)
-    usage: dict = Field(default_factory=dict)
+from __future__ import annotations
 
-def _tenant_from_header(x_tenant_id: Optional[str]) -> Optional[str]:
-    return x_tenant_id
+import os
+import time
+from typing import Dict, List, Tuple, Optional
 
-_store: InMemoryVectorStore = orchestrator._store  # type: ignore[attr-defined]
+try:
+    # Newer SDK import
+    from pinecone import Pinecone, ServerlessSpec
+except Exception:
+    Pinecone = None  # type: ignore
+    ServerlessSpec = None  # type: ignore
 
-def _ns(dataset: str, tenant_id: str) -> str:
-    return f"t:{tenant_id}:{dataset}"
+class PineconeVectorStore:
+    def __init__(
+        self,
+        index_name: Optional[str] = None,
+        cloud: Optional[str] = None,
+        region: Optional[str] = None,
+    ):
+        if Pinecone is None:
+            raise RuntimeError("Pinecone SDK not installed. Install `pinecone-client>=4` or `pinecone`.")
+        api_key = os.getenv("PINECONE_API_KEY")
+        if not api_key:
+            raise RuntimeError("PINECONE_API_KEY is not set")
+        self.pc = Pinecone(api_key=api_key)
 
-def _mk_snippet(text: str, max_len: int = 280) -> str:
-    t = " ".join(text.split())
-    return (t[: max_len - 1] + "…") if len(t) > max_len else t
+        self.index_name = index_name or os.getenv("PINECONE_INDEX") or "lbpr-rag"
+        self.cloud = cloud or os.getenv("PINECONE_CLOUD") or "aws"
+        self.region = region or os.getenv("PINECONE_REGION") or "us-east-1"
 
-@router.get("/v1/search", response_model=SearchResults)
-def search(
-    q: str = Query(..., description="Search query"),
-    limit: int = Query(10, ge=1, le=50),
-    x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False),
-    dataset: str = Query("default", description="Logical dataset (namespace within tenant)"),
-):
-    tenant_id = _tenant_from_header(x_tenant_id) or "demo"
-    ns = _ns(dataset, tenant_id)
-    qvec = embed_one(q)
-    results = _store.query(ns, qvec, k=limit)
-    items: List[DocHit] = []
-    for score, e in results:
-        title = e["metadata"].get("title") or e["doc_id"]
-        span = e["metadata"].get("span")
-        items.append(
-            DocHit(
-                id=f'{e["doc_id"]}:{e["chunk_id"]}',
-                title=str(title),
-                score=float(score),
-                snippet=_mk_snippet(e["text"]),
+        # lazily bound index handle (created on demand)
+        self._index = None
+
+    # ---------- internal helpers ----------
+    def _ensure_index(self, dimension: int):
+        # create if missing
+        existing = {i["name"] for i in self.pc.list_indexes()}
+        if self.index_name not in existing:
+            if ServerlessSpec is None:
+                raise RuntimeError("ServerlessSpec missing from pinecone SDK; please upgrade pinecone-client.")
+            self.pc.create_index(
+                name=self.index_name,
+                dimension=dimension,
+                metric="cosine",
+                spec=ServerlessSpec(cloud=self.cloud, region=self.region),
             )
-        )
-    return SearchResults(total=len(items), items=items)
+            # wait until ready
+            for _ in range(60):
+                desc = self.pc.describe_index(self.index_name)
+                if desc.get("status", {}).get("ready"):
+                    break
+                time.sleep(2)
+        # bind
+        self._index = self.pc.Index(self.index_name)
 
-@router.post("/v1/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
-    tenant_id = req.tenant_id or "demo"
-    ns = _ns("default", tenant_id)
-    qvec = embed_one(req.message)
-    hits = _store.query(ns, qvec, k=req.max_context)
-    snippets = []
-    citations: List[Citation] = []
-    for score, e in hits:
-        snippets.append(f"- {e['text'].strip()}")
-        span = e.get("metadata", {}).get("span")
-        citations.append(
-            Citation(
-                doc_id=e["doc_id"],
-                title=e.get("metadata", {}).get("title"),
-                span=str(span) if span else None,
-            )
-        )
-    answer = (
-        f"Here are the most relevant snippets for: '{req.message}'\n\n"
-        + "\n\n".join(snippets)
-        if snippets
-        else "I couldn’t find relevant context yet."
-    )
-    return ChatResponse(
-        answer=answer,
-        citations=citations,
-        usage={"retrieved": len(hits)},
-    )
+    def _index_handle(self):
+        if self._index is None:
+            # Attempt to bind; if index doesn't exist, user must upsert first to create with inferred dim
+            try:
+                self._index = self.pc.Index(self.index_name)
+            except Exception:
+                self._index = None
+        return self._index
 
+    # ---------- public API mirrored to InMemoryVectorStore ----------
+    def upsert_chunks(self, dataset: str, entries: List[Dict]):
+        # Entries contain: {chunk_id, doc_id, vector, text, metadata}
+        if not entries:
+            return
+        # Infer dim
+        dim = int(os.getenv("RAG_EMBED_DIM") or len(entries[0]["vector"]))
+        if self._index is None:
+            # Ensure index exists with the correct dim
+            self._ensure_index(dimension=dim)
 
-C:/code2/lbpr/backend/features/files/__init__.py
+        vectors = []
+        ns = dataset  # dataset already includes tenant prefix
+        for e in entries:
+            vectors.append({
+                "id": f"{e['doc_id']}::{e['chunk_id']}",
+                "values": e["vector"],
+                "metadata": {
+                    "doc_id": e["doc_id"],
+                    "chunk_id": e["chunk_id"],
+                    "text": e["text"],
+                    **(e.get("metadata") or {}),
+                },
+            })
+        # pinecone upsert supports batch list
+        self._index.upsert(vectors=vectors, namespace=ns)
 
-
-C:/code2/lbpr/backend/features/files/router.py
-
-from __future__ import annotations
-
-from typing import Optional
-from fastapi import APIRouter, File, UploadFile, Header, HTTPException
-from fastapi.responses import RedirectResponse
-
-from .schemas import FileItem, UploadResponse, DeleteResponse
-from . import service
-
-router = APIRouter(prefix="/v1/files", tags=["Files"])
-
-@router.get("", response_model=list[FileItem])
-def list_files(x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False)):
-    try:
-        return service.list_files(x_tenant_id)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.post("", response_model=UploadResponse, status_code=202)
-def create_file(
-    file: UploadFile = File(...),
-    x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False),
-    dataset: str = "default",
-):
-    try:
-        return service.upload_file(x_tenant_id, file, dataset=dataset)
-    except ValueError as ve:
-        raise HTTPException(status_code=413, detail=str(ve))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.get("/{file_id}/download")
-def download_file(file_id: str):
-    try:
-        url = service.get_signed_download_url(file_id)
-        return RedirectResponse(url)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="File not found")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.delete("/{file_id}", response_model=DeleteResponse)
-def delete_file(file_id: str, x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False)):
-    try:
-        ok = service.delete_file(x_tenant_id, file_id)
-        if not ok:
-            raise HTTPException(status_code=404, detail="File not found")
-        return DeleteResponse(ok=True)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    def query(self, dataset: str, query_vec: List[float], k: int = 5) -> List[Tuple[float, Dict]]:
+        idx = self._index_handle()
+        if idx is None:
+            return []  # nothing indexed yet
+        res = idx.query(vector=query_vec, top_k=k, include_metadata=True, namespace=dataset)
+        out: List[Tuple[float, Dict]] = []
+        for m in res.get("matches", []):
+            md = m.get("metadata", {}) or {}
+            out.append((float(m.get("score", 0.0)), {
+                "chunk_id": md.get("chunk_id"),
+                "doc_id": md.get("doc_id"),
+                "text": md.get("text", ""),
+                "metadata": {k:v for k,v in md.items() if k not in ("chunk_id","doc_id","text")},
+                "vector": None,  # omitted
+            }))
+        # sort by score desc to align with in-memory store behavior
+        out.sort(key=lambda t: t[0], reverse=True)
+        return out
 
 
-C:/code2/lbpr/backend/features/files/schemas.py
-
-from __future__ import annotations
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
-
-class FileItem(BaseModel):
-    id: str
-    name: str
-    size: int
-    created_at: Optional[str] = None
-    content_type: Optional[str] = None
-
-class UploadResponse(BaseModel):
-    job_id: str
-
-class DeleteResponse(BaseModel):
-    ok: bool = True
-
-
-C:/code2/lbpr/backend/features/files/service.py
-
-from __future__ import annotations
-
-import io
-import uuid
-import hashlib
-from typing import List, Optional, Dict, Any, Iterable
-
-from fastapi import UploadFile
-from firebase_admin import storage
-
+C:/code2/lbpr/backend/features/rag/embedding/openai_embedder.py
+from typing import List, Dict
 from core.config import settings
-from .schemas import FileItem, UploadResponse
-from features.rag import orchestrator
-from features.rag.schemas import IngestRequest
+from core.logging import get_logger
 
-TENANT_HEADER = "x-tenant-id"
+logger = get_logger(__name__)
 
-def _bucket():
-    # Uses default app from core.firebase.init_firebase()
-    bucket_name = settings.FIREBASE_STORAGE_BUCKET or f"{settings.FIREBASE_PROJECT_ID}.appspot.com"
-    return storage.bucket(bucket_name)
-
-def _tenant_prefix(tenant_id: Optional[str]) -> str:
-    return f"t:{tenant_id or 'demo'}"
-
-def _object_path(tenant_id: Optional[str], filename: str, file_id: Optional[str]=None) -> str:
-    # Store under t:{tenant}/uploads/{uuid}-{filename}
-    fid = file_id or str(uuid.uuid4())
-    return f"{_tenant_prefix(tenant_id)}/uploads/{fid}/{filename}"
-
-def _hash_bytes(b: bytes) -> str:
-    return hashlib.sha256(b).hexdigest()
-
-def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Optional[str]:
-    """
-    Best-effort text extraction:
-    - For text/*, application/json, application/xml, csv, md: decode as utf-8
-    - PDF via pypdf (if installed)
-    - DOCX via python-docx (if installed)
-    Other formats return None.
-    """
-    ct = (content_type or "").lower()
-    name_lower = name.lower()
+def get_openai_client():
     try:
-        # Simple text-ish types
-        if ct.startswith("text/") or ct in {"application/json","application/xml"}:
-            return data.decode("utf-8", errors="ignore")
-        if ct == "text/markdown" or name_lower.endswith(".md") or name_lower.endswith(".markdown"):
-            return data.decode("utf-8", errors="ignore")
-        if name_lower.endswith((".txt", ".json", ".xml", ".csv")):
-            return data.decode("utf-8", errors="ignore")
+        from openai import OpenAI
+        return OpenAI(api_key=settings.OPENAI_API_KEY)
+    except Exception as e:
+        logger.error("openai_client_error", extra={"extra": {"err": str(e)}})
+        raise
 
-        # PDF (optional)
-        if ct == "application/pdf" or name_lower.endswith(".pdf"):
-            try:
-                from pypdf import PdfReader  # type: ignore
-                reader = PdfReader(io.BytesIO(data))
-                pages = []
-                for p in reader.pages:
-                    try:
-                        pages.append(p.extract_text() or "")
-                    except Exception:
-                        pages.append("")
-                text = "\n".join(pages).strip()
-                return text or None
-            except Exception:
-                return None
-
-        # DOCX (optional)
-        if ct in {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"} or name_lower.endswith(".docx"):
-            try:
-                import docx  # type: ignore
-                f = io.BytesIO(data)
-                d = docx.Document(f)  # type: ignore
-                paragraphs = [para.text for para in d.paragraphs if para.text]
-                return "\n".join(paragraphs) or None
-            except Exception:
-                return None
-
-    except Exception:
-        return None
-    return None
-
-def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "default") -> UploadResponse:
-    # Read all bytes (<= 50MB expected by design invariants)
-    data = file.file.read()
-    size = len(data)
-    if size > 50 * 1024 * 1024:
-        raise ValueError("File too large (>50MB)")
-
-    checksum = _hash_bytes(data)
-    object_name = _object_path(tenant_id, file.filename)
-    bkt = _bucket()
-    blob = bkt.blob(object_name)
-
-    # Upload with metadata
-    blob.metadata = {
-        "checksum": checksum,
-        "original_name": file.filename,
-        "tenant_id": tenant_id or "demo",
-        "dataset": dataset,
-        "content_type": file.content_type or "",
-    }
-    blob.upload_from_string(data, content_type=file.content_type or "application/octet-stream")
-
-    # Try inline indexing for text-like files (best-effort)
-    text = _extract_text(file.filename, file.content_type, data)
-    if text:
-        try:
-            orchestrator.ingest(
-                IngestRequest(
-                    dataset=dataset,
-                    text=text,
-                    metadata={"tenant_id": tenant_id or "demo", "source": "upload", "title": file.filename},
-                )
-            )
-        except Exception as e:
-            # Don't fail the upload if indexing fails
-            print(f"[files] Ingest failed for {file.filename}: {e}")
-
-    # job_id can be the blob name for now (acts as a stable handle)
-    return UploadResponse(job_id=object_name)
-
-def list_files(tenant_id: Optional[str]) -> List[FileItem]:
-    bkt = _bucket()
-    prefix = f"{_tenant_prefix(tenant_id)}/uploads/"
-    items: List[FileItem] = []
-    for blob in bkt.list_blobs(prefix=prefix):
-        # Only leaf files (skip 'folder' markers)
-        if blob.name.endswith("/"):
-            continue
-        name = (blob.metadata or {}).get("original_name")
-        items.append(
-            FileItem(
-                id=blob.name,
-                name=name or blob.name.split("/")[-1],
-                size=blob.size or 0,
-                created_at=(blob.time_created.isoformat() if getattr(blob, "time_created", None) else None),
-                content_type=blob.content_type or (blob.metadata or {}).get("content_type"),
-            )
+def embed_texts(texts: List[str]) -> List[List[float]]:
+    client = get_openai_client()
+    try:
+        resp = client.embeddings.create(
+            model=settings.OPENAI_EMBED_MODEL,
+            input=texts
         )
-    # Sort newest first
-    items.sort(key=lambda x: x.created_at or "", reverse=True)
-    return items
+        vectors = [d.embedding for d in resp.data]
+        if len(vectors) and len(vectors[0]) != settings.EMBEDDING_DIM:
+            logger.warning("embedding_dim_mismatch", extra={"extra": {"expected": settings.EMBEDDING_DIM, "actual": len(vectors[0]), "model": settings.OPENAI_EMBED_MODEL}})
+        return vectors
+    except Exception as e:
+        logger.error("embedding_error", extra={"extra": {"err": str(e), "model": settings.OPENAI_EMBED_MODEL}})
+        raise
 
-def delete_file(tenant_id: Optional[str], file_id: str) -> bool:
-    bkt = _bucket()
-    blob = bkt.blob(file_id)
-    if not blob.exists():
-        return False
-    blob.delete()
-    return True
 
-def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
-    bkt = _bucket()
-    blob = bkt.blob(file_id)
-    if not blob.exists():
-        raise FileNotFoundError("File not found")
-    from datetime import timedelta
-    return blob.generate_signed_url(expiration=timedelta(minutes=minutes), method="GET")
+C:/code2/lbpr/backend/features/rag/ingest/chunker.py
+from typing import List
+from core.config import settings
+
+def simple_chunk(text: str, size: int = None, overlap: int = None) -> List[str]:
+    size = size or settings.CHUNK_SIZE
+    overlap = overlap or settings.CHUNK_OVERLAP
+    if size <= 0:
+        return [text]
+    chunks = []
+    i = 0
+    while i < len(text):
+        chunk = text[i:i+size]
+        chunks.append(chunk)
+        i += max(1, size - overlap)
+    return chunks
+
+
+C:/code2/lbpr/backend/features/rag/ingest/routes.py
+from fastapi import APIRouter, Request
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
+from core.logging import get_logger, with_request
+from features.rag.ingest.service import ingest_text
+
+router = APIRouter(prefix="/features/rag", tags=["RAG"])
+logger = get_logger(__name__)
+
+class IngestBody(BaseModel):
+    dataset: str
+    text: str
+    metadata: Optional[Dict[str, Any]] = None
+
+@router.post("/ingest")
+async def ingest_endpoint(body: IngestBody, request: Request):
+    rid = request.headers.get("X-Request-ID")
+    log = with_request(logger, rid)
+    log.info("http_ingest_received", extra={"extra": {"dataset": body.dataset, "text_len": len(body.text)}})
+    res = ingest_text(dataset=body.dataset, text=body.text, metadata=body.metadata, request_id=log.extra.get("request_id"))
+    return res
+
+
+C:/code2/lbpr/backend/features/rag/ingest/service.py
+import uuid
+from typing import Dict, Any, Optional, List
+from core.logging import get_logger, with_request
+from core.config import settings
+from features.rag.vector_store.base import VectorStore
+from features.rag.vector_store.pinecone_adapter import PineconeVectorStore
+from features.rag.vector_store.memory_adapter import MemoryVectorStore
+from features.rag.embedding.openai_embedder import embed_texts
+from features.rag.ingest.chunker import simple_chunk
+
+logger = get_logger(__name__)
+
+def _select_store() -> VectorStore:
+    if settings.VECTOR_BACKEND == "pinecone":
+        if not settings.PINECONE_API_KEY or not settings.PINECONE_INDEX:
+            logger.warning("vector_backend_fallback", extra={"extra": {"reason": "missing_pinecone_env", "VECTOR_BACKEND": settings.VECTOR_BACKEND}})
+            return MemoryVectorStore()
+        try:
+            return PineconeVectorStore()
+        except Exception as e:
+            logger.error("pinecone_init_failed", extra={"extra": {"err": str(e)}})
+            return MemoryVectorStore()
+    # default
+    return MemoryVectorStore()
+
+def ingest_text(dataset: str, text: str, metadata: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
+    rid_logger = with_request(logger, request_id)
+    store = _select_store()
+    rid_logger.info("ingest_start", extra={"extra": {"dataset": dataset, "len": len(text), "backend": type(store).__name__}})
+    chunks = simple_chunk(text)
+    vectors = embed_texts(chunks)
+    items: List[Dict[str, Any]] = []
+    for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
+        items.append({
+            "id": f"{dataset}:{uuid.uuid4()}:{i}",
+            "values": vec,
+            "metadata": {
+                "dataset": dataset,
+                "chunk_index": i,
+                "text": chunk[:500],  # avoid huge payloads in metadata
+                **(metadata or {})
+            }
+        })
+    res = store.upsert(items, request_id=rid_logger.extra.get("request_id"))
+    rid_logger.info("ingest_complete", extra={"extra": {"upserted": len(items), "backend": res.get("backend")}})
+    return {"ok": True, "backend": res.get("backend"), "upserted": len(items)}
+
+
+C:/code2/lbpr/backend/features/rag/vector_store/base.py
+from abc import ABC, abstractmethod
+from typing import List, Dict, Any, Optional
+
+class VectorStore(ABC):
+    @abstractmethod
+    def upsert(self, items: List[Dict[str, Any]], request_id: Optional[str] = None) -> Dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def query(self, vector: List[float], top_k: int = 5, filter: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
+        ...
+
+    @abstractmethod
+    def ping(self) -> Dict[str, Any]:
+        ...
+
+
+C:/code2/lbpr/backend/features/rag/vector_store/memory_adapter.py
+from .base import VectorStore
+from typing import List, Dict, Any, Optional
+import numpy as np
+
+class MemoryVectorStore(VectorStore):
+    def __init__(self):
+        self._vecs = []  # list of (id, vector, metadata)
+    def upsert(self, items: List[Dict[str, Any]], request_id: Optional[str] = None) -> Dict[str, Any]:
+        count = 0
+        for it in items:
+            self._vecs.append((it["id"], np.array(it["values"], dtype=float), it.get("metadata", {})))
+            count += 1
+        return {"upserted": count, "backend": "memory"}
+
+    def query(self, vector: List[float], top_k: int = 5, filter: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
+        if not self._vecs:
+            return {"matches": []}
+        q = np.array(vector, dtype=float)
+        sims = []
+        for _id, v, meta in self._vecs:
+            if filter:
+                ok = True
+                for k, val in filter.items():
+                    if meta.get(k) != val:
+                        ok = False; break
+                if not ok: 
+                    continue
+            score = float(np.dot(q, v) / (np.linalg.norm(q) * np.linalg.norm(v) + 1e-9))
+            sims.append((_id, score, meta))
+        sims.sort(key=lambda x: x[1], reverse=True)
+        return {"matches": [{"id": i, "score": s, "metadata": m} for i, s, m in sims[:top_k]]}
+
+    def ping(self) -> Dict[str, Any]:
+        return {"ok": True, "backend": "memory", "size": len(self._vecs)}
+
+
+C:/code2/lbpr/backend/features/rag/vector_store/pinecone_adapter.py
+from .base import VectorStore
+from typing import List, Dict, Any, Optional
+from core.logging import get_logger, with_request
+from core.config import settings
+
+logger = get_logger(__name__)
+
+class PineconeVectorStore(VectorStore):
+    def __init__(self):
+        try:
+            # Prefer gRPC for performance if installed, fallback to HTTP
+            try:
+                from pinecone.grpc import PineconeGRPC as Pinecone  # type: ignore
+                self._mode = "grpc"
+            except Exception:
+                from pinecone import Pinecone  # type: ignore
+                self._mode = "http"
+            self._pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+            host = settings.PINECONE_HOST
+            if host:
+                self._index = self._pc.IndexHost(host)
+            else:
+                # New SDK uses pc.Index(name) for serverless; host is resolved internally
+                self._index = self._pc.Index(settings.PINECONE_INDEX)
+            self._namespace = settings.PINECONE_NAMESPACE or "default"
+        except Exception as e:
+            logger.error("pinecone_init_error", extra={"extra": {"err": str(e)}})
+            raise
+
+    def upsert(self, items: List[Dict[str, Any]], request_id: Optional[str] = None) -> Dict[str, Any]:
+        log = with_request(logger, request_id)
+        try:
+            vectors = [{"id": it["id"], "values": it["values"], "metadata": it.get("metadata", {})} for it in items]
+            res = self._index.upsert(vectors=vectors, namespace=self._namespace)
+            log.info("pinecone_upsert_ok", extra={"extra": {"count": len(vectors), "namespace": self._namespace, "mode": self._mode}})
+            return {"backend": "pinecone", "result": res}
+        except Exception as e:
+            log.error("pinecone_upsert_error", extra={"extra": {"err": str(e), "namespace": self._namespace}})
+            raise
+
+    def query(self, vector: List[float], top_k: int = 5, filter: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
+        log = with_request(logger, request_id)
+        try:
+            res = self._index.query(
+                namespace=self._namespace,
+                vector=vector,
+                top_k=top_k,
+                include_values=False,
+                include_metadata=True,
+                filter=filter or None
+            )
+            log.info("pinecone_query_ok", extra={"extra": {"top_k": top_k, "namespace": self._namespace}})
+            return {"backend": "pinecone", "result": res}
+        except Exception as e:
+            log.error("pinecone_query_error", extra={"extra": {"err": str(e)}})
+            raise
+
+    def ping(self) -> Dict[str, Any]:
+        try:
+            stats = self._index.describe_index_stats()
+        except Exception:
+            # Some SDKs use .stats()
+            try:
+                stats = self._index.stats()
+            except Exception as e:
+                return {"ok": False, "error": str(e), "backend": "pinecone"}
+        return {"ok": True, "backend": "pinecone", "stats": stats}
 
 
