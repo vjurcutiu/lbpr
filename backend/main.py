@@ -1,11 +1,12 @@
-# C:/code2/lbpr/backend/main.py
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
-from core.config import settings
+from core.config import settings, safe_settings_snapshot
 from core.firebase import init_firebase
+from core.logging import setup_logging
+import logging
 
 from routers import health
 from features.auth import routes as auth_routes
@@ -17,7 +18,13 @@ from features.rag.router import router as rag_router
 from features.rag.contracts_router import router as rag_contracts_router
 from features.files.router import router as files_router
 
+log = logging.getLogger("app")
+
 def create_app() -> FastAPI:
+    setup_logging()
+    # Log a sanitized snapshot of relevant settings at boot
+    log.info("app_boot", **safe_settings_snapshot())
+
     # Initialize Firebase Admin once (skips in tests per core/firebase.py)
     init_firebase()
 
@@ -49,12 +56,10 @@ def create_app() -> FastAPI:
     app.include_router(files_router)
 
     # ---- Versioned mirrors ----
-    # Keep mirrors for non-contract routers
     app.include_router(auth_routes.router, prefix="/v1")
     app.include_router(profile_routes.router, prefix="/v1")
     app.include_router(rag_router, prefix="/v1")
 
     return app
-
 
 app = create_app()

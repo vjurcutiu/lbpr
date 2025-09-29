@@ -1,3 +1,4 @@
+
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from typing import Literal
@@ -9,7 +10,7 @@ class Settings(BaseSettings):
     # Firebase
     FIREBASE_PROJECT_ID: str = ""
     FIREBASE_CREDENTIALS: str | None = None
-    FIREBASE_CREDENTIALS_DEFAULT: str = "/run/secrets/firebase_sa.json"
+    FIREBASE_CREDENTIALS_DEFAULT: str | None = "/run/secrets/firebase_sa.json"
     FIREBASE_STORAGE_BUCKET: str | None = None  # used by Files feature
 
     # Auth / cookies
@@ -43,3 +44,18 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
 
 settings = Settings()
+
+def safe_settings_snapshot() -> dict:
+    # Only include non-sensitive, decision-making fields for boot logs
+    return {
+        "env": settings.ENV,
+        "firebase_project_id": settings.FIREBASE_PROJECT_ID,
+        "firebase_bucket": settings.FIREBASE_STORAGE_BUCKET,
+        "rag_embedder": settings.RAG_EMBEDDER,
+        "rag_model": settings.RAG_EMBED_MODEL,
+        "rag_vectorstore": settings.RAG_VECTORSTORE,
+        "pinecone_index": settings.PINECONE_INDEX,
+        "pinecone_cloud": settings.PINECONE_CLOUD,
+        "pinecone_region": settings.PINECONE_REGION,
+        "rag_embed_dim": settings.RAG_EMBED_DIM,
+    }

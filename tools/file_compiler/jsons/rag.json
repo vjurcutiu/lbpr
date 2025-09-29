@@ -1,6 +1,6 @@
  {
    "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\backend_rag_context.txt",
-   "folder": ["C:\\code2\\lbpr\\backend\\features\\rag",
+   "folders": ["C:\\code2\\lbpr\\backend\\features\\rag",
                 "C:\\code2\\lbpr\\backend\\features\\rag\\adapters",
                 "C:\\code2\\lbpr\\backend\\features\\rag\\embedding",
                 "C:\\code2\\lbpr\\backend\\features\\rag\\ingest",

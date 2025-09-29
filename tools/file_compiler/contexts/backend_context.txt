@@ -1,53 +1,69 @@
 C:/code2/lbpr/backend/main.py
-from fastapi import FastAPI, Request, Response
+
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from core.logging import get_logger, with_request
-from core.observability import try_init_tracing
-from core.config import settings
-from features.rag.ingest.routes import router as rag_router
-from features.files.routes import router as files_router
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
-try_init_tracing("lbp-api")
-logger = get_logger(__name__)
+from core.config import settings, safe_settings_snapshot
+from core.firebase import init_firebase
+from core.logging import setup_logging
+import logging
 
-app = FastAPI(title="LBP API", version="0.1.0")
+from routers import health
+from features.auth import routes as auth_routes
+from features.profile import routes as profile_routes
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# RAG MVP router (ingest/query under /features/rag/*)
+from features.rag.router import router as rag_router
+# RAG Contracts router (already exposes /v1/search and /v1/chat)
+from features.rag.contracts_router import router as rag_contracts_router
+from features.files.router import router as files_router
 
-# Request ID middleware
-@app.middleware("http")
-async def add_request_id(request: Request, call_next):
-    rid = request.headers.get("X-Request-ID")
-    if not rid:
-        # generate and inject
-        import uuid
-        rid = str(uuid.uuid4())
-    response: Response = await call_next(request)
-    response.headers["X-Request-ID"] = rid
-    return response
+log = logging.getLogger("app")
 
-@app.get("/health")
-def health():
-    # Surface vector backend selection so you can see it instantly
-    info = {
-        "env": settings.ENV,
-        "vector_backend": settings.VECTOR_BACKEND,
-        "pinecone_index": settings.PINECONE_INDEX,
-        "pinecone_namespace": settings.PINECONE_NAMESPACE,
-        "embed_model": settings.OPENAI_EMBED_MODEL,
-        "embedding_dim": settings.EMBEDDING_DIM,
-    }
-    logger.info("health_read", extra={"extra": info})
-    return {"ok": True, **info}
+def create_app() -> FastAPI:
+    setup_logging()
+    # Log a sanitized snapshot of relevant settings at boot
+    log.info("app_boot", **safe_settings_snapshot())
 
-app.include_router(rag_router)
-app.include_router(files_router)
+    # Initialize Firebase Admin once (skips in tests per core/firebase.py)
+    init_firebase()
+
+    app = FastAPI(title=settings.APP_NAME)
+
+    # Trusted hosts (tighten in prod)
+    if settings.TRUSTED_HOSTS and settings.TRUSTED_HOSTS != ["*"]:
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=settings.TRUSTED_HOSTS,
+        )
+
+    # CORS
+    if settings.CORS_ALLOW_ORIGINS:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.CORS_ALLOW_ORIGINS,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+    # ---- Routers ----
+    app.include_router(health.router)
+    app.include_router(auth_routes.router)
+    app.include_router(profile_routes.router)
+    app.include_router(rag_router)               # /features/rag/ingest, /features/rag/query
+    app.include_router(rag_contracts_router)     # /v1/search, /v1/chat (contracts)
+    app.include_router(files_router)
+
+    # ---- Versioned mirrors ----
+    app.include_router(auth_routes.router, prefix="/v1")
+    app.include_router(profile_routes.router, prefix="/v1")
+    app.include_router(rag_router, prefix="/v1")
+
+    return app
+
+app = create_app()
 
 
 C:/code2/lbpr/backend/routers/health.py
@@ -61,54 +77,81 @@ def healthz():
 
 
 C:/code2/lbpr/backend/core/config.py
-from pydantic import BaseSettings, Field
-from typing import Optional, Literal
+
+from pydantic_settings import BaseSettings
+from pydantic import Field
+from typing import Literal
 
 class Settings(BaseSettings):
-    ENV: str = Field(default="dev")
-    LOG_LEVEL: str = Field(default="INFO")
+    APP_NAME: str = "LexBot Pro"
+    ENV: Literal["dev", "staging", "prod"] = "dev"
 
-    # Vector store routing
-    VECTOR_BACKEND: Literal["pinecone","memory"] = Field(default="pinecone")
-    PINECONE_API_KEY: Optional[str] = None
-    PINECONE_INDEX: Optional[str] = None
-    PINECONE_NAMESPACE: Optional[str] = None
-    PINECONE_PROJECT_ID: Optional[str] = None  # optional, new SDK supports projects
-    PINECONE_HOST: Optional[str] = None        # optional, direct host (serverless indexes use unique hosts)
+    # Firebase
+    FIREBASE_PROJECT_ID: str = ""
+    FIREBASE_CREDENTIALS: str | None = None
+    FIREBASE_CREDENTIALS_DEFAULT: str | None = "/run/secrets/firebase_sa.json"
+    FIREBASE_STORAGE_BUCKET: str | None = None  # used by Files feature
 
-    # Embeddings
-    OPENAI_API_KEY: Optional[str] = None
-    OPENAI_EMBED_MODEL: str = Field(default="text-embedding-3-small")
-    EMBEDDING_DIM: int = Field(default=512)
+    # Auth / cookies
+    COOKIE_NAME: str = "fb_session"
+    SESSION_HOURS: int = 8
+    COOKIE_SECURE: bool = Field(default=False, description="True in prod (HTTPS)")
+    COOKIE_SAMESITE: Literal["lax", "none", "strict"] = "lax"
+    COOKIE_PATH: str = "/"
+    COOKIE_DOMAIN: str | None = None  # set your domain in prod if needed
 
-    # Chunking
-    CHUNK_SIZE: int = Field(default=1000)
-    CHUNK_OVERLAP: int = Field(default=200)
+    # CORS / Hosts (tune per deployment)
+    CORS_ALLOW_ORIGINS: list[str] = []
+    TRUSTED_HOSTS: list[str] = ["*"]  # lock down in prod
+
+    # ── RAG / Embeddings / Vector store (aligns with .env) ─────────────────
+    RAG_EMBEDDER: Literal["local", "openai"] = "local"
+    OPENAI_API_KEY: str | None = None
+    RAG_EMBED_MODEL: str = "text-embedding-3-small"
+
+    RAG_VECTORSTORE: Literal["memory", "pinecone"] = "memory"
+    PINECONE_API_KEY: str | None = None
+    PINECONE_INDEX: str | None = None
+    PINECONE_CLOUD: str | None = None
+    PINECONE_REGION: str | None = None
+
+    # Optional override when creating Pinecone index (dimension inference otherwise)
+    RAG_EMBED_DIM: int | None = None
 
     class Config:
         env_file = ".env"
-        case_sensitive = False
+        env_file_encoding = "utf-8"
 
 settings = Settings()
 
+def safe_settings_snapshot() -> dict:
+    # Only include non-sensitive, decision-making fields for boot logs
+    return {
+        "env": settings.ENV,
+        "firebase_project_id": settings.FIREBASE_PROJECT_ID,
+        "firebase_bucket": settings.FIREBASE_STORAGE_BUCKET,
+        "rag_embedder": settings.RAG_EMBEDDER,
+        "rag_model": settings.RAG_EMBED_MODEL,
+        "rag_vectorstore": settings.RAG_VECTORSTORE,
+        "pinecone_index": settings.PINECONE_INDEX,
+        "pinecone_cloud": settings.PINECONE_CLOUD,
+        "pinecone_region": settings.PINECONE_REGION,
+        "rag_embed_dim": settings.RAG_EMBED_DIM,
+    }
+
 
 C:/code2/lbpr/backend/core/firebase.py
+
 import os
 import sys
+import logging
 from core.config import settings
 
-# Internal flag for lazy, idempotent init
+log = logging.getLogger("firebase")
+
 _firebase_initialized = False
 
-
 def _should_skip_init() -> bool:
-    """
-    Decide whether to skip Firebase initialization.
-
-    Priority:
-      - Explicit SKIP_FIREBASE_INIT=1
-      - Conventional test signals (APP_ENV=test, running under pytest)
-    """
     if os.getenv("SKIP_FIREBASE_INIT") == "1":
         return True
     if os.getenv("APP_ENV", "").lower() == "test":
@@ -117,20 +160,7 @@ def _should_skip_init() -> bool:
         return True
     return False
 
-
 def choose_cred_path() -> str:
-    """
-    Return a path to a Firebase service account JSON file.
-
-    Order of precedence:
-      1) GOOGLE_APPLICATION_CREDENTIALS
-      2) settings.FIREBASE_CREDENTIALS
-      3) settings.FIREBASE_CREDENTIALS_DEFAULT
-
-    Notes:
-      - On Linux containers, Windows host paths like "C:/..." won't exist.
-        We log a helpful message in that case.
-    """
     env_gac = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     candidates = [
         env_gac,
@@ -141,12 +171,9 @@ def choose_cred_path() -> str:
     for c in candidates:
         if not c:
             continue
-
-        # If we're inside Linux container and someone passed a Windows host path, warn once.
         if ":" in c and os.name == "posix" and not os.path.exists(c):
             print(f"[startup] Skipping non-existent host path: {c}", file=sys.stderr)
             continue
-
         if os.path.exists(c):
             print(f"[startup] Using Firebase credentials: {c}", file=sys.stderr)
             return c
@@ -160,19 +187,10 @@ def choose_cred_path() -> str:
         "to an in-container path."
     )
 
-
 def init_firebase():
-    """
-    Lazily initialize firebase_admin with a service account.
-
-    - No-op if already initialized.
-    - Skips entirely in tests when _should_skip_init() is True.
-    """
     global _firebase_initialized
     if _firebase_initialized:
         return
-
-    # Allow tests to opt out of real Firebase Admin initialization.
     if _should_skip_init():
         print("[startup] SKIP_FIREBASE_INIT active — skipping Firebase Admin init.", file=sys.stderr)
         _firebase_initialized = True
@@ -181,16 +199,14 @@ def init_firebase():
     import firebase_admin
     from firebase_admin import credentials
 
-    # If another part already initialized the default app, just mark done.
     if getattr(firebase_admin, "_apps", None):
         _firebase_initialized = True
         return
 
     cred_path = choose_cred_path()
     cred = credentials.Certificate(cred_path)
-
-    # projectId can be inferred from the SA file, but keeping your explicit override:
     firebase_admin.initialize_app(cred, {"projectId": settings.FIREBASE_PROJECT_ID})
+    log.info("firebase_initialized", project=settings.FIREBASE_PROJECT_ID)
     _firebase_initialized = True
 
 
@@ -222,4 +238,56 @@ PINECONE_REGION=us-east-1
 RAG_EMBED_DIM=1536
 
 FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
+
+C:/code2/lbpr/backend/core/config.py.PATCH.txt
+
+# Add this field to core/config.py Settings:
+# FIREBASE_STORAGE_BUCKET: str | None = None
+#
+# Usage: If not set, we'll default to f"{FIREBASE_PROJECT_ID}.appspot.com"
+
+
+C:/code2/lbpr/backend/core/logging.py
+
+import logging
+import os
+import sys
+import json
+from datetime import datetime
+
+_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        data = {
+            "ts": datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
+            "level": record.levelname,
+            "name": record.name,
+            "msg": record.getMessage(),
+        }
+        if record.exc_info:
+            data["exc_info"] = self.formatException(record.exc_info)
+        # Attach any extra fields placed on the record
+        for k, v in record.__dict__.items():
+            if k not in ("name","msg","args","levelname","levelno","pathname",
+                         "filename","module","exc_info","exc_text","stack_info",
+                         "lineno","funcName","created","msecs","relativeCreated",
+                         "thread","threadName","processName","process"):
+                # Safely JSON-serializable
+                try:
+                    json.dumps({k: v})
+                    data[k] = v
+                except Exception:
+                    data[k] = str(v)
+        return json.dumps(data, ensure_ascii=False)
+
+def setup_logging() -> None:
+    root = logging.getLogger()
+    if root.handlers:
+        return  # already configured
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(JsonFormatter())
+    root.addHandler(handler)
+    root.setLevel(_LEVEL)
+
 

@@ -1,3 +1,4 @@
+
 # OpenAI Embedding Adapter
 # Uses the modern OpenAI Python SDK (>=1.0): `from openai import OpenAI`
 # Respects: OPENAI_API_KEY, RAG_EMBED_MODEL (default: text-embedding-3-small)
@@ -5,7 +6,10 @@ from __future__ import annotations
 
 import os
 import time
+import logging
 from typing import List
+
+log = logging.getLogger("rag.openai")
 
 try:
     from openai import OpenAI
@@ -27,16 +31,19 @@ class OpenAIEmbedder:
         self.max_retries = max_retries
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
-        # Basic exponential backoff
         delay = 1.0
         for attempt in range(self.max_retries):
+            t0 = time.time()
             try:
                 resp = self.client.embeddings.create(model=self.model, input=texts, timeout=self.timeout)
-                # SDK returns `data[i].embedding` as list[float]
+                dur_ms = int((time.time() - t0) * 1000)
+                log.info("openai_embed_ok", model=self.model, count=len(texts), dur_ms=dur_ms)
                 return [d.embedding for d in resp.data]
             except Exception as e:
                 if attempt == self.max_retries - 1:
+                    log.exception("openai_embed_error_final")
                     raise
+                log.warning("openai_embed_retry", attempt=attempt+1, error=str(e))
                 time.sleep(delay)
                 delay *= 2
 

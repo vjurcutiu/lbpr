@@ -147,7 +147,10 @@ C:/code2/lbpr/backend/features/rag/embedder.py
 # Embedding dispatcher: defaults to local hashing embedder, can switch to OpenAI via env.
 import math
 import os
+import logging
 from typing import List
+
+log = logging.getLogger("rag.embedder")
 
 RAG_EMBEDDER = os.getenv("RAG_EMBEDDER", "local").lower()
 
@@ -176,11 +179,13 @@ def _local_embed_texts(texts: List[str]) -> List[List[float]]:
 def _openai_embed_texts(texts: List[str]) -> List[List[float]]:
     from .adapters.openai_embedder import OpenAIEmbedder
     embedder = OpenAIEmbedder()
+    log.info("openai_embed_call", model=embedder.model, count=len(texts))
     return embedder.embed_texts(texts)
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
     if RAG_EMBEDDER == "openai":
         return _openai_embed_texts(texts)
+    log.info("local_embed_call", count=len(texts), dim=DIM)
     return _local_embed_texts(texts)
 
 def embed_one(text: str) -> List[float]:
@@ -190,10 +195,13 @@ def embed_one(text: str) -> List[float]:
 C:/code2/lbpr/backend/features/rag/orchestrator.py
 
 from typing import List, Dict
+import logging
 from .schemas import QueryRequest, QueryResponse, Source, IngestRequest, IngestResponse
 from .chunker import simple_word_chunker
-from .embedder import embed_texts, embed_one
+from .embedder import embed_texts, embed_one, RAG_EMBEDDER
 from .vectorstore import get_store
+
+log = logging.getLogger("rag.orchestrator")
 
 _store = get_store()
 
@@ -204,7 +212,10 @@ def ingest(req: IngestRequest) -> IngestResponse:
     if not req.text:
         raise ValueError("text is required for MVP ingest")
     chunks = simple_word_chunker(req.text)
+    log.info("ingest_chunked", chunks=len(chunks), approx_tokens=len(req.text.split()))
     vectors = embed_texts([c["text"] for c in chunks])
+    dim = len(vectors[0]) if vectors else 0
+    log.info("ingest_embedded", embedder=RAG_EMBEDDER, dim=dim, count=len(vectors))
     entries: List[Dict] = []
     doc_id = req.doc_id or "doc_" + str(abs(hash(req.text)) % (10**8))
     meta_base = dict(req.metadata or {})
@@ -217,7 +228,10 @@ def ingest(req: IngestRequest) -> IngestResponse:
             "vector": v,
         })
     tenant_id = (req.metadata or {}).get("tenant_id")
-    _store.upsert_chunks(_ns(req.dataset, tenant_id), entries)
+    ns = _ns(req.dataset, tenant_id)
+    log.info("upsert_start", ns=ns, entries=len(entries))
+    _store.upsert_chunks(ns, entries)
+    log.info("upsert_done", ns=ns, entries=len(entries))
     return IngestResponse(dataset=req.dataset, doc_id=doc_id, chunk_ids=[e["chunk_id"] for e in entries])
 
 def _compose_answer(query: str, hits: List[Source]) -> str:
@@ -226,7 +240,9 @@ def _compose_answer(query: str, hits: List[Source]) -> str:
 
 def query(req: QueryRequest) -> QueryResponse:
     qvec = embed_one(req.query)
-    results = _store.query(_ns(req.dataset, None), qvec, req.k)
+    ns = _ns(req.dataset, None)
+    log.info("query_start", ns=ns, k=req.k)
+    results = _store.query(ns, qvec, req.k)
     sources: List[Source] = [
         Source(
             doc_id=e["doc_id"],
@@ -237,6 +253,7 @@ def query(req: QueryRequest) -> QueryResponse:
         )
         for score, e in results
     ]
+    log.info("query_results", ns=ns, found=len(sources))
     answer = _compose_answer(req.query, sources)
     return QueryResponse(dataset=req.dataset, query=req.query, answer=answer, sources=sources)
 
@@ -284,24 +301,34 @@ Omit the env vars above and you'll get the original hashing embedder and in-memo
 
 C:/code2/lbpr/backend/features/rag/router.py
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from .schemas import IngestRequest, IngestResponse, QueryRequest, QueryResponse
 from . import orchestrator
+import logging
 
 router = APIRouter(prefix="/features/rag", tags=["RAG"])
+log = logging.getLogger("rag.router")
 
 @router.post("/ingest", response_model=IngestResponse)
-def ingest(req: IngestRequest):
+async def ingest(req: IngestRequest, request: Request):
     try:
-        return orchestrator.ingest(req)
+        log.info("ingest_request", dataset=req.dataset, has_text=bool(req.text), meta_keys=list((req.metadata or {}).keys()), client=str(request.client))
+        resp = orchestrator.ingest(req)
+        log.info("ingest_ok", dataset=resp.dataset, doc_id=resp.doc_id, chunks=len(resp.chunk_ids))
+        return resp
     except Exception as e:
+        log.exception("ingest_error")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/query", response_model=QueryResponse)
-def query(req: QueryRequest):
+async def query(req: QueryRequest, request: Request):
     try:
-        return orchestrator.query(req)
+        log.info("query_request", dataset=req.dataset, k=req.k, client=str(request.client))
+        resp = orchestrator.query(req)
+        log.info("query_ok", dataset=resp.dataset, sources=len(resp.sources))
+        return resp
     except Exception as e:
+        log.exception("query_error")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -346,15 +373,18 @@ C:/code2/lbpr/backend/features/rag/vectorstore.py
 # Vector store dispatcher: defaults to in-memory; can switch to Pinecone via env.
 from typing import Dict, List, Tuple
 import os
-import math
+import logging
 
+log = logging.getLogger("rag.vectorstore")
 RAG_VECTORSTORE = os.getenv("RAG_VECTORSTORE", "memory").lower()
 
 class InMemoryVectorStore:
     def __init__(self):
         self._data: Dict[str, List[Dict]] = {}
+        log.info("vectorstore_init", kind="memory")
 
     def upsert_chunks(self, dataset: str, entries: List[Dict]):
+        log.info("memory_upsert", dataset=dataset, entries=len(entries))
         self._data.setdefault(dataset, [])
         self._data[dataset].extend(entries)
 
@@ -364,6 +394,7 @@ class InMemoryVectorStore:
 
     def query(self, dataset: str, query_vec: List[float], k: int = 5):
         entries = self._data.get(dataset, [])
+        log.info("memory_query", dataset=dataset, entries=len(entries), k=k)
         scored = []
         for e in entries:
             s = self._cosine(query_vec, e["vector"])
@@ -377,11 +408,14 @@ def _pinecone_store():
 
 def get_store():
     if RAG_VECTORSTORE == "pinecone":
+        log.info("vectorstore_selected", kind="pinecone")
         return _pinecone_store()
+    log.info("vectorstore_selected", kind="memory")
     return InMemoryVectorStore()
 
 
 C:/code2/lbpr/backend/features/rag/adapters/openai_embedder.py
+
 # OpenAI Embedding Adapter
 # Uses the modern OpenAI Python SDK (>=1.0): `from openai import OpenAI`
 # Respects: OPENAI_API_KEY, RAG_EMBED_MODEL (default: text-embedding-3-small)
@@ -389,7 +423,10 @@ from __future__ import annotations
 
 import os
 import time
+import logging
 from typing import List
+
+log = logging.getLogger("rag.openai")
 
 try:
     from openai import OpenAI
@@ -411,16 +448,19 @@ class OpenAIEmbedder:
         self.max_retries = max_retries
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
-        # Basic exponential backoff
         delay = 1.0
         for attempt in range(self.max_retries):
+            t0 = time.time()
             try:
                 resp = self.client.embeddings.create(model=self.model, input=texts, timeout=self.timeout)
-                # SDK returns `data[i].embedding` as list[float]
+                dur_ms = int((time.time() - t0) * 1000)
+                log.info("openai_embed_ok", model=self.model, count=len(texts), dur_ms=dur_ms)
                 return [d.embedding for d in resp.data]
             except Exception as e:
                 if attempt == self.max_retries - 1:
+                    log.exception("openai_embed_error_final")
                     raise
+                log.warning("openai_embed_retry", attempt=attempt+1, error=str(e))
                 time.sleep(delay)
                 delay *= 2
 
@@ -429,6 +469,7 @@ class OpenAIEmbedder:
 
 
 C:/code2/lbpr/backend/features/rag/adapters/pinecone_store.py
+
 # Pinecone Vector Store Adapter
 # Uses the pinecone SDK (`pip install pinecone-client` or `pinecone`)
 # Required env: PINECONE_API_KEY, PINECONE_INDEX. Optional: PINECONE_CLOUD, PINECONE_REGION
@@ -439,10 +480,12 @@ from __future__ import annotations
 
 import os
 import time
+import logging
 from typing import Dict, List, Tuple, Optional
 
+log = logging.getLogger("rag.pinecone")
+
 try:
-    # Newer SDK import
     from pinecone import Pinecone, ServerlessSpec
 except Exception:
     Pinecone = None  # type: ignore
@@ -466,53 +509,50 @@ class PineconeVectorStore:
         self.cloud = cloud or os.getenv("PINECONE_CLOUD") or "aws"
         self.region = region or os.getenv("PINECONE_REGION") or "us-east-1"
 
-        # lazily bound index handle (created on demand)
         self._index = None
+        log.info("pinecone_init", index=self.index_name, cloud=self.cloud, region=self.region)
 
-    # ---------- internal helpers ----------
     def _ensure_index(self, dimension: int):
-        # create if missing
         existing = {i["name"] for i in self.pc.list_indexes()}
         if self.index_name not in existing:
             if ServerlessSpec is None:
                 raise RuntimeError("ServerlessSpec missing from pinecone SDK; please upgrade pinecone-client.")
+            log.info("pinecone_create_index_start", index=self.index_name, dimension=dimension, metric="cosine", cloud=self.cloud, region=self.region)
             self.pc.create_index(
                 name=self.index_name,
                 dimension=dimension,
                 metric="cosine",
                 spec=ServerlessSpec(cloud=self.cloud, region=self.region),
             )
-            # wait until ready
             for _ in range(60):
                 desc = self.pc.describe_index(self.index_name)
-                if desc.get("status", {}).get("ready"):
+                ready = bool(desc.get("status", {}).get("ready"))
+                log.info("pinecone_index_status", ready=ready)
+                if ready:
                     break
                 time.sleep(2)
-        # bind
         self._index = self.pc.Index(self.index_name)
+        log.info("pinecone_index_bound", index=self.index_name)
 
     def _index_handle(self):
         if self._index is None:
-            # Attempt to bind; if index doesn't exist, user must upsert first to create with inferred dim
             try:
                 self._index = self.pc.Index(self.index_name)
-            except Exception:
+                log.info("pinecone_index_bound", index=self.index_name)
+            except Exception as e:
+                log.warning("pinecone_index_unavailable", error=str(e))
                 self._index = None
         return self._index
 
-    # ---------- public API mirrored to InMemoryVectorStore ----------
     def upsert_chunks(self, dataset: str, entries: List[Dict]):
-        # Entries contain: {chunk_id, doc_id, vector, text, metadata}
         if not entries:
             return
-        # Infer dim
         dim = int(os.getenv("RAG_EMBED_DIM") or len(entries[0]["vector"]))
         if self._index is None:
-            # Ensure index exists with the correct dim
             self._ensure_index(dimension=dim)
 
         vectors = []
-        ns = dataset  # dataset already includes tenant prefix
+        ns = dataset
         for e in entries:
             vectors.append({
                 "id": f"{e['doc_id']}::{e['chunk_id']}",
@@ -524,13 +564,16 @@ class PineconeVectorStore:
                     **(e.get("metadata") or {}),
                 },
             })
-        # pinecone upsert supports batch list
+        log.info("pinecone_upsert_start", namespace=ns, count=len(vectors), dim=dim)
         self._index.upsert(vectors=vectors, namespace=ns)
+        log.info("pinecone_upsert_done", namespace=ns, count=len(vectors))
 
     def query(self, dataset: str, query_vec: List[float], k: int = 5) -> List[Tuple[float, Dict]]:
         idx = self._index_handle()
         if idx is None:
-            return []  # nothing indexed yet
+            log.info("pinecone_query_empty_index", namespace=dataset)
+            return []
+        log.info("pinecone_query_start", namespace=dataset, k=k)
         res = idx.query(vector=query_vec, top_k=k, include_metadata=True, namespace=dataset)
         out: List[Tuple[float, Dict]] = []
         for m in res.get("matches", []):
@@ -540,257 +583,10 @@ class PineconeVectorStore:
                 "doc_id": md.get("doc_id"),
                 "text": md.get("text", ""),
                 "metadata": {k:v for k,v in md.items() if k not in ("chunk_id","doc_id","text")},
-                "vector": None,  # omitted
+                "vector": None,
             }))
-        # sort by score desc to align with in-memory store behavior
         out.sort(key=lambda t: t[0], reverse=True)
+        log.info("pinecone_query_done", namespace=dataset, found=len(out))
         return out
-
-
-C:/code2/lbpr/backend/features/rag/embedding/openai_embedder.py
-from typing import List, Dict
-from core.config import settings
-from core.logging import get_logger
-
-logger = get_logger(__name__)
-
-def get_openai_client():
-    try:
-        from openai import OpenAI
-        return OpenAI(api_key=settings.OPENAI_API_KEY)
-    except Exception as e:
-        logger.error("openai_client_error", extra={"extra": {"err": str(e)}})
-        raise
-
-def embed_texts(texts: List[str]) -> List[List[float]]:
-    client = get_openai_client()
-    try:
-        resp = client.embeddings.create(
-            model=settings.OPENAI_EMBED_MODEL,
-            input=texts
-        )
-        vectors = [d.embedding for d in resp.data]
-        if len(vectors) and len(vectors[0]) != settings.EMBEDDING_DIM:
-            logger.warning("embedding_dim_mismatch", extra={"extra": {"expected": settings.EMBEDDING_DIM, "actual": len(vectors[0]), "model": settings.OPENAI_EMBED_MODEL}})
-        return vectors
-    except Exception as e:
-        logger.error("embedding_error", extra={"extra": {"err": str(e), "model": settings.OPENAI_EMBED_MODEL}})
-        raise
-
-
-C:/code2/lbpr/backend/features/rag/ingest/chunker.py
-from typing import List
-from core.config import settings
-
-def simple_chunk(text: str, size: int = None, overlap: int = None) -> List[str]:
-    size = size or settings.CHUNK_SIZE
-    overlap = overlap or settings.CHUNK_OVERLAP
-    if size <= 0:
-        return [text]
-    chunks = []
-    i = 0
-    while i < len(text):
-        chunk = text[i:i+size]
-        chunks.append(chunk)
-        i += max(1, size - overlap)
-    return chunks
-
-
-C:/code2/lbpr/backend/features/rag/ingest/routes.py
-from fastapi import APIRouter, Request
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
-from core.logging import get_logger, with_request
-from features.rag.ingest.service import ingest_text
-
-router = APIRouter(prefix="/features/rag", tags=["RAG"])
-logger = get_logger(__name__)
-
-class IngestBody(BaseModel):
-    dataset: str
-    text: str
-    metadata: Optional[Dict[str, Any]] = None
-
-@router.post("/ingest")
-async def ingest_endpoint(body: IngestBody, request: Request):
-    rid = request.headers.get("X-Request-ID")
-    log = with_request(logger, rid)
-    log.info("http_ingest_received", extra={"extra": {"dataset": body.dataset, "text_len": len(body.text)}})
-    res = ingest_text(dataset=body.dataset, text=body.text, metadata=body.metadata, request_id=log.extra.get("request_id"))
-    return res
-
-
-C:/code2/lbpr/backend/features/rag/ingest/service.py
-import uuid
-from typing import Dict, Any, Optional, List
-from core.logging import get_logger, with_request
-from core.config import settings
-from features.rag.vector_store.base import VectorStore
-from features.rag.vector_store.pinecone_adapter import PineconeVectorStore
-from features.rag.vector_store.memory_adapter import MemoryVectorStore
-from features.rag.embedding.openai_embedder import embed_texts
-from features.rag.ingest.chunker import simple_chunk
-
-logger = get_logger(__name__)
-
-def _select_store() -> VectorStore:
-    if settings.VECTOR_BACKEND == "pinecone":
-        if not settings.PINECONE_API_KEY or not settings.PINECONE_INDEX:
-            logger.warning("vector_backend_fallback", extra={"extra": {"reason": "missing_pinecone_env", "VECTOR_BACKEND": settings.VECTOR_BACKEND}})
-            return MemoryVectorStore()
-        try:
-            return PineconeVectorStore()
-        except Exception as e:
-            logger.error("pinecone_init_failed", extra={"extra": {"err": str(e)}})
-            return MemoryVectorStore()
-    # default
-    return MemoryVectorStore()
-
-def ingest_text(dataset: str, text: str, metadata: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
-    rid_logger = with_request(logger, request_id)
-    store = _select_store()
-    rid_logger.info("ingest_start", extra={"extra": {"dataset": dataset, "len": len(text), "backend": type(store).__name__}})
-    chunks = simple_chunk(text)
-    vectors = embed_texts(chunks)
-    items: List[Dict[str, Any]] = []
-    for i, (chunk, vec) in enumerate(zip(chunks, vectors)):
-        items.append({
-            "id": f"{dataset}:{uuid.uuid4()}:{i}",
-            "values": vec,
-            "metadata": {
-                "dataset": dataset,
-                "chunk_index": i,
-                "text": chunk[:500],  # avoid huge payloads in metadata
-                **(metadata or {})
-            }
-        })
-    res = store.upsert(items, request_id=rid_logger.extra.get("request_id"))
-    rid_logger.info("ingest_complete", extra={"extra": {"upserted": len(items), "backend": res.get("backend")}})
-    return {"ok": True, "backend": res.get("backend"), "upserted": len(items)}
-
-
-C:/code2/lbpr/backend/features/rag/vector_store/base.py
-from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
-
-class VectorStore(ABC):
-    @abstractmethod
-    def upsert(self, items: List[Dict[str, Any]], request_id: Optional[str] = None) -> Dict[str, Any]:
-        ...
-
-    @abstractmethod
-    def query(self, vector: List[float], top_k: int = 5, filter: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
-        ...
-
-    @abstractmethod
-    def ping(self) -> Dict[str, Any]:
-        ...
-
-
-C:/code2/lbpr/backend/features/rag/vector_store/memory_adapter.py
-from .base import VectorStore
-from typing import List, Dict, Any, Optional
-import numpy as np
-
-class MemoryVectorStore(VectorStore):
-    def __init__(self):
-        self._vecs = []  # list of (id, vector, metadata)
-    def upsert(self, items: List[Dict[str, Any]], request_id: Optional[str] = None) -> Dict[str, Any]:
-        count = 0
-        for it in items:
-            self._vecs.append((it["id"], np.array(it["values"], dtype=float), it.get("metadata", {})))
-            count += 1
-        return {"upserted": count, "backend": "memory"}
-
-    def query(self, vector: List[float], top_k: int = 5, filter: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
-        if not self._vecs:
-            return {"matches": []}
-        q = np.array(vector, dtype=float)
-        sims = []
-        for _id, v, meta in self._vecs:
-            if filter:
-                ok = True
-                for k, val in filter.items():
-                    if meta.get(k) != val:
-                        ok = False; break
-                if not ok: 
-                    continue
-            score = float(np.dot(q, v) / (np.linalg.norm(q) * np.linalg.norm(v) + 1e-9))
-            sims.append((_id, score, meta))
-        sims.sort(key=lambda x: x[1], reverse=True)
-        return {"matches": [{"id": i, "score": s, "metadata": m} for i, s, m in sims[:top_k]]}
-
-    def ping(self) -> Dict[str, Any]:
-        return {"ok": True, "backend": "memory", "size": len(self._vecs)}
-
-
-C:/code2/lbpr/backend/features/rag/vector_store/pinecone_adapter.py
-from .base import VectorStore
-from typing import List, Dict, Any, Optional
-from core.logging import get_logger, with_request
-from core.config import settings
-
-logger = get_logger(__name__)
-
-class PineconeVectorStore(VectorStore):
-    def __init__(self):
-        try:
-            # Prefer gRPC for performance if installed, fallback to HTTP
-            try:
-                from pinecone.grpc import PineconeGRPC as Pinecone  # type: ignore
-                self._mode = "grpc"
-            except Exception:
-                from pinecone import Pinecone  # type: ignore
-                self._mode = "http"
-            self._pc = Pinecone(api_key=settings.PINECONE_API_KEY)
-            host = settings.PINECONE_HOST
-            if host:
-                self._index = self._pc.IndexHost(host)
-            else:
-                # New SDK uses pc.Index(name) for serverless; host is resolved internally
-                self._index = self._pc.Index(settings.PINECONE_INDEX)
-            self._namespace = settings.PINECONE_NAMESPACE or "default"
-        except Exception as e:
-            logger.error("pinecone_init_error", extra={"extra": {"err": str(e)}})
-            raise
-
-    def upsert(self, items: List[Dict[str, Any]], request_id: Optional[str] = None) -> Dict[str, Any]:
-        log = with_request(logger, request_id)
-        try:
-            vectors = [{"id": it["id"], "values": it["values"], "metadata": it.get("metadata", {})} for it in items]
-            res = self._index.upsert(vectors=vectors, namespace=self._namespace)
-            log.info("pinecone_upsert_ok", extra={"extra": {"count": len(vectors), "namespace": self._namespace, "mode": self._mode}})
-            return {"backend": "pinecone", "result": res}
-        except Exception as e:
-            log.error("pinecone_upsert_error", extra={"extra": {"err": str(e), "namespace": self._namespace}})
-            raise
-
-    def query(self, vector: List[float], top_k: int = 5, filter: Optional[Dict[str, Any]] = None, request_id: Optional[str] = None) -> Dict[str, Any]:
-        log = with_request(logger, request_id)
-        try:
-            res = self._index.query(
-                namespace=self._namespace,
-                vector=vector,
-                top_k=top_k,
-                include_values=False,
-                include_metadata=True,
-                filter=filter or None
-            )
-            log.info("pinecone_query_ok", extra={"extra": {"top_k": top_k, "namespace": self._namespace}})
-            return {"backend": "pinecone", "result": res}
-        except Exception as e:
-            log.error("pinecone_query_error", extra={"extra": {"err": str(e)}})
-            raise
-
-    def ping(self) -> Dict[str, Any]:
-        try:
-            stats = self._index.describe_index_stats()
-        except Exception:
-            # Some SDKs use .stats()
-            try:
-                stats = self._index.stats()
-            except Exception as e:
-                return {"ok": False, "error": str(e), "backend": "pinecone"}
-        return {"ok": True, "backend": "pinecone", "stats": stats}
 
 
