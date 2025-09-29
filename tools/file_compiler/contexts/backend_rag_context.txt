@@ -30,37 +30,44 @@ def simple_word_chunker(text: str, chunk_size: int = 1500, overlap: int = 150) -
 
 
 C:/code2/lbpr/backend/features/rag/embedder.py
-
-# Lightweight, dependency-free hashing embedder for MVP/happy-path.
-# Replace with a proper provider (OpenAI, Azure, local) later by implementing the same interface.
-
+# Embedding dispatcher: defaults to local hashing embedder, can switch to OpenAI via env.
 import math
+import os
 from typing import List
 
-DIM = 768  # keep it modest for speed
+RAG_EMBEDDER = os.getenv("RAG_EMBEDDER", "local").lower()
+
+DIM = 768  # local hashing dim
 
 def _hash_token(t: str) -> int:
-    # A simple, stable hash across runs
     h = 2166136261
     for ch in t:
         h ^= ord(ch)
         h = (h * 16777619) & 0xFFFFFFFF
     return h
 
-def embed_texts(texts: List[str]) -> List[List[float]]:
+def _local_embed_texts(texts: List[str]) -> List[List[float]]:
     vectors = []
     for txt in texts:
         vec = [0.0] * DIM
-        # char 3-grams for a tiny bit of semantics
         grams = [txt[i:i+3] for i in range(max(0, len(txt)-2))]
         for g in grams:
             idx = _hash_token(g) % DIM
             vec[idx] += 1.0
-        # L2 normalize
         norm = math.sqrt(sum(v*v for v in vec)) or 1.0
         vec = [v / norm for v in vec]
         vectors.append(vec)
     return vectors
+
+def _openai_embed_texts(texts: List[str]) -> List[List[float]]:
+    from .adapters.openai_embedder import OpenAIEmbedder
+    embedder = OpenAIEmbedder()
+    return embedder.embed_texts(texts)
+
+def embed_texts(texts: List[str]) -> List[List[float]]:
+    if RAG_EMBEDDER == "openai":
+        return _openai_embed_texts(texts)
+    return _local_embed_texts(texts)
 
 def embed_one(text: str) -> List[float]:
     return embed_texts([text])[0]
@@ -71,9 +78,9 @@ from typing import List, Dict
 from .schemas import QueryRequest, QueryResponse, Source, IngestRequest, IngestResponse
 from .chunker import simple_word_chunker
 from .embedder import embed_texts, embed_one
-from .vectorstore import InMemoryVectorStore
+from .vectorstore import get_store
 
-_store = InMemoryVectorStore()
+_store = get_store()
 
 def _ns(dataset: str, tenant_id: str | None) -> str:
     return f"t:{tenant_id or 'demo'}:{dataset}"
@@ -120,52 +127,43 @@ def query(req: QueryRequest) -> QueryResponse:
 
 
 C:/code2/lbpr/backend/features/rag/README.md
+# RAG Happy Path (MVP) — now with Pinecone + OpenAI adapters
 
-# RAG Happy Path (MVP)
+This slice now supports **production-grade** providers while preserving the original
+in-memory defaults (so local dev & tests still run without any external services).
 
-This slice provides a minimal, dependency-light RAG flow to unblock frontend integration and end-to-end testing.
+## Quick start
 
-## What it includes
+1) Choose providers via env vars:
+   - `RAG_EMBEDDER=openai` to use OpenAI embeddings (else falls back to local hasher)
+   - `RAG_VECTORSTORE=pinecone` to use Pinecone (else falls back to in-memory)
 
-- **Chunker**: simple word-count chunker with overlap.
-- **Embedder**: hashing-based character trigram embedder (768-dim) with L2 normalization (no external deps).
-- **Vector Store**: in-memory store with cosine similarity.
-- **Orchestrator**: ingest & query pipeline; naive answer composer (no LLM yet).
-- **FastAPI Router**: mounts under `/features/rag`
+2) Required configuration for OpenAI:
+   - `OPENAI_API_KEY=...`
+   - Optional: `RAG_EMBED_MODEL=text-embedding-3-small` (default) or `text-embedding-3-large`
 
-## Endpoints
+3) Required configuration for Pinecone:
+   - `PINECONE_API_KEY=...`
+   - `PINECONE_INDEX=lbpr-rag` (or any name)
+   - Optional: `PINECONE_CLOUD=aws` and `PINECONE_REGION=us-east-1`
+   - Optional: `RAG_EMBED_DIM=3072` to force a dimension for index creation
+     (otherwise we infer it from the first embedding at upsert time).
 
-- `POST /features/rag/ingest`
-  ```json
-  { "dataset": "demo", "text": "Your document text here", "metadata": {} }
-  ```
+The API surface under `/features/rag/*` is unchanged.
 
-- `POST /features/rag/query`
-  ```json
-  { "dataset": "demo", "query": "what is this about?", "k": 5 }
-  ```
+## Notes
 
-## Integrating into your app
+- Index creation is **automatic** on first upsert when using Pinecone. The adapter
+  infers the dimension from your embedding vector length and creates a serverless
+  cosine index if it doesn't exist yet.
+- You can keep using the existing endpoints:
+  - `POST /features/rag/ingest`
+  - `POST /features/rag/query`
+- Tenancy/namespace format stays `t:{tenant}:{dataset}`.
 
-```py
-# main.py
-from fastapi import FastAPI
-from features.rag.router import router as rag_router
+## Local dev (no external services)
 
-def create_app() -> FastAPI:
-    app = FastAPI()
-    app.include_router(rag_router)
-    return app
-
-app = create_app()
-```
-
-## Next steps
-
-- Swap embedder with a real provider.
-- Replace in-memory vector store with Qdrant/pgvector.
-- Add streaming + LLM answer generation.
-- Add doc/file loaders and storage for real ingestion.
+Omit the env vars above and you'll get the original hashing embedder and in-memory store.
 
 
 C:/code2/lbpr/backend/features/rag/router.py
@@ -228,27 +226,26 @@ class QueryResponse(BaseModel):
 
 
 C:/code2/lbpr/backend/features/rag/vectorstore.py
-
+# Vector store dispatcher: defaults to in-memory; can switch to Pinecone via env.
 from typing import Dict, List, Tuple
+import os
 import math
+
+RAG_VECTORSTORE = os.getenv("RAG_VECTORSTORE", "memory").lower()
 
 class InMemoryVectorStore:
     def __init__(self):
-        # dataset -> list of entries
-        # entry: {chunk_id, doc_id, vector, text, metadata}
         self._data: Dict[str, List[Dict]] = {}
 
     def upsert_chunks(self, dataset: str, entries: List[Dict]):
         self._data.setdefault(dataset, [])
-        # naive: append; in a real impl, dedup by (doc_id, chunk_id)
         self._data[dataset].extend(entries)
 
     @staticmethod
     def _cosine(a: List[float], b: List[float]) -> float:
-        # vectors are expected to be normalized already
         return sum(x*y for x, y in zip(a, b))
 
-    def query(self, dataset: str, query_vec: List[float], k: int = 5) -> List[Tuple[float, Dict]]:
+    def query(self, dataset: str, query_vec: List[float], k: int = 5):
         entries = self._data.get(dataset, [])
         scored = []
         for e in entries:
@@ -256,6 +253,15 @@ class InMemoryVectorStore:
             scored.append((s, e))
         scored.sort(key=lambda t: t[0], reverse=True)
         return scored[:k]
+
+def _pinecone_store():
+    from .adapters.pinecone_store import PineconeVectorStore
+    return PineconeVectorStore()
+
+def get_store():
+    if RAG_VECTORSTORE == "pinecone":
+        return _pinecone_store()
+    return InMemoryVectorStore()
 
 
 C:/code2/lbpr/backend/features/rag/contracts_router.py

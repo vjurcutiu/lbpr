@@ -2,9 +2,9 @@ from typing import List, Dict
 from .schemas import QueryRequest, QueryResponse, Source, IngestRequest, IngestResponse
 from .chunker import simple_word_chunker
 from .embedder import embed_texts, embed_one
-from .vectorstore import InMemoryVectorStore
+from .vectorstore import get_store
 
-_store = InMemoryVectorStore()
+_store = get_store()
 
 def _ns(dataset: str, tenant_id: str | None) -> str:
     return f"t:{tenant_id or 'demo'}:{dataset}"

@@ -1,0 +1,7 @@
+
+# In main.py, add:
+# from features.files import router as files_router
+# ...
+# app.include_router(files_router)   # exposes /v1/files
+#
+# Note: Our router already has prefix="/v1/files", so including once is enough.

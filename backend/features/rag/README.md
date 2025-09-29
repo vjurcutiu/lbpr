@@ -1,46 +1,37 @@
+# RAG Happy Path (MVP) — now with Pinecone + OpenAI adapters
 
-# RAG Happy Path (MVP)
+This slice now supports **production-grade** providers while preserving the original
+in-memory defaults (so local dev & tests still run without any external services).
 
-This slice provides a minimal, dependency-light RAG flow to unblock frontend integration and end-to-end testing.
+## Quick start
 
-## What it includes
+1) Choose providers via env vars:
+   - `RAG_EMBEDDER=openai` to use OpenAI embeddings (else falls back to local hasher)
+   - `RAG_VECTORSTORE=pinecone` to use Pinecone (else falls back to in-memory)
 
-- **Chunker**: simple word-count chunker with overlap.
-- **Embedder**: hashing-based character trigram embedder (768-dim) with L2 normalization (no external deps).
-- **Vector Store**: in-memory store with cosine similarity.
-- **Orchestrator**: ingest & query pipeline; naive answer composer (no LLM yet).
-- **FastAPI Router**: mounts under `/features/rag`
+2) Required configuration for OpenAI:
+   - `OPENAI_API_KEY=...`
+   - Optional: `RAG_EMBED_MODEL=text-embedding-3-small` (default) or `text-embedding-3-large`
 
-## Endpoints
+3) Required configuration for Pinecone:
+   - `PINECONE_API_KEY=...`
+   - `PINECONE_INDEX=lbpr-rag` (or any name)
+   - Optional: `PINECONE_CLOUD=aws` and `PINECONE_REGION=us-east-1`
+   - Optional: `RAG_EMBED_DIM=3072` to force a dimension for index creation
+     (otherwise we infer it from the first embedding at upsert time).
 
-- `POST /features/rag/ingest`
-  ```json
-  { "dataset": "demo", "text": "Your document text here", "metadata": {} }
-  ```
+The API surface under `/features/rag/*` is unchanged.
 
-- `POST /features/rag/query`
-  ```json
-  { "dataset": "demo", "query": "what is this about?", "k": 5 }
-  ```
+## Notes
 
-## Integrating into your app
+- Index creation is **automatic** on first upsert when using Pinecone. The adapter
+  infers the dimension from your embedding vector length and creates a serverless
+  cosine index if it doesn't exist yet.
+- You can keep using the existing endpoints:
+  - `POST /features/rag/ingest`
+  - `POST /features/rag/query`
+- Tenancy/namespace format stays `t:{tenant}:{dataset}`.
 
-```py
-# main.py
-from fastapi import FastAPI
-from features.rag.router import router as rag_router
+## Local dev (no external services)
 
-def create_app() -> FastAPI:
-    app = FastAPI()
-    app.include_router(rag_router)
-    return app
-
-app = create_app()
-```
-
-## Next steps
-
-- Swap embedder with a real provider.
-- Replace in-memory vector store with Qdrant/pgvector.
-- Add streaming + LLM answer generation.
-- Add doc/file loaders and storage for real ingestion.
+Omit the env vars above and you'll get the original hashing embedder and in-memory store.

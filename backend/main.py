@@ -15,7 +15,7 @@ from features.profile import routes as profile_routes
 from features.rag.router import router as rag_router
 # RAG Contracts router (already exposes /v1/search and /v1/chat)
 from features.rag.contracts_router import router as rag_contracts_router
-
+from features.files.router import router as files_router
 
 def create_app() -> FastAPI:
     # Initialize Firebase Admin once (skips in tests per core/firebase.py)
@@ -46,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(profile_routes.router)
     app.include_router(rag_router)               # /features/rag/ingest, /features/rag/query
     app.include_router(rag_contracts_router)     # /v1/search, /v1/chat (contracts)
+    app.include_router(files_router)
 
     # ---- Versioned mirrors ----
     # Keep mirrors for non-contract routers
