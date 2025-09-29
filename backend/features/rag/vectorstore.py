@@ -1,3 +1,4 @@
+
 # Vector store dispatcher: defaults to in-memory; can switch to Pinecone via env.
 from typing import Dict, List, Tuple
 import os

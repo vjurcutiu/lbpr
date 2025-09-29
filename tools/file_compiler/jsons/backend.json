@@ -3,6 +3,7 @@
   "files": ["C:\\code2\\lbpr\\backend\\main.py",
             "C:\\code2\\lbpr\\backend\\routers\\health.py",
             "C:\\code2\\lbpr\\backend\\core\\config.py",
-            "C:\\code2\\lbpr\\backend\\core\\firebase.py"
+            "C:\\code2\\lbpr\\backend\\core\\firebase.py",
+            "C:\\code2\\lbpr\\backend\\.env"
         ]
 }

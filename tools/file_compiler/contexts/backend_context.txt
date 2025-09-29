@@ -16,7 +16,7 @@ from features.profile import routes as profile_routes
 from features.rag.router import router as rag_router
 # RAG Contracts router (already exposes /v1/search and /v1/chat)
 from features.rag.contracts_router import router as rag_contracts_router
-
+from features.files.router import router as files_router
 
 def create_app() -> FastAPI:
     # Initialize Firebase Admin once (skips in tests per core/firebase.py)
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(profile_routes.router)
     app.include_router(rag_router)               # /features/rag/ingest, /features/rag/query
     app.include_router(rag_contracts_router)     # /v1/search, /v1/chat (contracts)
+    app.include_router(files_router)
 
     # ---- Versioned mirrors ----
     # Keep mirrors for non-contract routers
@@ -83,6 +84,7 @@ class Settings(BaseSettings):
     FIREBASE_PROJECT_ID: str = ""
     FIREBASE_CREDENTIALS: str | None = None
     FIREBASE_CREDENTIALS_DEFAULT: str = "/run/secrets/firebase_sa.json"
+    FIREBASE_STORAGE_BUCKET: str | None = None  # used by Files feature
 
     # Auth / cookies
     COOKIE_NAME: str = "fb_session"
@@ -95,6 +97,20 @@ class Settings(BaseSettings):
     # CORS / Hosts (tune per deployment)
     CORS_ALLOW_ORIGINS: list[str] = []
     TRUSTED_HOSTS: list[str] = ["*"]  # lock down in prod
+
+    # ── RAG / Embeddings / Vector store (aligns with .env) ─────────────────
+    RAG_EMBEDDER: Literal["local", "openai"] = "local"
+    OPENAI_API_KEY: str | None = None
+    RAG_EMBED_MODEL: str = "text-embedding-3-small"
+
+    RAG_VECTORSTORE: Literal["memory", "pinecone"] = "memory"
+    PINECONE_API_KEY: str | None = None
+    PINECONE_INDEX: str | None = None
+    PINECONE_CLOUD: str | None = None
+    PINECONE_REGION: str | None = None
+
+    # Optional override when creating Pinecone index (dimension inference otherwise)
+    RAG_EMBED_DIM: int | None = None
 
     class Config:
         env_file = ".env"
@@ -204,4 +220,33 @@ def init_firebase():
     firebase_admin.initialize_app(cred, {"projectId": settings.FIREBASE_PROJECT_ID})
     _firebase_initialized = True
 
+
+C:/code2/lbpr/backend/.env
+ENV=dev
+FIREBASE_PROJECT_ID="lexbot-pro"
+FIREBASE_CREDENTIALS="C:/code2/lbpr/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json"
+FIREBASE_CREDENTIALS_DEFAULT="C:/code2/lbpr/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json"
+
+COOKIE_NAME=fb_session
+SESSION_HOURS=8
+COOKIE_SECURE=false
+COOKIE_SAMESITE=lax
+COOKIE_PATH=/
+# COOKIE_DOMAIN=app.example.com
+
+# For CORS/hosts (set in prod)
+# CORS_ALLOW_ORIGINS=["https://app.example.com"]
+# TRUSTED_HOSTS=["app.example.com"]
+
+RAG_EMBEDDER=openai
+OPENAI_API_KEY=REDACTED_OPENAI_API_KEY
+RAG_EMBED_MODEL=text-embedding-3-small
+RAG_VECTORSTORE=pinecone
+PINECONE_API_KEY=REDACTED_PINECONE_API_KEY
+PINECONE_INDEX=lbpr
+PINECONE_CLOUD=aws
+PINECONE_REGION=us-east-1
+RAG_EMBED_DIM=1536
+
+FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
 

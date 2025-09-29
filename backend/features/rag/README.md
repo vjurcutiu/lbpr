@@ -1,3 +1,4 @@
+
 # RAG Happy Path (MVP) — now with Pinecone + OpenAI adapters
 
 This slice now supports **production-grade** providers while preserving the original

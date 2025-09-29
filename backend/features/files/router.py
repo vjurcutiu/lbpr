@@ -21,9 +21,10 @@ def list_files(x_tenant_id: Optional[str] = Header(default=None, convert_undersc
 def create_file(
     file: UploadFile = File(...),
     x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False),
+    dataset: str = "default",
 ):
     try:
-        return service.upload_file(x_tenant_id, file)
+        return service.upload_file(x_tenant_id, file, dataset=dataset)
     except ValueError as ve:
         raise HTTPException(status_code=413, detail=str(ve))
     except Exception as e:

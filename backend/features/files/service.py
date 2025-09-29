@@ -34,20 +34,50 @@ def _hash_bytes(b: bytes) -> str:
 
 def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Optional[str]:
     """
-    Minimal extractor to keep dependencies light.
-    - For text/*, application/json, application/xml: decode as utf-8
-    - Markdown (.md): decode as utf-8
-    - PDF/DOCX are not handled here (skipped)
+    Best-effort text extraction:
+    - For text/*, application/json, application/xml, csv, md: decode as utf-8
+    - PDF via pypdf (if installed)
+    - DOCX via python-docx (if installed)
+    Other formats return None.
     """
     ct = (content_type or "").lower()
     name_lower = name.lower()
     try:
+        # Simple text-ish types
         if ct.startswith("text/") or ct in {"application/json","application/xml"}:
             return data.decode("utf-8", errors="ignore")
         if ct == "text/markdown" or name_lower.endswith(".md") or name_lower.endswith(".markdown"):
             return data.decode("utf-8", errors="ignore")
-        if name_lower.endswith(".txt") or name_lower.endswith(".json") or name_lower.endswith(".xml") or name_lower.endswith(".csv"):
+        if name_lower.endswith((".txt", ".json", ".xml", ".csv")):
             return data.decode("utf-8", errors="ignore")
+
+        # PDF (optional)
+        if ct == "application/pdf" or name_lower.endswith(".pdf"):
+            try:
+                from pypdf import PdfReader  # type: ignore
+                reader = PdfReader(io.BytesIO(data))
+                pages = []
+                for p in reader.pages:
+                    try:
+                        pages.append(p.extract_text() or "")
+                    except Exception:
+                        pages.append("")
+                text = "\n".join(pages).strip()
+                return text or None
+            except Exception:
+                return None
+
+        # DOCX (optional)
+        if ct in {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"} or name_lower.endswith(".docx"):
+            try:
+                import docx  # type: ignore
+                f = io.BytesIO(data)
+                d = docx.Document(f)  # type: ignore
+                paragraphs = [para.text for para in d.paragraphs if para.text]
+                return "\n".join(paragraphs) or None
+            except Exception:
+                return None
+
     except Exception:
         return None
     return None

@@ -22,3 +22,6 @@ python-multipart==0.0.20
 # AI SDKs
 openai>=1.0,<2.0            # new v1 API style
 pinecone>=5.1.0,<6.0        # package is 'pinecone' (renamed from pinecone-client)
+
+pypdf>=6.1.0,<7.0.0
+python-docx>=1.2.0,<2.0.0

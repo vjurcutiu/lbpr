@@ -9,7 +9,10 @@
             "C:\\code2\\lbpr\\backend\\features\\rag\\router.py",
             "C:\\code2\\lbpr\\backend\\features\\rag\\schemas.py",
             "C:\\code2\\lbpr\\backend\\features\\rag\\vectorstore.py",
-            "C:\\code2\\lbpr\\backend\\features\\rag\\contracts_router.py"
-            
+            "C:\\code2\\lbpr\\backend\\features\\rag\\contracts_router.py",
+            "C:\\code2\\lbpr\\backend\\features\\files\\__init__.py",
+            "C:\\code2\\lbpr\\backend\\features\\files\\router.py",
+            "C:\\code2\\lbpr\\backend\\features\\files\\schemas.py",
+            "C:\\code2\\lbpr\\backend\\features\\files\\service.py"
         ]
 }
