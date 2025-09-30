@@ -1,7 +1,3 @@
-
-# OpenAI Embedding Adapter
-# Uses the modern OpenAI Python SDK (>=1.0): `from openai import OpenAI`
-# Respects: OPENAI_API_KEY, RAG_EMBED_MODEL (default: text-embedding-3-small)
 from __future__ import annotations
 
 import os
@@ -13,7 +9,7 @@ log = logging.getLogger("rag.openai")
 
 try:
     from openai import OpenAI
-except Exception as e:  # pragma: no cover - import error surfaced at runtime
+except Exception as e:  # pragma: no cover
     OpenAI = None  # type: ignore
 
 DEFAULT_MODEL = os.getenv("RAG_EMBED_MODEL", "text-embedding-3-small")

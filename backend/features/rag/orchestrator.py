@@ -1,6 +1,5 @@
-
 from typing import List, Dict
-import logging
+import logging, time
 from .schemas import QueryRequest, QueryResponse, Source, IngestRequest, IngestResponse
 from .chunker import simple_word_chunker
 from .embedder import embed_texts, embed_one, RAG_EMBEDDER
@@ -14,6 +13,7 @@ def _ns(dataset: str, tenant_id: str | None) -> str:
     return f"t:{tenant_id or 'demo'}:{dataset}"
 
 def ingest(req: IngestRequest) -> IngestResponse:
+    t0 = time.time()
     if not req.text:
         raise ValueError("text is required for MVP ingest")
     chunks = simple_word_chunker(req.text)
@@ -41,7 +41,8 @@ def ingest(req: IngestRequest) -> IngestResponse:
     ns = _ns(req.dataset, tenant_id)
     log.info("upsert_start", ns=ns, entries=len(entries))
     _store.upsert_chunks(ns, entries)
-    log.info("upsert_done", ns=ns, entries=len(entries))
+    dur_ms = int((time.time() - t0) * 1000)
+    log.info("upsert_done", ns=ns, entries=len(entries), dur_ms=dur_ms)
     return IngestResponse(dataset=req.dataset, doc_id=doc_id, chunk_ids=[e["chunk_id"] for e in entries])
 
 def _compose_answer(query: str, hits: List[Source]) -> str:
@@ -49,6 +50,7 @@ def _compose_answer(query: str, hits: List[Source]) -> str:
     return f"Here are the most relevant snippets I found for: '{query}'\n\n{snippets}"
 
 def query(req: QueryRequest) -> QueryResponse:
+    t0 = time.time()
     qvec = embed_one(req.query)
     ns = _ns(req.dataset, None)
     log.info("query_start", ns=ns, k=req.k)
@@ -63,6 +65,7 @@ def query(req: QueryRequest) -> QueryResponse:
         )
         for score, e in results
     ]
-    log.info("query_results", ns=ns, found=len(sources))
+    dur_ms = int((time.time() - t0) * 1000)
+    log.info("query_results", ns=ns, found=len(sources), dur_ms=dur_ms)
     answer = _compose_answer(req.query, sources)
     return QueryResponse(dataset=req.dataset, query=req.query, answer=answer, sources=sources)

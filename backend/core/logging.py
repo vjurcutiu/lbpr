@@ -34,13 +34,7 @@ class JsonFormatter(logging.Formatter):
 _ORIG_LOG = None
 
 def _patch_logging_to_allow_kv():
-    """Monkey-patch logging.Logger._log to accept key=value kwargs.
-
-    Any unexpected keyword args passed to logger methods (info, warning, etc.)
-    are merged into the `extra` dict, so code like:
-        log.info("event_name", user_id=123, status="ok")
-    works without raising `TypeError: Logger._log() got an unexpected keyword arg ...`.
-    """
+    """Monkey-patch logging.Logger._log to accept key=value kwargs."""
     global _ORIG_LOG
     if _ORIG_LOG is not None:
         return
@@ -48,11 +42,9 @@ def _patch_logging_to_allow_kv():
 
     def _log(self, level, msg, args,
              exc_info=None, extra=None, stack_info=False, stacklevel=1, **kwargs):
-        # Merge arbitrary kv into `extra`.
         if kwargs:
             if extra is None:
                 extra = {}
-            # don't let kwargs overwrite reserved keys in record
             reserved = {
                 "name","msg","args","levelname","levelno","pathname",
                 "filename","module","exc_info","exc_text","stack_info",
@@ -61,7 +53,6 @@ def _patch_logging_to_allow_kv():
             }
             for k in list(kwargs.keys()):
                 if k in reserved:
-                    # prefix if someone accidentally used a reserved key
                     kwargs[f"field_{k}"] = kwargs.pop(k)
             extra.update(kwargs)
         return _ORIG_LOG(self, level, msg, args,
@@ -71,9 +62,7 @@ def _patch_logging_to_allow_kv():
     logging.Logger._log = _log
 
 def setup_logging() -> None:
-    # Ensure kv logging works before any handlers process records.
     _patch_logging_to_allow_kv()
-
     root = logging.getLogger()
     if root.handlers:
         return  # already configured

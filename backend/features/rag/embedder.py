@@ -1,5 +1,3 @@
-
-# Embedding dispatcher: defaults to local hashing embedder, can switch to OpenAI via env.
 import math
 import os
 import logging

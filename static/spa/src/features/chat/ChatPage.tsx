@@ -9,10 +9,7 @@ import { listFiles } from "@/features/files/api";
 
 type FileItem = { id: string; name: string; size: number; created_at?: string };
 
-/** If you already have tenant in auth state, wire it here */
 function useTenantId() {
-  // TODO: replace with your auth/tenant selector.
-  // Contract requires a tenant_id string.
   return "tenant_demo";
 }
 
@@ -29,6 +26,7 @@ type RenderMessage = {
   content: string;
   citations?: chatApi.Citation[];
   created_at?: string;
+  trace_id?: string;
 };
 
 export default function ChatPage() {
@@ -37,7 +35,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
-  const [streamEnabled] = useState(false); // optional: flip to true when WS is wired
+  const [streamEnabled] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const tenantId = useTenantId();
 
@@ -71,11 +69,9 @@ export default function ChatPage() {
     e?.preventDefault();
     if (!canSend) return;
 
-    // If you want to hint attachments to the LLM while respecting contracts,
-    // fold them into the user content as a brief note (server still does RAG retrieval).
     const attachmentNote =
       selectedFileIds.length > 0
-        ? `\n\n[Attached files: ${selectedFileIds.join(", ")}]`
+        ? `\\n\\n[Attached files: ${selectedFileIds.join(", ")}]`
         : "";
 
     const userMsg: RenderMessage = {
@@ -88,37 +84,39 @@ export default function ChatPage() {
     setMessages(prev => [...prev, userMsg]);
     setSending(true);
 
+    const traceId = cryptoRandomId();
+    console.debug("[chat] sending", { traceId, tenantId, len: userMsg.content.length });
+
     try {
       const req: chatApi.ChatRequest = {
         tenant_id: tenantId,
         message: userMsg.content,
         history: historyForRequest,
-        // Let server default max_context; keep explicit if you want:
-        // max_context: 6,
         stream: streamEnabled,
       };
 
-      const res = await chatApi.sendChat(req);
+      const res = await chatApi.sendChat(req, traceId);
 
-      // Contract: ChatResponse -> render as assistant message
       const assistantMsg: RenderMessage = {
         id: cryptoRandomId(),
         role: "assistant",
         content: res.answer,
         citations: res.citations ?? [],
         created_at: new Date().toISOString(),
+        trace_id: (res as any).__trace_id,
       };
 
       setMessages(prev => [...prev, assistantMsg]);
       setInput("");
-      // res.usage available if you want to show token stats, etc.
+      console.debug("[chat] ok", { traceId, retrieved: res.usage?.retrieved });
     } catch (err: any) {
       const errMsg: RenderMessage = {
         id: cryptoRandomId(),
         role: "system",
-        content: err?.message || "Failed to send message",
+        content: (err?.message || "Failed to send message") + (traceId ? ` (trace ${traceId})` : ""),
       };
       setMessages(prev => [...prev, errMsg]);
+      console.error("[chat] error", { traceId, err });
     } finally {
       setSending(false);
     }
@@ -132,7 +130,6 @@ export default function ChatPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl h-[calc(100vh-8rem)] card p-0 overflow-hidden flex flex-col">
-      {/* Thread area */}
       <div ref={listRef} className="flex-1 overflow-auto">
         {!hasThread ? (
           <EmptyState suggestions={STARTER_SUGGESTIONS} onPick={onPickSuggestion} />
@@ -147,10 +144,8 @@ export default function ChatPage() {
 
       <Separator />
 
-      {/* Composer (sticky bottom) */}
       <form onSubmit={onSubmit} className="p-3 sm:p-4 sticky bottom-0 bg-background">
         <div className="rounded-2xl border border-input bg-background shadow-sm">
-          {/* Attachments bar (chips) */}
           {selectedFileIds.length > 0 && (
             <div className="px-3 py-2 flex flex-wrap gap-2 border-b border-input bg-secondary/50">
               {selectedFileIds.map(fid => {
@@ -192,12 +187,7 @@ export default function ChatPage() {
   );
 }
 
-/** ---------- Pieces ---------- */
-
-function EmptyState({
-  suggestions,
-  onPick,
-}: { suggestions: string[]; onPick: (s: string) => void }) {
+function EmptyState({ suggestions, onPick }: { suggestions: string[]; onPick: (s: string) => void }) {
   return (
     <div className="flex h-[60vh] items-center justify-center">
       <div className="text-center px-6 max-w-2xl">
@@ -300,7 +290,6 @@ function AttachPopover({
   selected: string[];
   toggle: (id: string) => void;
 }) {
-  // Kept simple & inline to avoid adding a new Sheet/Popover dependency for now.
   return (
     <div className="relative">
       <details className="group">
@@ -341,9 +330,7 @@ function AttachPopover({
   );
 }
 
-/** Utilities */
 function cryptoRandomId() {
-  // prefer crypto if available for fewer collisions
   if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
     const buf = new Uint32Array(2);
     crypto.getRandomValues(buf);

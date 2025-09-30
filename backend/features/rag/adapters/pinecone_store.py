@@ -1,10 +1,3 @@
-
-# Pinecone Vector Store Adapter
-# Uses the pinecone SDK (`pip install pinecone-client` or `pinecone`)
-# Required env: PINECONE_API_KEY, PINECONE_INDEX. Optional: PINECONE_CLOUD, PINECONE_REGION
-# The adapter will auto-create the index if it does not exist, inferring the dimension
-# from the first vector you upsert (or via RAG_EMBED_DIM env override).
-
 from __future__ import annotations
 
 import os
@@ -83,6 +76,7 @@ class PineconeVectorStore:
         vectors = []
         ns = dataset
         for e in entries:
+            # IMPORTANT: only pinecone-serializable metadata (no nested objects)
             vectors.append({
                 "id": f"{e['doc_id']}::{e['chunk_id']}",
                 "values": e["vector"],

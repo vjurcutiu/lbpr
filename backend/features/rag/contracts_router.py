@@ -1,7 +1,7 @@
-
 from typing import Optional, List
-from fastapi import APIRouter, Header, HTTPException, Depends, Query
+from fastapi import APIRouter, Header, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
+import logging, time
 
 from .embedder import embed_one
 from .vectorstore import InMemoryVectorStore
@@ -9,6 +9,7 @@ from .chunker import simple_word_chunker
 from . import orchestrator
 
 router = APIRouter(tags=["RAG (Contracts)"])
+log = logging.getLogger("rag.contracts")
 
 class DocHit(BaseModel):
     id: str
@@ -55,11 +56,14 @@ def _mk_snippet(text: str, max_len: int = 280) -> str:
 
 @router.get("/v1/search", response_model=SearchResults)
 def search(
+    request: Request,
     q: str = Query(..., description="Search query"),
     limit: int = Query(10, ge=1, le=50),
     x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False),
+    x_trace_id: Optional[str] = Header(default=None, convert_underscores=False),
     dataset: str = Query("default", description="Logical dataset (namespace within tenant)"),
 ):
+    t0 = time.time()
     tenant_id = _tenant_from_header(x_tenant_id) or "demo"
     ns = _ns(dataset, tenant_id)
     qvec = embed_one(q)
@@ -67,7 +71,6 @@ def search(
     items: List[DocHit] = []
     for score, e in results:
         title = e["metadata"].get("title") or e["doc_id"]
-        span = e["metadata"].get("span")
         items.append(
             DocHit(
                 id=f'{e["doc_id"]}:{e["chunk_id"]}',
@@ -76,34 +79,53 @@ def search(
                 snippet=_mk_snippet(e["text"]),
             )
         )
+    dur_ms = int((time.time() - t0) * 1000)
+    log.info("contracts_search_ok", q=q, limit=limit, ns=ns, total=len(items), dur_ms=dur_ms,
+             trace_id=x_trace_id or getattr(request.state, "trace_id", None), tenant_id=tenant_id)
     return SearchResults(total=len(items), items=items)
 
 @router.post("/v1/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
+def chat(req: ChatRequest, request: Request, x_trace_id: Optional[str] = Header(default=None, convert_underscores=False)):
+    t0 = time.time()
     tenant_id = req.tenant_id or "demo"
     ns = _ns("default", tenant_id)
-    qvec = embed_one(req.message)
-    hits = _store.query(ns, qvec, k=req.max_context)
-    snippets = []
-    citations: List[Citation] = []
-    for score, e in hits:
-        snippets.append(f"- {e['text'].strip()}")
-        span = e.get("metadata", {}).get("span")
-        citations.append(
-            Citation(
-                doc_id=e["doc_id"],
-                title=e.get("metadata", {}).get("title"),
-                span=str(span) if span else None,
+    try:
+        qvec = embed_one(req.message)
+        hits = _store.query(ns, qvec, k=req.max_context)
+        snippets = []
+        citations: List[Citation] = []
+        for score, e in hits:
+            snippets.append(f"- {e['text'].strip()}")
+            span = e.get("metadata", {}).get("span")
+            citations.append(
+                Citation(
+                    doc_id=e["doc_id"],
+                    title=e.get("metadata", {}).get("title"),
+                    span=str(span) if span else None,
+                )
             )
+        answer = (
+            f"Here are the most relevant snippets for: '{req.message}'\n\n"
+            + "\n\n".join(snippets)
+            if snippets
+            else "I couldn’t find relevant context yet."
         )
-    answer = (
-        f"Here are the most relevant snippets for: '{req.message}'\n\n"
-        + "\n\n".join(snippets)
-        if snippets
-        else "I couldn’t find relevant context yet."
-    )
-    return ChatResponse(
-        answer=answer,
-        citations=citations,
-        usage={"retrieved": len(hits)},
-    )
+        dur_ms = int((time.time() - t0) * 1000)
+        log.info("contracts_chat_ok",
+                 ns=ns, message_len=len(req.message),
+                 history=len(req.history or []), retrieved=len(hits),
+                 dur_ms=dur_ms,
+                 trace_id=x_trace_id or getattr(request.state, "trace_id", None),
+                 tenant_id=tenant_id)
+        return ChatResponse(
+            answer=answer,
+            citations=citations,
+            usage={"retrieved": len(hits)},
+        )
+    except Exception:
+        dur_ms = int((time.time() - t0) * 1000)
+        log.exception("contracts_chat_error",
+                      ns=ns, dur_ms=dur_ms,
+                      trace_id=x_trace_id or getattr(request.state, "trace_id", None),
+                      tenant_id=tenant_id)
+        raise HTTPException(status_code=500, detail="chat_failed")
