@@ -1,12 +1,21 @@
 from typing import Optional, List
 from fastapi import APIRouter, Header, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
-import logging, time
+import logging, time, os
 
 from .embedder import embed_one
 from .vectorstore import InMemoryVectorStore
-from .chunker import simple_word_chunker
 from . import orchestrator
+
+# Optional LLM (OpenAI). If not configured, we fall back to snippet echo.
+USE_LLM = bool(os.getenv("OPENAI_API_KEY"))
+
+if USE_LLM:
+    try:
+        from .adapters.openai_chat import OpenAIChat
+    except Exception as _e:
+        OpenAIChat = None  # type: ignore
+        USE_LLM = False
 
 router = APIRouter(tags=["RAG (Contracts)"])
 log = logging.getLogger("rag.contracts")
@@ -66,12 +75,6 @@ def search(
     t0 = time.time()
     tenant_id = _tenant_from_header(x_tenant_id) or "demo"
     ns = _ns(dataset, tenant_id)
-    trace = x_trace_id or getattr(request.state, "trace_id", None)
-
-    log.info("contracts_search_start",
-             q=q, limit=limit, ns=ns,
-             trace_id=trace, tenant_id=tenant_id, client=str(request.client))
-
     qvec = embed_one(q)
     results = _store.query(ns, qvec, k=limit)
     items: List[DocHit] = []
@@ -87,64 +90,93 @@ def search(
         )
     dur_ms = int((time.time() - t0) * 1000)
     log.info("contracts_search_ok", q=q, limit=limit, ns=ns, total=len(items), dur_ms=dur_ms,
-             trace_id=trace, tenant_id=tenant_id)
+             trace_id=x_trace_id or getattr(request.state, "trace_id", None), tenant_id=tenant_id)
     return SearchResults(total=len(items), items=items)
+
+def _build_context_from_hits(hits) -> List[str]:
+    snippets: List[str] = []
+    for _score, e in hits:
+        snippets.append(f"- {e['text'].strip()}".strip())
+    return snippets
 
 @router.post("/v1/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, request: Request, x_trace_id: Optional[str] = Header(default=None, convert_underscores=False)):
     t0 = time.time()
     tenant_id = req.tenant_id or "demo"
     ns = _ns("default", tenant_id)
-    trace = x_trace_id or getattr(request.state, "trace_id", None)
-
-    # Request envelope log (no bodies)
-    log.info("contracts_chat_start",
-             ns=ns,
-             message_len=len(req.message or ""),
-             history=len(req.history or []),
-             max_context=req.max_context,
-             stream=req.stream,
-             trace_id=trace, tenant_id=tenant_id, client=str(request.client))
-
+    retrieved = 0
     try:
         qvec = embed_one(req.message)
         hits = _store.query(ns, qvec, k=req.max_context)
+        retrieved = len(hits)
 
-        if not hits:
-            log.info("contracts_chat_no_hits", ns=ns, trace_id=trace, tenant_id=tenant_id)
-
-        snippets = []
+        # Build citations (even if we later choose to not strictly quote them in prose)
         citations: List[Citation] = []
-        for score, e in hits:
-            snippets.append(f"- {e['text'].strip()}")
-            span = e.get("metadata", {}).get("span")
-            citations.append(
-                Citation(
-                    doc_id=e["doc_id"],
-                    title=e.get("metadata", {}).get("title"),
-                    span=str(span) if span else None,
+        for _score, e in hits:
+            span_start = e.get("metadata", {}).get("span_start")
+            span_end = e.get("metadata", {}).get("span_end")
+            span = f"{span_start}-{span_end}" if (span_start is not None and span_end is not None) else None
+            citations.append(Citation(doc_id=e["doc_id"], title=e.get("metadata", {}).get("title"), span=span))
+
+        # Decide answer path
+        answer_text: str
+        model_used = None
+
+        if USE_LLM and OpenAIChat is not None:
+            chat = OpenAIChat()
+            model_used = chat.model
+            snippets = _build_context_from_hits(hits)
+
+            if snippets:
+                system = (
+                    "You are an expert assistant. Answer the user's question using ONLY the provided context.\n"
+                    "If the answer is not present in the context, say you don't know. Keep it concise."
                 )
+                user_content = f"Question: {req.message}\n\nContext:\n" + "\n".join(snippets)
+            else:
+                system = (
+                    "You are a helpful general assistant. No RAG context is available for this turn.\n"
+                    "Answer from general knowledge. If the user asks about their private data, explain that no context was retrieved."
+                )
+                user_content = req.message
+
+            try:
+                answer_text = chat.generate(system=system, user=user_content, history=(req.history or []))
+            except Exception:
+                # On LLM failure, fall back to old behavior
+                snippets = _build_context_from_hits(hits)
+                answer_text = (
+                    f"Here are the most relevant snippets for: '{req.message}'\n\n" + "\n\n".join(snippets)
+                    if snippets else "I couldn’t find relevant context yet."
+                )
+                model_used = None
+        else:
+            # No LLM configured: original snippet behavior
+            snippets = _build_context_from_hits(hits)
+            answer_text = (
+                f"Here are the most relevant snippets for: '{req.message}'\n\n" + "\n\n".join(snippets)
+                if snippets else "I couldn’t find relevant context yet."
             )
-        answer = (
-            f"Here are the most relevant snippets for: '{req.message}'\n\n"
-            + "\n\n".join(snippets)
-            if snippets
-            else "I couldn’t find relevant context yet."
-        )
+
         dur_ms = int((time.time() - t0) * 1000)
         log.info("contracts_chat_ok",
                  ns=ns, message_len=len(req.message),
-                 history=len(req.history or []), retrieved=len(hits),
+                 history=len(req.history or []), retrieved=retrieved,
+                 llm=bool(model_used), model=model_used,
                  dur_ms=dur_ms,
-                 trace_id=trace, tenant_id=tenant_id)
-        return ChatResponse(
-            answer=answer,
-            citations=citations,
-            usage={"retrieved": len(hits)},
-        )
+                 trace_id=x_trace_id or getattr(request.state, "trace_id", None),
+                 tenant_id=tenant_id)
+
+        usage = {"retrieved": retrieved}
+        if model_used:
+            usage["model"] = model_used
+
+        return ChatResponse(answer=answer_text, citations=citations, usage=usage)
+
     except Exception:
         dur_ms = int((time.time() - t0) * 1000)
         log.exception("contracts_chat_error",
                       ns=ns, dur_ms=dur_ms,
-                      trace_id=trace, tenant_id=tenant_id)
+                      trace_id=x_trace_id or getattr(request.state, "trace_id", None),
+                      tenant_id=tenant_id)
         raise HTTPException(status_code=500, detail="chat_failed")
