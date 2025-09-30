@@ -2,7 +2,6 @@ C:/code2/lbpr/backend/features/rag/__init__.py
 
 
 C:/code2/lbpr/backend/features/rag/chunker.py
-
 from typing import List, Dict
 from math import floor
 
@@ -31,10 +30,10 @@ def simple_word_chunker(text: str, chunk_size: int = 1500, overlap: int = 150) -
 
 
 C:/code2/lbpr/backend/features/rag/contracts_router.py
-
 from typing import Optional, List
-from fastapi import APIRouter, Header, HTTPException, Depends, Query
+from fastapi import APIRouter, Header, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
+import logging, time
 
 from .embedder import embed_one
 from .vectorstore import InMemoryVectorStore
@@ -42,6 +41,7 @@ from .chunker import simple_word_chunker
 from . import orchestrator
 
 router = APIRouter(tags=["RAG (Contracts)"])
+log = logging.getLogger("rag.contracts")
 
 class DocHit(BaseModel):
     id: str
@@ -88,11 +88,14 @@ def _mk_snippet(text: str, max_len: int = 280) -> str:
 
 @router.get("/v1/search", response_model=SearchResults)
 def search(
+    request: Request,
     q: str = Query(..., description="Search query"),
     limit: int = Query(10, ge=1, le=50),
     x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False),
+    x_trace_id: Optional[str] = Header(default=None, convert_underscores=False),
     dataset: str = Query("default", description="Logical dataset (namespace within tenant)"),
 ):
+    t0 = time.time()
     tenant_id = _tenant_from_header(x_tenant_id) or "demo"
     ns = _ns(dataset, tenant_id)
     qvec = embed_one(q)
@@ -100,7 +103,6 @@ def search(
     items: List[DocHit] = []
     for score, e in results:
         title = e["metadata"].get("title") or e["doc_id"]
-        span = e["metadata"].get("span")
         items.append(
             DocHit(
                 id=f'{e["doc_id"]}:{e["chunk_id"]}',
@@ -109,42 +111,59 @@ def search(
                 snippet=_mk_snippet(e["text"]),
             )
         )
+    dur_ms = int((time.time() - t0) * 1000)
+    log.info("contracts_search_ok", q=q, limit=limit, ns=ns, total=len(items), dur_ms=dur_ms,
+             trace_id=x_trace_id or getattr(request.state, "trace_id", None), tenant_id=tenant_id)
     return SearchResults(total=len(items), items=items)
 
 @router.post("/v1/chat", response_model=ChatResponse)
-def chat(req: ChatRequest):
+def chat(req: ChatRequest, request: Request, x_trace_id: Optional[str] = Header(default=None, convert_underscores=False)):
+    t0 = time.time()
     tenant_id = req.tenant_id or "demo"
     ns = _ns("default", tenant_id)
-    qvec = embed_one(req.message)
-    hits = _store.query(ns, qvec, k=req.max_context)
-    snippets = []
-    citations: List[Citation] = []
-    for score, e in hits:
-        snippets.append(f"- {e['text'].strip()}")
-        span = e.get("metadata", {}).get("span")
-        citations.append(
-            Citation(
-                doc_id=e["doc_id"],
-                title=e.get("metadata", {}).get("title"),
-                span=str(span) if span else None,
+    try:
+        qvec = embed_one(req.message)
+        hits = _store.query(ns, qvec, k=req.max_context)
+        snippets = []
+        citations: List[Citation] = []
+        for score, e in hits:
+            snippets.append(f"- {e['text'].strip()}")
+            span = e.get("metadata", {}).get("span")
+            citations.append(
+                Citation(
+                    doc_id=e["doc_id"],
+                    title=e.get("metadata", {}).get("title"),
+                    span=str(span) if span else None,
+                )
             )
+        answer = (
+            f"Here are the most relevant snippets for: '{req.message}'\n\n"
+            + "\n\n".join(snippets)
+            if snippets
+            else "I couldn’t find relevant context yet."
         )
-    answer = (
-        f"Here are the most relevant snippets for: '{req.message}'\n\n"
-        + "\n\n".join(snippets)
-        if snippets
-        else "I couldn’t find relevant context yet."
-    )
-    return ChatResponse(
-        answer=answer,
-        citations=citations,
-        usage={"retrieved": len(hits)},
-    )
+        dur_ms = int((time.time() - t0) * 1000)
+        log.info("contracts_chat_ok",
+                 ns=ns, message_len=len(req.message),
+                 history=len(req.history or []), retrieved=len(hits),
+                 dur_ms=dur_ms,
+                 trace_id=x_trace_id or getattr(request.state, "trace_id", None),
+                 tenant_id=tenant_id)
+        return ChatResponse(
+            answer=answer,
+            citations=citations,
+            usage={"retrieved": len(hits)},
+        )
+    except Exception:
+        dur_ms = int((time.time() - t0) * 1000)
+        log.exception("contracts_chat_error",
+                      ns=ns, dur_ms=dur_ms,
+                      trace_id=x_trace_id or getattr(request.state, "trace_id", None),
+                      tenant_id=tenant_id)
+        raise HTTPException(status_code=500, detail="chat_failed")
 
 
 C:/code2/lbpr/backend/features/rag/embedder.py
-
-# Embedding dispatcher: defaults to local hashing embedder, can switch to OpenAI via env.
 import math
 import os
 import logging
@@ -193,9 +212,8 @@ def embed_one(text: str) -> List[float]:
 
 
 C:/code2/lbpr/backend/features/rag/orchestrator.py
-
 from typing import List, Dict
-import logging
+import logging, time
 from .schemas import QueryRequest, QueryResponse, Source, IngestRequest, IngestResponse
 from .chunker import simple_word_chunker
 from .embedder import embed_texts, embed_one, RAG_EMBEDDER
@@ -209,6 +227,7 @@ def _ns(dataset: str, tenant_id: str | None) -> str:
     return f"t:{tenant_id or 'demo'}:{dataset}"
 
 def ingest(req: IngestRequest) -> IngestResponse:
+    t0 = time.time()
     if not req.text:
         raise ValueError("text is required for MVP ingest")
     chunks = simple_word_chunker(req.text)
@@ -236,7 +255,8 @@ def ingest(req: IngestRequest) -> IngestResponse:
     ns = _ns(req.dataset, tenant_id)
     log.info("upsert_start", ns=ns, entries=len(entries))
     _store.upsert_chunks(ns, entries)
-    log.info("upsert_done", ns=ns, entries=len(entries))
+    dur_ms = int((time.time() - t0) * 1000)
+    log.info("upsert_done", ns=ns, entries=len(entries), dur_ms=dur_ms)
     return IngestResponse(dataset=req.dataset, doc_id=doc_id, chunk_ids=[e["chunk_id"] for e in entries])
 
 def _compose_answer(query: str, hits: List[Source]) -> str:
@@ -244,6 +264,7 @@ def _compose_answer(query: str, hits: List[Source]) -> str:
     return f"Here are the most relevant snippets I found for: '{query}'\n\n{snippets}"
 
 def query(req: QueryRequest) -> QueryResponse:
+    t0 = time.time()
     qvec = embed_one(req.query)
     ns = _ns(req.dataset, None)
     log.info("query_start", ns=ns, k=req.k)
@@ -258,7 +279,8 @@ def query(req: QueryRequest) -> QueryResponse:
         )
         for score, e in results
     ]
-    log.info("query_results", ns=ns, found=len(sources))
+    dur_ms = int((time.time() - t0) * 1000)
+    log.info("query_results", ns=ns, found=len(sources), dur_ms=dur_ms)
     answer = _compose_answer(req.query, sources)
     return QueryResponse(dataset=req.dataset, query=req.query, answer=answer, sources=sources)
 
@@ -305,7 +327,6 @@ Omit the env vars above and you'll get the original hashing embedder and in-memo
 
 
 C:/code2/lbpr/backend/features/rag/router.py
-
 from fastapi import APIRouter, HTTPException, Request
 from .schemas import IngestRequest, IngestResponse, QueryRequest, QueryResponse
 from . import orchestrator
@@ -338,7 +359,6 @@ async def query(req: QueryRequest, request: Request):
 
 
 C:/code2/lbpr/backend/features/rag/schemas.py
-
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
@@ -374,8 +394,6 @@ class QueryResponse(BaseModel):
 
 
 C:/code2/lbpr/backend/features/rag/vectorstore.py
-
-# Vector store dispatcher: defaults to in-memory; can switch to Pinecone via env.
 from typing import Dict, List, Tuple
 import os
 import logging
@@ -420,10 +438,6 @@ def get_store():
 
 
 C:/code2/lbpr/backend/features/rag/adapters/openai_embedder.py
-
-# OpenAI Embedding Adapter
-# Uses the modern OpenAI Python SDK (>=1.0): `from openai import OpenAI`
-# Respects: OPENAI_API_KEY, RAG_EMBED_MODEL (default: text-embedding-3-small)
 from __future__ import annotations
 
 import os
@@ -435,7 +449,7 @@ log = logging.getLogger("rag.openai")
 
 try:
     from openai import OpenAI
-except Exception as e:  # pragma: no cover - import error surfaced at runtime
+except Exception as e:  # pragma: no cover
     OpenAI = None  # type: ignore
 
 DEFAULT_MODEL = os.getenv("RAG_EMBED_MODEL", "text-embedding-3-small")
@@ -474,13 +488,6 @@ class OpenAIEmbedder:
 
 
 C:/code2/lbpr/backend/features/rag/adapters/pinecone_store.py
-
-# Pinecone Vector Store Adapter
-# Uses the pinecone SDK (`pip install pinecone-client` or `pinecone`)
-# Required env: PINECONE_API_KEY, PINECONE_INDEX. Optional: PINECONE_CLOUD, PINECONE_REGION
-# The adapter will auto-create the index if it does not exist, inferring the dimension
-# from the first vector you upsert (or via RAG_EMBED_DIM env override).
-
 from __future__ import annotations
 
 import os
@@ -559,6 +566,7 @@ class PineconeVectorStore:
         vectors = []
         ns = dataset
         for e in entries:
+            # IMPORTANT: only pinecone-serializable metadata (no nested objects)
             vectors.append({
                 "id": f"{e['doc_id']}::{e['chunk_id']}",
                 "values": e["vector"],

@@ -67,5 +67,5 @@ def query(req: QueryRequest) -> QueryResponse:
     ]
     dur_ms = int((time.time() - t0) * 1000)
     log.info("query_results", ns=ns, found=len(sources), dur_ms=dur_ms)
-    answer = _compose_answer(req.query, sources)
+    answer = _compose_answer(req.query, sources) if sources else "I couldn’t find relevant context yet."
     return QueryResponse(dataset=req.dataset, query=req.query, answer=answer, sources=sources)

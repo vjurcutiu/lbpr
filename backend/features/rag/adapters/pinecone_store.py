@@ -68,6 +68,7 @@ class PineconeVectorStore:
 
     def upsert_chunks(self, dataset: str, entries: List[Dict]):
         if not entries:
+            log.info("pinecone_upsert_skip_empty", namespace=dataset)
             return
         dim = int(os.getenv("RAG_EMBED_DIM") or len(entries[0]["vector"]))
         if self._index is None:
@@ -87,27 +88,36 @@ class PineconeVectorStore:
                     **(e.get("metadata") or {}),
                 },
             })
-        log.info("pinecone_upsert_start", namespace=ns, count=len(vectors), dim=dim)
-        self._index.upsert(vectors=vectors, namespace=ns)
-        log.info("pinecone_upsert_done", namespace=ns, count=len(vectors))
+        try:
+            log.info("pinecone_upsert_start", namespace=ns, count=len(vectors), dim=dim,
+                     first_id=vectors[0]["id"] if vectors else None)
+            self._index.upsert(vectors=vectors, namespace=ns)
+            log.info("pinecone_upsert_done", namespace=ns, count=len(vectors))
+        except Exception:
+            log.exception("pinecone_upsert_error", namespace=ns, count=len(vectors))
+            raise
 
     def query(self, dataset: str, query_vec: List[float], k: int = 5) -> List[Tuple[float, Dict]]:
         idx = self._index_handle()
         if idx is None:
             log.info("pinecone_query_empty_index", namespace=dataset)
             return []
-        log.info("pinecone_query_start", namespace=dataset, k=k)
-        res = idx.query(vector=query_vec, top_k=k, include_metadata=True, namespace=dataset)
-        out: List[Tuple[float, Dict]] = []
-        for m in res.get("matches", []):
-            md = m.get("metadata", {}) or {}
-            out.append((float(m.get("score", 0.0)), {
-                "chunk_id": md.get("chunk_id"),
-                "doc_id": md.get("doc_id"),
-                "text": md.get("text", ""),
-                "metadata": {k:v for k,v in md.items() if k not in ("chunk_id","doc_id","text")},
-                "vector": None,
-            }))
-        out.sort(key=lambda t: t[0], reverse=True)
-        log.info("pinecone_query_done", namespace=dataset, found=len(out))
-        return out
+        try:
+            log.info("pinecone_query_start", namespace=dataset, k=k)
+            res = idx.query(vector=query_vec, top_k=k, include_metadata=True, namespace=dataset)
+            out: List[Tuple[float, Dict]] = []
+            for m in res.get("matches", []):
+                md = m.get("metadata", {}) or {}
+                out.append((float(m.get("score", 0.0)), {
+                    "chunk_id": md.get("chunk_id"),
+                    "doc_id": md.get("doc_id"),
+                    "text": md.get("text", ""),
+                    "metadata": {k:v for k,v in md.items() if k not in ("chunk_id","doc_id","text")},
+                    "vector": None,
+                }))
+            out.sort(key=lambda t: t[0], reverse=True)
+            log.info("pinecone_query_done", namespace=dataset, found=len(out))
+            return out
+        except Exception:
+            log.exception("pinecone_query_error", namespace=dataset, k=k)
+            raise

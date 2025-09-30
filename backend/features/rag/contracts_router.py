@@ -66,6 +66,12 @@ def search(
     t0 = time.time()
     tenant_id = _tenant_from_header(x_tenant_id) or "demo"
     ns = _ns(dataset, tenant_id)
+    trace = x_trace_id or getattr(request.state, "trace_id", None)
+
+    log.info("contracts_search_start",
+             q=q, limit=limit, ns=ns,
+             trace_id=trace, tenant_id=tenant_id, client=str(request.client))
+
     qvec = embed_one(q)
     results = _store.query(ns, qvec, k=limit)
     items: List[DocHit] = []
@@ -81,7 +87,7 @@ def search(
         )
     dur_ms = int((time.time() - t0) * 1000)
     log.info("contracts_search_ok", q=q, limit=limit, ns=ns, total=len(items), dur_ms=dur_ms,
-             trace_id=x_trace_id or getattr(request.state, "trace_id", None), tenant_id=tenant_id)
+             trace_id=trace, tenant_id=tenant_id)
     return SearchResults(total=len(items), items=items)
 
 @router.post("/v1/chat", response_model=ChatResponse)
@@ -89,9 +95,24 @@ def chat(req: ChatRequest, request: Request, x_trace_id: Optional[str] = Header(
     t0 = time.time()
     tenant_id = req.tenant_id or "demo"
     ns = _ns("default", tenant_id)
+    trace = x_trace_id or getattr(request.state, "trace_id", None)
+
+    # Request envelope log (no bodies)
+    log.info("contracts_chat_start",
+             ns=ns,
+             message_len=len(req.message or ""),
+             history=len(req.history or []),
+             max_context=req.max_context,
+             stream=req.stream,
+             trace_id=trace, tenant_id=tenant_id, client=str(request.client))
+
     try:
         qvec = embed_one(req.message)
         hits = _store.query(ns, qvec, k=req.max_context)
+
+        if not hits:
+            log.info("contracts_chat_no_hits", ns=ns, trace_id=trace, tenant_id=tenant_id)
+
         snippets = []
         citations: List[Citation] = []
         for score, e in hits:
@@ -115,8 +136,7 @@ def chat(req: ChatRequest, request: Request, x_trace_id: Optional[str] = Header(
                  ns=ns, message_len=len(req.message),
                  history=len(req.history or []), retrieved=len(hits),
                  dur_ms=dur_ms,
-                 trace_id=x_trace_id or getattr(request.state, "trace_id", None),
-                 tenant_id=tenant_id)
+                 trace_id=trace, tenant_id=tenant_id)
         return ChatResponse(
             answer=answer,
             citations=citations,
@@ -126,6 +146,5 @@ def chat(req: ChatRequest, request: Request, x_trace_id: Optional[str] = Header(
         dur_ms = int((time.time() - t0) * 1000)
         log.exception("contracts_chat_error",
                       ns=ns, dur_ms=dur_ms,
-                      trace_id=x_trace_id or getattr(request.state, "trace_id", None),
-                      tenant_id=tenant_id)
+                      trace_id=trace, tenant_id=tenant_id)
         raise HTTPException(status_code=500, detail="chat_failed")

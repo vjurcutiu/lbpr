@@ -1,6 +1,7 @@
 import math
 import os
 import logging
+import time
 from typing import List
 
 log = logging.getLogger("rag.embedder")
@@ -17,6 +18,7 @@ def _hash_token(t: str) -> int:
     return h
 
 def _local_embed_texts(texts: List[str]) -> List[List[float]]:
+    t0 = time.time()
     vectors = []
     for txt in texts:
         vec = [0.0] * DIM
@@ -27,6 +29,8 @@ def _local_embed_texts(texts: List[str]) -> List[List[float]]:
         norm = math.sqrt(sum(v*v for v in vec)) or 1.0
         vec = [v / norm for v in vec]
         vectors.append(vec)
+    dur_ms = int((time.time() - t0) * 1000)
+    log.info("local_embed_ok", count=len(texts), dim=DIM, dur_ms=dur_ms)
     return vectors
 
 def _openai_embed_texts(texts: List[str]) -> List[List[float]]:
