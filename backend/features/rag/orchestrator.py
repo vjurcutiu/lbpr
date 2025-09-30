@@ -25,11 +25,16 @@ def ingest(req: IngestRequest) -> IngestResponse:
     doc_id = req.doc_id or "doc_" + str(abs(hash(req.text)) % (10**8))
     meta_base = dict(req.metadata or {})
     for c, v in zip(chunks, vectors):
+        span = c["span"]  # {"start": i, "end": j}
         entries.append({
             "chunk_id": c["chunk_id"],
             "doc_id": doc_id,
             "text": c["text"],
-            "metadata": {**meta_base, **{"span": c["span"]}},
+            "metadata": {
+                **meta_base,
+                "span_start": span["start"],
+                "span_end": span["end"],
+            },
             "vector": v,
         })
     tenant_id = (req.metadata or {}).get("tenant_id")

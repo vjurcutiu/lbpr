@@ -155,10 +155,10 @@ services:
       - ./static/spa/tailwind.config.ts:/app/tailwind.config.ts
       - ./static/spa/postcss.config.cjs:/app/postcss.config.cjs
       - ./static/spa/tsconfig.json:/app/tsconfig.json
-      - ./static/spa/tsconfig.app.json:/app/tsconfig.app.json         # <-- add this
-      # If you also have a node/ts-node config:
-      - ./static/spa/tsconfig.node.json:/app/tsconfig.node.json       # <-- optional
-      - ./static/spa/.env:/app/.env                                  # optional
+      - ./static/spa/tsconfig.app.json:/app/tsconfig.app.json
+      - ./static/spa/tsconfig.node.json:/app/tsconfig.node.json
+      # Optional: a dev-only .env for vite
+      - ./static/spa/.env:/app/.env
     expose:
       - "5173"
     healthcheck:
@@ -170,12 +170,20 @@ services:
 
   api:
     build: ./backend
+    # --reload in dev for hot-reload; watch /app mount
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app
+    # Load ALL your dev settings (including RAG_* and API keys) from ./backend/.env
+    env_file:
+      - ./backend/.env
     environment:
+      # Override ONLY things that need container paths in dev
       - PYTHONUNBUFFERED=1
+      - DOCKER_DEV=1
+      # keep credentials path inside container consistent
       - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
     volumes:
       - ./backend:/app
+      # mount your local Firebase SA json as a dev-only secret file
       - ./backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json:/run/secrets/firebase_sa.json:ro
     expose:
       - "8000"
@@ -350,6 +358,7 @@ PINECONE_INDEX=lbpr
 PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1
 RAG_EMBED_DIM=1536
+
 
 FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
 
