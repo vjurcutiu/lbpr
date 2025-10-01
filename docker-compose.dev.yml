@@ -23,10 +23,8 @@ services:
       - ./static/spa/tsconfig.json:/app/tsconfig.json
       - ./static/spa/tsconfig.app.json:/app/tsconfig.app.json
       - ./static/spa/tsconfig.node.json:/app/tsconfig.node.json
-      # Optional: a dev-only .env for vite
       - ./static/spa/.env:/app/.env
-    expose:
-      - "5173"
+    expose: ["5173"]
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:5173/@vite/client >/dev/null 2>&1 || exit 1"]
       interval: 3s
@@ -34,25 +32,43 @@ services:
       retries: 50
     networks: [appnet]
 
+  # Redis for dev
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server","--save",""]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [appnet]
+
   api:
     build: ./backend
-    # --reload in dev for hot-reload; watch /app mount
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app
-    # Load ALL your dev settings (including RAG_* and API keys) from ./backend/.env
+    # Limit watch scope to /app, but EXCLUDE heavy dirs like venv, node_modules, site-packages, .git
+    command: >
+      sh -lc "uvicorn main:app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app
+      --reload-exclude 'venv/*'
+      --reload-exclude '.venv/*'
+      --reload-exclude 'node_modules/*'
+      --reload-exclude '.git/*'"
     env_file:
       - ./backend/.env
     environment:
-      # Override ONLY things that need container paths in dev
       - PYTHONUNBUFFERED=1
       - DOCKER_DEV=1
-      # keep credentials path inside container consistent
       - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
-      # mount your local Firebase SA json as a dev-only secret file
       - ./backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json:/run/secrets/firebase_sa.json:ro
-    expose:
-      - "8000"
+    expose: ["8000"]
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8000/healthz >/dev/null 2>&1 || exit 1"]
       interval: 5s
@@ -67,8 +83,7 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    ports:
-      - "80:80"
+    ports: ["80:80"]
     volumes:
       - ./ops/nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
     networks: [appnet]
@@ -76,3 +91,6 @@ services:
 networks:
   appnet:
     driver: bridge
+
+volumes:
+  redis-data:

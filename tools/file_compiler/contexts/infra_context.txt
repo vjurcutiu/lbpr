@@ -105,8 +105,22 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    networks:
-      - appnet
+    networks: [appnet]
+
+  # 🔴 New: Redis service for caching/queues/rate limits
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server","--save",""]
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"   # optional: expose for local debugging
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [appnet]
 
   api:
     build: ./backend
@@ -114,6 +128,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"  # optional: hit API directly if needed
     healthcheck:
@@ -121,14 +139,16 @@ services:
       interval: 5s
       timeout: 2s
       retries: 20
-    networks:
-      - appnet
+    networks: [appnet]
     volumes:
       - ./backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json:/run/secrets/firebase_sa.json:ro
 
 networks:
   appnet:
     driver: bridge
+
+volumes:
+  redis-data:
 
 
 C:/code2/lbpr/docker-compose.dev.yml
@@ -157,10 +177,8 @@ services:
       - ./static/spa/tsconfig.json:/app/tsconfig.json
       - ./static/spa/tsconfig.app.json:/app/tsconfig.app.json
       - ./static/spa/tsconfig.node.json:/app/tsconfig.node.json
-      # Optional: a dev-only .env for vite
       - ./static/spa/.env:/app/.env
-    expose:
-      - "5173"
+    expose: ["5173"]
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:5173/@vite/client >/dev/null 2>&1 || exit 1"]
       interval: 3s
@@ -168,25 +186,44 @@ services:
       retries: 50
     networks: [appnet]
 
+  # Redis for dev
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server","--save",""]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [appnet]
+
   api:
     build: ./backend
-    # --reload in dev for hot-reload; watch /app mount
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app
-    # Load ALL your dev settings (including RAG_* and API keys) from ./backend/.env
+    # Limit watch scope to /app, but EXCLUDE heavy dirs like venv, node_modules, site-packages, .git
+    command: >
+      sh -lc "uvicorn main:app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app
+      --reload-exclude '/app/venv/*'
+      --reload-exclude '/app/.venv/*'
+      --reload-exclude '/app/node_modules/*'
+      --reload-exclude '/app/.git/*'
+      --reload-exclude '/usr/local/lib/python3.11/site-packages/*'"
     env_file:
       - ./backend/.env
     environment:
-      # Override ONLY things that need container paths in dev
       - PYTHONUNBUFFERED=1
       - DOCKER_DEV=1
-      # keep credentials path inside container consistent
       - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
-      # mount your local Firebase SA json as a dev-only secret file
       - ./backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json:/run/secrets/firebase_sa.json:ro
-    expose:
-      - "8000"
+    expose: ["8000"]
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8000/healthz >/dev/null 2>&1 || exit 1"]
       interval: 5s
@@ -201,8 +238,7 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    ports:
-      - "80:80"
+    ports: ["80:80"]
     volumes:
       - ./ops/nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
     networks: [appnet]
@@ -211,43 +247,39 @@ networks:
   appnet:
     driver: bridge
 
+volumes:
+  redis-data:
+
 
 C:/code2/lbpr/backend/docker-compose.test.yml
 services:
   api-test:
-    # Build the multi-stage Dockerfile's "test" target so dev/test deps (pytest, etc.) are present
     build:
       context: .
       dockerfile: Dockerfile
       target: test
-
-    # Let the test-stage CMD run (pytest ...). Don't override with a custom command.
-
     environment:
       PYTHONUNBUFFERED: "1"
-      # Avoid starting Firebase Admin in test runs; your app code should gate on this.
       SKIP_FIREBASE_INIT: "1"
-      # Optionally also set:
-      # APP_ENV: "test"
-
-    # Mount backend code into /app so you can iterate without rebuilds
+      REDIS_URL: redis://redis:6379/1
     volumes:
       - ./:/app
-
     working_dir: /app
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [appnet]
 
-    # If you need services like Redis/Postgres for tests, uncomment and define them:
-    # depends_on:
-    #   redis:
-    #     condition: service_started
-
-    networks:
-      - appnet
-
-  # Example optional test dependency:
-  # redis:
-  #   image: redis:7-alpine
-  #   networks: [appnet]
+  # New: test Redis
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server","--save",""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [appnet]
 
 networks:
   appnet:
@@ -304,8 +336,8 @@ pytest-cov==5.0.0
 
 C:/code2/lbpr/backend/requirements.txt
 # Framework
-fastapi==0.117.1            # latest stable as of Sep 2025
-uvicorn[standard]==0.37.0   # latest, includes watchfiles/h11/httptools
+fastapi==0.117.1
+uvicorn[standard]==0.37.0
 
 # Validation / settings
 pydantic==2.11.1
@@ -313,19 +345,19 @@ pydantic-settings==2.5.2
 
 # Env & JSON
 python-dotenv==1.0.1
-orjson==3.*                 # optional, but great with FastAPI
+orjson==3.*
 
 # Firebase / Google
 firebase-admin==7.1.0
 
 # HTTP client
-httpx==0.28.1               # current stable line
+httpx==0.28.1
 
 # Uploads
 python-multipart==0.0.20
 
 # AI SDKs
-openai>=1.0,<2.0            # new v1 API style
+openai>=1.0,<2.0
 pinecone>=7.0.0
 
 pypdf>=6.1.0,<7.0.0
@@ -333,6 +365,9 @@ python-docx>=1.2.0,<2.0.0
 
 pinecone-text>=0.9.0
 
+# 🔴 New: Redis Python client (async supported)
+redis>=6.4.0,<7.0.0
+tiktoken==0.11.0
 
 C:/code2/lbpr/backend/.env
 ENV=dev
@@ -365,6 +400,16 @@ FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
 
 RAG_HYBRID_FUSION=rrf
 RAG_HYBRID_ALPHA=0.5  
+
+REDIS_URL=redis://redis:6379/0
+
+LIMITS_FREE_MESSAGES=200
+LIMITS_FREE_UPLOAD_TOKENS=200000
+LIMITS_PRO_MESSAGES=10000
+LIMITS_PRO_UPLOAD_TOKENS=20000000
+
+# Optional: tokenizer override if you want a specific encoding name
+TOKENIZER_MODEL=cl100k_base
 
 C:/code2/lbpr/backend/.dockerignore
 # python
@@ -5049,5 +5094,81 @@ export default defineConfig({
     force: false,
   },
 });
+
+
+C:/code2/lbpr/backend/core/config.py
+from typing import Literal
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    """Application configuration loaded from environment and .env."""
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # General
+    APP_NAME: str = "LexBot Pro"
+    ENV: Literal["dev", "staging", "prod"] = "dev"
+
+    # Firebase
+    FIREBASE_PROJECT_ID: str = ""
+    FIREBASE_CREDENTIALS: str | None = None
+    FIREBASE_CREDENTIALS_DEFAULT: str | None = "/run/secrets/firebase_sa.json"
+    FIREBASE_STORAGE_BUCKET: str | None = None
+
+    # Auth / cookies
+    COOKIE_NAME: str = "fb_session"
+    SESSION_HOURS: int = 8
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: Literal["lax", "none", "strict"] = "lax"
+    COOKIE_PATH: str = "/"
+    COOKIE_DOMAIN: str | None = None
+
+    # CORS / Hosts
+    CORS_ALLOW_ORIGINS: list[str] = []
+    TRUSTED_HOSTS: list[str] = ["*"]
+
+    # RAG / Vector store
+    RAG_EMBEDDER: Literal["local", "openai"] = "local"
+    OPENAI_API_KEY: str | None = None
+    RAG_EMBED_MODEL: str = "text-embedding-3-small"
+
+    RAG_VECTORSTORE: Literal["memory", "pinecone"] = "memory"
+    PINECONE_API_KEY: str | None = None
+    PINECONE_INDEX: str | None = None
+    PINECONE_CLOUD: str | None = None
+    PINECONE_REGION: str | None = None
+    RAG_EMBED_DIM: int | None = None
+
+    # Hybrid search tuning
+    RAG_HYBRID_FUSION: Literal["rrf", "alpha"] = "rrf"
+    RAG_HYBRID_ALPHA: float = 0.5
+
+    # Redis
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+settings = Settings()
+
+def safe_settings_snapshot() -> dict:
+    return {
+        "env": settings.ENV,
+        "firebase_project_id": settings.FIREBASE_PROJECT_ID,
+        "firebase_bucket": settings.FIREBASE_STORAGE_BUCKET
+            or (f"{settings.FIREBASE_PROJECT_ID}.appspot.com" if settings.FIREBASE_PROJECT_ID else None),
+        "rag_embedder": settings.RAG_EMBEDDER,
+        "rag_model": settings.RAG_EMBED_MODEL,
+        "rag_vectorstore": settings.RAG_VECTORSTORE,
+        "pinecone_index": settings.PINECONE_INDEX,
+        "pinecone_cloud": settings.PINECONE_CLOUD,
+        "pinecone_region": settings.PINECONE_REGION,
+        "rag_embed_dim": settings.RAG_EMBED_DIM,
+        "rag_hybrid_fusion": settings.RAG_HYBRID_FUSION,
+        "rag_hybrid_alpha": settings.RAG_HYBRID_ALPHA,
+        "redis_url": settings.REDIS_URL,
+    }
 
 

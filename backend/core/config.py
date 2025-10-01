@@ -3,18 +3,12 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    """Application configuration loaded from environment and .env.
-
-    Uses Pydantic v2 Settings with explicit model_config to avoid
-    'extra_forbidden' errors and to read keys case-insensitively.
-    """
-
-    # pydantic-settings v2 style config
+    """Application configuration loaded from environment and .env."""
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=False,   # allow APP_NAME / app_name, etc.
-        extra="ignore",         # ignore unknown vars instead of raising
+        case_sensitive=False,
+        extra="ignore",
     )
 
     # General
@@ -25,21 +19,21 @@ class Settings(BaseSettings):
     FIREBASE_PROJECT_ID: str = ""
     FIREBASE_CREDENTIALS: str | None = None
     FIREBASE_CREDENTIALS_DEFAULT: str | None = "/run/secrets/firebase_sa.json"
-    FIREBASE_STORAGE_BUCKET: str | None = None  # used by Files feature
+    FIREBASE_STORAGE_BUCKET: str | None = None
 
     # Auth / cookies
     COOKIE_NAME: str = "fb_session"
     SESSION_HOURS: int = 8
-    COOKIE_SECURE: bool = Field(default=False, description="True in prod (HTTPS)")
+    COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: Literal["lax", "none", "strict"] = "lax"
     COOKIE_PATH: str = "/"
-    COOKIE_DOMAIN: str | None = None  # set your domain in prod if needed
+    COOKIE_DOMAIN: str | None = None
 
     # CORS / Hosts
     CORS_ALLOW_ORIGINS: list[str] = []
-    TRUSTED_HOSTS: list[str] = ["*"]  # lock down in prod
+    TRUSTED_HOSTS: list[str] = ["*"]
 
-    # ── RAG / Embeddings / Vector store ─────────────────────────────────
+    # RAG / Vector store
     RAG_EMBEDDER: Literal["local", "openai"] = "local"
     OPENAI_API_KEY: str | None = None
     RAG_EMBED_MODEL: str = "text-embedding-3-small"
@@ -49,24 +43,23 @@ class Settings(BaseSettings):
     PINECONE_INDEX: str | None = None
     PINECONE_CLOUD: str | None = None
     PINECONE_REGION: str | None = None
-
-    # Optional override when creating Pinecone index (dimension inference otherwise)
     RAG_EMBED_DIM: int | None = None
 
-    # Hybrid search tuning (accept values provided in .env)
+    # Hybrid search tuning
     RAG_HYBRID_FUSION: Literal["rrf", "alpha"] = "rrf"
     RAG_HYBRID_ALPHA: float = 0.5
 
-# Instantiate settings at import time (FastAPI typical pattern)
+    # Redis
+    REDIS_URL: str = "redis://localhost:6379/0"
+
 settings = Settings()
 
 def safe_settings_snapshot() -> dict:
-    """Return a sanitized subset of settings for startup logs."""
     return {
         "env": settings.ENV,
         "firebase_project_id": settings.FIREBASE_PROJECT_ID,
         "firebase_bucket": settings.FIREBASE_STORAGE_BUCKET
-            or f"{settings.FIREBASE_PROJECT_ID}.appspot.com",
+            or (f"{settings.FIREBASE_PROJECT_ID}.appspot.com" if settings.FIREBASE_PROJECT_ID else None),
         "rag_embedder": settings.RAG_EMBEDDER,
         "rag_model": settings.RAG_EMBED_MODEL,
         "rag_vectorstore": settings.RAG_VECTORSTORE,
@@ -76,4 +69,5 @@ def safe_settings_snapshot() -> dict:
         "rag_embed_dim": settings.RAG_EMBED_DIM,
         "rag_hybrid_fusion": settings.RAG_HYBRID_FUSION,
         "rag_hybrid_alpha": settings.RAG_HYBRID_ALPHA,
+        "redis_url": settings.REDIS_URL,
     }

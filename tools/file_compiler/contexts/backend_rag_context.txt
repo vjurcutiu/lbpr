@@ -30,33 +30,36 @@ def simple_word_chunker(text: str, chunk_size: int = 1500, overlap: int = 150) -
 
 
 C:/code2/lbpr/backend/features/rag/contracts_router.py
-# C:/code2/lbpr/backend/features/rag/contracts_router.py
+# features/rag/contracts_router.py
 from __future__ import annotations
 
-from typing import Optional, List
-from fastapi import APIRouter, Header, HTTPException, Depends, Query, Request
+from typing import Optional, List, Any, Tuple
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-import logging, time, os
+import logging
+import time
+import os
 
 from .embedder import embed_one
-from .vectorstore import InMemoryVectorStore
-from . import orchestrator  # provides _store, _sparse, FUSION, ALPHA
+from .vectorstore import InMemoryVectorStore  # type: ignore
+from . import orchestrator  # exposes _store, _sparse, FUSION, ALPHA
 
 # Optional LLM (OpenAI). If not configured, we fall back to snippet echo.
 USE_LLM = bool(os.getenv("OPENAI_API_KEY"))
-
+OpenAIChat = None
 if USE_LLM:
     try:
-        from .adapters.openai_chat import OpenAIChat
-    except Exception as _e:
-        OpenAIChat = None  # type: ignore
+        from .adapters.openai_chat import OpenAIChat  # type: ignore
+    except Exception:
+        # If import fails, disable LLM path gracefully
+        OpenAIChat = None
         USE_LLM = False
 
 router = APIRouter(tags=["RAG (Contracts)"])
 log = logging.getLogger("rag.contracts")
 
-
 # ───────────────────────── Schemas ─────────────────────────
+
 
 class DocHit(BaseModel):
     id: str
@@ -64,18 +67,22 @@ class DocHit(BaseModel):
     score: float
     snippet: Optional[str] = None
 
+
 class SearchResults(BaseModel):
     total: int
     items: List[DocHit]
+
 
 class ChatTurn(BaseModel):
     role: str
     content: str
 
+
 class Citation(BaseModel):
     doc_id: str
     title: Optional[str] = None
     span: Optional[str] = None
+
 
 class ChatRequest(BaseModel):
     tenant_id: str
@@ -83,6 +90,7 @@ class ChatRequest(BaseModel):
     history: Optional[List[ChatTurn]] = None
     max_context: int = 6
     stream: bool = False
+
 
 class ChatResponse(BaseModel):
     answer: str
@@ -92,28 +100,51 @@ class ChatResponse(BaseModel):
 
 # ───────────────────── Helper utilities ────────────────────
 
+
 def _tenant_from_header(x_tenant_id: Optional[str]) -> Optional[str]:
     return x_tenant_id
 
+
 # Use the active store selected by orchestrator (memory or pinecone)
 _store: InMemoryVectorStore = orchestrator._store  # type: ignore[attr-defined]
+
 
 def _ns(dataset: str, tenant_id: str) -> str:
     # namespace format aligns with the rest of the RAG stack
     return f"t:{tenant_id}:{dataset}"
 
+
 def _mk_snippet(text: str, max_len: int = 280) -> str:
     t = " ".join(text.split())
     return (t[: max_len - 1] + "…") if len(t) > max_len else t
 
-def _build_context_from_hits(hits) -> List[str]:
+
+def _build_context_from_hits(hits: List[Tuple[float, dict]]) -> List[str]:
     snippets: List[str] = []
     for _score, e in hits:
         snippets.append(f"- {e['text'].strip()}".strip())
     return snippets
 
 
+def _normalize_history(h: Optional[List[Any]]) -> List[dict]:
+    """
+    Normalize ChatRequest.history into a list[dict] with keys: role, content.
+    Accepts either a list of dicts or list of ChatTurn Pydantic objects.
+    """
+    if not h:
+        return []
+    out: List[dict] = []
+    for t in h:
+        if isinstance(t, dict):
+            out.append({"role": t.get("role", "user"), "content": t.get("content", "")})
+        else:
+            # Pydantic ChatTurn object (or similar with attributes)
+            out.append({"role": getattr(t, "role", "user"), "content": getattr(t, "content", "")})
+    return out
+
+
 # ──────────────────────── Endpoints ────────────────────────
+
 
 @router.get("/v1/search", response_model=SearchResults)
 def search(
@@ -134,13 +165,13 @@ def search(
 
     # Build dense + sparse queries (same flow as orchestrator.query)
     qvec = embed_one(q)
-    qsparse = orchestrator._sparse.encode_query(q)  # BM25 sparse query. :contentReference[oaicite:1]{index=1}
+    qsparse = orchestrator._sparse.encode_query(q)  # BM25 sparse query
 
     # Prefer hybrid; fall back gracefully
     if hasattr(_store, "query_hybrid"):
         results = _store.query_hybrid(
             ns, qvec, qsparse, k=limit, fusion=orchestrator.FUSION, alpha=orchestrator.ALPHA
-        )  # Pinecone & memory adapters implement query_hybrid. 
+        )
     elif hasattr(_store, "query_dense"):
         results = _store.query_dense(ns, qvec, k=limit)
     else:
@@ -161,9 +192,15 @@ def search(
     dur_ms = int((time.time() - t0) * 1000)
     log.info(
         "contracts_search_ok",
-        q=q, limit=limit, ns=ns, total=len(items), dur_ms=dur_ms,
-        trace_id=x_trace_id or getattr(request.state, "trace_id", None),
-        tenant_id=tenant_id,
+        extra={
+            "q": q,
+            "limit": limit,
+            "ns": ns,
+            "total": len(items),
+            "dur_ms": dur_ms,
+            "trace_id": x_trace_id or getattr(request.state, "trace_id", None),
+            "tenant_id": tenant_id,
+        },
     )
     return SearchResults(total=len(items), items=items)
 
@@ -180,25 +217,29 @@ def chat(
       2) If LLM is configured, answer with grounding; else return snippets.
     """
     t0 = time.time()
-    tenant_id = req.tenant_id or "demo"
+    tenant_id = (req.tenant_id or "demo").strip()
     ns = _ns("default", tenant_id)
 
     try:
         # Retrieve
         qvec = embed_one(req.message)
-        qsparse = orchestrator._sparse.encode_query(req.message)  # BM25. :contentReference[oaicite:3]{index=3}
+        qsparse = orchestrator._sparse.encode_query(req.message)  # BM25
 
         if hasattr(_store, "query_hybrid"):
             hits = _store.query_hybrid(
-                ns, qvec, qsparse, k=req.max_context,
-                fusion=orchestrator.FUSION, alpha=orchestrator.ALPHA,
-            )  # Uses Pinecone/memory adapter hybrid. 
+                ns,
+                qvec,
+                qsparse,
+                k=req.max_context,
+                fusion=orchestrator.FUSION,
+                alpha=orchestrator.ALPHA,
+            )
         elif hasattr(_store, "query_dense"):
             hits = _store.query_dense(ns, qvec, k=req.max_context)
         else:
             raise HTTPException(500, "Active vector store does not support chat retrieval")
 
-        # Build citations irrespective of answer path
+        # Citations (for UI grounding)
         citations: List[Citation] = []
         for _score, e in hits:
             md = e.get("metadata", {}) or {}
@@ -211,6 +252,10 @@ def chat(
         if USE_LLM and OpenAIChat is not None:
             chat = OpenAIChat()
             snippets = _build_context_from_hits(hits)
+
+            # ✅ Normalize history to list[dict] to match adapter expectations
+            norm_history = _normalize_history(req.history)
+
             if snippets:
                 system = (
                     "You are an expert assistant. Answer the user's question using ONLY the provided context.\n"
@@ -225,28 +270,34 @@ def chat(
                 user_content = req.message
 
             try:
-                answer_text = chat.generate(system=system, user=user_content, history=(req.history or []))
+                answer_text = chat.generate(system=system, user=user_content, history=norm_history)
             except Exception:
                 log.exception("openai_chat_fallback")
                 snippets = _build_context_from_hits(hits)
                 answer_text = (
                     f"Here are the most relevant snippets for: '{req.message}'\n\n" + "\n\n".join(snippets)
-                    if snippets else "I couldn’t find relevant context yet."
+                    if snippets
+                    else "I couldn’t find relevant context yet."
                 )
         else:
             # No LLM configured → return snippets
             snippets = _build_context_from_hits(hits)
             answer_text = (
                 f"Here are the most relevant snippets for: '{req.message}'\n\n" + "\n\n".join(snippets)
-                if snippets else "I couldn’t find relevant context yet."
+                if snippets
+                else "I couldn’t find relevant context yet."
             )
 
         dur_ms = int((time.time() - t0) * 1000)
         log.info(
             "contracts_chat_ok",
-            ns=ns, retrieved=len(hits), dur_ms=dur_ms,
-            trace_id=x_trace_id or getattr(request.state, "trace_id", None),
-            tenant_id=tenant_id,
+            extra={
+                "ns": ns,
+                "retrieved": len(hits),
+                "dur_ms": dur_ms,
+                "trace_id": x_trace_id or getattr(request.state, "trace_id", None),
+                "tenant_id": tenant_id,
+            },
         )
         return ChatResponse(answer=answer_text, citations=citations, usage={})
 
@@ -255,10 +306,12 @@ def chat(
     except Exception:
         log.exception(
             "contracts_chat_error",
-            ns=ns,
-            dur_ms=int((time.time() - t0) * 1000),
-            trace_id=x_trace_id or getattr(request.state, "trace_id", None),
-            tenant_id=tenant_id,
+            extra={
+                "ns": ns,
+                "dur_ms": int((time.time() - t0) * 1000),
+                "trace_id": x_trace_id or getattr(request.state, "trace_id", None),
+                "tenant_id": tenant_id,
+            },
         )
         raise HTTPException(status_code=500, detail="Chat processing failed")
 

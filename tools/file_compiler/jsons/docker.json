@@ -19,6 +19,7 @@
             "C:\\code2\\lbpr\\static\\spa\\tsconfig.app.json",
             "C:\\code2\\lbpr\\static\\spa\\tsconfig.json",
             "C:\\code2\\lbpr\\static\\spa\\tsconfig.node.json",
-            "C:\\code2\\lbpr\\static\\spa\\vite.config.ts"
+            "C:\\code2\\lbpr\\static\\spa\\vite.config.ts",
+            "C:\\code2\\lbpr\\backend\\core\\config.py"
         ]
 }

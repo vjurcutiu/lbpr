@@ -12,8 +12,22 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    networks:
-      - appnet
+    networks: [appnet]
+
+  # 🔴 New: Redis service for caching/queues/rate limits
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server","--save",""]
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"   # optional: expose for local debugging
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [appnet]
 
   api:
     build: ./backend
@@ -21,6 +35,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"  # optional: hit API directly if needed
     healthcheck:
@@ -28,11 +46,13 @@ services:
       interval: 5s
       timeout: 2s
       retries: 20
-    networks:
-      - appnet
+    networks: [appnet]
     volumes:
       - ./backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json:/run/secrets/firebase_sa.json:ro
 
 networks:
   appnet:
     driver: bridge
+
+volumes:
+  redis-data:

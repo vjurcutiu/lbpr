@@ -1,21 +1,20 @@
 C:/code2/lbpr/backend/main.py
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from contextlib import asynccontextmanager
 import time, uuid, logging
 
 from core.config import settings, safe_settings_snapshot
 from core.firebase import init_firebase
 from core.logging import setup_logging
+from core import redis_utils
 
 from routers import health
 from features.auth import routes as auth_routes  # type: ignore
 from features.profile import routes as profile_routes  # type: ignore
-
-# RAG MVP router (ingest/query under /features/rag/*)
 from features.rag.router import router as rag_router
-# RAG Contracts router (already exposes /v1/search and /v1/chat)
 from features.rag.contracts_router import router as rag_contracts_router
 from features.files.router import router as files_router  # type: ignore
 
@@ -24,17 +23,14 @@ log = logging.getLogger("app")
 class ObservabilityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         t0 = time.time()
-        # Correlate
         trace_id = request.headers.get("x-trace-id") or str(uuid.uuid4())
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
         tenant = request.headers.get("x-tenant-id")
 
-        # Attach to state for handlers
         request.state.trace_id = trace_id
         request.state.request_id = request_id
         request.state.tenant_id = tenant
 
-        # Log request start (without body to avoid PII)
         log.info(
             "http_request",
             method=request.method,
@@ -48,7 +44,6 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         try:
             resp: Response = await call_next(request)
             dur_ms = int((time.time() - t0) * 1000)
-            # Add correlation headers for the client
             resp.headers["X-Trace-Id"] = trace_id
             resp.headers["X-Request-Id"] = request_id
             log.info(
@@ -62,7 +57,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                 tenant_id=tenant,
             )
             return resp
-        except Exception as e:
+        except Exception:
             dur_ms = int((time.time() - t0) * 1000)
             log.exception(
                 "http_error",
@@ -75,27 +70,26 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             )
             raise
 
-def create_app() -> FastAPI:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Boot
     setup_logging()
-    # Log a sanitized snapshot of relevant settings at boot
     log.info("app_boot", **safe_settings_snapshot())
-
-    # Initialize Firebase Admin once (skips in tests per core/firebase.py)
     init_firebase()
+    # Connect Redis
+    await redis_utils.init(settings.REDIS_URL)
+    yield
+    # Shutdown
+    await redis_utils.close()
 
-    app = FastAPI(title=settings.APP_NAME)
+def create_app() -> FastAPI:
+    app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
-    # Trusted hosts (tighten in prod)
     if settings.TRUSTED_HOSTS and settings.TRUSTED_HOSTS != ["*"]:
-        app.add_middleware(
-            TrustedHostMiddleware,
-            allowed_hosts=settings.TRUSTED_HOSTS,
-        )
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.TRUSTED_HOSTS)
 
-    # Global request/response observability
     app.add_middleware(ObservabilityMiddleware)
 
-    # CORS
     if settings.CORS_ALLOW_ORIGINS:
         app.add_middleware(
             CORSMiddleware,
@@ -106,15 +100,15 @@ def create_app() -> FastAPI:
             expose_headers=["X-Trace-Id","X-Request-Id"],
         )
 
-    # ---- Routers ----
+    # Routers
     app.include_router(health.router)
     app.include_router(auth_routes.router)
     app.include_router(profile_routes.router)
-    app.include_router(rag_router)               # /features/rag/ingest, /features/rag/query
-    app.include_router(rag_contracts_router)     # /v1/search, /v1/chat (contracts)
+    app.include_router(rag_router)
+    app.include_router(rag_contracts_router)
     app.include_router(files_router)
 
-    # ---- Versioned mirrors ----
+    # Versioned mirrors
     app.include_router(auth_routes.router, prefix="/v1")
     app.include_router(profile_routes.router, prefix="/v1")
     app.include_router(rag_router, prefix="/v1")
@@ -126,12 +120,21 @@ app = create_app()
 
 C:/code2/lbpr/backend/routers/health.py
 from fastapi import APIRouter
+from core.redis_utils import get_client
 
 router = APIRouter(tags=["meta"])
 
 @router.get("/healthz")
-def healthz():
-    return {"ok": True}
+async def healthz():
+    # Try a fast PING; don't fail the endpoint if Redis is down.
+    ok = True
+    redis_ok = None
+    try:
+        r = await get_client()
+        redis_ok = await r.ping()
+    except Exception:
+        redis_ok = False
+    return {"ok": ok, "redis": redis_ok}
 
 
 C:/code2/lbpr/backend/core/config.py
@@ -140,18 +143,12 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    """Application configuration loaded from environment and .env.
-
-    Uses Pydantic v2 Settings with explicit model_config to avoid
-    'extra_forbidden' errors and to read keys case-insensitively.
-    """
-
-    # pydantic-settings v2 style config
+    """Application configuration loaded from environment and .env."""
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=False,   # allow APP_NAME / app_name, etc.
-        extra="ignore",         # ignore unknown vars instead of raising
+        case_sensitive=False,
+        extra="ignore",
     )
 
     # General
@@ -162,21 +159,21 @@ class Settings(BaseSettings):
     FIREBASE_PROJECT_ID: str = ""
     FIREBASE_CREDENTIALS: str | None = None
     FIREBASE_CREDENTIALS_DEFAULT: str | None = "/run/secrets/firebase_sa.json"
-    FIREBASE_STORAGE_BUCKET: str | None = None  # used by Files feature
+    FIREBASE_STORAGE_BUCKET: str | None = None
 
     # Auth / cookies
     COOKIE_NAME: str = "fb_session"
     SESSION_HOURS: int = 8
-    COOKIE_SECURE: bool = Field(default=False, description="True in prod (HTTPS)")
+    COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: Literal["lax", "none", "strict"] = "lax"
     COOKIE_PATH: str = "/"
-    COOKIE_DOMAIN: str | None = None  # set your domain in prod if needed
+    COOKIE_DOMAIN: str | None = None
 
     # CORS / Hosts
     CORS_ALLOW_ORIGINS: list[str] = []
-    TRUSTED_HOSTS: list[str] = ["*"]  # lock down in prod
+    TRUSTED_HOSTS: list[str] = ["*"]
 
-    # ── RAG / Embeddings / Vector store ─────────────────────────────────
+    # RAG / Vector store
     RAG_EMBEDDER: Literal["local", "openai"] = "local"
     OPENAI_API_KEY: str | None = None
     RAG_EMBED_MODEL: str = "text-embedding-3-small"
@@ -186,24 +183,23 @@ class Settings(BaseSettings):
     PINECONE_INDEX: str | None = None
     PINECONE_CLOUD: str | None = None
     PINECONE_REGION: str | None = None
-
-    # Optional override when creating Pinecone index (dimension inference otherwise)
     RAG_EMBED_DIM: int | None = None
 
-    # Hybrid search tuning (accept values provided in .env)
+    # Hybrid search tuning
     RAG_HYBRID_FUSION: Literal["rrf", "alpha"] = "rrf"
     RAG_HYBRID_ALPHA: float = 0.5
 
-# Instantiate settings at import time (FastAPI typical pattern)
+    # Redis
+    REDIS_URL: str = "redis://localhost:6379/0"
+
 settings = Settings()
 
 def safe_settings_snapshot() -> dict:
-    """Return a sanitized subset of settings for startup logs."""
     return {
         "env": settings.ENV,
         "firebase_project_id": settings.FIREBASE_PROJECT_ID,
         "firebase_bucket": settings.FIREBASE_STORAGE_BUCKET
-            or f"{settings.FIREBASE_PROJECT_ID}.appspot.com",
+            or (f"{settings.FIREBASE_PROJECT_ID}.appspot.com" if settings.FIREBASE_PROJECT_ID else None),
         "rag_embedder": settings.RAG_EMBEDDER,
         "rag_model": settings.RAG_EMBED_MODEL,
         "rag_vectorstore": settings.RAG_VECTORSTORE,
@@ -213,6 +209,7 @@ def safe_settings_snapshot() -> dict:
         "rag_embed_dim": settings.RAG_EMBED_DIM,
         "rag_hybrid_fusion": settings.RAG_HYBRID_FUSION,
         "rag_hybrid_alpha": settings.RAG_HYBRID_ALPHA,
+        "redis_url": settings.REDIS_URL,
     }
 
 
@@ -318,6 +315,16 @@ FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
 RAG_HYBRID_FUSION=rrf
 RAG_HYBRID_ALPHA=0.5  
 
+REDIS_URL=redis://redis:6379/0
+
+LIMITS_FREE_MESSAGES=200
+LIMITS_FREE_UPLOAD_TOKENS=200000
+LIMITS_PRO_MESSAGES=10000
+LIMITS_PRO_UPLOAD_TOKENS=20000000
+
+# Optional: tokenizer override if you want a specific encoding name
+TOKENIZER_MODEL=cl100k_base
+
 C:/code2/lbpr/backend/core/config.py.PATCH.txt
 
 # Add this field to core/config.py Settings:
@@ -399,5 +406,43 @@ def setup_logging() -> None:
     handler.setFormatter(JsonFormatter())
     root.addHandler(handler)
     root.setLevel(_LEVEL)
+
+
+C:/code2/lbpr/backend/core/redis_utils.py
+import logging
+from typing import AsyncIterator, Optional
+from redis.asyncio import Redis
+from contextlib import asynccontextmanager
+
+log = logging.getLogger("redis")
+
+_client: Optional[Redis] = None
+
+async def get_client() -> Redis:
+    assert _client is not None, "Redis client not initialized"
+    return _client
+
+async def init(redis_url: str) -> Redis:
+    global _client
+    if _client is None:
+        log.info("redis_connecting", url=redis_url)
+        _client = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
+        try:
+            pong = await _client.ping()
+            log.info("redis_connected", ping=pong)
+        except Exception as e:
+            log.exception("redis_ping_failed")
+            raise
+    return _client
+
+async def close() -> None:
+    global _client
+    if _client is not None:
+        try:
+            await _client.close()
+            await _client.connection_pool.disconnect(inuse_connections=True)
+            log.info("redis_closed")
+        finally:
+            _client = None
 
 

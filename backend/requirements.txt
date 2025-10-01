@@ -1,6 +1,6 @@
 # Framework
-fastapi==0.117.1            # latest stable as of Sep 2025
-uvicorn[standard]==0.37.0   # latest, includes watchfiles/h11/httptools
+fastapi==0.117.1
+uvicorn[standard]==0.37.0
 
 # Validation / settings
 pydantic==2.11.1
@@ -8,22 +8,26 @@ pydantic-settings==2.5.2
 
 # Env & JSON
 python-dotenv==1.0.1
-orjson==3.*                 # optional, but great with FastAPI
+orjson==3.*
 
 # Firebase / Google
 firebase-admin==7.1.0
 
 # HTTP client
-httpx==0.28.1               # current stable line
+httpx==0.28.1
 
 # Uploads
 python-multipart==0.0.20
 
 # AI SDKs
-openai>=1.0,<2.0            # new v1 API style
+openai>=1.0,<2.0
 pinecone>=7.0.0
 
 pypdf>=6.1.0,<7.0.0
 python-docx>=1.2.0,<2.0.0
 
 pinecone-text>=0.9.0
+
+# 🔴 New: Redis Python client (async supported)
+redis>=6.4.0,<7.0.0
+tiktoken==0.11.0

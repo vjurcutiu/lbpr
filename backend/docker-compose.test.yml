@@ -1,38 +1,31 @@
 services:
   api-test:
-    # Build the multi-stage Dockerfile's "test" target so dev/test deps (pytest, etc.) are present
     build:
       context: .
       dockerfile: Dockerfile
       target: test
-
-    # Let the test-stage CMD run (pytest ...). Don't override with a custom command.
-
     environment:
       PYTHONUNBUFFERED: "1"
-      # Avoid starting Firebase Admin in test runs; your app code should gate on this.
       SKIP_FIREBASE_INIT: "1"
-      # Optionally also set:
-      # APP_ENV: "test"
-
-    # Mount backend code into /app so you can iterate without rebuilds
+      REDIS_URL: redis://redis:6379/1
     volumes:
       - ./:/app
-
     working_dir: /app
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [appnet]
 
-    # If you need services like Redis/Postgres for tests, uncomment and define them:
-    # depends_on:
-    #   redis:
-    #     condition: service_started
-
-    networks:
-      - appnet
-
-  # Example optional test dependency:
-  # redis:
-  #   image: redis:7-alpine
-  #   networks: [appnet]
+  # New: test Redis
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server","--save",""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [appnet]
 
 networks:
   appnet:
