@@ -1,11 +1,16 @@
+
 from __future__ import annotations
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import os
 import logging
+import uuid
 
-from .embedder import embed_texts, embed_one  # existing module in your project
+from .embedder import embed_texts, embed_one
 from .sparse import SparseEncoder
 from .vectorstore import get_store
+from .chunker import simple_word_chunker
+from .schemas import IngestRequest, IngestResponse, QueryRequest, QueryResponse, Source
+from core.namespaces import pinecone_namespace
 
 log = logging.getLogger("rag.orchestrator")
 
@@ -13,16 +18,12 @@ _store = get_store()
 _sparse = SparseEncoder()
 
 # Read toggle from env:
-#   RAG_HYBRID_FUSION = "rrf" | "alpha"
-#   RAG_HYBRID_ALPHA  = float in [0,1]
 FUSION = (os.getenv("RAG_HYBRID_FUSION") or "rrf").lower()
 ALPHA = float(os.getenv("RAG_HYBRID_ALPHA") or "0.5")
 
 
-def ingest(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
-    """
-    `chunks`: list of {"chunk_id", "text", "span": {"start":int, "end":int}}
-    """
+def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
+    """Low-level ingest: takes prepared chunks with 'text' and precomputed vectors."""
     texts = [c["text"] for c in chunks]
     vectors = embed_texts(texts)
     sparse_list = [_sparse.encode_doc(t) for t in texts]
@@ -45,22 +46,53 @@ def ingest(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
             }
         )
 
-    log.info("ingest_upsert", extra={"dataset": dataset, "entries": len(entries)})
+    log.info("ingest_upsert", dataset=dataset, entries=len(entries))
     _store.upsert_chunks(dataset, entries)
 
 
-def query(dataset: str, query_text: str, k: int = 5):
-    qvec = embed_one(query_text)
-    qsparse = _sparse.encode_query(query_text)
+def ingest_request(req: IngestRequest, uid: str) -> IngestResponse:
+    """High-level ingest that applies per-user namespace and chunking."""
+    dataset_ns = pinecone_namespace(uid, req.dataset)
+    doc_id = (req.doc_id or f"doc_{uuid.uuid4().hex[:12]}").strip()
+    text = req.text or ""
+    meta = dict(req.metadata or {})
+    meta.setdefault("owner_uid", uid)
 
-    log.info(
-        "query_start",
-        extra={"dataset": dataset, "k": k, "fusion": FUSION, "alpha": ALPHA},
+    chunks = simple_word_chunker(text) if text else []
+    _ingest_impl(dataset_ns, doc_id, chunks, meta)
+
+    return IngestResponse(dataset=dataset_ns, doc_id=doc_id, chunk_ids=[c["chunk_id"] for c in chunks])
+
+
+def query_request(req: QueryRequest, uid: str) -> QueryResponse:
+    """High-level query that applies per-user namespace and hybrid search."""
+    dataset_ns = pinecone_namespace(uid, req.dataset)
+
+    qvec = embed_one(req.query)
+    qsparse = _sparse.encode_query(req.query)
+
+    log.info("query_start", dataset=dataset_ns, k=req.k, fusion=FUSION, alpha=ALPHA)
+
+    results: List[Tuple[float, Dict]] = _store.query_hybrid(
+        dataset_ns, qvec, qsparse, k=req.k, fusion=FUSION, alpha=ALPHA
     )
 
-    results = _store.query_hybrid(
-        dataset, qvec, qsparse, k=k, fusion=FUSION, alpha=ALPHA
-    )
+    log.info("query_done", dataset=dataset_ns, found=len(results))
 
-    log.info("query_done", extra={"dataset": dataset, "found": len(results)})
-    return results
+    sources: List[Source] = []
+    if req.with_sources:
+        for score, e in results:
+            sources.append(
+                Source(
+                    doc_id=e.get("doc_id", ""),
+                    chunk_id=e.get("chunk_id", ""),
+                    score=float(score),
+                    text=e.get("text", ""),
+                    metadata=e.get("metadata", {}) or {},
+                )
+            )
+
+    # NOTE: answer generation left simple (you can wire LLM here if desired)
+    answer = "\n\n".join([s.text for s in sources]) or "(no results)"
+
+    return QueryResponse(dataset=dataset_ns, query=req.query, answer=answer, sources=sources)
