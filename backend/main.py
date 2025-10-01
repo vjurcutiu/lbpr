@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Response, Depends
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -11,6 +11,7 @@ from core.logging import setup_logging
 from core import redis_utils
 
 from routers import health
+from routers.limits import router as limits_router
 from features.auth import routes as auth_routes  # type: ignore
 from features.profile import routes as profile_routes  # type: ignore
 from features.rag.router import router as rag_router
@@ -71,14 +72,11 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Boot
     setup_logging()
     log.info("app_boot", **safe_settings_snapshot())
     init_firebase()
-    # Connect Redis
     await redis_utils.init(settings.REDIS_URL)
     yield
-    # Shutdown
     await redis_utils.close()
 
 def create_app() -> FastAPI:
@@ -101,6 +99,7 @@ def create_app() -> FastAPI:
 
     # Routers
     app.include_router(health.router)
+    app.include_router(limits_router)
     app.include_router(auth_routes.router)
     app.include_router(profile_routes.router)
     app.include_router(rag_router)

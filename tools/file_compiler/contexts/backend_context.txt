@@ -1,5 +1,5 @@
 C:/code2/lbpr/backend/main.py
-from fastapi import FastAPI, Request, Response, Depends
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -12,6 +12,7 @@ from core.logging import setup_logging
 from core import redis_utils
 
 from routers import health
+from routers.limits import router as limits_router
 from features.auth import routes as auth_routes  # type: ignore
 from features.profile import routes as profile_routes  # type: ignore
 from features.rag.router import router as rag_router
@@ -72,14 +73,11 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Boot
     setup_logging()
     log.info("app_boot", **safe_settings_snapshot())
     init_firebase()
-    # Connect Redis
     await redis_utils.init(settings.REDIS_URL)
     yield
-    # Shutdown
     await redis_utils.close()
 
 def create_app() -> FastAPI:
@@ -102,6 +100,7 @@ def create_app() -> FastAPI:
 
     # Routers
     app.include_router(health.router)
+    app.include_router(limits_router)
     app.include_router(auth_routes.router)
     app.include_router(profile_routes.router)
     app.include_router(rag_router)
@@ -116,25 +115,6 @@ def create_app() -> FastAPI:
     return app
 
 app = create_app()
-
-
-C:/code2/lbpr/backend/routers/health.py
-from fastapi import APIRouter
-from core.redis_utils import get_client
-
-router = APIRouter(tags=["meta"])
-
-@router.get("/healthz")
-async def healthz():
-    # Try a fast PING; don't fail the endpoint if Redis is down.
-    ok = True
-    redis_ok = None
-    try:
-        r = await get_client()
-        redis_ok = await r.ping()
-    except Exception:
-        redis_ok = False
-    return {"ok": ok, "redis": redis_ok}
 
 
 C:/code2/lbpr/backend/core/config.py
@@ -192,6 +172,18 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # -------- Plans / Limits (monthly window, per-user) --------
+    # Default "FREE" limits
+    LIMITS_FREE_MESSAGES: int = 200              # number of chat messages per calendar month
+    LIMITS_FREE_UPLOAD_TOKENS: int = 200_000     # tokens accepted by /ingest & file uploads per month
+
+    # Default "PRO" limits
+    LIMITS_PRO_MESSAGES: int = 10000
+    LIMITS_PRO_UPLOAD_TOKENS: int = 20_000_000
+
+    # Optional override: count upload tokens using this tokenizer/model id.
+    TOKENIZER_MODEL: str | None = None  # if None, auto-pick based on RAG_EMBED_MODEL
+
 settings = Settings()
 
 def safe_settings_snapshot() -> dict:
@@ -207,9 +199,6 @@ def safe_settings_snapshot() -> dict:
         "pinecone_cloud": settings.PINECONE_CLOUD,
         "pinecone_region": settings.PINECONE_REGION,
         "rag_embed_dim": settings.RAG_EMBED_DIM,
-        "rag_hybrid_fusion": settings.RAG_HYBRID_FUSION,
-        "rag_hybrid_alpha": settings.RAG_HYBRID_ALPHA,
-        "redis_url": settings.REDIS_URL,
     }
 
 
@@ -408,6 +397,136 @@ def setup_logging() -> None:
     root.setLevel(_LEVEL)
 
 
+C:/code2/lbpr/backend/core/plan.py
+from __future__ import annotations
+import logging, time
+from typing import Literal, Optional
+from core.config import settings
+from core.redis_utils import get_client
+
+log = logging.getLogger("plan")
+
+Plan = Literal["FREE", "PRO"]
+
+async def _fetch_plan_from_firestore(uid: str) -> Plan:
+    """Ask Firestore: if there's any active/trialing/past_due subscription => PRO else FREE."""
+    try:
+        # Use Firebase Admin SDK
+        from firebase_admin import firestore  # type: ignore
+        db = firestore.client()
+        subs = db.collection("customers").document(uid).collection("subscriptions").order_by("created", direction=firestore.Query.DESCENDING).limit(5).stream()
+        active_like = {"active", "trialing", "past_due"}
+        for s in subs:
+            data = s.to_dict() or {}
+            st = (data.get("status") or "").lower()
+            if st in active_like:
+                return "PRO"
+    except Exception:
+        log.exception("plan_firestore_error", uid=uid)
+    return "FREE"
+
+async def get_user_plan(uid: str, cache_ttl_sec: int = 300) -> Plan:
+    r = await get_client()
+    key = f"plan:{uid}"
+    plan = await r.get(key)
+    if plan in ("FREE","PRO"):
+        return plan  # type: ignore
+    plan = await _fetch_plan_from_firestore(uid)
+    try:
+        await r.set(key, plan, ex=cache_ttl_sec)
+    except Exception:
+        pass
+    return plan  # type: ignore
+
+def plan_limits(plan: Plan) -> dict[str,int]:
+    if plan == "PRO":
+        return {
+            "messages": settings.LIMITS_PRO_MESSAGES,
+            "upload_tokens": settings.LIMITS_PRO_UPLOAD_TOKENS,
+        }
+    return {
+        "messages": settings.LIMITS_FREE_MESSAGES,
+        "upload_tokens": settings.LIMITS_FREE_UPLOAD_TOKENS,
+    }
+
+
+C:/code2/lbpr/backend/core/rate_limit.py
+from __future__ import annotations
+import time, calendar, datetime as dt, logging
+from typing import Tuple, Optional
+from core.redis_utils import get_client
+from core.config import settings
+from core.plan import get_user_plan, plan_limits
+
+log = logging.getLogger("limits")
+
+def month_key(now: Optional[dt.datetime] = None) -> Tuple[str, int]:
+    now = now or dt.datetime.utcnow()
+    ym = now.strftime("%Y%m")
+    # Expire at end-of-month + 2 days buffer (UTC)
+    last_day = calendar.monthrange(now.year, now.month)[1]
+    end = dt.datetime(now.year, now.month, last_day, 23, 59, 59, tzinfo=dt.timezone.utc)
+    expire_at = int(end.timestamp()) + 2*24*3600
+    return ym, expire_at
+
+# Single Lua script to atomically check + increment a field capped by a limit.
+# Returns: {allowed:int, new_value:int}
+LUA_CHECK_INCR = """local key     = KEYS[1]
+local field   = ARGV[1]
+local inc     = tonumber(ARGV[2])
+local cap     = tonumber(ARGV[3])
+local expat   = tonumber(ARGV[4])
+
+local cur = redis.call('HGET', key, field)
+if not cur then cur = 0 else cur = tonumber(cur) end
+local new = cur + inc
+if new > cap then
+  return {0, cur}
+end
+redis.call('HINCRBY', key, field, inc)
+-- ensure expiry each time
+local ttl = redis.call('TTL', key)
+if not ttl or ttl < 0 then
+  redis.call('EXPIREAT', key, expat)
+end
+return {1, new}
+"""
+
+async def _check_and_add(uid: str, metric: str, inc: int, cap: int) -> Tuple[bool, int]:
+    r = await get_client()
+    ym, expat = month_key()
+    key = f"usage:{uid}:{ym}"
+    try:
+        res = await r.eval(LUA_CHECK_INCR, 1, key, metric, str(inc), str(cap), str(expat))
+        allowed, newv = int(res[0]), int(res[1])
+        return (allowed == 1), newv
+    except Exception:
+        log.exception("redis_eval_failed", uid=uid, metric=metric)
+        # Fail-OPEN: allow but log (prevents hard lockout if Redis hiccups)
+        return True, -1
+
+async def add_message(uid: str) -> Tuple[bool, int, int]:
+    plan = await get_user_plan(uid)
+    caps = plan_limits(plan)
+    ok, newv = await _check_and_add(uid, "messages", 1, caps["messages"])
+    return ok, newv, caps["messages"]
+
+# For uploads and /ingest: increment token budget by N tokens
+async def add_upload_tokens(uid: str, tokens: int) -> Tuple[bool, int, int]:
+    plan = await get_user_plan(uid)
+    caps = plan_limits(plan)
+    ok, newv = await _check_and_add(uid, "upload_tokens", tokens, caps["upload_tokens"])
+    return ok, newv, caps["upload_tokens"]
+
+# Fetch current usage snapshot
+async def read_usage(uid: str) -> dict:
+    r = await get_client()
+    ym, _ = month_key()
+    key = f"usage:{uid}:{ym}"
+    data = await r.hgetall(key)
+    return {k:int(v) for k,v in data.items() if v is not None and str(v).isdigit()}
+
+
 C:/code2/lbpr/backend/core/redis_utils.py
 import logging
 from typing import AsyncIterator, Optional
@@ -444,5 +563,75 @@ async def close() -> None:
             log.info("redis_closed")
         finally:
             _client = None
+
+
+C:/code2/lbpr/backend/core/tokenizer.py
+from __future__ import annotations
+from core.config import settings
+
+def _get_encoding_name() -> str:
+    # Prefer explicit override, then model-based guess, then cl100k_base
+    if settings.TOKENIZER_MODEL:
+        return settings.TOKENIZER_MODEL
+    # Map common OpenAI models to encodings
+    m = (settings.RAG_EMBED_MODEL or "").lower()
+    # Most modern OpenAI text models use cl100k_base (including text-embedding-3-*)
+    return "cl100k_base"
+
+def count_tokens(text: str) -> int:
+    try:
+        import tiktoken  # type: ignore
+        enc = tiktoken.get_encoding(_get_encoding_name())
+        return len(enc.encode(text or ""))
+    except Exception:
+        # Fallback: approximate 4 chars/token
+        t = text or ""
+        return max(1, (len(t) + 3) // 4)
+
+
+C:/code2/lbpr/backend/routers/health.py
+from fastapi import APIRouter
+from core.redis_utils import get_client
+
+router = APIRouter(tags=["meta"])
+
+@router.get("/healthz")
+async def healthz():
+    # Try a fast PING; don't fail the endpoint if Redis is down.
+    ok = True
+    redis_ok = None
+    try:
+        r = await get_client()
+        redis_ok = await r.ping()
+    except Exception:
+        redis_ok = False
+    return {"ok": ok, "redis": redis_ok}
+
+
+C:/code2/lbpr/backend/routers/limits.py
+from fastapi import APIRouter, Depends
+from features.auth.deps import get_current_user
+from features.auth.models import SessionOut
+from core.plan import get_user_plan, plan_limits
+from core.rate_limit import read_usage, month_key
+
+router = APIRouter(prefix="/limits", tags=["limits"])
+
+@router.get("/me")
+async def get_limits_me(user: SessionOut = Depends(get_current_user)):
+    plan = await get_user_plan(user.uid)
+    caps = plan_limits(plan)
+    usage = await read_usage(user.uid)
+    ym, _ = month_key()
+    return {
+        "plan": plan,
+        "window": ym,
+        "caps": caps,
+        "usage": {"messages": usage.get("messages", 0), "upload_tokens": usage.get("upload_tokens", 0)},
+        "remaining": {
+            "messages": max(0, caps["messages"] - usage.get("messages", 0)),
+            "upload_tokens": max(0, caps["upload_tokens"] - usage.get("upload_tokens", 0)),
+        },
+    }
 
 

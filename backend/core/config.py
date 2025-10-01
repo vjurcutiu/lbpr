@@ -52,6 +52,18 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # -------- Plans / Limits (monthly window, per-user) --------
+    # Default "FREE" limits
+    LIMITS_FREE_MESSAGES: int = 200              # number of chat messages per calendar month
+    LIMITS_FREE_UPLOAD_TOKENS: int = 200_000     # tokens accepted by /ingest & file uploads per month
+
+    # Default "PRO" limits
+    LIMITS_PRO_MESSAGES: int = 10000
+    LIMITS_PRO_UPLOAD_TOKENS: int = 20_000_000
+
+    # Optional override: count upload tokens using this tokenizer/model id.
+    TOKENIZER_MODEL: str | None = None  # if None, auto-pick based on RAG_EMBED_MODEL
+
 settings = Settings()
 
 def safe_settings_snapshot() -> dict:
@@ -67,7 +79,4 @@ def safe_settings_snapshot() -> dict:
         "pinecone_cloud": settings.PINECONE_CLOUD,
         "pinecone_region": settings.PINECONE_REGION,
         "rag_embed_dim": settings.RAG_EMBED_DIM,
-        "rag_hybrid_fusion": settings.RAG_HYBRID_FUSION,
-        "rag_hybrid_alpha": settings.RAG_HYBRID_ALPHA,
-        "redis_url": settings.REDIS_URL,
     }
