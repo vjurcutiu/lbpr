@@ -33,12 +33,21 @@ C:/code2/lbpr/backend/features/rag/contracts_router.py
 from typing import Optional, List
 from fastapi import APIRouter, Header, HTTPException, Depends, Query, Request
 from pydantic import BaseModel, Field
-import logging, time
+import logging, time, os
 
 from .embedder import embed_one
 from .vectorstore import InMemoryVectorStore
-from .chunker import simple_word_chunker
 from . import orchestrator
+
+# Optional LLM (OpenAI). If not configured, we fall back to snippet echo.
+USE_LLM = bool(os.getenv("OPENAI_API_KEY"))
+
+if USE_LLM:
+    try:
+        from .adapters.openai_chat import OpenAIChat
+    except Exception as _e:
+        OpenAIChat = None  # type: ignore
+        USE_LLM = False
 
 router = APIRouter(tags=["RAG (Contracts)"])
 log = logging.getLogger("rag.contracts")
@@ -116,44 +125,86 @@ def search(
              trace_id=x_trace_id or getattr(request.state, "trace_id", None), tenant_id=tenant_id)
     return SearchResults(total=len(items), items=items)
 
+def _build_context_from_hits(hits) -> List[str]:
+    snippets: List[str] = []
+    for _score, e in hits:
+        snippets.append(f"- {e['text'].strip()}".strip())
+    return snippets
+
 @router.post("/v1/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, request: Request, x_trace_id: Optional[str] = Header(default=None, convert_underscores=False)):
     t0 = time.time()
     tenant_id = req.tenant_id or "demo"
     ns = _ns("default", tenant_id)
+    retrieved = 0
     try:
         qvec = embed_one(req.message)
         hits = _store.query(ns, qvec, k=req.max_context)
-        snippets = []
+        retrieved = len(hits)
+
+        # Build citations (even if we later choose to not strictly quote them in prose)
         citations: List[Citation] = []
-        for score, e in hits:
-            snippets.append(f"- {e['text'].strip()}")
-            span = e.get("metadata", {}).get("span")
-            citations.append(
-                Citation(
-                    doc_id=e["doc_id"],
-                    title=e.get("metadata", {}).get("title"),
-                    span=str(span) if span else None,
+        for _score, e in hits:
+            span_start = e.get("metadata", {}).get("span_start")
+            span_end = e.get("metadata", {}).get("span_end")
+            span = f"{span_start}-{span_end}" if (span_start is not None and span_end is not None) else None
+            citations.append(Citation(doc_id=e["doc_id"], title=e.get("metadata", {}).get("title"), span=span))
+
+        # Decide answer path
+        answer_text: str
+        model_used = None
+
+        if USE_LLM and OpenAIChat is not None:
+            chat = OpenAIChat()
+            model_used = chat.model
+            snippets = _build_context_from_hits(hits)
+
+            if snippets:
+                system = (
+                    "You are an expert assistant. Answer the user's question using ONLY the provided context.\n"
+                    "If the answer is not present in the context, say you don't know. Keep it concise."
                 )
+                user_content = f"Question: {req.message}\n\nContext:\n" + "\n".join(snippets)
+            else:
+                system = (
+                    "You are a helpful general assistant. No RAG context is available for this turn.\n"
+                    "Answer from general knowledge. If the user asks about their private data, explain that no context was retrieved."
+                )
+                user_content = req.message
+
+            try:
+                answer_text = chat.generate(system=system, user=user_content, history=(req.history or []))
+            except Exception:
+                # On LLM failure, fall back to old behavior
+                snippets = _build_context_from_hits(hits)
+                answer_text = (
+                    f"Here are the most relevant snippets for: '{req.message}'\n\n" + "\n\n".join(snippets)
+                    if snippets else "I couldn’t find relevant context yet."
+                )
+                model_used = None
+        else:
+            # No LLM configured: original snippet behavior
+            snippets = _build_context_from_hits(hits)
+            answer_text = (
+                f"Here are the most relevant snippets for: '{req.message}'\n\n" + "\n\n".join(snippets)
+                if snippets else "I couldn’t find relevant context yet."
             )
-        answer = (
-            f"Here are the most relevant snippets for: '{req.message}'\n\n"
-            + "\n\n".join(snippets)
-            if snippets
-            else "I couldn’t find relevant context yet."
-        )
+
         dur_ms = int((time.time() - t0) * 1000)
         log.info("contracts_chat_ok",
                  ns=ns, message_len=len(req.message),
-                 history=len(req.history or []), retrieved=len(hits),
+                 history=len(req.history or []), retrieved=retrieved,
+                 llm=bool(model_used), model=model_used,
                  dur_ms=dur_ms,
                  trace_id=x_trace_id or getattr(request.state, "trace_id", None),
                  tenant_id=tenant_id)
-        return ChatResponse(
-            answer=answer,
-            citations=citations,
-            usage={"retrieved": len(hits)},
-        )
+
+        usage = {"retrieved": retrieved}
+        if model_used:
+            usage["model"] = model_used
+
+        return ChatResponse(answer=answer_text, citations=citations, usage=usage)
+
     except Exception:
         dur_ms = int((time.time() - t0) * 1000)
         log.exception("contracts_chat_error",
@@ -167,6 +218,7 @@ C:/code2/lbpr/backend/features/rag/embedder.py
 import math
 import os
 import logging
+import time
 from typing import List
 
 log = logging.getLogger("rag.embedder")
@@ -183,6 +235,7 @@ def _hash_token(t: str) -> int:
     return h
 
 def _local_embed_texts(texts: List[str]) -> List[List[float]]:
+    t0 = time.time()
     vectors = []
     for txt in texts:
         vec = [0.0] * DIM
@@ -193,6 +246,8 @@ def _local_embed_texts(texts: List[str]) -> List[List[float]]:
         norm = math.sqrt(sum(v*v for v in vec)) or 1.0
         vec = [v / norm for v in vec]
         vectors.append(vec)
+    dur_ms = int((time.time() - t0) * 1000)
+    log.info("local_embed_ok", count=len(texts), dim=DIM, dur_ms=dur_ms)
     return vectors
 
 def _openai_embed_texts(texts: List[str]) -> List[List[float]]:
@@ -212,77 +267,72 @@ def embed_one(text: str) -> List[float]:
 
 
 C:/code2/lbpr/backend/features/rag/orchestrator.py
-from typing import List, Dict
-import logging, time
-from .schemas import QueryRequest, QueryResponse, Source, IngestRequest, IngestResponse
-from .chunker import simple_word_chunker
-from .embedder import embed_texts, embed_one, RAG_EMBEDDER
+from __future__ import annotations
+from typing import Dict, List
+import os
+import logging
+
+from .embedder import embed_texts, embed_one  # existing module in your project
+from .sparse import SparseEncoder
 from .vectorstore import get_store
 
 log = logging.getLogger("rag.orchestrator")
 
 _store = get_store()
+_sparse = SparseEncoder()
 
-def _ns(dataset: str, tenant_id: str | None) -> str:
-    return f"t:{tenant_id or 'demo'}:{dataset}"
+# Read toggle from env:
+#   RAG_HYBRID_FUSION = "rrf" | "alpha"
+#   RAG_HYBRID_ALPHA  = float in [0,1]
+FUSION = (os.getenv("RAG_HYBRID_FUSION") or "rrf").lower()
+ALPHA = float(os.getenv("RAG_HYBRID_ALPHA") or "0.5")
 
-def ingest(req: IngestRequest) -> IngestResponse:
-    t0 = time.time()
-    if not req.text:
-        raise ValueError("text is required for MVP ingest")
-    chunks = simple_word_chunker(req.text)
-    log.info("ingest_chunked", chunks=len(chunks), approx_tokens=len(req.text.split()))
-    vectors = embed_texts([c["text"] for c in chunks])
-    dim = len(vectors[0]) if vectors else 0
-    log.info("ingest_embedded", embedder=RAG_EMBEDDER, dim=dim, count=len(vectors))
-    entries: List[Dict] = []
-    doc_id = req.doc_id or "doc_" + str(abs(hash(req.text)) % (10**8))
-    meta_base = dict(req.metadata or {})
-    for c, v in zip(chunks, vectors):
-        span = c["span"]  # {"start": i, "end": j}
-        entries.append({
-            "chunk_id": c["chunk_id"],
-            "doc_id": doc_id,
-            "text": c["text"],
-            "metadata": {
-                **meta_base,
-                "span_start": span["start"],
-                "span_end": span["end"],
-            },
-            "vector": v,
-        })
-    tenant_id = (req.metadata or {}).get("tenant_id")
-    ns = _ns(req.dataset, tenant_id)
-    log.info("upsert_start", ns=ns, entries=len(entries))
-    _store.upsert_chunks(ns, entries)
-    dur_ms = int((time.time() - t0) * 1000)
-    log.info("upsert_done", ns=ns, entries=len(entries), dur_ms=dur_ms)
-    return IngestResponse(dataset=req.dataset, doc_id=doc_id, chunk_ids=[e["chunk_id"] for e in entries])
 
-def _compose_answer(query: str, hits: List[Source]) -> str:
-    snippets = "\n\n".join([f"- {h.text.strip()}" for h in hits])
-    return f"Here are the most relevant snippets I found for: '{query}'\n\n{snippets}"
+def ingest(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
+    """
+    `chunks`: list of {"chunk_id", "text", "span": {"start":int, "end":int}}
+    """
+    texts = [c["text"] for c in chunks]
+    vectors = embed_texts(texts)
+    sparse_list = [_sparse.encode_doc(t) for t in texts]
 
-def query(req: QueryRequest) -> QueryResponse:
-    t0 = time.time()
-    qvec = embed_one(req.query)
-    ns = _ns(req.dataset, None)
-    log.info("query_start", ns=ns, k=req.k)
-    results = _store.query(ns, qvec, req.k)
-    sources: List[Source] = [
-        Source(
-            doc_id=e["doc_id"],
-            chunk_id=e["chunk_id"],
-            score=float(score),
-            text=e["text"],
-            metadata=e["metadata"],
+    entries = []
+    for c, v, sv in zip(chunks, vectors, sparse_list):
+        span = c.get("span") or {"start": 0, "end": 0}
+        entries.append(
+            {
+                "chunk_id": c["chunk_id"],
+                "doc_id": doc_id,
+                "text": c["text"],
+                "metadata": {
+                    **(meta_base or {}),
+                    "span_start": span.get("start", 0),
+                    "span_end": span.get("end", 0),
+                },
+                "vector": v,
+                "sparse": sv,
+            }
         )
-        for score, e in results
-    ]
-    dur_ms = int((time.time() - t0) * 1000)
-    log.info("query_results", ns=ns, found=len(sources), dur_ms=dur_ms)
-    answer = _compose_answer(req.query, sources)
-    return QueryResponse(dataset=req.dataset, query=req.query, answer=answer, sources=sources)
+
+    log.info("ingest_upsert", extra={"dataset": dataset, "entries": len(entries)})
+    _store.upsert_chunks(dataset, entries)
+
+
+def query(dataset: str, query_text: str, k: int = 5):
+    qvec = embed_one(query_text)
+    qsparse = _sparse.encode_query(query_text)
+
+    log.info(
+        "query_start",
+        extra={"dataset": dataset, "k": k, "fusion": FUSION, "alpha": ALPHA},
+    )
+
+    results = _store.query_hybrid(
+        dataset, qvec, qsparse, k=k, fusion=FUSION, alpha=ALPHA
+    )
+
+    log.info("query_done", extra={"dataset": dataset, "found": len(results)})
+    return results
 
 
 C:/code2/lbpr/backend/features/rag/README.md
@@ -393,48 +443,241 @@ class QueryResponse(BaseModel):
     sources: List[Source] = Field(default_factory=list)
 
 
+C:/code2/lbpr/backend/features/rag/sparse.py
+from __future__ import annotations
+from typing import Dict, Any, Tuple, List, Optional
+import logging
+
+log = logging.getLogger("rag.sparse")
+
+try:
+    # pinecone-text public preview (actively maintained)
+    from pinecone_text.sparse import BM25Encoder
+    from pinecone_text.hybrid import hybrid_convex_scale
+except Exception as e:  # pragma: no cover
+    BM25Encoder = None
+    hybrid_convex_scale = None
+    log.warning("pinecone-text not available: %s", e)
+
+
+class SparseEncoder:
+    """
+    Thin wrapper around pinecone-text BM25.
+    Uses MS MARCO–tuned defaults (no corpus fit needed).
+    You can later fit per-tenant and persist via dump()/load().
+    """
+
+    def __init__(self):
+        if BM25Encoder is None:
+            raise RuntimeError(
+                "pinecone-text not installed. Run: pip install pinecone-text"
+            )
+        # NOTE: .default() downloads defaults on first use; cache persists.
+        self._bm25 = BM25Encoder.default()
+
+    def encode_doc(self, text: str) -> Dict[str, List[float]]:
+        """Return sparse vector dict: {'indices':[...], 'values':[...]}"""
+        return self._bm25.encode_documents(text)
+
+    def encode_query(self, text: str) -> Dict[str, List[float]]:
+        return self._bm25.encode_queries(text)
+
+    @staticmethod
+    def scale_for_hybrid(
+        dense_vec: List[float],
+        sparse_vec: Dict[str, List[float]],
+        alpha: float = 0.5,
+    ) -> Tuple[List[float], Dict[str, List[float]]]:
+        """
+        Optional convex scaling for single-call hybrid queries.
+        alpha ~ weight on dense (semantic) vs sparse (keyword).
+        """
+        if hybrid_convex_scale is None:
+            return dense_vec, sparse_vec
+        return hybrid_convex_scale(dense_vec, sparse_vec, alpha=alpha)
+
+
 C:/code2/lbpr/backend/features/rag/vectorstore.py
-from typing import Dict, List, Tuple
+from __future__ import annotations
+from typing import Dict, List, Tuple, Optional
 import os
 import logging
 
 log = logging.getLogger("rag.vectorstore")
-RAG_VECTORSTORE = os.getenv("RAG_VECTORSTORE", "memory").lower()
+
+# ---- Store selector --------------------------------------------------------
+
+def get_store():
+    kind = (os.getenv("RAG_VECTORSTORE") or "pinecone").lower()
+    if kind == "memory":
+        return InMemoryVectorStore()
+    from .adapters.pinecone_store import PineconeVectorStore
+    return PineconeVectorStore()
+
+
+# ---- In-memory fallback (good for local dev & tests) -----------------------
 
 class InMemoryVectorStore:
     def __init__(self):
         self._data: Dict[str, List[Dict]] = {}
-        log.info("vectorstore_init", kind="memory")
+        log.info("vectorstore_init", extra={"kind": "memory"})
 
     def upsert_chunks(self, dataset: str, entries: List[Dict]):
-        log.info("memory_upsert", dataset=dataset, entries=len(entries))
+        log.info("memory_upsert", extra={"dataset": dataset, "entries": len(entries)})
         self._data.setdefault(dataset, [])
         self._data[dataset].extend(entries)
 
     @staticmethod
     def _cosine(a: List[float], b: List[float]) -> float:
-        return sum(x*y for x, y in zip(a, b))
+        return sum(x * y for x, y in zip(a, b))
 
-    def query(self, dataset: str, query_vec: List[float], k: int = 5):
+    @staticmethod
+    def _sparse_dot(q: Dict, d: Dict) -> float:
+        # q,d are {"indices":[...], "values":[...]}
+        qi = q.get("indices", [])
+        qv = q.get("values", [])
+        di = d.get("indices", [])
+        dv = d.get("values", [])
+        if not qi or not di:
+            return 0.0
+        dm = {i: v for i, v in zip(di, dv)}
+        return sum(v * dm.get(i, 0.0) for i, v in zip(qi, qv))
+
+    def query_dense(self, dataset: str, query_vec: List[float], k: int = 5):
         entries = self._data.get(dataset, [])
-        log.info("memory_query", dataset=dataset, entries=len(entries), k=k)
-        scored = []
-        for e in entries:
-            s = self._cosine(query_vec, e["vector"])
-            scored.append((s, e))
+        scored = [(self._cosine(query_vec, e["vector"]), e) for e in entries]
         scored.sort(key=lambda t: t[0], reverse=True)
         return scored[:k]
 
-def _pinecone_store():
-    from .adapters.pinecone_store import PineconeVectorStore
-    return PineconeVectorStore()
+    def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
+        entries = self._data.get(dataset, [])
+        scored = [(self._sparse_dot(q_sparse, e.get("sparse") or {}), e) for e in entries]
+        scored.sort(key=lambda t: t[0], reverse=True)
+        return scored[:k]
 
-def get_store():
-    if RAG_VECTORSTORE == "pinecone":
-        log.info("vectorstore_selected", kind="pinecone")
-        return _pinecone_store()
-    log.info("vectorstore_selected", kind="memory")
-    return InMemoryVectorStore()
+    @staticmethod
+    def _rrf(ids_a: List[str], ids_b: List[str], k_out: int, k_rrf: int = 60):
+        ranks: Dict[str, float] = {}
+        for r, id_ in enumerate(ids_a, start=1):
+            ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+        for r, id_ in enumerate(ids_b, start=1):
+            ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+        return sorted(ranks.items(), key=lambda t: t[1], reverse=True)[:k_out]
+
+    def query_hybrid(
+        self,
+        dataset: str,
+        q_dense: List[float],
+        q_sparse: Dict,
+        k: int = 5,
+        fusion: str = "rrf",
+        alpha: float = 0.5,
+    ):
+        topd = self.query_dense(dataset, q_dense, k=max(k, 20))
+        tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
+        if fusion == "alpha":
+            # simple convex blend: normalize ranks via positions
+            dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
+            sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
+            id2rank_d = {id_: i + 1 for i, id_ in enumerate(dense_ids)}
+            id2rank_s = {id_: i + 1 for i, id_ in enumerate(sparse_ids)}
+            all_ids = set(dense_ids) | set(sparse_ids)
+            fused = []
+            for id_ in all_ids:
+                # lower rank is better; convert to score by inverse rank
+                rd = id2rank_d.get(id_, 9999)
+                rs = id2rank_s.get(id_, 9999)
+                score = alpha * (1 / rd) + (1 - alpha) * (1 / rs)
+                fused.append((score, id_))
+            fused.sort(key=lambda t: t[0], reverse=True)
+            id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
+            return [(s, id2e[i]) for s, i in fused[:k]]
+
+        # default: RRF
+        dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
+        sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
+        fused = self._rrf(dense_ids, sparse_ids, k=k)
+        id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
+        return [(score, id2e[id_]) for id_, score in fused]  # score = fused RRF
+
+
+C:/code2/lbpr/backend/features/rag/adapters/openai_chat.py
+from __future__ import annotations
+
+import os
+import logging
+from typing import List, Dict, Any
+
+log = logging.getLogger("rag.openai.chat")
+
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None  # type: ignore
+
+DEFAULT_MODEL = os.getenv("RAG_CHAT_MODEL", os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-mini"))
+DEFAULT_TEMPERATURE = float(os.getenv("RAG_CHAT_TEMPERATURE", "0.2"))
+
+class OpenAIChat:
+    """Tiny wrapper around OpenAI Responses API for text-only answers."""
+    def __init__(self, model: str | None = None, temperature: float | None = None, timeout: float = 30.0):
+        if OpenAI is None:
+            raise RuntimeError("OpenAI SDK not installed. Install `openai>=1.0`.")
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set")
+        self.client = OpenAI(api_key=api_key)
+        self.model = model or DEFAULT_MODEL
+        self.temperature = DEFAULT_TEMPERATURE if temperature is None else float(temperature)
+        self.timeout = timeout
+
+    def generate(self, system: str, user: str, history: List[Dict[str, str]] | None = None) -> str:
+        """Generate a single assistant message as plain text.
+
+        `history` is a list of {role, content} where role in {"user","assistant","system"}.
+        We'll map it to the Responses API single-input format by concatenating messages.
+        """
+        parts: List[Dict[str, Any]] = []
+        # System instructions first
+        if system:
+            parts.append({"role": "system", "content": system})
+        # Prior turns if provided
+        for turn in (history or []):
+            r = turn.get("role") or "user"
+            c = str(turn.get("content") or "").strip()
+            if not c:
+                continue
+            parts.append({"role": r, "content": c})
+        # Current user message
+        parts.append({"role": "user", "content": user})
+
+        try:
+            resp = self.client.responses.create(
+                model=self.model,
+                input=parts,
+                temperature=self.temperature,
+                timeout=self.timeout,
+            )
+            # responses API gives unified output
+            out = getattr(resp, "output_text", None)
+            if isinstance(out, str) and out.strip():
+                return out.strip()
+            # Fallback: try to assemble from content parts
+            try:
+                chunks = []
+                for item in resp.output or []:
+                    if getattr(item, "type", "") == "message" and getattr(item, "role", "") == "assistant":
+                        for ct in getattr(item, "content", []) or []:
+                            if getattr(ct, "type", "") == "output_text" and getattr(ct, "text", ""):
+                                chunks.append(ct.text)
+                if chunks:
+                    return "".join(chunks).strip()
+            except Exception:
+                pass
+            return "(no text output)"
+        except Exception as e:
+            log.exception("openai_chat_error")
+            raise
 
 
 C:/code2/lbpr/backend/features/rag/adapters/openai_embedder.py
@@ -489,85 +732,65 @@ class OpenAIEmbedder:
 
 C:/code2/lbpr/backend/features/rag/adapters/pinecone_store.py
 from __future__ import annotations
-
-import os
-import time
-import logging
 from typing import Dict, List, Tuple, Optional
+import os
+import logging
 
 log = logging.getLogger("rag.pinecone")
 
 try:
     from pinecone import Pinecone, ServerlessSpec
-except Exception:
-    Pinecone = None  # type: ignore
-    ServerlessSpec = None  # type: ignore
+except Exception as e:  # pragma: no cover
+    Pinecone = None
+    ServerlessSpec = None
+    log.warning("pinecone sdk not available: %s", e)
+
+
+def _pc():
+    if Pinecone is None:
+        raise RuntimeError("pinecone sdk not installed. pip install pinecone")
+    return Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+
 
 class PineconeVectorStore:
-    def __init__(
-        self,
-        index_name: Optional[str] = None,
-        cloud: Optional[str] = None,
-        region: Optional[str] = None,
-    ):
-        if Pinecone is None:
-            raise RuntimeError("Pinecone SDK not installed. Install `pinecone-client>=4` or `pinecone`.")
-        api_key = os.getenv("PINECONE_API_KEY")
-        if not api_key:
-            raise RuntimeError("PINECONE_API_KEY is not set")
-        self.pc = Pinecone(api_key=api_key)
-
-        self.index_name = index_name or os.getenv("PINECONE_INDEX") or "lbpr-rag"
-        self.cloud = cloud or os.getenv("PINECONE_CLOUD") or "aws"
-        self.region = region or os.getenv("PINECONE_REGION") or "us-east-1"
-
+    def __init__(self):
+        self._index_name = os.getenv("PINECONE_INDEX", "lbpr")
+        self._dimension = int(os.getenv("RAG_EMBED_DIM", "512"))
+        self._cloud = os.getenv("PINECONE_CLOUD", "aws")
+        self._region = os.getenv("PINECONE_REGION", "us-east-1")
         self._index = None
-        log.info("pinecone_init", index=self.index_name, cloud=self.cloud, region=self.region)
+        log.info("pinecone_store_init", extra={"index": self._index_name})
 
+    # ---- index management --------------------------------------------------
     def _ensure_index(self, dimension: int):
-        existing = {i["name"] for i in self.pc.list_indexes()}
-        if self.index_name not in existing:
-            if ServerlessSpec is None:
-                raise RuntimeError("ServerlessSpec missing from pinecone SDK; please upgrade pinecone-client.")
-            log.info("pinecone_create_index_start", index=self.index_name, dimension=dimension, metric="cosine", cloud=self.cloud, region=self.region)
-            self.pc.create_index(
-                name=self.index_name,
+        pc = _pc()
+        if self._index_name not in [i["name"] for i in pc.list_indexes()]:
+            log.info(
+                "pinecone_create_index",
+                extra={"index": self._index_name, "dim": dimension, "region": self._region},
+            )
+            pc.create_index(
+                name=self._index_name,
                 dimension=dimension,
                 metric="cosine",
-                spec=ServerlessSpec(cloud=self.cloud, region=self.region),
+                spec=ServerlessSpec(cloud=self._cloud, region=self._region),
             )
-            for _ in range(60):
-                desc = self.pc.describe_index(self.index_name)
-                ready = bool(desc.get("status", {}).get("ready"))
-                log.info("pinecone_index_status", ready=ready)
-                if ready:
-                    break
-                time.sleep(2)
-        self._index = self.pc.Index(self.index_name)
-        log.info("pinecone_index_bound", index=self.index_name)
+        self._index = pc.Index(self._index_name)
 
     def _index_handle(self):
         if self._index is None:
-            try:
-                self._index = self.pc.Index(self.index_name)
-                log.info("pinecone_index_bound", index=self.index_name)
-            except Exception as e:
-                log.warning("pinecone_index_unavailable", error=str(e))
-                self._index = None
+            self._ensure_index(self._dimension)
         return self._index
 
+    # ---- upsert -----------------------------------------------------------
     def upsert_chunks(self, dataset: str, entries: List[Dict]):
         if not entries:
             return
-        dim = int(os.getenv("RAG_EMBED_DIM") or len(entries[0]["vector"]))
-        if self._index is None:
-            self._ensure_index(dimension=dim)
-
-        vectors = []
+        idx = self._index_handle()
         ns = dataset
+        vectors = []
         for e in entries:
-            # IMPORTANT: only pinecone-serializable metadata (no nested objects)
-            vectors.append({
+            vec = {
                 "id": f"{e['doc_id']}::{e['chunk_id']}",
                 "values": e["vector"],
                 "metadata": {
@@ -576,30 +799,86 @@ class PineconeVectorStore:
                     "text": e["text"],
                     **(e.get("metadata") or {}),
                 },
-            })
-        log.info("pinecone_upsert_start", namespace=ns, count=len(vectors), dim=dim)
-        self._index.upsert(vectors=vectors, namespace=ns)
-        log.info("pinecone_upsert_done", namespace=ns, count=len(vectors))
+            }
+            if e.get("sparse"):
+                # Pinecone expects 'sparse_values': {'indices': [...], 'values': [...]}
+                vec["sparse_values"] = e["sparse"]
+            vectors.append(vec)
+        log.info("pinecone_upsert_start", extra={"namespace": ns, "count": len(vectors)})
+        idx.upsert(vectors=vectors, namespace=ns)
+        log.info("pinecone_upsert_done", extra={"namespace": ns, "count": len(vectors)})
 
-    def query(self, dataset: str, query_vec: List[float], k: int = 5) -> List[Tuple[float, Dict]]:
-        idx = self._index_handle()
-        if idx is None:
-            log.info("pinecone_query_empty_index", namespace=dataset)
-            return []
-        log.info("pinecone_query_start", namespace=dataset, k=k)
-        res = idx.query(vector=query_vec, top_k=k, include_metadata=True, namespace=dataset)
+    # ---- query helpers ----------------------------------------------------
+    def _to_hits(self, res) -> List[Tuple[float, Dict]]:
         out: List[Tuple[float, Dict]] = []
-        for m in res.get("matches", []):
+        for m in res.get("matches", []) or []:
             md = m.get("metadata", {}) or {}
-            out.append((float(m.get("score", 0.0)), {
-                "chunk_id": md.get("chunk_id"),
-                "doc_id": md.get("doc_id"),
-                "text": md.get("text", ""),
-                "metadata": {k:v for k,v in md.items() if k not in ("chunk_id","doc_id","text")},
-                "vector": None,
-            }))
+            out.append(
+                (
+                    float(m.get("score", 0.0)),
+                    {
+                        "chunk_id": md.get("chunk_id"),
+                        "doc_id": md.get("doc_id"),
+                        "text": md.get("text", ""),
+                        "metadata": {
+                            k: v for k, v in md.items() if k not in ("chunk_id", "doc_id", "text")
+                        },
+                        "vector": None,
+                    },
+                )
+            )
         out.sort(key=lambda t: t[0], reverse=True)
-        log.info("pinecone_query_done", namespace=dataset, found=len(out))
         return out
+
+    def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
+        idx = self._index_handle()
+        res = idx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
+        return self._to_hits(res)
+
+    def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
+        idx = self._index_handle()
+        res = idx.query(sparse_vector=q_sparse, top_k=k, include_metadata=True, namespace=str(dataset))
+        return self._to_hits(res)
+
+    def query_hybrid(
+        self,
+        dataset: str,
+        q_dense: List[float],
+        q_sparse: Dict,
+        k: int = 5,
+        fusion: str = "rrf",
+        alpha: float = 0.5,
+    ):
+        idx = self._index_handle()
+
+        if fusion == "alpha":
+            # Single-call hybrid with convex scaling (recommended when you want strict weighting).
+            # If you want *external* scaling (pinecone_text.hybrid), do it in caller; here we send both vectors.
+            res = idx.query(
+                vector=q_dense,
+                sparse_vector=q_sparse,
+                top_k=k,
+                include_metadata=True,
+                namespace=str(dataset),
+            )
+            return self._to_hits(res)
+
+        # Default: two queries + RRF fusion (robust, simple, dependency-free).
+        topd = self.query_dense(dataset, q_dense, k=max(k, 20))
+        tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
+        dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
+        sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
+
+        def rrf(ids_a, ids_b, k_out, k_rrf=60):
+            ranks = {}
+            for r, id_ in enumerate(ids_a, 1):
+                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+            for r, id_ in enumerate(ids_b, 1):
+                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+            return sorted(ranks.items(), key=lambda t: t[1], reverse=True)[:k_out]
+
+        fused = rrf(dense_ids, sparse_ids, k)
+        id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
+        return [(score, id2e[i]) for i, score in fused]
 
 

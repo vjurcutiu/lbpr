@@ -1,84 +1,63 @@
 from __future__ import annotations
-
-import os
-import time
-import logging
 from typing import Dict, List, Tuple, Optional
+import os
+import logging
 
 log = logging.getLogger("rag.pinecone")
 
 try:
     from pinecone import Pinecone, ServerlessSpec
-except Exception:
-    Pinecone = None  # type: ignore
-    ServerlessSpec = None  # type: ignore
+except Exception as e:  # pragma: no cover
+    Pinecone = None
+    ServerlessSpec = None
+    log.warning("pinecone sdk not available: %s", e)
+
+
+def _pc():
+    if Pinecone is None:
+        raise RuntimeError("pinecone sdk not installed. pip install pinecone")
+    return Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+
 
 class PineconeVectorStore:
-    def __init__(
-        self,
-        index_name: Optional[str] = None,
-        cloud: Optional[str] = None,
-        region: Optional[str] = None,
-    ):
-        if Pinecone is None:
-            raise RuntimeError("Pinecone SDK not installed. Install `pinecone-client>=4` or `pinecone`.")
-        api_key = os.getenv("PINECONE_API_KEY")
-        if not api_key:
-            raise RuntimeError("PINECONE_API_KEY is not set")
-        self.pc = Pinecone(api_key=api_key)
-
-        self.index_name = index_name or os.getenv("PINECONE_INDEX") or "lbpr-rag"
-        self.cloud = cloud or os.getenv("PINECONE_CLOUD") or "aws"
-        self.region = region or os.getenv("PINECONE_REGION") or "us-east-1"
-
+    def __init__(self):
+        self._index_name = os.getenv("PINECONE_INDEX", "lbpr")
+        self._dimension = int(os.getenv("RAG_EMBED_DIM", "512"))
+        self._cloud = os.getenv("PINECONE_CLOUD", "aws")
+        self._region = os.getenv("PINECONE_REGION", "us-east-1")
         self._index = None
-        log.info("pinecone_init", index=self.index_name, cloud=self.cloud, region=self.region)
+        log.info("pinecone_store_init", extra={"index": self._index_name})
 
+    # ---- index management --------------------------------------------------
     def _ensure_index(self, dimension: int):
-        existing = {i["name"] for i in self.pc.list_indexes()}
-        if self.index_name not in existing:
-            if ServerlessSpec is None:
-                raise RuntimeError("ServerlessSpec missing from pinecone SDK; please upgrade pinecone-client.")
-            log.info("pinecone_create_index_start", index=self.index_name, dimension=dimension, metric="cosine", cloud=self.cloud, region=self.region)
-            self.pc.create_index(
-                name=self.index_name,
+        pc = _pc()
+        if self._index_name not in [i["name"] for i in pc.list_indexes()]:
+            log.info(
+                "pinecone_create_index",
+                extra={"index": self._index_name, "dim": dimension, "region": self._region},
+            )
+            pc.create_index(
+                name=self._index_name,
                 dimension=dimension,
                 metric="cosine",
-                spec=ServerlessSpec(cloud=self.cloud, region=self.region),
+                spec=ServerlessSpec(cloud=self._cloud, region=self._region),
             )
-            for _ in range(60):
-                desc = self.pc.describe_index(self.index_name)
-                ready = bool(desc.get("status", {}).get("ready"))
-                log.info("pinecone_index_status", ready=ready)
-                if ready:
-                    break
-                time.sleep(2)
-        self._index = self.pc.Index(self.index_name)
-        log.info("pinecone_index_bound", index=self.index_name)
+        self._index = pc.Index(self._index_name)
 
     def _index_handle(self):
         if self._index is None:
-            try:
-                self._index = self.pc.Index(self.index_name)
-                log.info("pinecone_index_bound", index=self.index_name)
-            except Exception as e:
-                log.warning("pinecone_index_unavailable", error=str(e))
-                self._index = None
+            self._ensure_index(self._dimension)
         return self._index
 
+    # ---- upsert -----------------------------------------------------------
     def upsert_chunks(self, dataset: str, entries: List[Dict]):
         if not entries:
-            log.info("pinecone_upsert_skip_empty", namespace=dataset)
             return
-        dim = int(os.getenv("RAG_EMBED_DIM") or len(entries[0]["vector"]))
-        if self._index is None:
-            self._ensure_index(dimension=dim)
-
-        vectors = []
+        idx = self._index_handle()
         ns = dataset
+        vectors = []
         for e in entries:
-            # IMPORTANT: only pinecone-serializable metadata (no nested objects)
-            vectors.append({
+            vec = {
                 "id": f"{e['doc_id']}::{e['chunk_id']}",
                 "values": e["vector"],
                 "metadata": {
@@ -87,37 +66,84 @@ class PineconeVectorStore:
                     "text": e["text"],
                     **(e.get("metadata") or {}),
                 },
-            })
-        try:
-            log.info("pinecone_upsert_start", namespace=ns, count=len(vectors), dim=dim,
-                     first_id=vectors[0]["id"] if vectors else None)
-            self._index.upsert(vectors=vectors, namespace=ns)
-            log.info("pinecone_upsert_done", namespace=ns, count=len(vectors))
-        except Exception:
-            log.exception("pinecone_upsert_error", namespace=ns, count=len(vectors))
-            raise
+            }
+            if e.get("sparse"):
+                # Pinecone expects 'sparse_values': {'indices': [...], 'values': [...]}
+                vec["sparse_values"] = e["sparse"]
+            vectors.append(vec)
+        log.info("pinecone_upsert_start", extra={"namespace": ns, "count": len(vectors)})
+        idx.upsert(vectors=vectors, namespace=ns)
+        log.info("pinecone_upsert_done", extra={"namespace": ns, "count": len(vectors)})
 
-    def query(self, dataset: str, query_vec: List[float], k: int = 5) -> List[Tuple[float, Dict]]:
+    # ---- query helpers ----------------------------------------------------
+    def _to_hits(self, res) -> List[Tuple[float, Dict]]:
+        out: List[Tuple[float, Dict]] = []
+        for m in res.get("matches", []) or []:
+            md = m.get("metadata", {}) or {}
+            out.append(
+                (
+                    float(m.get("score", 0.0)),
+                    {
+                        "chunk_id": md.get("chunk_id"),
+                        "doc_id": md.get("doc_id"),
+                        "text": md.get("text", ""),
+                        "metadata": {
+                            k: v for k, v in md.items() if k not in ("chunk_id", "doc_id", "text")
+                        },
+                        "vector": None,
+                    },
+                )
+            )
+        out.sort(key=lambda t: t[0], reverse=True)
+        return out
+
+    def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
         idx = self._index_handle()
-        if idx is None:
-            log.info("pinecone_query_empty_index", namespace=dataset)
-            return []
-        try:
-            log.info("pinecone_query_start", namespace=dataset, k=k)
-            res = idx.query(vector=query_vec, top_k=k, include_metadata=True, namespace=dataset)
-            out: List[Tuple[float, Dict]] = []
-            for m in res.get("matches", []):
-                md = m.get("metadata", {}) or {}
-                out.append((float(m.get("score", 0.0)), {
-                    "chunk_id": md.get("chunk_id"),
-                    "doc_id": md.get("doc_id"),
-                    "text": md.get("text", ""),
-                    "metadata": {k:v for k,v in md.items() if k not in ("chunk_id","doc_id","text")},
-                    "vector": None,
-                }))
-            out.sort(key=lambda t: t[0], reverse=True)
-            log.info("pinecone_query_done", namespace=dataset, found=len(out))
-            return out
-        except Exception:
-            log.exception("pinecone_query_error", namespace=dataset, k=k)
-            raise
+        res = idx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
+        return self._to_hits(res)
+
+    def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
+        idx = self._index_handle()
+        res = idx.query(sparse_vector=q_sparse, top_k=k, include_metadata=True, namespace=str(dataset))
+        return self._to_hits(res)
+
+    def query_hybrid(
+        self,
+        dataset: str,
+        q_dense: List[float],
+        q_sparse: Dict,
+        k: int = 5,
+        fusion: str = "rrf",
+        alpha: float = 0.5,
+    ):
+        idx = self._index_handle()
+
+        if fusion == "alpha":
+            # Single-call hybrid with convex scaling (recommended when you want strict weighting).
+            # If you want *external* scaling (pinecone_text.hybrid), do it in caller; here we send both vectors.
+            res = idx.query(
+                vector=q_dense,
+                sparse_vector=q_sparse,
+                top_k=k,
+                include_metadata=True,
+                namespace=str(dataset),
+            )
+            return self._to_hits(res)
+
+        # Default: two queries + RRF fusion (robust, simple, dependency-free).
+        topd = self.query_dense(dataset, q_dense, k=max(k, 20))
+        tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
+        dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
+        sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
+
+        def rrf(ids_a, ids_b, k_out, k_rrf=60):
+            ranks = {}
+            for r, id_ in enumerate(ids_a, 1):
+                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+            for r, id_ in enumerate(ids_b, 1):
+                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+            return sorted(ranks.items(), key=lambda t: t[1], reverse=True)[:k_out]
+
+        fused = rrf(dense_ids, sparse_ids, k)
+        id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
+        return [(score, id2e[i]) for i, score in fused]

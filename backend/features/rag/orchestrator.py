@@ -1,71 +1,66 @@
-from typing import List, Dict
-import logging, time
-from .schemas import QueryRequest, QueryResponse, Source, IngestRequest, IngestResponse
-from .chunker import simple_word_chunker
-from .embedder import embed_texts, embed_one, RAG_EMBEDDER
+from __future__ import annotations
+from typing import Dict, List
+import os
+import logging
+
+from .embedder import embed_texts, embed_one  # existing module in your project
+from .sparse import SparseEncoder
 from .vectorstore import get_store
 
 log = logging.getLogger("rag.orchestrator")
 
 _store = get_store()
+_sparse = SparseEncoder()
 
-def _ns(dataset: str, tenant_id: str | None) -> str:
-    return f"t:{tenant_id or 'demo'}:{dataset}"
+# Read toggle from env:
+#   RAG_HYBRID_FUSION = "rrf" | "alpha"
+#   RAG_HYBRID_ALPHA  = float in [0,1]
+FUSION = (os.getenv("RAG_HYBRID_FUSION") or "rrf").lower()
+ALPHA = float(os.getenv("RAG_HYBRID_ALPHA") or "0.5")
 
-def ingest(req: IngestRequest) -> IngestResponse:
-    t0 = time.time()
-    if not req.text:
-        raise ValueError("text is required for MVP ingest")
-    chunks = simple_word_chunker(req.text)
-    log.info("ingest_chunked", chunks=len(chunks), approx_tokens=len(req.text.split()))
-    vectors = embed_texts([c["text"] for c in chunks])
-    dim = len(vectors[0]) if vectors else 0
-    log.info("ingest_embedded", embedder=RAG_EMBEDDER, dim=dim, count=len(vectors))
-    entries: List[Dict] = []
-    doc_id = req.doc_id or "doc_" + str(abs(hash(req.text)) % (10**8))
-    meta_base = dict(req.metadata or {})
-    for c, v in zip(chunks, vectors):
-        span = c["span"]  # {"start": i, "end": j}
-        entries.append({
-            "chunk_id": c["chunk_id"],
-            "doc_id": doc_id,
-            "text": c["text"],
-            "metadata": {
-                **meta_base,
-                "span_start": span["start"],
-                "span_end": span["end"],
-            },
-            "vector": v,
-        })
-    tenant_id = (req.metadata or {}).get("tenant_id")
-    ns = _ns(req.dataset, tenant_id)
-    log.info("upsert_start", ns=ns, entries=len(entries))
-    _store.upsert_chunks(ns, entries)
-    dur_ms = int((time.time() - t0) * 1000)
-    log.info("upsert_done", ns=ns, entries=len(entries), dur_ms=dur_ms)
-    return IngestResponse(dataset=req.dataset, doc_id=doc_id, chunk_ids=[e["chunk_id"] for e in entries])
 
-def _compose_answer(query: str, hits: List[Source]) -> str:
-    snippets = "\n\n".join([f"- {h.text.strip()}" for h in hits])
-    return f"Here are the most relevant snippets I found for: '{query}'\n\n{snippets}"
+def ingest(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
+    """
+    `chunks`: list of {"chunk_id", "text", "span": {"start":int, "end":int}}
+    """
+    texts = [c["text"] for c in chunks]
+    vectors = embed_texts(texts)
+    sparse_list = [_sparse.encode_doc(t) for t in texts]
 
-def query(req: QueryRequest) -> QueryResponse:
-    t0 = time.time()
-    qvec = embed_one(req.query)
-    ns = _ns(req.dataset, None)
-    log.info("query_start", ns=ns, k=req.k)
-    results = _store.query(ns, qvec, req.k)
-    sources: List[Source] = [
-        Source(
-            doc_id=e["doc_id"],
-            chunk_id=e["chunk_id"],
-            score=float(score),
-            text=e["text"],
-            metadata=e["metadata"],
+    entries = []
+    for c, v, sv in zip(chunks, vectors, sparse_list):
+        span = c.get("span") or {"start": 0, "end": 0}
+        entries.append(
+            {
+                "chunk_id": c["chunk_id"],
+                "doc_id": doc_id,
+                "text": c["text"],
+                "metadata": {
+                    **(meta_base or {}),
+                    "span_start": span.get("start", 0),
+                    "span_end": span.get("end", 0),
+                },
+                "vector": v,
+                "sparse": sv,
+            }
         )
-        for score, e in results
-    ]
-    dur_ms = int((time.time() - t0) * 1000)
-    log.info("query_results", ns=ns, found=len(sources), dur_ms=dur_ms)
-    answer = _compose_answer(req.query, sources) if sources else "I couldn’t find relevant context yet."
-    return QueryResponse(dataset=req.dataset, query=req.query, answer=answer, sources=sources)
+
+    log.info("ingest_upsert", extra={"dataset": dataset, "entries": len(entries)})
+    _store.upsert_chunks(dataset, entries)
+
+
+def query(dataset: str, query_text: str, k: int = 5):
+    qvec = embed_one(query_text)
+    qsparse = _sparse.encode_query(query_text)
+
+    log.info(
+        "query_start",
+        extra={"dataset": dataset, "k": k, "fusion": FUSION, "alpha": ALPHA},
+    )
+
+    results = _store.query_hybrid(
+        dataset, qvec, qsparse, k=k, fusion=FUSION, alpha=ALPHA
+    )
+
+    log.info("query_done", extra={"dataset": dataset, "found": len(results)})
+    return results

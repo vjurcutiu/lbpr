@@ -11,7 +11,7 @@ try:
 except Exception:
     OpenAI = None  # type: ignore
 
-DEFAULT_MODEL = os.getenv("RAG_CHAT_MODEL", os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"))
+DEFAULT_MODEL = os.getenv("RAG_CHAT_MODEL", os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-mini"))
 DEFAULT_TEMPERATURE = float(os.getenv("RAG_CHAT_TEMPERATURE", "0.2"))
 
 class OpenAIChat:

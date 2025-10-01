@@ -295,8 +295,10 @@ PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1
 RAG_EMBED_DIM=1536
 
-
 FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
+
+RAG_HYBRID_FUSION=rrf
+RAG_HYBRID_ALPHA=0.5  
 
 C:/code2/lbpr/backend/core/config.py.PATCH.txt
 
