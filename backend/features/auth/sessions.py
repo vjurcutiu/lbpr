@@ -24,6 +24,16 @@ class InMemoryStore:
         with self._lock:
             self._data[sid] = {**payload, "exp": exp}
 
+    def update_fields(self, sid: str, fields: Dict[str, Any]):
+        with self._lock:
+            rec = self._data.get(sid)
+            if not rec:
+                return
+            user = rec.get("user") or {}
+            user.update({k: v for k, v in fields.items() if v is not None})
+            rec["user"] = user
+            self._data[sid] = rec
+
     def delete(self, sid: str):
         with self._lock:
             self._data.pop(sid, None)
@@ -74,6 +84,22 @@ class SessionStore:
         if not rec:
             return None
         return SessionOut(**rec["user"])
+
+    def update_user(self, sid: str, **fields):
+        if self.kind == "redis":
+            key = f"s:{sid}"
+            # Only include provided, non-None keys and coerce to strings
+            mapping = {}
+            for k in ("email", "name", "picture"):
+                if k in fields and fields[k] is not None:
+                    mapping[k] = str(fields[k])
+            if mapping:
+                try:
+                    self._r.hset(key, mapping=mapping)
+                except Exception:
+                    pass
+        else:
+            self._r.update_fields(sid, {k: v for k, v in fields.items() if v is not None})
 
     def revoke(self, sid: str):
         if self.kind == "redis":

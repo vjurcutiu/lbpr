@@ -165,7 +165,9 @@ C:/code2/lbpr/static/spa/package.json
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-icons": "^5.5.0",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.9.1",
+    "remark-gfm": "^4.0.1",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7"
   },
@@ -362,6 +364,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { AuthProvider } from "@/features/auth/AuthProvider";
+import "./index.legal.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -806,6 +809,10 @@ const SupportPage = lazy(() => import("@/features/support/SupportPage"));
 const ProfilePage = lazy(() => import("@/features/profile/ProfilePage"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
+// Legal pages
+const PrivacyPage = lazy(() => import("@/pages/Privacy"));
+const TermsPage   = lazy(() => import("@/pages/Terms"));
+
 // ---- Route table (public + protected) ----
 const ROUTES: AppRoute[] = [
   // Public
@@ -813,6 +820,9 @@ const ROUTES: AppRoute[] = [
   { path: "/login", element: <LoginPage />, nav: "none", hidden: true },
   { path: "/signup", element: <SignupPage />, nav: "none", hidden: true },
   { path: "/forbidden", element: <ForbiddenPage />, nav: "none", hidden: true },
+  // Public Legal
+  { path: "/privacy", element: <AppShell children={<PrivacyPage />} />, nav: "none" },
+  { path: "/terms",   element: <AppShell children={<TermsPage />} />,   nav: "none" },
 
   // Protected group
   {
@@ -862,6 +872,10 @@ export default function App() {
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/forbidden" element={<ForbiddenPage />} />
 
+          {/* Public legal pages (wrapped in AppShell for nav/footer) */}
+          <Route path="/privacy" element={<AppShell navItems={navItems} children={<PrivacyPage />} />} />
+          <Route path="/terms" element={<AppShell navItems={navItems} children={<TermsPage />} />} />
+
           {/* Protected */}
           <Route element={<ProtectedRoute />}>
             <Route path="/files" element={<AppShell navItems={navItems} children={<FilesPage />} />} />
@@ -878,7 +892,6 @@ export default function App() {
     </BrowserRouter>
   );
 }
-
 
 C:/code2/lbpr/static/spa/src/App.css
 #root {

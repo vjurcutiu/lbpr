@@ -1,5 +1,5 @@
  {
-   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\backend_context.txt",
+   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_profile_context.txt",
    "folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\profile"
             ],
    "include_glob": "*",
