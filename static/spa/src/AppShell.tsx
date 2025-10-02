@@ -2,10 +2,9 @@
 import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
 import { Link, NavLink } from "react-router-dom"
-import { Menu, Sun, Moon, Search, Plus } from "lucide-react"
+import { Menu, Sun, Moon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
@@ -15,6 +14,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import ProfileMenu from "@/features/profile/ProfileMenu"
+import { RiRobotLine } from "react-icons/ri";
 
 type NavItem = { to: string; label: string; where?: "top" | "mobile" | "both" }
 
@@ -26,7 +26,7 @@ type AppShellProps = {
 
 export default function AppShell({
   children,
-  appName = "MyApp",
+  appName = "LexBot PRO",
   navItems = [],
 }: AppShellProps) {
   return (
@@ -55,8 +55,8 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
 
         {/* Logo */}
         <Link to="/" className="hidden lg:flex items-center gap-2 font-semibold">
-          <div className="h-6 w-6 rounded-lg bg-primary/10 grid place-items-center">
-            <div className="h-3 w-3 rounded-sm bg-primary" />
+          <div className="h-7 w-7 rounded-lg grid place-items-center">
+            <RiRobotLine size={24} />
           </div>
           <span>{appName}</span>
         </Link>
@@ -68,21 +68,11 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
           ))}
         </nav>
 
-        {/* Search */}
+        {/* Spacer to push actions right */}
         <div className="flex-1" />
-        <div className="hidden md:flex items-center gap-2 max-w-md w-full">
-          <div className="relative w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60" />
-            <Input placeholder="Search files, chats, commands…" className="pl-9" />
-          </div>
-        </div >
 
         {/* Actions */}
         <div className="flex items-center gap-2">
-          <Button size="sm" className="hidden sm:inline-flex">
-            <Plus className="mr-2 h-4 w-4" />
-            New Chat
-          </Button>
           <ThemeToggle />
           <ProfileMenu />
         </div>
@@ -140,11 +130,6 @@ function MobileNav({
         </SheetHeader>
 
         <div className="mt-6 flex flex-col gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60" />
-            <Input placeholder="Search…" className="pl-9" />
-          </div>
-
           <Separator />
 
           <div className="flex flex-col">
@@ -159,11 +144,6 @@ function MobileNav({
             <span className="text-sm text-muted-foreground">Theme</span>
             <ThemeToggle compact />
           </div>
-
-          <Button className="mt-2">
-            <Plus className="mr-2 h-4 w-4" />
-            New Chat
-          </Button>
         </div>
       </SheetContent>
     </Sheet>

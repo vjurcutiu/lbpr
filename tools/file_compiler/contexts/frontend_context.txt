@@ -164,6 +164,7 @@ C:/code2/lbpr/static/spa/package.json
     "next-themes": "^0.4.6",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-icons": "^5.5.0",
     "react-router-dom": "^7.9.1",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7"
@@ -556,6 +557,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import ProfileMenu from "@/features/profile/ProfileMenu"
+import { RiRobotLine } from "react-icons/ri";
 
 type NavItem = { to: string; label: string; where?: "top" | "mobile" | "both" }
 
@@ -567,7 +569,7 @@ type AppShellProps = {
 
 export default function AppShell({
   children,
-  appName = "MyApp",
+  appName = "LexBot PRO",
   navItems = [],
 }: AppShellProps) {
   return (
@@ -596,8 +598,8 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
 
         {/* Logo */}
         <Link to="/" className="hidden lg:flex items-center gap-2 font-semibold">
-          <div className="h-6 w-6 rounded-lg bg-primary/10 grid place-items-center">
-            <div className="h-3 w-3 rounded-sm bg-primary" />
+          <div className="h-7 w-7 rounded-lg grid place-items-center">
+            <RiRobotLine size={24} />
           </div>
           <span>{appName}</span>
         </Link>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Paperclip, Send, Loader2, Trash2, Plus, LinkIcon } from "lucide-react";
+import { Paperclip, Send, Loader2, Trash2, Plus, LinkIcon, Bug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -26,7 +26,8 @@ type RenderMessage = {
   content: string;
   citations?: chatApi.Citation[];
   created_at?: string;
-  trace_id?: string;
+  trace_id?: string | null;
+  request_id?: string | null;
 };
 
 export default function ChatPage() {
@@ -36,6 +37,7 @@ export default function ChatPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [streamEnabled] = useState(false);
+  const [showHud, setShowHud] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const tenantId = useTenantId();
 
@@ -71,7 +73,7 @@ export default function ChatPage() {
 
     const attachmentNote =
       selectedFileIds.length > 0
-        ? `\\n\\n[Attached files: ${selectedFileIds.join(", ")}]`
+        ? `\n\n[Attached files: ${selectedFileIds.join(", ")}]`
         : "";
 
     const userMsg: RenderMessage = {
@@ -79,13 +81,15 @@ export default function ChatPage() {
       role: "user",
       content: input.trim() + attachmentNote,
       created_at: new Date().toISOString(),
+      trace_id: null,
+      request_id: null,
     };
 
     setMessages(prev => [...prev, userMsg]);
     setSending(true);
 
     const traceId = cryptoRandomId();
-    console.debug("[chat] sending", { traceId, tenantId, len: userMsg.content.length });
+    console.debug("[chat.ui] sending", { traceId, tenantId, len: userMsg.content.length });
 
     try {
       const req: chatApi.ChatRequest = {
@@ -104,19 +108,28 @@ export default function ChatPage() {
         citations: res.citations ?? [],
         created_at: new Date().toISOString(),
         trace_id: (res as any).__trace_id,
+        request_id: (res as any).__request_id ?? null,
       };
 
       setMessages(prev => [...prev, assistantMsg]);
       setInput("");
-      console.debug("[chat] ok", { traceId, retrieved: res.usage?.retrieved });
+      console.debug("[chat.ui] ok", {
+        traceId: assistantMsg.trace_id,
+        requestId: assistantMsg.request_id,
+        retrieved: res.usage?.retrieved,
+        dur_ms: (res as any).__dur_ms,
+        status: (res as any).__status,
+      });
     } catch (err: any) {
       const errMsg: RenderMessage = {
         id: cryptoRandomId(),
         role: "system",
         content: (err?.message || "Failed to send message") + (traceId ? ` (trace ${traceId})` : ""),
+        trace_id: traceId,
+        request_id: null,
       };
       setMessages(prev => [...prev, errMsg]);
-      console.error("[chat] error", { traceId, err });
+      console.error("[chat.ui] error", { traceId, err });
     } finally {
       setSending(false);
     }
@@ -130,6 +143,16 @@ export default function ChatPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl h-[calc(100vh-8rem)] card p-0 overflow-hidden flex flex-col">
+      <div className="flex items-center justify-between px-4 py-2 border-b">
+        <div className="font-medium">LBP Assistant</div>
+        <Button variant="ghost" size="sm" onClick={() => setShowHud(s => !s)} title="Toggle debug HUD">
+          <Bug className="h-4 w-4" />
+          <span className="ml-2 hidden sm:inline">Debug</span>
+        </Button>
+      </div>
+
+      {showHud && <DebugHud last={messages.filter(m => m.role === "assistant").slice(-1)[0]} />}
+
       <div ref={listRef} className="flex-1 overflow-auto">
         {!hasThread ? (
           <EmptyState suggestions={STARTER_SUGGESTIONS} onPick={onPickSuggestion} />
@@ -183,6 +206,16 @@ export default function ChatPage() {
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+function DebugHud({ last }: { last?: RenderMessage }) {
+  if (!last) return null;
+  return (
+    <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/30">
+      <div>Last trace: <span className="font-mono">{last.trace_id || "-"}</span></div>
+      <div>Last request: <span className="font-mono">{last.request_id || "-"}</span></div>
     </div>
   );
 }
