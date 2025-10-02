@@ -1,0 +1,52 @@
+/* --- Legal Markdown styles (minimal, MD-proof) --- */
+.markdown {
+  line-height: 1.7;
+  font-size: 0.95rem;
+}
+.markdown h2 {
+  font-size: 1.25rem;
+  line-height: 1.4;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+}
+.markdown h3 {
+  font-size: 1.1rem;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+.markdown p { margin: 0.5rem 0; }
+.markdown ul { list-style: disc; padding-left: 1.25rem; }
+.markdown ol { list-style: decimal; padding-left: 1.25rem; }
+.markdown li { margin: 0.25rem 0; }
+.markdown a { color: hsl(var(--primary)); text-decoration: underline; text-underline-offset: 2px; }
+.markdown blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  margin: 0.75rem 0;
+  color: hsl(var(--muted-foreground));
+}
+.markdown table { width: 100%; border-collapse: collapse; }
+.markdown th, .markdown td { border: 1px solid hsl(var(--border)); padding: 0.5rem; text-align: left; }
+.markdown thead th { background: hsl(var(--secondary));}
+.markdown .code-block {
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.85em;
+}
+.markdown .inline-code {
+  background: hsl(var(--secondary));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.9em;
+}
+@media (prefers-color-scheme: dark) {
+  .markdown thead th { background: hsl(var(--muted)); }
+}

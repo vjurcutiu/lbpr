@@ -30,6 +30,10 @@ const SupportPage = lazy(() => import("@/features/support/SupportPage"));
 const ProfilePage = lazy(() => import("@/features/profile/ProfilePage"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
+// Legal pages
+const PrivacyPage = lazy(() => import("@/pages/Privacy"));
+const TermsPage   = lazy(() => import("@/pages/Terms"));
+
 // ---- Route table (public + protected) ----
 const ROUTES: AppRoute[] = [
   // Public
@@ -37,6 +41,9 @@ const ROUTES: AppRoute[] = [
   { path: "/login", element: <LoginPage />, nav: "none", hidden: true },
   { path: "/signup", element: <SignupPage />, nav: "none", hidden: true },
   { path: "/forbidden", element: <ForbiddenPage />, nav: "none", hidden: true },
+  // Public Legal
+  { path: "/privacy", element: <AppShell children={<PrivacyPage />} />, nav: "none" },
+  { path: "/terms",   element: <AppShell children={<TermsPage />} />,   nav: "none" },
 
   // Protected group
   {
@@ -85,6 +92,10 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/forbidden" element={<ForbiddenPage />} />
+
+          {/* Public legal pages (wrapped in AppShell for nav/footer) */}
+          <Route path="/privacy" element={<AppShell navItems={navItems} children={<PrivacyPage />} />} />
+          <Route path="/terms" element={<AppShell navItems={navItems} children={<TermsPage />} />} />
 
           {/* Protected */}
           <Route element={<ProtectedRoute />}>
