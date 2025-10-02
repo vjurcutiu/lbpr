@@ -1,8 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Upload, Folder, FileText, X, Loader2, RefreshCw, Download, Trash2 } from "lucide-react";
+import {
+  Upload,
+  Folder,
+  FileText,
+  ChevronRight,
+  Loader2,
+  RefreshCw,
+  Download,
+  Trash2,
+  MoreVertical,
+  Search,
+  File as FileGeneric,
+  FileCode,
+  FileImage,
+  FileAudio2,
+  FileVideo2,
+  FileArchive,
+  FileSpreadsheet,
+  FileType,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
   listFiles,
@@ -15,8 +35,6 @@ import {
 
 /** --------------------------
  * Derived folder tree (client-side)
- * We infer folders by splitting FileItem.name on "/".
- * If your backend later returns a real tree, you can replace buildTree(...) with that.
  * ------------------------- */
 type TreeNode = {
   type: "folder" | "file";
@@ -86,7 +104,10 @@ export default function FilesPage() {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [filter, setFilter] = useState("");
+  const [sidebarWidth, setSidebarWidth] = useState(280); // resizable
+  const [isResizing, setIsResizing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resizeRef = useRef<HTMLDivElement>(null);
 
   // file content cache: id -> content payload
   const [content, setContent] = useState<Record<string, Awaited<ReturnType<typeof getFileContent>>>>({});
@@ -107,6 +128,26 @@ export default function FilesPage() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // --- Resizer handlers (drag to resize left pane) ---
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const min = 200;
+      const max = 520;
+      setSidebarWidth((w) => {
+        const next = Math.min(max, Math.max(min, e.clientX));
+        return next;
+      });
+    };
+    const onUp = () => setIsResizing(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [isResizing]);
 
   const onPick = () => inputRef.current?.click();
 
@@ -175,7 +216,6 @@ export default function FilesPage() {
   const filteredTree = useMemo(() => {
     if (!tree || !filter.trim()) return tree;
     const q = filter.toLowerCase();
-    // simple filter: keep paths that match; collapse folders that have 0 matches
     function filterNode(n: TreeNode): TreeNode | null {
       if (n.type === "file") {
         const hit = n.name.toLowerCase().includes(q) || (n.file?.name.toLowerCase().includes(q) ?? false);
@@ -190,13 +230,16 @@ export default function FilesPage() {
     return filterNode(tree);
   }, [tree, filter]);
 
+  const activeFile = activeId ? files.find((f) => f.id === activeId) || null : null;
+  const breadcrumbs = activeFile?.name.split("/").filter(Boolean) ?? [];
+
   return (
     <div className="h-full flex flex-col">
       {/* Top bar */}
-      <div className="flex items-center gap-3 p-3 border-b">
-        <Button onClick={onPick} disabled={uploading}>
+      <div className="sticky top-0 z-10 flex items-center gap-3 px-3 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <Button onClick={onPick} disabled={uploading} size="sm">
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-          <span className="ml-2">{uploading ? "Uploading…" : "Upload"}</span>
+          <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
         </Button>
         <Input
           ref={inputRef}
@@ -204,15 +247,18 @@ export default function FilesPage() {
           className="hidden"
           onChange={onChange}
         />
-        <Input
-          placeholder="Filter files…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="max-w-sm"
-        />
+        <div className="relative max-w-sm w-full">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Filter files…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="pl-8"
+          />
+        </div>
         <div className="flex-1" />
-        <Button variant="outline" onClick={refresh} disabled={busy}>
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+        <Button variant="outline" onClick={refresh} disabled={busy} size="sm">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1.5" />}
           Refresh
         </Button>
       </div>
@@ -220,8 +266,14 @@ export default function FilesPage() {
       {/* Main split: LEFT sidebar (folders), RIGHT viewer */}
       <div className="flex min-h-0 flex-1">
         {/* LEFT: File tree */}
-        <aside className="w-72 shrink-0 overflow-auto">
-          <div className="p-2">
+        <aside
+          className="shrink-0 overflow-hidden border-r bg-muted/20"
+          style={{ width: sidebarWidth }}
+        >
+          <div className="h-9 flex items-center px-3 text-xs uppercase tracking-wide text-muted-foreground border-b">
+            Explorer
+          </div>
+          <div className="h-full overflow-auto px-1 py-2">
             <Tree
               node={filteredTree}
               onOpen={(f) => openFile(f)}
@@ -230,33 +282,54 @@ export default function FilesPage() {
           </div>
         </aside>
 
-        <Separator orientation="vertical" />
+        {/* RESIZE HANDLE */}
+        <div
+          ref={resizeRef}
+          onMouseDown={() => setIsResizing(true)}
+          className={cn(
+            "w-1 cursor-col-resize bg-transparent hover:bg-primary/20 transition-colors",
+            isResizing && "bg-primary/30"
+          )}
+          title="Drag to resize"
+        />
 
         {/* RIGHT: Tabs + viewer */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Tabs */}
-          <div className="flex items-center gap-1 px-2 border-b h-10 overflow-x-auto">
+          <div className="flex items-center gap-1 px-2 border-b h-9 overflow-x-auto bg-muted/10">
             {tabs.map((t) => (
               <button
                 key={t.id}
                 onClick={() => setActiveId(t.id)}
                 className={cn(
-                  "h-9 px-3 rounded-t-md border-b-0 border",
-                  activeId === t.id ? "bg-background" : "bg-muted/40 text-muted-foreground"
+                  "h-8 px-3 rounded-t-md border-b-0 border text-sm transition",
+                  activeId === t.id
+                    ? "bg-background"
+                    : "bg-muted/40 text-muted-foreground hover:bg-muted"
                 )}
                 title={t.title}
               >
                 <span className="truncate max-w-[18rem] inline-flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  {t.title}
+                  <FileIconByName name={t.title} className="h-4 w-4" />
+                  {t.title.split("/").slice(-1)[0]}
                 </span>
-                <X
-                  className="h-4 w-4 ml-2 inline-block opacity-70 hover:opacity-100"
+                <span
+                  className="ml-2 inline-flex"
                   onClick={(e) => {
                     e.stopPropagation();
                     closeTab(t.id);
                   }}
-                />
+                >
+                  <svg
+                    className="h-4 w-4 opacity-70 hover:opacity-100"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
+                </span>
               </button>
             ))}
             {tabs.length === 0 && (
@@ -264,13 +337,40 @@ export default function FilesPage() {
             )}
           </div>
 
+          {/* Breadcrumb header */}
+          <div className="h-8 flex items-center px-3 text-xs border-b text-muted-foreground">
+            {breadcrumbs.length > 0 ? (
+              <div className="truncate">
+                {breadcrumbs.map((p, i) => (
+                  <span key={i} className="mr-1">
+                    {i > 0 && <span className="mx-1">/</span>}
+                    <span className={cn(i === breadcrumbs.length - 1 && "text-foreground")}>
+                      {p}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span>Ready.</span>
+            )}
+          </div>
+
           {/* Viewer */}
           <div className="flex-1 min-h-0 overflow-auto p-4 font-mono text-sm">
             {activeId ? (
-              <FileViewer payload={content[activeId]} file={files.find((f) => f.id === activeId) || null} />
+              <FileViewer payload={content[activeId]} file={activeFile} />
             ) : (
               <EmptyState />
             )}
+          </div>
+
+          {/* Status bar */}
+          <div className="h-8 border-t text-xs px-3 flex items-center justify-between text-muted-foreground bg-muted/10">
+            <div className="flex items-center gap-3">
+              <span>{files.length} file{files.length === 1 ? "" : "s"}</span>
+              {activeFile && <span>• {fmtSize(activeFile.size)}</span>}
+            </div>
+            <div>LexBot PRO • File Explorer</div>
           </div>
         </div>
       </div>
@@ -323,18 +423,24 @@ function FolderRow({
   onDelete: (f: FileItem) => void;
 }) {
   const [open, setOpen] = useState(true);
+  const caretClass = cn(
+    "h-4 w-4 transition-transform",
+    open ? "rotate-90" : "rotate-0"
+  );
+
   return (
-    <div className="mb-1">
+    <div className="mb-0.5">
       <button
-        className="w-full flex items-center gap-2 px-2 py-1 hover:bg-muted/40 rounded"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-muted/40 rounded text-left"
         onClick={() => setOpen((v) => !v)}
         title={node.path}
       >
+        <ChevronRight className={caretClass} />
         <Folder className="h-4 w-4" />
         <span className="font-medium">{node.name || "root"}</span>
       </button>
       {open && (
-        <div className="ml-4">
+        <div className="ml-5">
           {(node.children || []).map((child) =>
             child.type === "folder" ? (
               <FolderRow key={child.path} node={child} onOpen={onOpen} onDelete={onDelete} />
@@ -359,22 +465,39 @@ function FileRow({
 }) {
   const f = node.file!;
   return (
-    <div className="group flex items-center justify-between">
+    <div className="group flex items-center justify-between rounded hover:bg-muted/40">
       <button
-        className="flex-1 flex items-center gap-2 px-2 py-1 hover:bg-muted/40 rounded text-left"
+        className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-left"
         title={`${f.name} (${fmtSize(f.size)})`}
         onClick={() => onOpen(f)}
       >
-        <FileText className="h-4 w-4" />
+        <FileIconByName name={node.name} className="h-4 w-4" />
         <span className="truncate">{node.name}</span>
       </button>
-      <div className="opacity-0 group-hover:opacity-100 transition flex items-center gap-1 pr-1">
+      <div className="opacity-0 group-hover:opacity-100 transition flex items-center gap-0.5 pr-1">
         <a href={fileDownloadUrl(f.id)} title="Download" className="p-1 rounded hover:bg-muted">
           <Download className="h-4 w-4" />
         </a>
-        <button title="Delete" onClick={() => onDelete(f)} className="p-1 rounded hover:bg-muted">
-          <Trash2 className="h-4 w-4 text-red-600" />
-        </button>
+
+        {/* Context menu trigger */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="p-1 rounded hover:bg-muted" title="More">
+              <MoreVertical className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[10rem]">
+            <DropdownMenuItem onClick={() => window.open(fileDownloadUrl(f.id), "_self")}>
+              <Download className="h-4 w-4" /> Download
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => onDelete(f)}
+            >
+              <Trash2 className="h-4 w-4" /> Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );
@@ -398,7 +521,6 @@ function FileViewer({
 
   if (payload.kind === "text") {
     const text = payload.text ?? "";
-    // Basic Markdown-ish prettiness: preserve whitespace
     return (
       <pre className="whitespace-pre-wrap leading-6">
         {text}
@@ -433,6 +555,29 @@ function FileViewer({
       </a>
     </div>
   );
+}
+
+function FileIconByName({ name, className }: { name: string; className?: string }) {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  const Icon =
+    ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif" || ext === "svg"
+      ? FileImage
+      : ext === "mp3" || ext === "wav" || ext === "flac"
+      ? FileAudio2
+      : ext === "mp4" || ext === "mov" || ext === "webm"
+      ? FileVideo2
+      : ext === "zip" || ext === "gz" || ext === "rar" || ext === "7z"
+      ? FileArchive
+      : ext === "csv" || ext === "xlsx"
+      ? FileSpreadsheet
+      : ext === "ts" || ext === "tsx" || ext === "js" || ext === "jsx" || ext === "py" || ext === "go" || ext === "rs" || ext === "java" || ext === "json" || ext === "yml" || ext === "yaml" || ext === "toml" || ext === "md"
+      ? FileCode
+      : ext === "txt"
+      ? FileText
+      : ext
+      ? FileType
+      : FileGeneric;
+  return <Icon className={className} />;
 }
 
 function fmtSize(n: number) {
