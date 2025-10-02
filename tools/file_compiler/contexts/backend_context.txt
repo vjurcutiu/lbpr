@@ -1,660 +1,184 @@
-C:/code2/lbpr/backend/main.py
-from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from contextlib import asynccontextmanager
-import time, uuid, logging
+C:/code2/lbpr/static/spa/src/features/profile/ProfileMenu.tsx
+import { Link, useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ChevronDown } from "lucide-react";
+import { useAuthContext } from "@/features/auth/AuthProvider";
+import { logoutFirebase } from "@/features/auth/firebase";
+import { postJSON } from "@/shared/api";
 
-from core.config import settings, safe_settings_snapshot
-from core.firebase import init_firebase
-from core.logging import setup_logging
-from core import redis_utils
+export default function ProfileMenu() {
+  const { user, clear } = useAuthContext();
+  const navigate = useNavigate();
+  const email = user?.email || "—";
+  const name = user?.name || email.split("@")[0] || "User";
+  const pic = user?.picture || "";
+  const initials = (name || email || "U").slice(0,1).toUpperCase();
 
-from routers import health
-from routers.limits import router as limits_router
-from features.auth import routes as auth_routes  # type: ignore
-from features.profile import routes as profile_routes  # type: ignore
-from features.rag.router import router as rag_router
-from features.rag.contracts_router import router as rag_contracts_router
-from features.files.router import router as files_router  # type: ignore
+  async function signOut() {
+    try {
+      await postJSON("/auth/logout", {});
+    } catch {}
+    try {
+      await logoutFirebase();
+    } catch {}
+    clear();
+    navigate("/login", { replace: true });
+  }
 
-log = logging.getLogger("app")
-
-class ObservabilityMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        t0 = time.time()
-        trace_id = request.headers.get("x-trace-id") or str(uuid.uuid4())
-        request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
-        tenant = request.headers.get("x-tenant-id")
-
-        request.state.trace_id = trace_id
-        request.state.request_id = request_id
-        request.state.tenant_id = tenant
-
-        log.info(
-            "http_request",
-            method=request.method,
-            path=request.url.path,
-            query=str(request.url.query),
-            client=str(request.client),
-            trace_id=trace_id,
-            request_id=request_id,
-            tenant_id=tenant,
-        )
-        try:
-            resp: Response = await call_next(request)
-            dur_ms = int((time.time() - t0) * 1000)
-            resp.headers["X-Trace-Id"] = trace_id
-            resp.headers["X-Request-Id"] = request_id
-            log.info(
-                "http_response",
-                method=request.method,
-                path=request.url.path,
-                status=resp.status_code,
-                dur_ms=dur_ms,
-                trace_id=trace_id,
-                request_id=request_id,
-                tenant_id=tenant,
-            )
-            return resp
-        except Exception:
-            dur_ms = int((time.time() - t0) * 1000)
-            log.exception(
-                "http_error",
-                method=request.method,
-                path=request.url.path,
-                dur_ms=dur_ms,
-                trace_id=trace_id,
-                request_id=request_id,
-                tenant_id=tenant,
-            )
-            raise
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    setup_logging()
-    log.info("app_boot", **safe_settings_snapshot())
-    init_firebase()
-    await redis_utils.init(settings.REDIS_URL)
-    yield
-    await redis_utils.close()
-
-def create_app() -> FastAPI:
-    app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
-
-    if settings.TRUSTED_HOSTS and settings.TRUSTED_HOSTS != ["*"]:
-        app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.TRUSTED_HOSTS)
-
-    app.add_middleware(ObservabilityMiddleware)
-
-    if settings.CORS_ALLOW_ORIGINS:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=settings.CORS_ALLOW_ORIGINS,
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-            expose_headers=["X-Trace-Id","X-Request-Id"],
-        )
-
-    # Routers
-    app.include_router(health.router)
-    app.include_router(limits_router)
-    app.include_router(auth_routes.router)
-    app.include_router(profile_routes.router)
-    app.include_router(rag_router)
-    app.include_router(rag_contracts_router)
-    app.include_router(files_router)
-
-    # Versioned mirrors
-    app.include_router(auth_routes.router, prefix="/v1")
-    app.include_router(profile_routes.router, prefix="/v1")
-    app.include_router(rag_router, prefix="/v1")
-
-    return app
-
-app = create_app()
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" className="h-9 px-2">
+          <Avatar className="h-6 w-6">
+            <AvatarImage src={pic} alt={name} />
+            <AvatarFallback>{initials}</AvatarFallback>
+          </Avatar>
+          <ChevronDown className="ml-2 h-4 w-4 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuLabel className="truncate max-w-[14rem]">
+          Signed in as {email}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/profile">Profile</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/billing">Billing</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/settings">Settings</Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={signOut}>
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 
-C:/code2/lbpr/backend/core/config.py
-from typing import Literal
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+C:/code2/lbpr/static/spa/src/features/profile/ProfilePage.tsx
+import { useEffect, useState, FormEvent } from "react";
+import { getJSON, postJSON } from "@/shared/api";
+import { useAuthContext } from "@/features/auth/AuthProvider";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-class Settings(BaseSettings):
-    """Application configuration loaded from environment and .env."""
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
+type Profile = {
+  uid: string;
+  email?: string;
+  name?: string;
+  picture?: string;
+};
 
-    # General
-    APP_NAME: str = "LexBot Pro"
-    ENV: Literal["dev", "staging", "prod"] = "dev"
+export default function ProfilePage() {
+  const { user, refresh } = useAuthContext();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-    # Firebase
-    FIREBASE_PROJECT_ID: str = ""
-    FIREBASE_CREDENTIALS: str | None = None
-    FIREBASE_CREDENTIALS_DEFAULT: str | None = "/run/secrets/firebase_sa.json"
-    FIREBASE_STORAGE_BUCKET: str | None = None
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await getJSON<Profile>("/me");
+        setProfile(data);
+      } catch (e: any) {
+        setErr(e?.message || "Failed to load profile.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-    # Auth / cookies
-    COOKIE_NAME: str = "fb_session"
-    SESSION_HOURS: int = 8
-    COOKIE_SECURE: bool = False
-    COOKIE_SAMESITE: Literal["lax", "none", "strict"] = "lax"
-    COOKIE_PATH: str = "/"
-    COOKIE_DOMAIN: str | None = None
-
-    # CORS / Hosts
-    CORS_ALLOW_ORIGINS: list[str] = []
-    TRUSTED_HOSTS: list[str] = ["*"]
-
-    # RAG / Vector store
-    RAG_EMBEDDER: Literal["local", "openai"] = "local"
-    OPENAI_API_KEY: str | None = None
-    RAG_EMBED_MODEL: str = "text-embedding-3-small"
-
-    RAG_VECTORSTORE: Literal["memory", "pinecone"] = "memory"
-    PINECONE_API_KEY: str | None = None
-    PINECONE_INDEX: str | None = None
-    PINECONE_CLOUD: str | None = None
-    PINECONE_REGION: str | None = None
-    RAG_EMBED_DIM: int | None = None
-
-    # Hybrid search tuning
-    RAG_HYBRID_FUSION: Literal["rrf", "alpha"] = "rrf"
-    RAG_HYBRID_ALPHA: float = 0.5
-
-    # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
-
-    # -------- Plans / Limits (monthly window, per-user) --------
-    # Default "FREE" limits
-    LIMITS_FREE_MESSAGES: int = 200              # number of chat messages per calendar month
-    LIMITS_FREE_UPLOAD_TOKENS: int = 200_000     # tokens accepted by /ingest & file uploads per month
-
-    # Default "PRO" limits
-    LIMITS_PRO_MESSAGES: int = 10000
-    LIMITS_PRO_UPLOAD_TOKENS: int = 20_000_000
-
-    # Optional override: count upload tokens using this tokenizer/model id.
-    TOKENIZER_MODEL: str | None = None  # if None, auto-pick based on RAG_EMBED_MODEL
-
-settings = Settings()
-
-def safe_settings_snapshot() -> dict:
-    return {
-        "env": settings.ENV,
-        "firebase_project_id": settings.FIREBASE_PROJECT_ID,
-        "firebase_bucket": settings.FIREBASE_STORAGE_BUCKET
-            or (f"{settings.FIREBASE_PROJECT_ID}.appspot.com" if settings.FIREBASE_PROJECT_ID else None),
-        "rag_embedder": settings.RAG_EMBEDDER,
-        "rag_model": settings.RAG_EMBED_MODEL,
-        "rag_vectorstore": settings.RAG_VECTORSTORE,
-        "pinecone_index": settings.PINECONE_INDEX,
-        "pinecone_cloud": settings.PINECONE_CLOUD,
-        "pinecone_region": settings.PINECONE_REGION,
-        "rag_embed_dim": settings.RAG_EMBED_DIM,
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!profile) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const updated = await fetch("/api/me", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: profile.name ?? null, picture: profile.picture ?? null }),
+      }).then(r => r.json());
+      setProfile(updated);
+      await refresh(); // refresh header/user menu
+    } catch (e: any) {
+      setErr(e?.message || "Failed to save.");
+    } finally {
+      setSaving(false);
     }
-
-
-C:/code2/lbpr/backend/core/firebase.py
-
-import os
-import sys
-import logging
-from core.config import settings
-
-log = logging.getLogger("firebase")
-
-_firebase_initialized = False
-
-def _should_skip_init() -> bool:
-    if os.getenv("SKIP_FIREBASE_INIT") == "1":
-        return True
-    if os.getenv("APP_ENV", "").lower() == "test":
-        return True
-    if os.getenv("PYTEST_CURRENT_TEST"):
-        return True
-    return False
-
-def choose_cred_path() -> str:
-    env_gac = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    candidates = [
-        env_gac,
-        settings.FIREBASE_CREDENTIALS,
-        settings.FIREBASE_CREDENTIALS_DEFAULT,
-    ]
-
-    for c in candidates:
-        if not c:
-            continue
-        if ":" in c and os.name == "posix" and not os.path.exists(c):
-            print(f"[startup] Skipping non-existent host path: {c}", file=sys.stderr)
-            continue
-        if os.path.exists(c):
-            print(f"[startup] Using Firebase credentials: {c}", file=sys.stderr)
-            return c
-        else:
-            print(f"[startup] Candidate not found: {c}", file=sys.stderr)
-
-    raise RuntimeError(
-        "Firebase service account file not found. "
-        f"Tried {[env_gac, settings.FIREBASE_CREDENTIALS, settings.FIREBASE_CREDENTIALS_DEFAULT]}. "
-        "Mount the JSON and set FIREBASE_CREDENTIALS (or GOOGLE_APPLICATION_CREDENTIALS) "
-        "to an in-container path."
-    )
-
-def init_firebase():
-    global _firebase_initialized
-    if _firebase_initialized:
-        return
-    if _should_skip_init():
-        print("[startup] SKIP_FIREBASE_INIT active — skipping Firebase Admin init.", file=sys.stderr)
-        _firebase_initialized = True
-        return
-
-    import firebase_admin
-    from firebase_admin import credentials
-
-    if getattr(firebase_admin, "_apps", None):
-        _firebase_initialized = True
-        return
-
-    cred_path = choose_cred_path()
-    cred = credentials.Certificate(cred_path)
-    firebase_admin.initialize_app(cred, {"projectId": settings.FIREBASE_PROJECT_ID})
-    log.info("firebase_initialized", project=settings.FIREBASE_PROJECT_ID)
-    _firebase_initialized = True
-
-
-C:/code2/lbpr/backend/.env
-ENV=dev
-FIREBASE_PROJECT_ID="lexbot-pro"
-FIREBASE_CREDENTIALS="C:/code2/lbpr/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json"
-FIREBASE_CREDENTIALS_DEFAULT="C:/code2/lbpr/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json"
-
-COOKIE_NAME=fb_session
-SESSION_HOURS=8
-COOKIE_SECURE=false
-COOKIE_SAMESITE=lax
-COOKIE_PATH=/
-# COOKIE_DOMAIN=app.example.com
-
-# For CORS/hosts (set in prod)
-# CORS_ALLOW_ORIGINS=["https://app.example.com"]
-# TRUSTED_HOSTS=["app.example.com"]
-
-RAG_EMBEDDER=openai
-OPENAI_API_KEY=REDACTED_OPENAI_API_KEY
-RAG_EMBED_MODEL=text-embedding-3-small
-RAG_VECTORSTORE=pinecone
-PINECONE_API_KEY=REDACTED_PINECONE_API_KEY
-PINECONE_INDEX=lbpr
-PINECONE_CLOUD=aws
-PINECONE_REGION=us-east-1
-RAG_EMBED_DIM=1536
-
-FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
-
-RAG_HYBRID_FUSION=rrf
-RAG_HYBRID_ALPHA=0.5  
-
-REDIS_URL=redis://redis:6379/0
-
-LIMITS_FREE_MESSAGES=200
-LIMITS_FREE_UPLOAD_TOKENS=200000
-LIMITS_PRO_MESSAGES=10000
-LIMITS_PRO_UPLOAD_TOKENS=20000000
-
-# Optional: tokenizer override if you want a specific encoding name
-TOKENIZER_MODEL=cl100k_base
-
-C:/code2/lbpr/backend/core/config.py.PATCH.txt
-
-# Add this field to core/config.py Settings:
-# FIREBASE_STORAGE_BUCKET: str | None = None
-#
-# Usage: If not set, we'll default to f"{FIREBASE_PROJECT_ID}.appspot.com"
-
-
-C:/code2/lbpr/backend/core/logging.py
-import logging
-import os
-import sys
-import json
-from datetime import datetime
-
-_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-
-class JsonFormatter(logging.Formatter):
-    def format(self, record: logging.LogRecord) -> str:
-        data = {
-            "ts": datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
-            "level": record.levelname,
-            "name": record.name,
-            "msg": record.getMessage(),
-        }
-        if record.exc_info:
-            data["exc_info"] = self.formatException(record.exc_info)
-        # Attach any extra fields placed on the record
-        for k, v in record.__dict__.items():
-            if k not in (
-                "name","msg","args","levelname","levelno","pathname",
-                "filename","module","exc_info","exc_text","stack_info",
-                "lineno","funcName","created","msecs","relativeCreated",
-                "thread","threadName","processName","process","stacklevel"
-            ):
-                try:
-                    json.dumps({k: v})
-                    data[k] = v
-                except Exception:
-                    data[k] = str(v)
-        return json.dumps(data, ensure_ascii=False)
-
-_ORIG_LOG = None
-
-def _patch_logging_to_allow_kv():
-    """Monkey-patch logging.Logger._log to accept key=value kwargs."""
-    global _ORIG_LOG
-    if _ORIG_LOG is not None:
-        return
-    _ORIG_LOG = logging.Logger._log
-
-    def _log(self, level, msg, args,
-             exc_info=None, extra=None, stack_info=False, stacklevel=1, **kwargs):
-        if kwargs:
-            if extra is None:
-                extra = {}
-            reserved = {
-                "name","msg","args","levelname","levelno","pathname",
-                "filename","module","exc_info","exc_text","stack_info",
-                "lineno","funcName","created","msecs","relativeCreated",
-                "thread","threadName","processName","process","stacklevel"
-            }
-            for k in list(kwargs.keys()):
-                if k in reserved:
-                    kwargs[f"field_{k}"] = kwargs.pop(k)
-            extra.update(kwargs)
-        return _ORIG_LOG(self, level, msg, args,
-                         exc_info=exc_info, extra=extra,
-                         stack_info=stack_info, stacklevel=stacklevel)
-
-    logging.Logger._log = _log
-
-def setup_logging() -> None:
-    _patch_logging_to_allow_kv()
-    root = logging.getLogger()
-    if root.handlers:
-        return  # already configured
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(JsonFormatter())
-    root.addHandler(handler)
-    root.setLevel(_LEVEL)
-
-
-C:/code2/lbpr/backend/core/namespaces.py
-
-# core/namespaces.py
-from __future__ import annotations
-
-def pinecone_namespace(uid: str, dataset: str) -> str:
-    """
-    Build a per-user namespace for Pinecone using the authenticated user's UID.
-    Example: u:abc123:myds
-    """
-    uid = (uid or "anon").strip()
-    dataset = (dataset or "default").strip()
-    return f"u:{uid}:{dataset}"
-
-def firebase_folder(uid: str) -> str:
-    """
-    Base folder prefix for Firebase Storage and Firestore docs related to user uploads.
-    Example: users/abc123
-    """
-    uid = (uid or "anon").strip()
-    return f"users/{uid}"
-
-
-C:/code2/lbpr/backend/core/plan.py
-from __future__ import annotations
-import logging, time
-from typing import Literal, Optional
-from core.config import settings
-from core.redis_utils import get_client
-
-log = logging.getLogger("plan")
-
-Plan = Literal["FREE", "PRO"]
-
-async def _fetch_plan_from_firestore(uid: str) -> Plan:
-    """Ask Firestore: if there's any active/trialing/past_due subscription => PRO else FREE."""
-    try:
-        # Use Firebase Admin SDK
-        from firebase_admin import firestore  # type: ignore
-        db = firestore.client()
-        subs = db.collection("customers").document(uid).collection("subscriptions").order_by("created", direction=firestore.Query.DESCENDING).limit(5).stream()
-        active_like = {"active", "trialing", "past_due"}
-        for s in subs:
-            data = s.to_dict() or {}
-            st = (data.get("status") or "").lower()
-            if st in active_like:
-                return "PRO"
-    except Exception:
-        log.exception("plan_firestore_error", uid=uid)
-    return "FREE"
-
-async def get_user_plan(uid: str, cache_ttl_sec: int = 300) -> Plan:
-    r = await get_client()
-    key = f"plan:{uid}"
-    plan = await r.get(key)
-    if plan in ("FREE","PRO"):
-        return plan  # type: ignore
-    plan = await _fetch_plan_from_firestore(uid)
-    try:
-        await r.set(key, plan, ex=cache_ttl_sec)
-    except Exception:
-        pass
-    return plan  # type: ignore
-
-def plan_limits(plan: Plan) -> dict[str,int]:
-    if plan == "PRO":
-        return {
-            "messages": settings.LIMITS_PRO_MESSAGES,
-            "upload_tokens": settings.LIMITS_PRO_UPLOAD_TOKENS,
-        }
-    return {
-        "messages": settings.LIMITS_FREE_MESSAGES,
-        "upload_tokens": settings.LIMITS_FREE_UPLOAD_TOKENS,
-    }
-
-
-C:/code2/lbpr/backend/core/rate_limit.py
-from __future__ import annotations
-import time, calendar, datetime as dt, logging
-from typing import Tuple, Optional
-from core.redis_utils import get_client
-from core.config import settings
-from core.plan import get_user_plan, plan_limits
-
-log = logging.getLogger("limits")
-
-def month_key(now: Optional[dt.datetime] = None) -> Tuple[str, int]:
-    now = now or dt.datetime.utcnow()
-    ym = now.strftime("%Y%m")
-    # Expire at end-of-month + 2 days buffer (UTC)
-    last_day = calendar.monthrange(now.year, now.month)[1]
-    end = dt.datetime(now.year, now.month, last_day, 23, 59, 59, tzinfo=dt.timezone.utc)
-    expire_at = int(end.timestamp()) + 2*24*3600
-    return ym, expire_at
-
-# Single Lua script to atomically check + increment a field capped by a limit.
-# Returns: {allowed:int, new_value:int}
-LUA_CHECK_INCR = """local key     = KEYS[1]
-local field   = ARGV[1]
-local inc     = tonumber(ARGV[2])
-local cap     = tonumber(ARGV[3])
-local expat   = tonumber(ARGV[4])
-
-local cur = redis.call('HGET', key, field)
-if not cur then cur = 0 else cur = tonumber(cur) end
-local new = cur + inc
-if new > cap then
-  return {0, cur}
-end
-redis.call('HINCRBY', key, field, inc)
--- ensure expiry each time
-local ttl = redis.call('TTL', key)
-if not ttl or ttl < 0 then
-  redis.call('EXPIREAT', key, expat)
-end
-return {1, new}
-"""
-
-async def _check_and_add(uid: str, metric: str, inc: int, cap: int) -> Tuple[bool, int]:
-    r = await get_client()
-    ym, expat = month_key()
-    key = f"usage:{uid}:{ym}"
-    try:
-        res = await r.eval(LUA_CHECK_INCR, 1, key, metric, str(inc), str(cap), str(expat))
-        allowed, newv = int(res[0]), int(res[1])
-        return (allowed == 1), newv
-    except Exception:
-        log.exception("redis_eval_failed", uid=uid, metric=metric)
-        # Fail-OPEN: allow but log (prevents hard lockout if Redis hiccups)
-        return True, -1
-
-async def add_message(uid: str) -> Tuple[bool, int, int]:
-    plan = await get_user_plan(uid)
-    caps = plan_limits(plan)
-    ok, newv = await _check_and_add(uid, "messages", 1, caps["messages"])
-    return ok, newv, caps["messages"]
-
-# For uploads and /ingest: increment token budget by N tokens
-async def add_upload_tokens(uid: str, tokens: int) -> Tuple[bool, int, int]:
-    plan = await get_user_plan(uid)
-    caps = plan_limits(plan)
-    ok, newv = await _check_and_add(uid, "upload_tokens", tokens, caps["upload_tokens"])
-    return ok, newv, caps["upload_tokens"]
-
-# Fetch current usage snapshot
-async def read_usage(uid: str) -> dict:
-    r = await get_client()
-    ym, _ = month_key()
-    key = f"usage:{uid}:{ym}"
-    data = await r.hgetall(key)
-    return {k:int(v) for k,v in data.items() if v is not None and str(v).isdigit()}
-
-
-C:/code2/lbpr/backend/core/redis_utils.py
-import logging
-from typing import AsyncIterator, Optional
-from redis.asyncio import Redis
-from contextlib import asynccontextmanager
-
-log = logging.getLogger("redis")
-
-_client: Optional[Redis] = None
-
-async def get_client() -> Redis:
-    assert _client is not None, "Redis client not initialized"
-    return _client
-
-async def init(redis_url: str) -> Redis:
-    global _client
-    if _client is None:
-        log.info("redis_connecting", url=redis_url)
-        _client = Redis.from_url(redis_url, encoding="utf-8", decode_responses=True)
-        try:
-            pong = await _client.ping()
-            log.info("redis_connected", ping=pong)
-        except Exception as e:
-            log.exception("redis_ping_failed")
-            raise
-    return _client
-
-async def close() -> None:
-    global _client
-    if _client is not None:
-        try:
-            await _client.close()
-            await _client.connection_pool.disconnect(inuse_connections=True)
-            log.info("redis_closed")
-        finally:
-            _client = None
-
-
-C:/code2/lbpr/backend/core/tokenizer.py
-from __future__ import annotations
-from core.config import settings
-
-def _get_encoding_name() -> str:
-    # Prefer explicit override, then model-based guess, then cl100k_base
-    if settings.TOKENIZER_MODEL:
-        return settings.TOKENIZER_MODEL
-    # Map common OpenAI models to encodings
-    m = (settings.RAG_EMBED_MODEL or "").lower()
-    # Most modern OpenAI text models use cl100k_base (including text-embedding-3-*)
-    return "cl100k_base"
-
-def count_tokens(text: str) -> int:
-    try:
-        import tiktoken  # type: ignore
-        enc = tiktoken.get_encoding(_get_encoding_name())
-        return len(enc.encode(text or ""))
-    except Exception:
-        # Fallback: approximate 4 chars/token
-        t = text or ""
-        return max(1, (len(t) + 3) // 4)
-
-
-C:/code2/lbpr/backend/routers/health.py
-from fastapi import APIRouter
-from core.redis_utils import get_client
-
-router = APIRouter(tags=["meta"])
-
-@router.get("/healthz")
-async def healthz():
-    # Try a fast PING; don't fail the endpoint if Redis is down.
-    ok = True
-    redis_ok = None
-    try:
-        r = await get_client()
-        redis_ok = await r.ping()
-    except Exception:
-        redis_ok = False
-    return {"ok": ok, "redis": redis_ok}
-
-
-C:/code2/lbpr/backend/routers/limits.py
-from fastapi import APIRouter, Depends
-from features.auth.deps import get_current_user
-from features.auth.models import SessionOut
-from core.plan import get_user_plan, plan_limits
-from core.rate_limit import read_usage, month_key
-
-router = APIRouter(prefix="/limits", tags=["limits"])
-
-@router.get("/me")
-async def get_limits_me(user: SessionOut = Depends(get_current_user)):
-    plan = await get_user_plan(user.uid)
-    caps = plan_limits(plan)
-    usage = await read_usage(user.uid)
-    ym, _ = month_key()
-    return {
-        "plan": plan,
-        "window": ym,
-        "caps": caps,
-        "usage": {"messages": usage.get("messages", 0), "upload_tokens": usage.get("upload_tokens", 0)},
-        "remaining": {
-            "messages": max(0, caps["messages"] - usage.get("messages", 0)),
-            "upload_tokens": max(0, caps["upload_tokens"] - usage.get("upload_tokens", 0)),
-        },
-    }
+  }
+
+  if (loading) return <div className="p-6">Loading…</div>;
+  if (err) return <div className="p-6 text-red-600">{err}</div>;
+  if (!profile) return null;
+
+  const initials = (profile.name || profile.email || "U").slice(0,1).toUpperCase();
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      <h1 className="text-2xl font-semibold mb-4">Your Profile</h1>
+
+      <form className="space-y-6" onSubmit={onSubmit}>
+        <div className="flex items-center gap-4">
+          <Avatar className="h-16 w-16">
+            <AvatarImage src={profile.picture || ""} alt={profile.name || ""} />
+            <AvatarFallback className="text-lg">{initials}</AvatarFallback>
+          </Avatar>
+          <div>
+            <div className="text-sm text-muted-foreground">UID</div>
+            <div className="font-mono text-sm break-all">{profile.uid}</div>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm text-gray-700 mb-1">Email</label>
+          <Input value={profile.email || ""} disabled />
+          <p className="text-xs text-muted-foreground mt-1">Email is managed by your identity provider.</p>
+        </div>
+
+        <div>
+          <label className="block text-sm text-gray-700 mb-1">Display name</label>
+          <Input
+            value={profile.name || ""}
+            onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+            placeholder="Your name"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm text-gray-700 mb-1">Photo URL</label>
+          <Input
+            value={profile.picture || ""}
+            onChange={(e) => setProfile({ ...profile, picture: e.target.value })}
+            placeholder="https://…"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 

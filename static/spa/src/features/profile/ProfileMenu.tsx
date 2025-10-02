@@ -55,9 +55,6 @@ export default function ProfileMenu() {
         <DropdownMenuItem asChild>
           <Link to="/billing">Billing</Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link to="/settings">Settings</Link>
-        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={signOut}>
           Sign out

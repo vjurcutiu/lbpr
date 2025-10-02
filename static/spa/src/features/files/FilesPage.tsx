@@ -217,9 +217,22 @@ export default function FilesPage() {
         </Button>
       </div>
 
-      {/* Main split: left viewer, right sidebar (folders) */}
+      {/* Main split: LEFT sidebar (folders), RIGHT viewer */}
       <div className="flex min-h-0 flex-1">
-        {/* LEFT: Tabs + viewer */}
+        {/* LEFT: File tree */}
+        <aside className="w-72 shrink-0 overflow-auto">
+          <div className="p-2">
+            <Tree
+              node={filteredTree}
+              onOpen={(f) => openFile(f)}
+              onDelete={(f) => onDelete(f)}
+            />
+          </div>
+        </aside>
+
+        <Separator orientation="vertical" />
+
+        {/* RIGHT: Tabs + viewer */}
         <div className="flex-1 flex flex-col min-w-0">
           {/* Tabs */}
           <div className="flex items-center gap-1 px-2 border-b h-10 overflow-x-auto">
@@ -247,7 +260,7 @@ export default function FilesPage() {
               </button>
             ))}
             {tabs.length === 0 && (
-              <div className="text-xs text-muted-foreground px-2">Open a file from the sidebar →</div>
+              <div className="text-xs text-muted-foreground px-2">← Open a file from the sidebar</div>
             )}
           </div>
 
@@ -260,19 +273,6 @@ export default function FilesPage() {
             )}
           </div>
         </div>
-
-        <Separator orientation="vertical" />
-
-        {/* RIGHT: File tree */}
-        <aside className="w-72 shrink-0 overflow-auto">
-          <div className="p-2">
-            <Tree
-              node={filteredTree}
-              onOpen={(f) => openFile(f)}
-              onDelete={(f) => onDelete(f)}
-            />
-          </div>
-        </aside>
       </div>
     </div>
   );

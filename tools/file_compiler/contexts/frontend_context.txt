@@ -544,10 +544,9 @@ C:/code2/lbpr/static/spa/src/AppShell.tsx
 import type { ReactNode } from "react"
 import { useEffect, useState } from "react"
 import { Link, NavLink } from "react-router-dom"
-import { Menu, Sun, Moon, Search, Plus } from "lucide-react"
+import { Menu, Sun, Moon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
@@ -611,21 +610,11 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
           ))}
         </nav>
 
-        {/* Search */}
+        {/* Spacer to push actions right */}
         <div className="flex-1" />
-        <div className="hidden md:flex items-center gap-2 max-w-md w-full">
-          <div className="relative w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60" />
-            <Input placeholder="Search files, chats, commands…" className="pl-9" />
-          </div>
-        </div >
 
         {/* Actions */}
         <div className="flex items-center gap-2">
-          <Button size="sm" className="hidden sm:inline-flex">
-            <Plus className="mr-2 h-4 w-4" />
-            New Chat
-          </Button>
           <ThemeToggle />
           <ProfileMenu />
         </div>
@@ -683,11 +672,6 @@ function MobileNav({
         </SheetHeader>
 
         <div className="mt-6 flex flex-col gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60" />
-            <Input placeholder="Search…" className="pl-9" />
-          </div>
-
           <Separator />
 
           <div className="flex flex-col">
@@ -702,11 +686,6 @@ function MobileNav({
             <span className="text-sm text-muted-foreground">Theme</span>
             <ThemeToggle compact />
           </div>
-
-          <Button className="mt-2">
-            <Plus className="mr-2 h-4 w-4" />
-            New Chat
-          </Button>
         </div>
       </SheetContent>
     </Sheet>
