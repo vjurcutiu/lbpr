@@ -4,6 +4,7 @@ import { Link, Navigate, useSearchParams } from "react-router-dom";
 import AuthLayout from "./AuthLayout";
 import { useAuthContext } from "./AuthProvider";
 import { auth, signUpWithEmailPassword, sendVerificationEmail } from "./firebase";
+import { friendlyAuthMessage } from "./errorMessages";
 
 export default function SignupPage() {
   const { user } = useAuthContext();
@@ -33,7 +34,8 @@ export default function SignupPage() {
       await sendVerificationEmail(cred.user);
       setSent(true);
     } catch (e: any) {
-      setErr(e?.message || "Unable to sign up.");
+      console.warn("[auth:signup] Firebase error:", e);
+      setErr(friendlyAuthMessage(e, "signup"));
     } finally {
       setLoading(false);
     }
@@ -58,7 +60,7 @@ export default function SignupPage() {
                   await sendVerificationEmail(auth.currentUser);
                   alert("Verification email sent again.");
                 } catch (e: any) {
-                  alert(e?.message || "Failed to send email.");
+                  alert(friendlyAuthMessage(e, "verify"));
                 }
               }
             }}

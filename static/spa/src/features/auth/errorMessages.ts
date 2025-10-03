@@ -1,0 +1,69 @@
+/**
+ * Map Firebase Auth errors to friendly, actionable messages.
+ * We keep the raw code in the dev console for easier debugging.
+ */
+export function friendlyAuthMessage(error: unknown, context: "login" | "signup" | "verify" | "generic" = "generic"): string {
+  // Extract best-effort code/message
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const e: any = error ?? {};
+  const code: string = (typeof e.code === "string" ? e.code : "") || "";
+  const msg: string = (typeof e.message === "string" ? e.message : "") || "";
+
+  // Some SDKs embed the code in the message like "Firebase: Error (auth/invalid-credential)."
+  const inferred = !code && /auth\/[a-z-]+/i.test(msg) ? msg.match(/auth\/([a-z-]+)/i)?.[0] : code;
+
+  const c = (inferred || "").toLowerCase();
+
+  // Common across flows
+  if (c.includes("network-request-failed")) {
+    return "Network error. Check your connection and try again.";
+  }
+  if (c.includes("too-many-requests")) {
+    return "Too many attempts. Please wait a moment and try again.";
+  }
+  if (c.includes("popup-closed-by-user")) {
+    return "The sign-in popup was closed before completing. Please try again.";
+  }
+  if (c.includes("internal-error")) {
+    return "Something went wrong on our side. Please try again.";
+  }
+
+  if (context === "login") {
+    if (c.includes("invalid-credential") || c.includes("wrong-password") || c.includes("user-not-found")) {
+      return "Email or password is incorrect.";
+    }
+    if (c.includes("invalid-email")) {
+      return "Please enter a valid email address.";
+    }
+    if (c.includes("user-disabled")) {
+      return "This account has been disabled. Contact support if this is unexpected.";
+    }
+    return "Unable to sign in. Please try again.";
+  }
+
+  if (context === "signup") {
+    if (c.includes("email-already-in-use")) {
+      return "An account with this email already exists. Try signing in instead.";
+    }
+    if (c.includes("invalid-email")) {
+      return "Please enter a valid email address.";
+    }
+    if (c.includes("weak-password")) {
+      return "Password is too weak. Use at least 8 characters with letters and numbers.";
+    }
+    if (c.includes("operation-not-allowed")) {
+      return "Email/password sign-up is disabled. Please contact support.";
+    }
+    return "Unable to create account. Please try again.";
+  }
+
+  if (context === "verify") {
+    if (c.includes("missing-email")) {
+      return "We couldn't find your email. Please sign in again and retry.";
+    }
+    return "Couldn't send the verification email. Please try again.";
+  }
+
+  // Fallback
+  return "Something went wrong. Please try again.";
+}

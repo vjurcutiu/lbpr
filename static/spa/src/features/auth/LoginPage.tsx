@@ -5,6 +5,7 @@ import AuthLayout from "./AuthLayout";
 import { useAuthContext } from "./AuthProvider";
 import { auth, signInWithEmailPassword } from "./firebase";
 import { postJSON } from "@/shared/api";
+import { friendlyAuthMessage } from "./errorMessages";
 
 export default function LoginPage() {
   const { user } = useAuthContext();
@@ -36,7 +37,9 @@ export default function LoginPage() {
       await postJSON("/auth/session", { id_token: idToken });
       window.location.replace(returnTo);
     } catch (e: any) {
-      setErr(e?.message || "Unable to sign in.");
+      // Friendlier messaging while keeping real error visible in console
+      console.warn("[auth:login] Firebase error:", e);
+      setErr(friendlyAuthMessage(e, "login"));
     } finally {
       setLoading(false);
     }
