@@ -119,6 +119,7 @@ class SessionOut(BaseModel):
     email: Optional[str] = None
     name: Optional[str] = None
     picture: Optional[str] = None
+    email_verified: Optional[bool] = None  # NEW
 
 class EnvelopeOut(BaseModel):
     user: Optional[SessionOut] = None
@@ -149,9 +150,13 @@ def create_session(resp: Response, payload: CreateSessionIn, svc: AuthService = 
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid ID token")
 
+    # Enforce email verification for email/password accounts
+    # If there's an email and it's not verified, block session creation
+    if user.email and user.email_verified is False:
+        raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
+
     sid = sessions.create(user, ttl_seconds=cookie_settings()["max_age"])
     resp.set_cookie(settings.COOKIE_NAME, sid, **cookie_settings())
-    # Match your test’s expectation:
     return {"ok": True}
 
 @router.post("/auth/logout")
@@ -168,7 +173,6 @@ def logout(resp: Response, req: Request, svc: AuthService = Depends(get_auth_ser
         except Exception:
             pass
 
-    # IMPORTANT: delete cookie with the same attributes
     cs = cookie_settings()
     resp.delete_cookie(settings.COOKIE_NAME, path=cs["path"], domain=cs.get("domain"), samesite=cs["samesite"])
     return {"ok": True}
@@ -191,11 +195,14 @@ class FirebaseAuthService:
 
     def verify_id_token(self, id_token: str) -> SessionOut:
         decoded = self._auth.verify_id_token(id_token)
+        # email_verified is present on Firebase ID tokens; default to False
+        ev = bool(decoded.get("email_verified", False))
         return SessionOut(
             uid=decoded["uid"],
             email=decoded.get("email"),
             name=decoded.get("name"),
             picture=decoded.get("picture"),
+            email_verified=ev,
         )
 
     def revoke_user(self, uid: str) -> None:
@@ -206,7 +213,7 @@ class FakeAuthService:
     def verify_id_token(self, id_token: str) -> SessionOut:
         if id_token != "good-token":
             raise ValueError("bad token")
-        return SessionOut(uid="u_test", email="test@example.com", name="Testy McTestface", picture=None)
+        return SessionOut(uid="u_test", email="test@example.com", name="Testy McTestface", picture=None, email_verified=True)
 
     def revoke_user(self, uid: str) -> None:
         return  # no-op in tests
@@ -249,6 +256,16 @@ class InMemoryStore:
         with self._lock:
             self._data[sid] = {**payload, "exp": exp}
 
+    def update_fields(self, sid: str, fields: Dict[str, Any]):
+        with self._lock:
+            rec = self._data.get(sid)
+            if not rec:
+                return
+            user = rec.get("user") or {}
+            user.update({k: v for k, v in fields.items() if v is not None})
+            rec["user"] = user
+            self._data[sid] = rec
+
     def delete(self, sid: str):
         with self._lock:
             self._data.pop(sid, None)
@@ -277,6 +294,7 @@ class SessionStore:
                 "email": user.email or "",
                 "name": user.name or "",
                 "picture": user.picture or "",
+                "email_verified": "1" if (user.email_verified is True) else ("0" if user.email_verified is False else ""),  # NEW
             })
             if ttl_seconds:
                 self._r.expire(key, ttl_seconds)
@@ -289,16 +307,41 @@ class SessionStore:
             data = self._r.hgetall(f"s:{sid}")
             if not data:
                 return None
+            ev = data.get("email_verified")
+            ev_val = None
+            if ev == "1":
+                ev_val = True
+            elif ev == "0":
+                ev_val = False
             return SessionOut(
                 uid=data.get("uid", ""),
                 email=data.get("email") or None,
                 name=data.get("name") or None,
                 picture=data.get("picture") or None,
+                email_verified=ev_val,
             )
         rec = self._r.get(sid)
         if not rec:
             return None
         return SessionOut(**rec["user"])
+
+    def update_user(self, sid: str, **fields):
+        if self.kind == "redis":
+            key = f"s:{sid}"
+            mapping = {}
+            for k in ("email", "name", "picture", "email_verified"):
+                if k in fields and fields[k] is not None:
+                    v = fields[k]
+                    if k == "email_verified":
+                        v = "1" if v is True else "0" if v is False else ""
+                    mapping[k] = str(v)
+            if mapping:
+                try:
+                    self._r.hset(key, mapping=mapping)
+                except Exception:
+                    pass
+        else:
+            self._r.update_fields(sid, {k: v for k, v in fields.items() if v is not None})
 
     def revoke(self, sid: str):
         if self.kind == "redis":

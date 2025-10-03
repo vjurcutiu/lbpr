@@ -107,12 +107,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         return;
       }
+      // Require verified email for password accounts
+      if (!fbUser.emailVerified) {
+        // Don't attempt cookie exchange; keep as logged-out in app context
+        setUser(null);
+        return;
+      }
       try {
         const idToken = await auth.currentUser!.getIdToken();
         await postJSON("/auth/session", { id_token: idToken });
         await load();
       } catch {
-        // If exchange fails, keep user null
         setUser(null);
       }
     });
@@ -130,7 +135,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function useAuthContext() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuthContext must be used within AuthProvider");
@@ -149,6 +153,12 @@ import {
   signOut,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendEmailVerification,
+  verifyBeforeUpdateEmail,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  reload,
   type User,
 } from "firebase/auth";
 
@@ -180,13 +190,35 @@ export function logoutFirebase() {
   return signOut(auth);
 }
 
-/** Email-only helpers */
+/** Email/password helpers */
 export function signUpWithEmailPassword(email: string, password: string) {
   return createUserWithEmailAndPassword(auth, email, password);
 }
 
 export function signInWithEmailPassword(email: string, password: string) {
   return signInWithEmailAndPassword(auth, email, password);
+}
+
+export async function sendVerificationEmail(user: User) {
+  await sendEmailVerification(user);
+}
+
+export async function startEmailChangeVerification(user: User, newEmail: string) {
+  // Sends verification link to the NEW email; upon clicking, Firebase will apply the change
+  await verifyBeforeUpdateEmail(user, newEmail);
+}
+
+export async function changePassword(user: User, newPassword: string) {
+  await updatePassword(user, newPassword);
+}
+
+export async function reauthWithPassword(email: string, password: string) {
+  const cred = EmailAuthProvider.credential(email, password);
+  await reauthenticateWithCredential(auth.currentUser!, cred);
+}
+
+export async function reloadUser(user: User) {
+  await reload(user);
 }
 
 
@@ -220,20 +252,24 @@ export default function LoginPage() {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [needsVerify, setNeedsVerify] = useState(false);
 
   if (user) return <Navigate to={returnTo} replace />;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setErr(null);
+    setNeedsVerify(false);
     setLoading(true);
     try {
-      // 1) Firebase sign-in
       await signInWithEmailPassword(email.trim(), password);
-      // 2) Exchange Firebase ID token for backend session cookie
+      // Gate on email verification
+      if (!auth.currentUser?.emailVerified) {
+        setNeedsVerify(true);
+        return;
+      }
       const idToken = await auth.currentUser!.getIdToken();
       await postJSON("/auth/session", { id_token: idToken });
-      // 3) Now we have the cookie; go to the app
       window.location.replace(returnTo);
     } catch (e: any) {
       setErr(e?.message || "Unable to sign in.");
@@ -268,26 +304,25 @@ export default function LoginPage() {
           />
         </label>
 
+        {needsVerify ? (
+          <div className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-2">
+            Please verify your email. Check your inbox for a link, then sign in again.
+          </div>
+        ) : null}
+
         {err ? (
           <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">
             {err}
           </div>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
-        >
+        <button type="submit" disabled={loading} className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60">
           {loading ? "Signing in..." : "Sign in"}
         </button>
 
         <div className="text-sm text-center text-gray-600">
           No account?{" "}
-          <Link
-            to={`/signup?returnTo=${encodeURIComponent(returnTo)}`}
-            className="text-black underline underline-offset-4"
-          >
+          <Link to={`/signup?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">
             Create one
           </Link>
         </div>
@@ -325,8 +360,7 @@ import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import AuthLayout from "./AuthLayout";
 import { useAuthContext } from "./AuthProvider";
-import { auth, signUpWithEmailPassword } from "./firebase";
-import { postJSON } from "@/shared/api";
+import { auth, signUpWithEmailPassword, sendVerificationEmail } from "./firebase";
 
 export default function SignupPage() {
   const { user } = useAuthContext();
@@ -339,6 +373,7 @@ export default function SignupPage() {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
   if (user) return <Navigate to={returnTo} replace />;
 
@@ -351,10 +386,9 @@ export default function SignupPage() {
     }
     setLoading(true);
     try {
-      await signUpWithEmailPassword(email.trim(), pw);
-      const idToken = await auth.currentUser!.getIdToken();
-      await postJSON("/auth/session", { id_token: idToken });
-      window.location.replace(returnTo);
+      const cred = await signUpWithEmailPassword(email.trim(), pw);
+      await sendVerificationEmail(cred.user);
+      setSent(true);
     } catch (e: any) {
       setErr(e?.message || "Unable to sign up.");
     } finally {
@@ -363,66 +397,86 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthLayout title="Create account" subtitle="Start your trial today">
-      <form className="space-y-4 max-w-sm mx-auto" onSubmit={onSubmit}>
-        <label className="block space-y-1">
-          <span className="text-sm text-gray-700">Email</span>
-          <input
-            autoFocus
-            required
-            type="email"
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-gray-700">Password</span>
-          <input
-            required
-            type="password"
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-          />
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-gray-700">Confirm password</span>
-          <input
-            required
-            type="password"
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
-            value={pw2}
-            onChange={(e) => setPw2(e.target.value)}
-          />
-        </label>
-
-        {err ? (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">
-            {err}
+    <AuthLayout title="Create account" subtitle="Verify your email to continue">
+      {sent ? (
+        <div className="space-y-4 max-w-sm mx-auto">
+          <div className="rounded-xl border p-4 bg-accent/40">
+            <div className="font-medium">Verify your email</div>
+            <p className="text-sm text-gray-600">
+              We sent a verification link to <strong>{email}</strong>. Click the link,
+              then return to the app and sign in.
+            </p>
           </div>
-        ) : null}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
-        >
-          {loading ? "Creating…" : "Create account"}
-        </button>
-
-        <div className="text-sm text-center text-gray-600">
-          Already have an account?{" "}
-          <Link
-            to={`/login?returnTo=${encodeURIComponent(returnTo)}`}
-            className="text-black underline underline-offset-4"
+          <button
+            type="button"
+            onClick={async () => {
+              if (auth.currentUser) {
+                try {
+                  await sendVerificationEmail(auth.currentUser);
+                  alert("Verification email sent again.");
+                } catch (e: any) {
+                  alert(e?.message || "Failed to send email.");
+                }
+              }
+            }}
+            className="w-full rounded-xl bg-black text-white py-2"
           >
-            Sign in
-          </Link>
+            Resend verification email
+          </button>
+          <div className="text-sm text-center text-gray-600">
+            Already verified?{" "}
+            <Link to={`/login?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">
+              Sign in
+            </Link>
+          </div>
         </div>
-      </form>
+      ) : (
+        <form className="space-y-4 max-w-sm mx-auto" onSubmit={onSubmit}>
+          <label className="block space-y-1">
+            <span className="text-sm text-gray-700">Email</span>
+            <input
+              autoFocus
+              required
+              type="email"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-sm text-gray-700">Password</span>
+            <input
+              required
+              type="password"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-sm text-gray-700">Confirm password</span>
+            <input
+              required
+              type="password"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+              value={pw2}
+              onChange={(e) => setPw2(e.target.value)}
+            />
+          </label>
+
+          {err ? (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">
+              {err}
+            </div>
+          ) : null}
+
+          <button type="submit" disabled={loading} className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60">
+            {loading ? "Creating…" : "Create account"}
+          </button>
+        </form>
+      )}
     </AuthLayout>
   );
 }

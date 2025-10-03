@@ -19,9 +19,13 @@ def create_session(resp: Response, payload: CreateSessionIn, svc: AuthService = 
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid ID token")
 
+    # Enforce email verification for email/password accounts
+    # If there's an email and it's not verified, block session creation
+    if user.email and user.email_verified is False:
+        raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
+
     sid = sessions.create(user, ttl_seconds=cookie_settings()["max_age"])
     resp.set_cookie(settings.COOKIE_NAME, sid, **cookie_settings())
-    # Match your test’s expectation:
     return {"ok": True}
 
 @router.post("/auth/logout")
@@ -38,7 +42,6 @@ def logout(resp: Response, req: Request, svc: AuthService = Depends(get_auth_ser
         except Exception:
             pass
 
-    # IMPORTANT: delete cookie with the same attributes
     cs = cookie_settings()
     resp.delete_cookie(settings.COOKIE_NAME, path=cs["path"], domain=cs.get("domain"), samesite=cs["samesite"])
     return {"ok": True}

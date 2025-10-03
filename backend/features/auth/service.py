@@ -14,11 +14,14 @@ class FirebaseAuthService:
 
     def verify_id_token(self, id_token: str) -> SessionOut:
         decoded = self._auth.verify_id_token(id_token)
+        # email_verified is present on Firebase ID tokens; default to False
+        ev = bool(decoded.get("email_verified", False))
         return SessionOut(
             uid=decoded["uid"],
             email=decoded.get("email"),
             name=decoded.get("name"),
             picture=decoded.get("picture"),
+            email_verified=ev,
         )
 
     def revoke_user(self, uid: str) -> None:
@@ -29,7 +32,7 @@ class FakeAuthService:
     def verify_id_token(self, id_token: str) -> SessionOut:
         if id_token != "good-token":
             raise ValueError("bad token")
-        return SessionOut(uid="u_test", email="test@example.com", name="Testy McTestface", picture=None)
+        return SessionOut(uid="u_test", email="test@example.com", name="Testy McTestface", picture=None, email_verified=True)
 
     def revoke_user(self, uid: str) -> None:
         return  # no-op in tests

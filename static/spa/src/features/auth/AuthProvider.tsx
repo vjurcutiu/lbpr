@@ -48,12 +48,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         return;
       }
+      // Require verified email for password accounts
+      if (!fbUser.emailVerified) {
+        // Don't attempt cookie exchange; keep as logged-out in app context
+        setUser(null);
+        return;
+      }
       try {
         const idToken = await auth.currentUser!.getIdToken();
         await postJSON("/auth/session", { id_token: idToken });
         await load();
       } catch {
-        // If exchange fails, keep user null
         setUser(null);
       }
     });
@@ -71,7 +76,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function useAuthContext() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuthContext must be used within AuthProvider");

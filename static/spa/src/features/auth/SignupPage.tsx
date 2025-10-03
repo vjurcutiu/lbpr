@@ -3,8 +3,7 @@ import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import AuthLayout from "./AuthLayout";
 import { useAuthContext } from "./AuthProvider";
-import { auth, signUpWithEmailPassword } from "./firebase";
-import { postJSON } from "@/shared/api";
+import { auth, signUpWithEmailPassword, sendVerificationEmail } from "./firebase";
 
 export default function SignupPage() {
   const { user } = useAuthContext();
@@ -17,6 +16,7 @@ export default function SignupPage() {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
   if (user) return <Navigate to={returnTo} replace />;
 
@@ -29,10 +29,9 @@ export default function SignupPage() {
     }
     setLoading(true);
     try {
-      await signUpWithEmailPassword(email.trim(), pw);
-      const idToken = await auth.currentUser!.getIdToken();
-      await postJSON("/auth/session", { id_token: idToken });
-      window.location.replace(returnTo);
+      const cred = await signUpWithEmailPassword(email.trim(), pw);
+      await sendVerificationEmail(cred.user);
+      setSent(true);
     } catch (e: any) {
       setErr(e?.message || "Unable to sign up.");
     } finally {
@@ -41,66 +40,86 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthLayout title="Create account" subtitle="Start your trial today">
-      <form className="space-y-4 max-w-sm mx-auto" onSubmit={onSubmit}>
-        <label className="block space-y-1">
-          <span className="text-sm text-gray-700">Email</span>
-          <input
-            autoFocus
-            required
-            type="email"
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-gray-700">Password</span>
-          <input
-            required
-            type="password"
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-          />
-        </label>
-
-        <label className="block space-y-1">
-          <span className="text-sm text-gray-700">Confirm password</span>
-          <input
-            required
-            type="password"
-            className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
-            value={pw2}
-            onChange={(e) => setPw2(e.target.value)}
-          />
-        </label>
-
-        {err ? (
-          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">
-            {err}
+    <AuthLayout title="Create account" subtitle="Verify your email to continue">
+      {sent ? (
+        <div className="space-y-4 max-w-sm mx-auto">
+          <div className="rounded-xl border p-4 bg-accent/40">
+            <div className="font-medium">Verify your email</div>
+            <p className="text-sm text-gray-600">
+              We sent a verification link to <strong>{email}</strong>. Click the link,
+              then return to the app and sign in.
+            </p>
           </div>
-        ) : null}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
-        >
-          {loading ? "Creating…" : "Create account"}
-        </button>
-
-        <div className="text-sm text-center text-gray-600">
-          Already have an account?{" "}
-          <Link
-            to={`/login?returnTo=${encodeURIComponent(returnTo)}`}
-            className="text-black underline underline-offset-4"
+          <button
+            type="button"
+            onClick={async () => {
+              if (auth.currentUser) {
+                try {
+                  await sendVerificationEmail(auth.currentUser);
+                  alert("Verification email sent again.");
+                } catch (e: any) {
+                  alert(e?.message || "Failed to send email.");
+                }
+              }
+            }}
+            className="w-full rounded-xl bg-black text-white py-2"
           >
-            Sign in
-          </Link>
+            Resend verification email
+          </button>
+          <div className="text-sm text-center text-gray-600">
+            Already verified?{" "}
+            <Link to={`/login?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">
+              Sign in
+            </Link>
+          </div>
         </div>
-      </form>
+      ) : (
+        <form className="space-y-4 max-w-sm mx-auto" onSubmit={onSubmit}>
+          <label className="block space-y-1">
+            <span className="text-sm text-gray-700">Email</span>
+            <input
+              autoFocus
+              required
+              type="email"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-sm text-gray-700">Password</span>
+            <input
+              required
+              type="password"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-sm text-gray-700">Confirm password</span>
+            <input
+              required
+              type="password"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+              value={pw2}
+              onChange={(e) => setPw2(e.target.value)}
+            />
+          </label>
+
+          {err ? (
+            <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">
+              {err}
+            </div>
+          ) : null}
+
+          <button type="submit" disabled={loading} className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60">
+            {loading ? "Creating…" : "Create account"}
+          </button>
+        </form>
+      )}
     </AuthLayout>
   );
 }

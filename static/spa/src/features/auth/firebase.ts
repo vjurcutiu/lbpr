@@ -8,6 +8,12 @@ import {
   signOut,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  sendEmailVerification,
+  verifyBeforeUpdateEmail,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  reload,
   type User,
 } from "firebase/auth";
 
@@ -39,11 +45,33 @@ export function logoutFirebase() {
   return signOut(auth);
 }
 
-/** Email-only helpers */
+/** Email/password helpers */
 export function signUpWithEmailPassword(email: string, password: string) {
   return createUserWithEmailAndPassword(auth, email, password);
 }
 
 export function signInWithEmailPassword(email: string, password: string) {
   return signInWithEmailAndPassword(auth, email, password);
+}
+
+export async function sendVerificationEmail(user: User) {
+  await sendEmailVerification(user);
+}
+
+export async function startEmailChangeVerification(user: User, newEmail: string) {
+  // Sends verification link to the NEW email; upon clicking, Firebase will apply the change
+  await verifyBeforeUpdateEmail(user, newEmail);
+}
+
+export async function changePassword(user: User, newPassword: string) {
+  await updatePassword(user, newPassword);
+}
+
+export async function reauthWithPassword(email: string, password: string) {
+  const cred = EmailAuthProvider.credential(email, password);
+  await reauthenticateWithCredential(auth.currentUser!, cred);
+}
+
+export async function reloadUser(user: User) {
+  await reload(user);
 }

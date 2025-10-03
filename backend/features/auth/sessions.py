@@ -62,6 +62,7 @@ class SessionStore:
                 "email": user.email or "",
                 "name": user.name or "",
                 "picture": user.picture or "",
+                "email_verified": "1" if (user.email_verified is True) else ("0" if user.email_verified is False else ""),  # NEW
             })
             if ttl_seconds:
                 self._r.expire(key, ttl_seconds)
@@ -74,11 +75,18 @@ class SessionStore:
             data = self._r.hgetall(f"s:{sid}")
             if not data:
                 return None
+            ev = data.get("email_verified")
+            ev_val = None
+            if ev == "1":
+                ev_val = True
+            elif ev == "0":
+                ev_val = False
             return SessionOut(
                 uid=data.get("uid", ""),
                 email=data.get("email") or None,
                 name=data.get("name") or None,
                 picture=data.get("picture") or None,
+                email_verified=ev_val,
             )
         rec = self._r.get(sid)
         if not rec:
@@ -88,11 +96,13 @@ class SessionStore:
     def update_user(self, sid: str, **fields):
         if self.kind == "redis":
             key = f"s:{sid}"
-            # Only include provided, non-None keys and coerce to strings
             mapping = {}
-            for k in ("email", "name", "picture"):
+            for k in ("email", "name", "picture", "email_verified"):
                 if k in fields and fields[k] is not None:
-                    mapping[k] = str(fields[k])
+                    v = fields[k]
+                    if k == "email_verified":
+                        v = "1" if v is True else "0" if v is False else ""
+                    mapping[k] = str(v)
             if mapping:
                 try:
                     self._r.hset(key, mapping=mapping)

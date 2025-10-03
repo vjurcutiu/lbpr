@@ -16,20 +16,24 @@ export default function LoginPage() {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [needsVerify, setNeedsVerify] = useState(false);
 
   if (user) return <Navigate to={returnTo} replace />;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setErr(null);
+    setNeedsVerify(false);
     setLoading(true);
     try {
-      // 1) Firebase sign-in
       await signInWithEmailPassword(email.trim(), password);
-      // 2) Exchange Firebase ID token for backend session cookie
+      // Gate on email verification
+      if (!auth.currentUser?.emailVerified) {
+        setNeedsVerify(true);
+        return;
+      }
       const idToken = await auth.currentUser!.getIdToken();
       await postJSON("/auth/session", { id_token: idToken });
-      // 3) Now we have the cookie; go to the app
       window.location.replace(returnTo);
     } catch (e: any) {
       setErr(e?.message || "Unable to sign in.");
@@ -64,26 +68,25 @@ export default function LoginPage() {
           />
         </label>
 
+        {needsVerify ? (
+          <div className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-2">
+            Please verify your email. Check your inbox for a link, then sign in again.
+          </div>
+        ) : null}
+
         {err ? (
           <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">
             {err}
           </div>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
-        >
+        <button type="submit" disabled={loading} className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60">
           {loading ? "Signing in..." : "Sign in"}
         </button>
 
         <div className="text-sm text-center text-gray-600">
           No account?{" "}
-          <Link
-            to={`/signup?returnTo=${encodeURIComponent(returnTo)}`}
-            className="text-black underline underline-offset-4"
-          >
+          <Link to={`/signup?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">
             Create one
           </Link>
         </div>

@@ -1,6 +1,8 @@
 import { useEffect, useState, FormEvent } from "react";
 import { getJSON } from "@/shared/api";
 import { useAuthContext } from "@/features/auth/AuthProvider";
+import { auth } from "@/features/auth/firebase";
+import { startEmailChangeVerification, changePassword } from "@/features/auth/firebase";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -50,14 +52,29 @@ export default function ProfilePage() {
     setErr(null);
     setOk(null);
     try {
+      const user = auth.currentUser;
+      if (!user) throw new Error("Not signed in.");
+
+      // 1) Email change → send verification to new email. Firebase applies the change after verify.
+      if (form.email && form.email !== profile.email) {
+        await startEmailChangeVerification(user, form.email);
+        setOk("Verification email sent to your new address. Finish verification to complete the change.");
+      }
+
+      // 2) Password change (may require recent login)
+      if (form.password) {
+        await changePassword(user, form.password);
+        setOk("Password updated.");
+      }
+
+      // 3) Save display name / picture to backend profile if your /me endpoint supports it.
       const resp = await fetch("/api/me", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: form.email,
+          // do NOT update email here; Firebase will update it after verification
           name: form.name,
-          password: form.password || undefined,
           picture: form.picture,
         }),
       });
@@ -68,13 +85,18 @@ export default function ProfilePage() {
       const updated: Profile = await resp.json();
       setProfile(updated);
       setForm(f => ({ ...f, password: "", confirm: "" }));
-      setOk("Saved!");
       await refresh(); // refresh header/user menu
+      if (!ok) setOk("Saved!");
     } catch (e: any) {
-      setErr(e?.message || "Failed to save.");
+      const msg = String(e?.message || e);
+      if (msg.includes("recent")) {
+        setErr("Please sign in again, then retry this change (requires recent login).");
+      } else {
+        setErr(msg || "Failed to save.");
+      }
     } finally {
       setSaving(false);
-      setTimeout(() => setOk(null), 2000);
+      setTimeout(() => setOk(null), 3000);
     }
   }
 
@@ -109,7 +131,7 @@ export default function ProfilePage() {
             placeholder="you@example.com"
           />
           <p className="text-xs text-muted-foreground mt-1">
-            This is your sign-in email. Changing it updates your account email.
+            Changing your email will send a verification link to the new address. The change completes after verification.
           </p>
         </div>
 
@@ -120,9 +142,6 @@ export default function ProfilePage() {
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             placeholder="Your name (defaults to your email username)"
           />
-          <p className="text-xs text-muted-foreground mt-1">
-            By default, we use the part of your email before the @. You can change it anytime.
-          </p>
         </div>
 
         <div>
