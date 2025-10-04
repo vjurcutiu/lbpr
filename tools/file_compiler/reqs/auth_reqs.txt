@@ -1,0 +1,7 @@
+The Auth feature must:
+
+use firebase auth for logins/signups
+send a confirmation email
+provide a custom confirmation page
+provide user friendly error messages
+only add autocomplete on name input, not on password

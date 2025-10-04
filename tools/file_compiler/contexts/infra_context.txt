@@ -89,6 +89,8 @@ test-sh: test-build
 test-down:
 	$(COMPOSE) $(TEST) down -v --remove-orphans
 
+test-e2e:
+	docker compose -f docker-compose.playwright.yml run --rm playwright
 
 C:/code2/lbpr/docker-compose.yml
 version: "3.9"
@@ -6070,5 +6072,44 @@ def safe_settings_snapshot() -> dict:
         "pinecone_region": settings.PINECONE_REGION,
         "rag_embed_dim": settings.RAG_EMBED_DIM,
     }
+
+
+C:/code2/lbpr/docker-compose.playwright.yml
+services:
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.48.0-jammy
+    working_dir: /app
+    volumes:
+      - ./static/spa:/app
+    command: ["pnpm", "test:e2e"]
+    network_mode: "host" # or depends_on: [nginx] if you use app.localhost
+
+
+C:/code2/lbpr/static/spa/playwright.config.ts
+import { defineConfig, devices } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./tests",
+  timeout: 30 * 1000,
+  use: {
+    baseURL: "http://localhost", // app.localhost inside docker
+    trace: "on-first-retry",
+    headless: true,
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
+    },
+    {
+      name: "webkit",
+      use: { ...devices["Desktop Safari"] },
+    },
+  ],
+});
 
 

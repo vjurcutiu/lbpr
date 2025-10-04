@@ -1,0 +1,8 @@
+services:
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.48.0-jammy
+    working_dir: /app
+    volumes:
+      - ./static/spa:/app
+    command: ["pnpm", "test:e2e"]
+    network_mode: "host" # or depends_on: [nginx] if you use app.localhost

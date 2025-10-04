@@ -87,3 +87,6 @@ test-sh: test-build
 ## Clean up any test containers/networks/volumes created by the test stack
 test-down:
 	$(COMPOSE) $(TEST) down -v --remove-orphans
+
+test-e2e:
+	docker compose -f docker-compose.playwright.yml run --rm playwright

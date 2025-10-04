@@ -1,0 +1,9 @@
+auth test cases:
+
+login
+signup
+verficaiton email send
+verification confirmation page
+signup page has "return to login page (sic)" button
+user friendly error messages for all cases
+autocomplete on name input, but not on password input
