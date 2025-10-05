@@ -19,6 +19,7 @@ export function friendlyAuthMessage(error: unknown, context: "login" | "signup" 
     return "Network error. Check your connection and try again.";
   }
   if (c.includes("too-many-requests")) {
+    // Generic throttle copy
     return "Too many attempts. Please wait a moment and try again.";
   }
   if (c.includes("popup-closed-by-user")) {
@@ -58,6 +59,10 @@ export function friendlyAuthMessage(error: unknown, context: "login" | "signup" 
   }
 
   if (context === "verify") {
+    // More specific copy for verification email throttling
+    if (c.includes("too-many-requests")) {
+      return "You're sending verification emails too often. Please wait a bit and try again.";
+    }
     if (c.includes("missing-email")) {
       return "We couldn't find your email. Please sign in again and retry.";
     }

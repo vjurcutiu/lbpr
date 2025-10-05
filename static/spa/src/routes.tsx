@@ -4,8 +4,6 @@ import type { ReactNode } from "react";
 import { Navigate } from "react-router-dom";
 // If your ProtectedRoute is a default export:
 import ProtectedRoute from "@/features/auth/ProtectedRoute";
-// If it's a named export, swap to:
-// import { ProtectedRoute } from "@/features/auth/ProtectedRoute";
 
 export type NavPlacement = "top" | "mobile" | "both" | "none";
 export type AppRoute = {
@@ -19,7 +17,6 @@ export type AppRoute = {
 };
 
 // Lazy pages
-// const AuthPage     = lazy(() => import("@/features/auth/AuthPage")); // replaced with /login
 const BillingPage  = lazy(() => import("@/features/billing/BillingPage"));
 const ChatPage     = lazy(() => import("@/features/chat/ChatPage"));
 const FilesPage    = lazy(() => import("@/features/files/FilesPage"));
@@ -30,15 +27,14 @@ const NotFound     = lazy(() => import("@/pages/NotFound"));
 const LoginPage     = lazy(() => import("@/features/auth/LoginPage"));
 const SignupPage    = lazy(() => import("@/features/auth/SignupPage"));
 const ForbiddenPage = lazy(() => import("@/features/auth/ForbiddenPage"));
+const VerifyEmailPage = lazy(() => import("@/features/auth/VerifyEmailPage")); // NEW
 
 export const routes: AppRoute[] = [
-  // Public
   { path: "/",          element: <Navigate to="/login" replace />, label: "Home", nav: "none", hidden: true },
   { path: "/login",     element: <LoginPage />,                    nav: "none", hidden: true },
   { path: "/signup",    element: <SignupPage />,                   nav: "none", hidden: true },
   { path: "/forbidden", element: <ForbiddenPage />,                nav: "none", hidden: true },
-
-  // Protected group (Outlet pattern)
+  { path: "/verify-email", element: <VerifyEmailPage />,           nav: "none", hidden: true }, // NEW
   {
     element: <ProtectedRoute />,
     children: [
@@ -49,12 +45,9 @@ export const routes: AppRoute[] = [
       { path: "/dashboard", element: <Navigate to="/files" replace />, nav: "none", hidden: true },
     ],
   },
-
-  // 404
   { path: "*", element: <NotFound />, nav: "none" },
 ];
 
-/** Build nav items for your AppShell */
 export function buildNavItems(where: "top" | "mobile") {
   const flat: AppRoute[] = [];
   for (const r of routes) {

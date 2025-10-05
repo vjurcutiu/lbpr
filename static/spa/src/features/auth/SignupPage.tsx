@@ -11,6 +11,7 @@ export default function SignupPage() {
   const [params] = useSearchParams();
   const returnTo = params.get("returnTo") || "/files";
 
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -18,6 +19,8 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [resendMsg, setResendMsg] = useState<string | null>(null);
+  const [resendErr, setResendErr] = useState<string | null>(null);
 
   if (user) return <Navigate to={returnTo} replace />;
 
@@ -46,22 +49,38 @@ export default function SignupPage() {
       {sent ? (
         <div className="space-y-4 max-w-sm mx-auto">
           <div className="rounded-xl border p-4 bg-accent/40">
-            <div className="font-medium">Verify your email</div>
+            <div className="font-medium">Check your inbox</div>
             <p className="text-sm text-gray-600">
-              We sent a verification link to <strong>{email}</strong>. Click the link,
-              then return to the app and sign in.
+              We sent a verification link to <strong>{email}</strong>. Check your inbox and spam folder.
+              Click the link, then return to the app and sign in.
             </p>
           </div>
+
+          {resendMsg ? (
+            <div className="text-sm text-green-700 bg-green-50 border border-green-100 rounded-xl p-2">
+              {resendMsg}
+            </div>
+          ) : null}
+          {resendErr ? (
+            <div className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl p-2">
+              {resendErr}
+            </div>
+          ) : null}
+
           <button
             type="button"
             onClick={async () => {
+              setResendMsg(null);
+              setResendErr(null);
               if (auth.currentUser) {
                 try {
                   await sendVerificationEmail(auth.currentUser);
-                  alert("Verification email sent again.");
+                  setResendMsg("Verification email sent again.");
                 } catch (e: any) {
-                  alert(friendlyAuthMessage(e, "verify"));
+                  setResendErr(friendlyAuthMessage(e, "verify"));
                 }
+              } else {
+                setResendErr("You need to be signed in to resend the verification email.");
               }
             }}
             className="w-full rounded-xl bg-black text-white py-2"
@@ -83,6 +102,7 @@ export default function SignupPage() {
               autoFocus
               required
               type="email"
+              autoComplete="email"
               className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -94,6 +114,7 @@ export default function SignupPage() {
             <input
               required
               type="password"
+              autoComplete="off"
               className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
               value={pw}
               onChange={(e) => setPw(e.target.value)}
@@ -105,6 +126,7 @@ export default function SignupPage() {
             <input
               required
               type="password"
+              autoComplete="off"
               className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
               value={pw2}
               onChange={(e) => setPw2(e.target.value)}
@@ -120,6 +142,13 @@ export default function SignupPage() {
           <button type="submit" disabled={loading} className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60">
             {loading ? "Creating…" : "Create account"}
           </button>
+
+          <div className="text-sm text-center text-gray-600">
+            Already have an account?{" "}
+            <Link to={`/login?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">
+              Sign in
+            </Link>
+          </div>
         </form>
       )}
     </AuthLayout>

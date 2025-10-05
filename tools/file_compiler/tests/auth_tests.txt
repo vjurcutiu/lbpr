@@ -6,4 +6,5 @@ verficaiton email send
 verification confirmation page
 signup page has "return to login page (sic)" button
 user friendly error messages for all cases
-autocomplete on name input, but not on password input
+autocomplete on email input, but not on password input
+rate limit and success test for resend verification email

@@ -4,4 +4,5 @@ use firebase auth for logins/signups
 send a confirmation email
 provide a custom confirmation page
 provide user friendly error messages
-only add autocomplete on name input, not on password
+only add autocomplete on email input, not on password (both login and signup)
+proper error message on resend verification email if rate limit is hit

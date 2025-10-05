@@ -54,6 +54,7 @@ export default function LoginPage() {
             autoFocus
             required
             type="email"
+            autoComplete="email"
             className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -65,6 +66,7 @@ export default function LoginPage() {
           <input
             required
             type="password"
+            autoComplete="off"
             className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -73,7 +75,7 @@ export default function LoginPage() {
 
         {needsVerify ? (
           <div className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-2">
-            Please verify your email. Check your inbox for a link, then sign in again.
+            Please verify your email. Check your inbox (and spam folder) for a link, then sign in again.
           </div>
         ) : null}
 

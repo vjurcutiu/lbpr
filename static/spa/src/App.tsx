@@ -22,6 +22,7 @@ type AppRoute = {
 const LoginPage = lazy(() => import("@/features/auth/LoginPage"));
 const SignupPage = lazy(() => import("@/features/auth/SignupPage"));
 const ForbiddenPage = lazy(() => import("@/features/auth/ForbiddenPage"));
+const VerifyEmailPage = lazy(() => import("@/features/auth/VerifyEmailPage")); // NEW
 // App
 const FilesPage = lazy(() => import("@/features/files/FilesPage"));
 const ChatPage = lazy(() => import("@/features/chat/ChatPage"));
@@ -41,6 +42,7 @@ const ROUTES: AppRoute[] = [
   { path: "/login", element: <LoginPage />, nav: "none", hidden: true },
   { path: "/signup", element: <SignupPage />, nav: "none", hidden: true },
   { path: "/forbidden", element: <ForbiddenPage />, nav: "none", hidden: true },
+  { path: "/verify-email", element: <VerifyEmailPage />, nav: "none", hidden: true }, // NEW
   // Public Legal
   { path: "/privacy", element: <AppShell children={<PrivacyPage />} />, nav: "none" },
   { path: "/terms",   element: <AppShell children={<TermsPage />} />,   nav: "none" },
@@ -92,6 +94,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/forbidden" element={<ForbiddenPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
 
           {/* Public legal pages (wrapped in AppShell for nav/footer) */}
           <Route path="/privacy" element={<AppShell navItems={navItems} children={<PrivacyPage />} />} />

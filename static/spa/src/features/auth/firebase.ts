@@ -14,6 +14,7 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   reload,
+  applyActionCode as fbApplyActionCode,
   type User,
 } from "firebase/auth";
 
@@ -74,4 +75,12 @@ export async function reauthWithPassword(email: string, password: string) {
 
 export async function reloadUser(user: User) {
   await reload(user);
+}
+
+/**
+ * Wrapper so tests can mock from our module rather than firebase/auth directly.
+ * In app code we only need the oobCode; the auth instance is captured here.
+ */
+export async function applyActionCode(oobCode: string) {
+  await fbApplyActionCode(auth, oobCode);
 }

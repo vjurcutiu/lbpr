@@ -183,6 +183,7 @@ export function friendlyAuthMessage(error: unknown, context: "login" | "signup" 
     return "Network error. Check your connection and try again.";
   }
   if (c.includes("too-many-requests")) {
+    // Generic throttle copy
     return "Too many attempts. Please wait a moment and try again.";
   }
   if (c.includes("popup-closed-by-user")) {
@@ -222,6 +223,10 @@ export function friendlyAuthMessage(error: unknown, context: "login" | "signup" 
   }
 
   if (context === "verify") {
+    // More specific copy for verification email throttling
+    if (c.includes("too-many-requests")) {
+      return "You're sending verification emails too often. Please wait a bit and try again.";
+    }
     if (c.includes("missing-email")) {
       return "We couldn't find your email. Please sign in again and retry.";
     }
@@ -231,7 +236,6 @@ export function friendlyAuthMessage(error: unknown, context: "login" | "signup" 
   // Fallback
   return "Something went wrong. Please try again.";
 }
-
 
 C:/code2/lbpr/static/spa/src/features/auth/firebase.ts
 // src/features/auth/firebase.ts
@@ -250,6 +254,7 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   reload,
+  applyActionCode as fbApplyActionCode,
   type User,
 } from "firebase/auth";
 
@@ -310,6 +315,14 @@ export async function reauthWithPassword(email: string, password: string) {
 
 export async function reloadUser(user: User) {
   await reload(user);
+}
+
+/**
+ * Wrapper so tests can mock from our module rather than firebase/auth directly.
+ * In app code we only need the oobCode; the auth instance is captured here.
+ */
+export async function applyActionCode(oobCode: string) {
+  await fbApplyActionCode(auth, oobCode);
 }
 
 
@@ -381,6 +394,7 @@ export default function LoginPage() {
             autoFocus
             required
             type="email"
+            autoComplete="email"
             className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -392,6 +406,7 @@ export default function LoginPage() {
           <input
             required
             type="password"
+            autoComplete="off"
             className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -400,7 +415,7 @@ export default function LoginPage() {
 
         {needsVerify ? (
           <div className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-2">
-            Please verify your email. Check your inbox for a link, then sign in again.
+            Please verify your email. Check your inbox (and spam folder) for a link, then sign in again.
           </div>
         ) : null}
 
@@ -424,7 +439,6 @@ export default function LoginPage() {
     </AuthLayout>
   );
 }
-
 
 C:/code2/lbpr/static/spa/src/features/auth/ProtectedRoute.tsx
 import { Navigate, Outlet, useLocation } from "react-router-dom";
@@ -462,6 +476,7 @@ export default function SignupPage() {
   const [params] = useSearchParams();
   const returnTo = params.get("returnTo") || "/files";
 
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
@@ -469,6 +484,8 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [resendMsg, setResendMsg] = useState<string | null>(null);
+  const [resendErr, setResendErr] = useState<string | null>(null);
 
   if (user) return <Navigate to={returnTo} replace />;
 
@@ -497,22 +514,38 @@ export default function SignupPage() {
       {sent ? (
         <div className="space-y-4 max-w-sm mx-auto">
           <div className="rounded-xl border p-4 bg-accent/40">
-            <div className="font-medium">Verify your email</div>
+            <div className="font-medium">Check your inbox</div>
             <p className="text-sm text-gray-600">
-              We sent a verification link to <strong>{email}</strong>. Click the link,
-              then return to the app and sign in.
+              We sent a verification link to <strong>{email}</strong>. Check your inbox and spam folder.
+              Click the link, then return to the app and sign in.
             </p>
           </div>
+
+          {resendMsg ? (
+            <div className="text-sm text-green-700 bg-green-50 border border-green-100 rounded-xl p-2">
+              {resendMsg}
+            </div>
+          ) : null}
+          {resendErr ? (
+            <div className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl p-2">
+              {resendErr}
+            </div>
+          ) : null}
+
           <button
             type="button"
             onClick={async () => {
+              setResendMsg(null);
+              setResendErr(null);
               if (auth.currentUser) {
                 try {
                   await sendVerificationEmail(auth.currentUser);
-                  alert("Verification email sent again.");
+                  setResendMsg("Verification email sent again.");
                 } catch (e: any) {
-                  alert(friendlyAuthMessage(e, "verify"));
+                  setResendErr(friendlyAuthMessage(e, "verify"));
                 }
+              } else {
+                setResendErr("You need to be signed in to resend the verification email.");
               }
             }}
             className="w-full rounded-xl bg-black text-white py-2"
@@ -534,6 +567,7 @@ export default function SignupPage() {
               autoFocus
               required
               type="email"
+              autoComplete="email"
               className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -545,6 +579,7 @@ export default function SignupPage() {
             <input
               required
               type="password"
+              autoComplete="off"
               className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
               value={pw}
               onChange={(e) => setPw(e.target.value)}
@@ -556,6 +591,7 @@ export default function SignupPage() {
             <input
               required
               type="password"
+              autoComplete="off"
               className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
               value={pw2}
               onChange={(e) => setPw2(e.target.value)}
@@ -571,6 +607,13 @@ export default function SignupPage() {
           <button type="submit" disabled={loading} className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60">
             {loading ? "Creating…" : "Create account"}
           </button>
+
+          <div className="text-sm text-center text-gray-600">
+            Already have an account?{" "}
+            <Link to={`/login?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">
+              Sign in
+            </Link>
+          </div>
         </form>
       )}
     </AuthLayout>
@@ -584,6 +627,80 @@ import { useAuthContext } from "./AuthProvider";
 export function useSession() {
   const { user, loading, refresh } = useAuthContext();
   return { user, loading, isAuthenticated: !!user, refresh };
+}
+
+
+C:/code2/lbpr/static/spa/src/features/auth/VerifyEmailPage.tsx
+import { useEffect, useState } from "react";
+import { useSearchParams, Link } from "react-router-dom";
+import AuthLayout from "./AuthLayout";
+import { applyActionCode } from "./firebase";
+
+export default function VerifyEmailPage() {
+  const [params] = useSearchParams();
+  const [status, setStatus] = useState<"working" | "ok" | "error">("working");
+  const [message, setMessage] = useState<string>("");
+
+  useEffect(() => {
+    const mode = params.get("mode");
+    const oobCode = params.get("oobCode");
+
+    if (mode !== "verifyEmail" || !oobCode) {
+      setStatus("error");
+      setMessage("Invalid or missing verification link parameters.");
+      return;
+    }
+
+    (async () => {
+      try {
+        await applyActionCode(oobCode);
+        setStatus("ok");
+      } catch (e: any) {
+        // keep a generic but helpful error for UX
+        console.warn("[verify-email] error", e);
+        setStatus("error");
+        setMessage("This verification link is invalid or expired.");
+      }
+    })();
+  }, [params]);
+
+  if (status === "working") {
+    return (
+      <AuthLayout title="Verifying email…">
+        <div className="max-w-sm mx-auto text-sm text-gray-600">Please wait while we confirm your email.</div>
+      </AuthLayout>
+    );
+  }
+
+  if (status === "ok") {
+    return (
+      <AuthLayout title="Email verified 🎉" subtitle="You're all set.">
+        <div className="space-y-4 max-w-sm mx-auto">
+          <div className="rounded-xl border p-4 bg-accent/40">
+            <p className="text-sm text-gray-700">
+              Your email has been verified. You can now sign in.
+            </p>
+          </div>
+          <Link to="/login" className="w-full inline-flex justify-center rounded-xl bg-black text-white py-2">
+            Continue to sign in
+          </Link>
+        </div>
+      </AuthLayout>
+    );
+  }
+
+  return (
+    <AuthLayout title="Verification problem">
+      <div className="space-y-4 max-w-sm mx-auto">
+        <div className="rounded-xl border p-4 bg-red-50 border-red-100">
+          <p className="text-sm text-red-700">{message}</p>
+        </div>
+        <Link to="/signup" className="w-full inline-flex justify-center rounded-xl bg-black text-white py-2">
+          Create account
+        </Link>
+      </div>
+    </AuthLayout>
+  );
 }
 
 

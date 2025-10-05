@@ -1,0 +1,7 @@
+ {
+   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_tests.txt",
+   "folders": ["C:\\code2\\lbpr\\static\\spa\\tests\\unit"
+            ],
+   "include_glob": "*",
+   "dedup": "path"
+ }
