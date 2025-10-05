@@ -1,0 +1,5 @@
+The Billing feature must:
+
+Display the plans for the users
+Display the current usage for the current plan of the user
+Reset usage quotas when the user upgrades from free to pro tiers

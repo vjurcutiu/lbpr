@@ -1,0 +1,7 @@
+billing test cases:
+
+subscription upgrade
+usage tier upgrades
+subscription cancellation
+access to stripe's billing management
+proper subscription start and finish date
