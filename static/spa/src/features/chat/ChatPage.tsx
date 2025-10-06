@@ -1,6 +1,6 @@
 // src/features/chat/ChatPage.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Send, Loader2, PlusCircle, LinkIcon, MessageSquare } from "lucide-react";
+import { Send, Loader2, PlusCircle, LinkIcon, MessageSquare, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -14,8 +14,11 @@ import {
   listConversations,
   renameConversation,
   subscribeMessages,
+  deleteConversation,
 } from "./chatStore";
 import type { ChatTurn, ConversationMeta } from "./types";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as Dialog from "@radix-ui/react-dialog";
 
 function useTenantId() {
   return "tenant_demo";
@@ -175,6 +178,20 @@ export default function ChatPage() {
         currentId={sessionId || ""}
         onNew={startNewSearch}
         onSelect={switchSession}
+        onRename={async (id, title) => {
+          await renameConversation(namespace, id, title);
+          await refreshConversations();
+        }}
+        onDelete={async (id) => {
+          await deleteConversation(namespace, id);
+          await refreshConversations();
+          if (id === sessionId) {
+            // Switch to next available conversation (if any)
+            const next = (await listConversations(namespace))[0]?.id || null;
+            setSessionId(next);
+            setMessages([]);
+          }
+        }}
       />
 
       <div className="flex-1 min-h-0 min-w-0 flex flex-col">
@@ -247,12 +264,19 @@ function LeftSidebar({
   currentId,
   onNew,
   onSelect,
+  onRename,
+  onDelete,
 }: {
   sessions: ConversationMeta[];
   currentId: string;
   onNew: () => void;
   onSelect: (id: string) => void;
+  onRename: (id: string, title: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }) {
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameVal, setRenameVal] = useState<string>("");
+
   return (
     <aside className="hidden sm:flex w-64 border-r flex-col bg-muted/20">
       <div className="p-3 border-b">
@@ -273,28 +297,110 @@ function LeftSidebar({
           )}
           {sessions.map((s) => (
             <li key={s.id}>
-              <button
+              <div
                 className={[
-                  "w-full text-left rounded-lg px-3 py-2 hover:bg-accent/60 transition flex items-start gap-2",
+                  "w-full rounded-lg px-3 py-2 hover:bg-accent/60 transition flex items-start gap-2",
                   s.id === currentId ? "bg-accent/60" : "",
                 ].join(" ")}
-                onClick={() => onSelect(s.id)}
-                title={s.title}
               >
-                <MessageSquare className="h-4 w-4 mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <div className="truncate text-sm">
-                    {s.title || "Untitled"}
+                <button
+                  className="flex-1 text-left flex items-start gap-2 min-w-0"
+                  onClick={() => onSelect(s.id)}
+                  title={s.title}
+                >
+                  <MessageSquare className="h-4 w-4 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm">
+                      {s.title || "Untitled"}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {formatTimeAgo(s.updated_at)}
+                    </div>
                   </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {formatTimeAgo(s.updated_at)}
-                  </div>
-                </div>
-              </button>
+                </button>
+
+                {/* 3-dots actions */}
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild>
+                    <Button variant="ghost" size="icon" aria-label="Conversation actions">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenu.Trigger>
+                  <DropdownMenu.Content
+                    side="right"
+                    align="start"
+                    className="min-w-[160px] rounded-md border bg-popover p-1 shadow-md"
+                  >
+                    <DropdownMenu.Item
+                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/60 cursor-pointer"
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        setRenameId(s.id);
+                        setRenameVal(s.title || "");
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Rename
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator className="my-1 h-px bg-border" />
+                    <DropdownMenu.Item
+                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/60 text-destructive cursor-pointer"
+                      onSelect={async (e) => {
+                        e.preventDefault();
+                        // simple confirm
+                        if (confirm(`Delete "${s.title || "Untitled"}"? This cannot be undone.`)) {
+                          await onDelete(s.id);
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Root>
+              </div>
             </li>
           ))}
         </ul>
       </div>
+
+      {/* Rename Dialog */}
+      <Dialog.Root open={!!renameId} onOpenChange={(o) => !o && setRenameId(null)}>
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[95vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-popover p-4 shadow-lg">
+          <Dialog.Title className="text-base font-medium">Rename conversation</Dialog.Title>
+          <div className="mt-3">
+            <input
+              value={renameVal}
+              onChange={(e) => setRenameVal(e.target.value)}
+              autoFocus
+              className="w-full rounded-xl border border-input bg-background px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+              placeholder="Conversation title"
+              onKeyDown={async (e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (renameId) {
+                    await onRename(renameId, renameVal.trim() || "Untitled");
+                    setRenameId(null);
+                  }
+                }
+              }}
+            />
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setRenameId(null)}>Cancel</Button>
+            <Button
+              onClick={async () => {
+                if (renameId) {
+                  await onRename(renameId, renameVal.trim() || "Untitled");
+                  setRenameId(null);
+                }
+              }}
+            >
+              Save
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Root>
     </aside>
   );
 }

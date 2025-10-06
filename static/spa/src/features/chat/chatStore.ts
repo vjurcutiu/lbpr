@@ -1,161 +1,137 @@
 // src/features/chat/chatStore.ts
-import { getFirebaseApp } from "@/lib/firebase";
-import {
-  getFirestore,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  addDoc,
-  query,
-  where,
-  orderBy,
-  limit as qLimit,
-  serverTimestamp,
-  onSnapshot,
-  Timestamp,
-  type Unsubscribe,
-} from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+/**
+ * Tiny chat store backed by localStorage.
+ * Namespaced by `ns` so multiple tenants/spaces can coexist.
+ *
+ * Schema (per namespace key):
+ * {
+ *   conversations: ConversationMeta[],
+ *   messages: Record<conversationId, ChatTurn[]>
+ * }
+ */
+import { v4 as uuidv4 } from "uuid";
 import type { ChatTurn, ConversationMeta } from "./types";
 
-const app = getFirebaseApp();
-const db = getFirestore(app);
+type StoredShape = {
+  conversations: ConversationMeta[];
+  messages: Record<string, ChatTurn[]>;
+};
 
-export function getUid(): string {
-  const u = getAuth().currentUser;
-  if (!u) throw new Error("No authenticated user");
-  return u.uid;
+const LISTENERS: Record<string, Set<(id: string, msgs: ChatTurn[]) => void>> = {};
+
+function key(ns: string) {
+  return `lbp_chat_${ns}`;
 }
 
-function nsBase(uid: string, namespace: string) {
-  // Per our convention (see backend NAMESPACES.md): users/{uid}/chat/{namespace}/conversations/{cid}
-  return collection(db, "users", uid, "chat", namespace, "conversations");
+function nowIso() {
+  return new Date().toISOString();
 }
 
-function tsToIso(v: any): string {
-  if (!v) return new Date().toISOString();
-  if (v instanceof Timestamp) return v.toDate().toISOString();
-  return String(v);
-}
-
-export async function createConversation(namespace: string, title = "New chat", tenant_id?: string) {
-  const uid = getUid();
-  const convCol = nsBase(uid, namespace);
-  const now = serverTimestamp();
-  const ref = await addDoc(convCol, {
-    title,
-    tenant_id: tenant_id || null,
-    namespace,
-    created_at: now,
-    updated_at: now,
-    last_role: null,
-    last_snippet: "",
-  });
-  return ref.id;
-}
-
-export async function ensureConversation(namespace: string, existingId?: string | null) {
-  if (existingId) return existingId;
-  return createConversation(namespace);
-}
-
-export async function listConversations(namespace: string, opts?: { pageSize?: number }): Promise<ConversationMeta[]> {
-  const uid = getUid();
-  const convCol = nsBase(uid, namespace);
-  const q = query(convCol, orderBy("updated_at", "desc"), qLimit(opts?.pageSize ?? 50));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => {
-    const data = d.data() as any;
+function read(ns: string): StoredShape {
+  try {
+    const raw = localStorage.getItem(key(ns));
+    if (!raw) return { conversations: [], messages: {} };
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return { conversations: [], messages: {} };
     return {
-      id: d.id,
-      title: String(data.title || "New chat"),
-      namespace: String(data.namespace || namespace),
-      tenant_id: data.tenant_id || undefined,
-      created_at: tsToIso(data.created_at),
-      updated_at: tsToIso(data.updated_at),
-    } satisfies ConversationMeta;
-  });
+      conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
+      messages: parsed.messages && typeof parsed.messages === "object" ? parsed.messages : {},
+    };
+  } catch {
+    return { conversations: [], messages: {} };
+  }
 }
 
-export function messagesCol(uid: string, namespace: string, conversationId: string) {
-  return collection(db, "users", uid, "chat", namespace, "conversations", conversationId, "messages");
+function write(ns: string, data: StoredShape) {
+  localStorage.setItem(key(ns), JSON.stringify(data));
 }
 
-export async function getMessages(namespace: string, conversationId: string): Promise<ChatTurn[]> {
-  const uid = getUid();
-  const msgsQ = query(messagesCol(uid, namespace, conversationId), orderBy("created_at", "asc"));
-  const snap = await getDocs(msgsQ);
-  return snap.docs.map(d => {
-    const data = d.data() as any;
-    return {
-      role: data.role,
-      content: data.content,
-      citations: data.citations || undefined,
-      created_at: tsToIso(data.created_at),
-      trace_id: data.trace_id ?? null,
-      request_id: data.request_id ?? null,
-    } as ChatTurn;
-  });
+function emit(ns: string, id: string) {
+  const store = read(ns);
+  const listeners = LISTENERS[ns];
+  if (!listeners) return;
+  const msgs = store.messages[id] || [];
+  for (const cb of listeners) cb(id, msgs);
 }
 
+export async function createConversation(ns: string, title: string, tenantId: string): Promise<string> {
+  const store = read(ns);
+  const id = uuidv4();
+  const ts = nowIso();
+  const meta: ConversationMeta = {
+    id,
+    title: title?.trim() || "New chat",
+    tenant_id: tenantId,
+    created_at: ts,
+    updated_at: ts,
+  };
+  store.conversations.unshift(meta);
+  store.messages[id] = [];
+  write(ns, store);
+  emit(ns, id);
+  return id;
+}
+
+export async function ensureConversation(ns: string, maybeId: string | null): Promise<string> {
+  if (maybeId) return maybeId;
+  // Create default conversation when not specified
+  return await createConversation(ns, "New chat", "tenant_demo");
+}
+
+export async function appendMessage(ns: string, id: string, msg: ChatTurn): Promise<void> {
+  const store = read(ns);
+  store.messages[id] = store.messages[id] || [];
+  store.messages[id].push({ ...msg, created_at: msg.created_at || nowIso() });
+  // bump conversation updated_at
+  const conv = store.conversations.find(c => c.id === id);
+  if (conv) conv.updated_at = nowIso();
+  write(ns, store);
+  emit(ns, id);
+}
+
+export async function listConversations(ns: string): Promise<ConversationMeta[]> {
+  const store = read(ns);
+  // newest first
+  return [...store.conversations].sort((a, b) => (b.updated_at.localeCompare(a.updated_at)));
+}
+
+export async function renameConversation(ns: string, id: string, title: string): Promise<void> {
+  const store = read(ns);
+  const conv = store.conversations.find(c => c.id === id);
+  if (conv) {
+    conv.title = title?.trim() || conv.title;
+    conv.updated_at = nowIso();
+    write(ns, store);
+  }
+}
+
+export async function deleteConversation(ns: string, id: string): Promise<void> {
+  const store = read(ns);
+  store.conversations = store.conversations.filter(c => c.id !== id);
+  delete store.messages[id];
+  write(ns, store);
+  emit(ns, id);
+}
+
+/**
+ * Subscribe to message changes for a conversation.
+ * Immediately calls back with current messages.
+ */
 export function subscribeMessages(
-  namespace: string,
-  conversationId: string,
-  onUpdate: (messages: ChatTurn[]) => void
-): Unsubscribe {
-  const uid = getUid();
-  const msgsQ = query(messagesCol(uid, namespace, conversationId), orderBy("created_at", "asc"));
-  return onSnapshot(msgsQ, (snap) => {
-    const list: ChatTurn[] = [];
-    snap.forEach((d) => {
-      const data = d.data() as any;
-      list.push({
-        role: data.role,
-        content: data.content,
-        citations: data.citations || undefined,
-        created_at: tsToIso(data.created_at),
-        trace_id: data.trace_id ?? null,
-        request_id: data.request_id ?? null,
-      });
-    });
-    onUpdate(list);
-  });
-}
+  ns: string,
+  id: string,
+  cb: (msgs: ChatTurn[]) => void
+): () => void {
+  const set = (LISTENERS[ns] = LISTENERS[ns] || new Set());
+  const wrapper = (_id: string, msgs: ChatTurn[]) => {
+    if (_id === id) cb(msgs);
+  };
+  set.add(wrapper);
+  // fire immediately
+  const store = read(ns);
+  cb(store.messages[id] || []);
 
-export async function appendMessage(
-  namespace: string,
-  conversationId: string,
-  msg: ChatTurn
-) {
-  const uid = getUid();
-  const mcol = messagesCol(uid, namespace, conversationId);
-  await addDoc(mcol, {
-    role: msg.role,
-    content: msg.content,
-    citations: msg.citations || null,
-    created_at: serverTimestamp(),
-    trace_id: msg.trace_id ?? null,
-    request_id: msg.request_id ?? null,
-  });
-  // Update conversation summary fields
-  await setDoc(
-    doc(db, "users", uid, "chat", namespace, "conversations", conversationId),
-    {
-      updated_at: serverTimestamp(),
-      last_role: msg.role,
-      last_snippet: (msg.content || "").slice(0, 140),
-    },
-    { merge: true }
-  );
-}
-
-export async function renameConversation(namespace: string, conversationId: string, title: string) {
-  const uid = getUid();
-  await setDoc(
-    doc(db, "users", uid, "chat", namespace, "conversations", conversationId),
-    { title, updated_at: serverTimestamp() },
-    { merge: true }
-  );
+  return () => {
+    set.delete(wrapper);
+  };
 }
