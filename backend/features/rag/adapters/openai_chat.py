@@ -1,76 +1,102 @@
+# backend/features/rag/adapters/openai_chat.py
 from __future__ import annotations
 
 import os
-import logging
-from typing import List, Dict, Any
-
-log = logging.getLogger("rag.openai.chat")
+import asyncio
+from typing import List, Dict, Optional, Any
 
 try:
-    from openai import OpenAI
-except Exception:
+    from openai import OpenAI  # official SDK (>=1.0)
+except Exception:  # pragma: no cover
     OpenAI = None  # type: ignore
 
-DEFAULT_MODEL = os.getenv("RAG_CHAT_MODEL", os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-mini"))
-DEFAULT_TEMPERATURE = float(os.getenv("RAG_CHAT_TEMPERATURE", "0.2"))
+DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+def _normalize_history(history: Optional[List[Dict[str, str]]]) -> List[Dict[str, str]]:
+    if not history:
+        return []
+    out: List[Dict[str, str]] = []
+    for t in history:
+        role = t.get("role") or "user"
+        content = t.get("content") or ""
+        if role not in {"system", "user", "assistant"}:
+            role = "user"
+        out.append({"role": role, "content": content})
+    return out
 
 class OpenAIChat:
-    """Tiny wrapper around OpenAI Responses API for text-only answers."""
-    def __init__(self, model: str | None = None, temperature: float | None = None, timeout: float = 30.0):
+    """Thin adapter used by our FastAPI routes.
+
+
+    Uses the **Responses API** (preferred) and falls back to Chat Completions if needed.
+
+    Keep this class dependency-light; callers should never import the OpenAI SDK directly.
+    """
+
+    def __init__(self, *, api_key: Optional[str] = None, model: Optional[str] = None) -> None:
         if OpenAI is None:
-            raise RuntimeError("OpenAI SDK not installed. Install `openai>=1.0`.")
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set")
-        self.client = OpenAI(api_key=api_key)
+            raise RuntimeError("openai-python SDK is not installed")
+        self.client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
         self.model = model or DEFAULT_MODEL
-        self.temperature = DEFAULT_TEMPERATURE if temperature is None else float(temperature)
-        self.timeout = timeout
 
-    def generate(self, system: str, user: str, history: List[Dict[str, str]] | None = None) -> str:
-        """Generate a single assistant message as plain text.
+    # ---------- public APIs ----------
+    def generate(
+        self,
+        *,
+        system: str,
+        user: str,
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        """Synchronous text generation.
 
-        `history` is a list of {role, content} where role in {"user","assistant","system"}.
-        We'll map it to the Responses API single-input format by concatenating messages.
+        Prefers the Responses API; falls back to Chat Completions for older deployments.
         """
-        parts: List[Dict[str, Any]] = []
-        # System instructions first
+        # Compose messages
+        messages: List[Dict[str, str]] = []
         if system:
-            parts.append({"role": "system", "content": system})
-        # Prior turns if provided
-        for turn in (history or []):
-            r = turn.get("role") or "user"
-            c = str(turn.get("content") or "").strip()
-            if not c:
-                continue
-            parts.append({"role": r, "content": c})
-        # Current user message
-        parts.append({"role": "user", "content": user})
+            messages.append({"role": "system", "content": system})
+        messages.extend(_normalize_history(history))
+        messages.append({"role": "user", "content": user})
 
+        # Try Responses API first
         try:
             resp = self.client.responses.create(
                 model=self.model,
-                input=parts,
-                temperature=self.temperature,
-                timeout=self.timeout,
+                instructions=system or None,
+                input=[{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "system"],
             )
-            # responses API gives unified output
-            out = getattr(resp, "output_text", None)
-            if isinstance(out, str) and out.strip():
-                return out.strip()
-            # Fallback: try to assemble from content parts
-            try:
-                chunks = []
-                for item in resp.output or []:
-                    if getattr(item, "type", "") == "message" and getattr(item, "role", "") == "assistant":
-                        for ct in getattr(item, "content", []) or []:
-                            if getattr(ct, "type", "") == "output_text" and getattr(ct, "text", ""):
-                                chunks.append(ct.text)
-                if chunks:
-                    return "".join(chunks).strip()
-            except Exception:
-                pass
-            return "(no text output)"
-        except Exception as e:
-            log.exception("openai_chat_error")
-            raise
+            # responses API consolidates output; easiest is output_text
+            text = getattr(resp, "output_text", None)
+            if not text:
+                # best-effort extract
+                text = "".join(
+                    [getattr(item, "content", "") if hasattr(item, "content") else "" for item in getattr(resp, "output", [])]
+                )
+            return text or ""
+        except Exception:
+            # Fall back to Chat Completions for environments pinned to older SDKs
+            pass
+
+        # Fallback: Chat Completions
+        cc = self.client.chat.completions.create(  # type: ignore[attr-defined]
+            model=self.model,
+            messages=messages,
+            temperature=0.2,
+        )
+        return cc.choices[0].message.content or ""
+
+    async def simple_answer(
+        self,
+        message: str,
+        *,
+        history: Optional[List[Dict[str, str]]] = None,
+        system: str = "You are a concise, helpful assistant.",
+    ) -> str:
+        """Async helper used by FastAPI endpoints.
+
+        Delegates to .generate(...) in a thread to avoid blocking the event loop.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, lambda: self.generate(system=system, user=message, history=history)
+        )
