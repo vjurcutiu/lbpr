@@ -1,6 +1,6 @@
 // src/features/chat/ChatPage.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Send, Loader2, PlusCircle, LinkIcon, Bug, MessageSquare } from "lucide-react";
+import { Send, Loader2, PlusCircle, LinkIcon, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -43,7 +43,6 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [streamEnabled] = useState(false);
-  const [showHud, setShowHud] = useState(false);
 
   const [sessions, setSessions] = useState<ConversationMeta[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -179,24 +178,7 @@ export default function ChatPage() {
       />
 
       <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-        <div className="flex items-center justify-between px-4 py-2 border-b">
-          <div className="font-medium">LBP Assistant</div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowHud((s) => !s)}
-            title="Toggle debug HUD"
-          >
-            <Bug className="h-4 w-4" />
-            <span className="ml-2 hidden sm:inline">Debug</span>
-          </Button>
-        </div>
-
-        {showHud && (
-          <DebugHud
-            last={messages.filter((m) => m.role === "assistant").slice(-1)[0]}
-          />
-        )}
+        {/* Top bar removed */}
 
         <div ref={listRef} className="flex-1 overflow-auto">
           {!hasThread ? (
@@ -221,35 +203,38 @@ export default function ChatPage() {
           )}
         </div>
 
-        <Separator />
-
-        {/* Input and send button aligned center */}
-        <form onSubmit={onSubmit} className="p-3 sm:p-4 bg-background">
-          <div className="rounded-2xl border border-input bg-background shadow-sm">
-            <div className="p-2 sm:p-3 flex items-center gap-2">
-              <Textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (canSend) onSubmit();
-                  }
-                }}
-                placeholder="Ask anything…"
-                className={`max-h-44 resize-y border-0 focus-visible:ring-0 focus-visible:border-0 px-4 py-2 ${composerTextClass}`}
-              />
-              <Button type="submit" disabled={!canSend} className="min-w-[92px]">
-                {sending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-                <span className="ml-2">{sending ? "Sending" : "Send"}</span>
-              </Button>
-            </div>
-          </div>
-        </form>
+        {/* Bottom composer is shown ONLY when there's a thread */}
+        {hasThread && (
+          <>
+            <Separator />
+            <form onSubmit={onSubmit} className="p-3 sm:p-4 bg-background">
+              <div className="rounded-2xl border border-input bg-background shadow-sm">
+                <div className="p-2 sm:p-3 flex items-center gap-2">
+                  <Textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (canSend) onSubmit();
+                      }
+                    }}
+                    placeholder="Ask anything…"
+                    className={`max-h-44 resize-y border-0 focus-visible:ring-0 focus-visible:border-0 px-4 py-2 ${composerTextClass}`}
+                  />
+                  <Button type="submit" disabled={!canSend} className="min-w-[92px]">
+                    {sending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                    <span className="ml-2">{sending ? "Sending" : "Send"}</span>
+                  </Button>
+                </div>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );
@@ -311,20 +296,6 @@ function LeftSidebar({
         </ul>
       </div>
     </aside>
-  );
-}
-
-function DebugHud({ last }: { last?: RenderMessage }) {
-  if (!last) return null;
-  return (
-    <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/30">
-      <div>
-        Last trace: <span className="font-mono">{last.trace_id || "-"}</span>
-      </div>
-      <div>
-        Last request: <span className="font-mono">{last.request_id || "-"}</span>
-      </div>
-    </div>
   );
 }
 

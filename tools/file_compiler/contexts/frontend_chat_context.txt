@@ -92,14 +92,14 @@ import {
 import type { ChatTurn, ConversationMeta } from "./types";
 
 function useTenantId() {
-  // Keep as-is; you can wire real tenant IDs when ready.
   return "tenant_demo";
 }
 
 function useNamespace() {
-  // Namespace can be toggled in UI later; default to "default".
   const [ns, setNs] = useState<string>(() => localStorage.getItem("lbp_chat_ns") || "default");
-  useEffect(() => { localStorage.setItem("lbp_chat_ns", ns); }, [ns]);
+  useEffect(() => {
+    localStorage.setItem("lbp_chat_ns", ns);
+  }, [ns]);
   return { namespace: ns, setNamespace: setNs };
 }
 
@@ -107,7 +107,7 @@ const STARTER_SUGGESTIONS = [
   "Summarize the latest PRs in the repo",
   "Explain our RAG architecture in 3 bullets",
   "Generate unit tests for the auth service",
-  "What should we log for chat retries?"
+  "What should we log for chat retries?",
 ];
 
 type RenderMessage = ChatTurn & { id: string };
@@ -125,18 +125,14 @@ export default function ChatPage() {
   const { namespace } = useNamespace();
   const listRef = useRef<HTMLDivElement>(null);
   const tenantId = useTenantId();
-
   const canSend = input.trim().length > 0 && !sending;
   const uid = getAuth().currentUser?.uid;
 
-  // ---- list conversations whenever namespace/user changes ----
   async function refreshConversations(ns = namespace) {
     try {
       const convs = await listConversations(ns);
       setSessions(convs);
-      if (!sessionId && convs[0]) {
-        setSessionId(convs[0].id);
-      }
+      if (!sessionId && convs[0]) setSessionId(convs[0].id);
     } catch (e) {
       console.error("[chat] listConversations error", e);
     }
@@ -145,17 +141,14 @@ export default function ChatPage() {
   useEffect(() => {
     if (!uid) return;
     refreshConversations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uid, namespace]);
 
-  // ---- subscribe to messages for the active conversation ----
   useEffect(() => {
     if (!uid || !sessionId) {
       setMessages([]);
       return;
     }
     const unsub = subscribeMessages(namespace, sessionId, (msgs) => {
-      // Map to render messages with synthetic ids
       setMessages(msgs.map((m, i) => ({ ...m, id: `${i}` })));
       listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
     });
@@ -165,7 +158,7 @@ export default function ChatPage() {
   const onPickSuggestion = (s: string) => setInput(s);
 
   const historyForRequest: chatApi.ChatTurn[] = useMemo(
-    () => messages.map(m => ({ role: m.role, content: m.content })),
+    () => messages.map((m) => ({ role: m.role, content: m.content })),
     [messages]
   );
 
@@ -181,11 +174,14 @@ export default function ChatPage() {
     }
   }, [namespace, tenantId]);
 
-  const switchSession = useCallback((id: string) => {
-    if (id === sessionId) return;
-    setSessionId(id);
-    setInput("");
-  }, [sessionId]);
+  const switchSession = useCallback(
+    (id: string) => {
+      if (id === sessionId) return;
+      setSessionId(id);
+      setInput("");
+    },
+    [sessionId]
+  );
 
   const onSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -202,11 +198,8 @@ export default function ChatPage() {
     setSending(true);
 
     try {
-      // Ensure there's a conversation selected
       const convId = await ensureConversation(namespace, sessionId);
       if (!sessionId) setSessionId(convId);
-
-      // Optimistic: append the user message to Firestore (and local render via subscription)
       await appendMessage(namespace, convId, userMsg);
 
       const req: chatApi.ChatRequest = {
@@ -217,7 +210,6 @@ export default function ChatPage() {
       };
 
       const res = await chatApi.sendChat(req);
-
       const assistantMsg: ChatTurn = {
         role: "assistant",
         content: res.answer,
@@ -229,7 +221,6 @@ export default function ChatPage() {
 
       await appendMessage(namespace, convId, assistantMsg);
 
-      // Rename conversation from first user message (only once)
       if (messages.length === 0) {
         const title = trimForTitle(userMsg.content);
         await renameConversation(namespace, convId, title);
@@ -239,11 +230,9 @@ export default function ChatPage() {
     } catch (err: any) {
       const sysMsg: ChatTurn = {
         role: "system",
-        content: (err?.message || "Failed to send message"),
+        content: err?.message || "Failed to send message",
       };
-      if (sessionId) {
-        await appendMessage(namespace, sessionId, sysMsg);
-      }
+      if (sessionId) await appendMessage(namespace, sessionId, sysMsg);
       console.error("[chat.ui] error", err);
     } finally {
       setSending(false);
@@ -251,9 +240,8 @@ export default function ChatPage() {
   };
 
   const hasThread = messages.length > 0;
-
-  // When input is empty, center the placeholder & text for a more centered look.
-  const composerTextClass = input.trim().length === 0 ? "text-center placeholder:text-center" : "";
+  const composerTextClass =
+    "text-left placeholder:text-left leading-[1.4] h-12 py-3";
 
   return (
     <div className="h-full w-full overflow-hidden flex">
@@ -264,19 +252,26 @@ export default function ChatPage() {
         onSelect={switchSession}
       />
 
-      {/* Ensure this column can shrink and avoid creating a page scrollbar */}
       <div className="flex-1 min-h-0 min-w-0 flex flex-col">
         <div className="flex items-center justify-between px-4 py-2 border-b">
           <div className="font-medium">LBP Assistant</div>
-          <Button variant="ghost" size="sm" onClick={() => setShowHud(s => !s)} title="Toggle debug HUD">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowHud((s) => !s)}
+            title="Toggle debug HUD"
+          >
             <Bug className="h-4 w-4" />
             <span className="ml-2 hidden sm:inline">Debug</span>
           </Button>
         </div>
 
-        {showHud && <DebugHud last={messages.filter(m => m.role === "assistant").slice(-1)[0]} />}
+        {showHud && (
+          <DebugHud
+            last={messages.filter((m) => m.role === "assistant").slice(-1)[0]}
+          />
+        )}
 
-        {/* Scrollable thread */}
         <div ref={listRef} className="flex-1 overflow-auto">
           {!hasThread ? (
             <EmptyState
@@ -289,7 +284,12 @@ export default function ChatPage() {
           ) : (
             <div className="px-4 sm:px-6 py-6 space-y-6">
               {messages.map((m, idx) => (
-                <MessageRow key={m.id || String(idx)} role={m.role} content={m.content} citations={m.citations as any} />
+                <MessageRow
+                  key={m.id || String(idx)}
+                  role={m.role}
+                  content={m.content}
+                  citations={m.citations as any}
+                />
               ))}
             </div>
           )}
@@ -297,10 +297,10 @@ export default function ChatPage() {
 
         <Separator />
 
-        {/* Composer stays pinned inside the column; no need for page scroll */}
+        {/* Input and send button aligned center */}
         <form onSubmit={onSubmit} className="p-3 sm:p-4 bg-background">
           <div className="rounded-2xl border border-input bg-background shadow-sm">
-            <div className="p-2 sm:p-3 flex items-end gap-2">
+            <div className="p-2 sm:p-3 flex items-center gap-2">
               <Textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -311,14 +311,16 @@ export default function ChatPage() {
                   }
                 }}
                 placeholder="Ask anything…"
-                className={`min-h-[52px] max-h-44 resize-y border-0 focus-visible:ring-0 focus-visible:border-0 px-0 ${composerTextClass}`}
+                className={`max-h-44 resize-y border-0 focus-visible:ring-0 focus-visible:border-0 px-4 py-2 ${composerTextClass}`}
               />
-              <div className="flex gap-2">
-                <Button type="submit" disabled={!canSend} className="min-w-[92px]">
-                  {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                  <span className="ml-2">{sending ? "Sending" : "Send"}</span>
-                </Button>
-              </div>
+              <Button type="submit" disabled={!canSend} className="min-w-[92px]">
+                {sending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                <span className="ml-2">{sending ? "Sending" : "Send"}</span>
+              </Button>
             </div>
           </div>
         </form>
@@ -326,6 +328,8 @@ export default function ChatPage() {
     </div>
   );
 }
+
+/* --- Sidebar, Message, and Helper Components --- */
 
 function LeftSidebar({
   sessions,
@@ -352,22 +356,28 @@ function LeftSidebar({
         </div>
         <ul className="space-y-1">
           {sessions.length === 0 && (
-            <li className="text-xs text-muted-foreground px-2 py-1">No conversations yet</li>
+            <li className="text-xs text-muted-foreground px-2 py-1">
+              No conversations yet
+            </li>
           )}
           {sessions.map((s) => (
             <li key={s.id}>
               <button
                 className={[
                   "w-full text-left rounded-lg px-3 py-2 hover:bg-accent/60 transition flex items-start gap-2",
-                  s.id === currentId ? "bg-accent/60" : ""
+                  s.id === currentId ? "bg-accent/60" : "",
                 ].join(" ")}
                 onClick={() => onSelect(s.id)}
                 title={s.title}
               >
                 <MessageSquare className="h-4 w-4 mt-0.5 shrink-0" />
                 <div className="min-w-0">
-                  <div className="truncate text-sm">{s.title || "Untitled"}</div>
-                  <div className="text-[11px] text-muted-foreground">{formatTimeAgo(s.updated_at)}</div>
+                  <div className="truncate text-sm">
+                    {s.title || "Untitled"}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {formatTimeAgo(s.updated_at)}
+                  </div>
                 </div>
               </button>
             </li>
@@ -382,8 +392,12 @@ function DebugHud({ last }: { last?: RenderMessage }) {
   if (!last) return null;
   return (
     <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/30">
-      <div>Last trace: <span className="font-mono">{last.trace_id || "-"}</span></div>
-      <div>Last request: <span className="font-mono">{last.request_id || "-"}</span></div>
+      <div>
+        Last trace: <span className="font-mono">{last.trace_id || "-"}</span>
+      </div>
+      <div>
+        Last request: <span className="font-mono">{last.request_id || "-"}</span>
+      </div>
     </div>
   );
 }
@@ -401,7 +415,7 @@ function EmptyState({
   onHeroChange: (v: string) => void;
   onHeroSubmit: () => void;
 }) {
-  const heroTextClass = heroValue.trim().length === 0 ? "text-center placeholder:text-center" : "";
+  const heroTextClass = "text-left placeholder:text-left leading-[1.4] h-11 py-3";
   return (
     <div className="flex h-[60vh] items-center justify-center">
       <div className="text-center px-6 max-w-3xl w-full">
@@ -409,7 +423,6 @@ function EmptyState({
           What’s on your mind today?
         </h1>
 
-        {/* Hero search/prompt bar */}
         <div className="mx-auto max-w-2xl">
           <div className="flex items-center gap-2 rounded-2xl border bg-card px-3 py-2 shadow-sm">
             <Textarea
@@ -422,7 +435,7 @@ function EmptyState({
                 }
               }}
               placeholder="Ask anything…"
-              className={`min-h-[44px] max-h-40 resize-none border-0 focus-visible:ring-0 focus-visible;border-0 px-0 ${heroTextClass}`}
+              className={`max-h-40 resize-none border-0 focus-visible:ring-0 focus-visible:border-0 px-2 ${heroTextClass}`}
             />
             <Button onClick={onHeroSubmit} disabled={!heroValue.trim()}>
               <Send className="h-4 w-4" />
@@ -431,7 +444,6 @@ function EmptyState({
           </div>
         </div>
 
-        {/* Suggestions */}
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
           {suggestions.map((s) => (
             <button
@@ -445,9 +457,10 @@ function EmptyState({
           ))}
         </div>
 
-        {/* Small note */}
         <p className="text-muted-foreground mt-3 text-xs">
-          Press <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> to send, <kbd className="px-1 py-0.5 bg-muted rounded">Shift</kbd>+<kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> for a new line.
+          Press <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> to send,{" "}
+          <kbd className="px-1 py-0.5 bg-muted rounded">Shift</kbd>+
+          <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> for a new line.
         </p>
       </div>
     </div>
@@ -476,7 +489,11 @@ function MessageRow({
 
   return (
     <div className={`w-full flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`flex items-start gap-3 max-w-[min(80%,720px)] ${isUser ? "flex-row-reverse" : ""}`}>
+      <div
+        className={`flex items-start gap-3 max-w-[min(80%,720px)] ${
+          isUser ? "flex-row-reverse" : ""
+        }`}
+      >
         <Avatar className="size-8">
           <AvatarFallback>{isUser ? "U" : "A"}</AvatarFallback>
         </Avatar>
@@ -486,14 +503,12 @@ function MessageRow({
               "rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed",
               isUser
                 ? "bg-primary text-primary-foreground"
-                : "bg-card border border-border"
+                : "bg-card border border-border",
             ].join(" ")}
           >
             {content}
           </div>
-          {!isUser && !!citations?.length && (
-            <CitationList citations={citations} />
-          )}
+          {!isUser && !!citations?.length && <CitationList citations={citations} />}
         </div>
       </div>
     </div>
