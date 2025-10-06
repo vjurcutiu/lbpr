@@ -4,7 +4,8 @@
                 "C:\\code2\\lbpr\\backend\\features\\rag\\adapters",
                 "C:\\code2\\lbpr\\backend\\features\\rag\\embedding",
                 "C:\\code2\\lbpr\\backend\\features\\rag\\ingest",
-                "C:\\code2\\lbpr\\backend\\features\\rag\\vector_store"
+                "C:\\code2\\lbpr\\backend\\features\\rag\\vector_store",
+                "C:\\code2\\lbpr\\backend\\features\\files"
             ],
    "include_glob": "*",
    "dedup": "path"

@@ -843,11 +843,13 @@ const ROUTES: AppRoute[] = [
   {
     element: <ProtectedRoute />,
     children: [
-      { path: "/files", element: <FilesPage />, label: "Files", nav: "both" },
-      { path: "/chat", element: <ChatPage />, label: "Chat", nav: "both" },
-      { path: "/billing", element: <BillingPage />, label: "Billing", nav: "both" },
-      { path: "/support", element: <SupportPage />, label: "Support", nav: "mobile" },
-      { path: "/profile", element: <ProfilePage />, nav: "none", hidden: true },
+      // Make Files full-bleed so it can manage its own internal scroll areas.
+      { path: "/files", element: <AppShell fullBleed children={<FilesPage />} />, label: "Files", nav: "both" },
+      // Chat is already full-bleed
+      { path: "/chat", element: <AppShell fullBleed children={<ChatPage />} />, label: "Chat", nav: "both" },
+      { path: "/billing", element: <AppShell children={<BillingPage />} />, label: "Billing", nav: "both" },
+      { path: "/support", element: <AppShell children={<SupportPage />} />, label: "Support", nav: "mobile" },
+      { path: "/profile", element: <AppShell children={<ProfilePage />} />, nav: "none", hidden: true },
     ],
   },
 
@@ -901,8 +903,13 @@ export default function App() {
               element={<AppShell navItems={navItems} fullBleed children={<ChatPage />} />}
             />
 
+            {/* Full-bleed Files */}
+            <Route
+              path="/files"
+              element={<AppShell navItems={navItems} fullBleed children={<FilesPage />} />}
+            />
+
             {/* Standard pages */}
-            <Route path="/files" element={<AppShell navItems={navItems} children={<FilesPage />} />} />
             <Route path="/billing" element={<AppShell navItems={navItems} children={<BillingPage />} />} />
             <Route path="/support" element={<AppShell navItems={navItems} children={<SupportPage />} />} />
             <Route path="/profile" element={<AppShell navItems={navItems} children={<ProfilePage />} />} />
