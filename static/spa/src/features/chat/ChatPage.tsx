@@ -21,12 +21,15 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 
 /**
- * Notes on requested changes:
- * - Dropdown menu now renders in a Portal with z-40 so it overlays the app but stays below modals (z-50).
- * - Delete confirmation uses a modal instead of window.confirm().
- * - New-chat EmptyState shows instructions (no suggestions grid).
- * - On send: we clear the input, DO NOT render the user message immediately; a spinner is shown in the thread area until the assistant reply arrives. After success, we append both user + assistant to the store.
- * - Auto-scroll to bottom on new messages and when switching conversations (already present; slightly enhanced).
+ * UX behavior:
+ * - On send: immediately show the user's message in the thread and clear the input.
+ * - While waiting for the assistant: show a left-aligned assistant "bubble" with a spinner
+ *   in the exact spot where the assistant's reply will appear.
+ * - When the reply arrives: replace the spinner with the assistant's actual message
+ *   (by appending the assistant message and hiding the spinner).
+ * - Dropdown uses Portal/z-40; delete uses modal.
+ * - Empty state shows instructions instead of suggestions.
+ * - Smooth scroll on new messages and on conversation switch.
  */
 
 function useTenantId() {
@@ -89,9 +92,7 @@ export default function ChatPage() {
 
   // Keep list pinned to bottom during sending as well
   useEffect(() => {
-    if (sending) {
-      listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-    }
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [sending]);
 
   const historyForRequest: chatApi.ChatTurn[] = useMemo(
@@ -134,18 +135,22 @@ export default function ChatPage() {
       request_id: null,
     };
 
-    // Immediately clear composer and show spinner in thread
+    // Clear composer immediately
     setInput("");
     setSending(true);
 
     try {
+      // Ensure we have a conversation and append the USER message right away
       const convId = await ensureConversation(namespace, sessionId);
       if (!sessionId) setSessionId(convId);
 
+      await appendMessage(namespace, convId, userMsg);
+
+      // Prepare request (include the just-sent user message in the history we pass)
       const req: chatApi.ChatRequest = {
         tenant_id: tenantId,
         message: userMsg.content,
-        history: historyForRequest,
+        history: [...historyForRequest, { role: "user", content: userMsg.content }],
         stream: streamEnabled,
       };
 
@@ -159,18 +164,16 @@ export default function ChatPage() {
         request_id: (res as any).__request_id ?? null,
       };
 
-      // Append BOTH the user message and assistant message at once so the UI only shows them when ready
-      await appendMessage(namespace, convId, userMsg);
       await appendMessage(namespace, convId, assistantMsg);
 
-      // Rename newly-created chat based on first user message
+      // Rename a newly-created chat based on first user message
       if (messages.length === 0) {
         const title = trimForTitle(userMsg.content);
         await renameConversation(namespace, convId, title);
         await refreshConversations();
       }
     } catch (err: any) {
-      // Show a system message if something went wrong
+      // Emit a system message on error
       if (sessionId) {
         const sysMsg: ChatTurn = {
           role: "system",
@@ -182,7 +185,6 @@ export default function ChatPage() {
       console.error("[chat.ui] error", err);
     } finally {
       setSending(false);
-      // Ensure we scroll to the newest content
       queueMicrotask(() => {
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
       });
@@ -232,12 +234,8 @@ export default function ChatPage() {
                   citations={m.citations as any}
                 />
               ))}
-              {sending && (
-                <div className="mx-auto max-w-2xl flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Assistant is thinking…</span>
-                </div>
-              )}
+              {/* Assistant "thinking" placeholder bubble while awaiting reply */}
+              {sending && <AssistantThinkingRow />}
             </div>
           )}
         </div>
@@ -416,7 +414,7 @@ function LeftSidebar({
         </Dialog.Content>
       </Dialog.Root>
 
-      {/* Delete Confirmation Modal (replaces alert/confirm) */}
+      {/* Delete Confirmation Modal */}
       <Dialog.Root open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[95vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-popover p-5 shadow-lg">
           <Dialog.Title className="text-base font-semibold">Delete conversation</Dialog.Title>
@@ -554,6 +552,25 @@ function MessageRow({
             {content}
           </div>
           {!isUser && !!citations?.length && <CitationList citations={citations} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Assistant placeholder bubble (spinner in the exact assistant position) */
+function AssistantThinkingRow() {
+  return (
+    <div className="w-full flex justify-start">
+      <div className="flex items-start gap-3 max-w-[min(80%,720px)]">
+        <Avatar className="size-8">
+          <AvatarFallback>A</AvatarFallback>
+        </Avatar>
+        <div className="space-y-2">
+          <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed bg-card border border-border text-muted-foreground flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Assistant is thinking…</span>
+          </div>
         </div>
       </div>
     </div>

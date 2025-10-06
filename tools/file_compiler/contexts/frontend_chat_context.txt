@@ -74,7 +74,7 @@ function cryptoRandomId() {
 C:/code2/lbpr/static/spa/src/features/chat/ChatPage.tsx
 // src/features/chat/ChatPage.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Send, Loader2, PlusCircle, LinkIcon, MessageSquare, MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { Send, Loader2, PlusCircle, MessageSquare, MoreVertical, Pencil, Trash2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -94,6 +94,15 @@ import type { ChatTurn, ConversationMeta } from "./types";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 
+/**
+ * Notes on requested changes:
+ * - Dropdown menu now renders in a Portal with z-40 so it overlays the app but stays below modals (z-50).
+ * - Delete confirmation uses a modal instead of window.confirm().
+ * - New-chat EmptyState shows instructions (no suggestions grid).
+ * - On send: we clear the input, DO NOT render the user message immediately; a spinner is shown in the thread area until the assistant reply arrives. After success, we append both user + assistant to the store.
+ * - Auto-scroll to bottom on new messages and when switching conversations (already present; slightly enhanced).
+ */
+
 function useTenantId() {
   return "tenant_demo";
 }
@@ -105,13 +114,6 @@ function useNamespace() {
   }, [ns]);
   return { namespace: ns, setNamespace: setNs };
 }
-
-const STARTER_SUGGESTIONS = [
-  "Summarize the latest PRs in the repo",
-  "Explain our RAG architecture in 3 bullets",
-  "Generate unit tests for the auth service",
-  "What should we log for chat retries?",
-];
 
 type RenderMessage = ChatTurn & { id: string };
 
@@ -152,12 +154,19 @@ export default function ChatPage() {
     }
     const unsub = subscribeMessages(namespace, sessionId, (msgs) => {
       setMessages(msgs.map((m, i) => ({ ...m, id: `${i}` })));
-      listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+      queueMicrotask(() => {
+        listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+      });
     });
     return () => unsub();
   }, [uid, namespace, sessionId]);
 
-  const onPickSuggestion = (s: string) => setInput(s);
+  // Keep list pinned to bottom during sending as well
+  useEffect(() => {
+    if (sending) {
+      listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, [sending]);
 
   const historyForRequest: chatApi.ChatTurn[] = useMemo(
     () => messages.map((m) => ({ role: m.role, content: m.content })),
@@ -181,6 +190,7 @@ export default function ChatPage() {
       if (id === sessionId) return;
       setSessionId(id);
       setInput("");
+      // Scroll handled by subscription
     },
     [sessionId]
   );
@@ -189,20 +199,22 @@ export default function ChatPage() {
     e?.preventDefault();
     if (!canSend) return;
 
+    const trimmed = input.trim();
     const userMsg: ChatTurn = {
       role: "user",
-      content: input.trim(),
+      content: trimmed,
       created_at: new Date().toISOString(),
       trace_id: null,
       request_id: null,
     };
 
+    // Immediately clear composer and show spinner in thread
+    setInput("");
     setSending(true);
 
     try {
       const convId = await ensureConversation(namespace, sessionId);
       if (!sessionId) setSessionId(convId);
-      await appendMessage(namespace, convId, userMsg);
 
       const req: chatApi.ChatRequest = {
         tenant_id: tenantId,
@@ -221,29 +233,38 @@ export default function ChatPage() {
         request_id: (res as any).__request_id ?? null,
       };
 
+      // Append BOTH the user message and assistant message at once so the UI only shows them when ready
+      await appendMessage(namespace, convId, userMsg);
       await appendMessage(namespace, convId, assistantMsg);
 
+      // Rename newly-created chat based on first user message
       if (messages.length === 0) {
         const title = trimForTitle(userMsg.content);
         await renameConversation(namespace, convId, title);
         await refreshConversations();
       }
-      setInput("");
     } catch (err: any) {
-      const sysMsg: ChatTurn = {
-        role: "system",
-        content: err?.message || "Failed to send message",
-      };
-      if (sessionId) await appendMessage(namespace, sessionId, sysMsg);
+      // Show a system message if something went wrong
+      if (sessionId) {
+        const sysMsg: ChatTurn = {
+          role: "system",
+          content: err?.message || "Failed to send message",
+          created_at: new Date().toISOString(),
+        };
+        await appendMessage(namespace, sessionId, sysMsg);
+      }
       console.error("[chat.ui] error", err);
     } finally {
       setSending(false);
+      // Ensure we scroll to the newest content
+      queueMicrotask(() => {
+        listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+      });
     }
   };
 
   const hasThread = messages.length > 0;
-  const composerTextClass =
-    "text-left placeholder:text-left leading-[1.4] h-12 py-3";
+  const composerTextClass = "text-left placeholder:text-left leading-[1.4] h-12 py-3";
 
   return (
     <div className="h-full w-full overflow-hidden flex">
@@ -260,7 +281,6 @@ export default function ChatPage() {
           await deleteConversation(namespace, id);
           await refreshConversations();
           if (id === sessionId) {
-            // Switch to next available conversation (if any)
             const next = (await listConversations(namespace))[0]?.id || null;
             setSessionId(next);
             setMessages([]);
@@ -269,13 +289,9 @@ export default function ChatPage() {
       />
 
       <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-        {/* Top bar removed */}
-
         <div ref={listRef} className="flex-1 overflow-auto">
           {!hasThread ? (
             <EmptyState
-              suggestions={STARTER_SUGGESTIONS}
-              onPick={onPickSuggestion}
               heroValue={input}
               onHeroChange={setInput}
               onHeroSubmit={() => onSubmit()}
@@ -290,6 +306,12 @@ export default function ChatPage() {
                   citations={m.citations as any}
                 />
               ))}
+              {sending && (
+                <div className="mx-auto max-w-2xl flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Assistant is thinking…</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -314,11 +336,7 @@ export default function ChatPage() {
                     className={`max-h-44 resize-y border-0 focus-visible:ring-0 focus-visible:border-0 px-4 py-2 ${composerTextClass}`}
                   />
                   <Button type="submit" disabled={!canSend} className="min-w-[92px]">
-                    {sending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="h-4 w-4" />
-                    )}
+                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     <span className="ml-2">{sending ? "Sending" : "Send"}</span>
                   </Button>
                 </div>
@@ -350,6 +368,9 @@ function LeftSidebar({
 }) {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameVal, setRenameVal] = useState<string>("");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const sMap = new Map(sessions.map(s => [s.id, s]));
 
   return (
     <aside className="hidden sm:flex w-64 border-r flex-col bg-muted/20">
@@ -365,9 +386,7 @@ function LeftSidebar({
         </div>
         <ul className="space-y-1">
           {sessions.length === 0 && (
-            <li className="text-xs text-muted-foreground px-2 py-1">
-              No conversations yet
-            </li>
+            <li className="text-xs text-muted-foreground px-2 py-1">No conversations yet</li>
           )}
           {sessions.map((s) => (
             <li key={s.id}>
@@ -384,12 +403,8 @@ function LeftSidebar({
                 >
                   <MessageSquare className="h-4 w-4 mt-0.5 shrink-0" />
                   <div className="min-w-0">
-                    <div className="truncate text-sm">
-                      {s.title || "Untitled"}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {formatTimeAgo(s.updated_at)}
-                    </div>
+                    <div className="truncate text-sm">{s.title || "Untitled"}</div>
+                    <div className="text-[11px] text-muted-foreground">{formatTimeAgo(s.updated_at)}</div>
                   </div>
                 </button>
 
@@ -400,37 +415,36 @@ function LeftSidebar({
                       <MoreVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenu.Trigger>
-                  <DropdownMenu.Content
-                    side="right"
-                    align="start"
-                    className="min-w-[160px] rounded-md border bg-popover p-1 shadow-md"
-                  >
-                    <DropdownMenu.Item
-                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/60 cursor-pointer"
-                      onSelect={(e) => {
-                        e.preventDefault();
-                        setRenameId(s.id);
-                        setRenameVal(s.title || "");
-                      }}
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content
+                      side="right"
+                      align="start"
+                      className="min-w-[180px] rounded-md border bg-popover p-1 shadow-md z-40 data-[state=open]:animate-in"
                     >
-                      <Pencil className="h-4 w-4" />
-                      Rename
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Separator className="my-1 h-px bg-border" />
-                    <DropdownMenu.Item
-                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/60 text-destructive cursor-pointer"
-                      onSelect={async (e) => {
-                        e.preventDefault();
-                        // simple confirm
-                        if (confirm(`Delete "${s.title || "Untitled"}"? This cannot be undone.`)) {
-                          await onDelete(s.id);
-                        }
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      Delete
-                    </DropdownMenu.Item>
-                  </DropdownMenu.Content>
+                      <DropdownMenu.Item
+                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/60 cursor-pointer"
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          setRenameId(s.id);
+                          setRenameVal(s.title || "");
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                        Rename
+                      </DropdownMenu.Item>
+                      <DropdownMenu.Separator className="my-1 h-px bg-border" />
+                      <DropdownMenu.Item
+                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/60 text-destructive cursor-pointer"
+                        onSelect={(e) => {
+                          e.preventDefault();
+                          setDeleteId(s.id);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
                 </DropdownMenu.Root>
               </div>
             </li>
@@ -475,19 +489,43 @@ function LeftSidebar({
           </div>
         </Dialog.Content>
       </Dialog.Root>
+
+      {/* Delete Confirmation Modal (replaces alert/confirm) */}
+      <Dialog.Root open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[95vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-popover p-5 shadow-lg">
+          <Dialog.Title className="text-base font-semibold">Delete conversation</Dialog.Title>
+          <div className="mt-3 text-sm text-muted-foreground">
+            Are you sure you want to delete{" "}
+            <span className="font-medium text-foreground">
+              “{(deleteId && sMap.get(deleteId)?.title) || "Untitled"}”
+            </span>
+            ? This action cannot be undone.
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (deleteId) {
+                  await onDelete(deleteId);
+                  setDeleteId(null);
+                }
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Root>
     </aside>
   );
 }
 
 function EmptyState({
-  suggestions,
-  onPick,
   heroValue,
   onHeroChange,
   onHeroSubmit,
 }: {
-  suggestions: string[];
-  onPick: (s: string) => void;
   heroValue: string;
   onHeroChange: (v: string) => void;
   onHeroSubmit: () => void;
@@ -497,7 +535,7 @@ function EmptyState({
     <div className="flex h-[60vh] items-center justify-center">
       <div className="text-center px-6 max-w-3xl w-full">
         <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mb-4">
-          What’s on your mind today?
+          Welcome to RAG Chat
         </h1>
 
         <div className="mx-auto max-w-2xl">
@@ -521,24 +559,32 @@ function EmptyState({
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              className="text-left card hover:shadow-md transition-shadow rounded-xl p-3"
-              onClick={() => onPick(s)}
-              type="button"
-            >
-              <span className="text-sm">{s}</span>
-            </button>
-          ))}
+        {/* Instructions replacing suggestions */}
+        <div className="mt-6 text-left mx-auto max-w-2xl space-y-3">
+          <div className="flex items-start gap-2">
+            <Info className="h-4 w-4 mt-1 shrink-0" />
+            <p className="text-sm">
+              <span className="font-medium">How it works:</span> your question is embedded and matched against your uploaded docs, then the assistant answers with citations.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <Info className="h-4 w-4 mt-1 shrink-0" />
+            <p className="text-sm">
+              <span className="font-medium">Upload files:</span> drag & drop PDFs, docs, or text into the knowledge area (left menu) to make them searchable.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <Info className="h-4 w-4 mt-1 shrink-0" />
+            <p className="text-sm">
+              <span className="font-medium">Tips:</span> be specific; include file names or sections when possible; follow-ups refine the context.
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Press <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> to send,&nbsp;
+            <kbd className="px-1 py-0.5 bg-muted rounded">Shift</kbd>+
+            <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> for a new line.
+          </p>
         </div>
-
-        <p className="text-muted-foreground mt-3 text-xs">
-          Press <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> to send,{" "}
-          <kbd className="px-1 py-0.5 bg-muted rounded">Shift</kbd>+
-          <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> for a new line.
-        </p>
       </div>
     </div>
   );
@@ -567,9 +613,7 @@ function MessageRow({
   return (
     <div className={`w-full flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`flex items-start gap-3 max-w-[min(80%,720px)] ${
-          isUser ? "flex-row-reverse" : ""
-        }`}
+        className={`flex items-start gap-3 max-w-[min(80%,720px)] ${isUser ? "flex-row-reverse" : ""}`}
       >
         <Avatar className="size-8">
           <AvatarFallback>{isUser ? "U" : "A"}</AvatarFallback>
@@ -578,9 +622,7 @@ function MessageRow({
           <div
             className={[
               "rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed",
-              isUser
-                ? "bg-primary text-primary-foreground"
-                : "bg-card border border-border",
+              isUser ? "bg-primary text-primary-foreground" : "bg-card border border-border",
             ].join(" ")}
           >
             {content}
@@ -595,10 +637,6 @@ function MessageRow({
 function CitationList({ citations }: { citations: chatApi.Citation[] }) {
   return (
     <div className="text-xs text-muted-foreground">
-      <div className="flex items-center gap-2">
-        <LinkIcon className="h-3 w-3" />
-        <span>Citations</span>
-      </div>
       <ul className="mt-1 ml-5 list-disc space-y-1">
         {citations.map((c, idx) => (
           <li key={idx}>
