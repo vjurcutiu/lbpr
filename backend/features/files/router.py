@@ -1,8 +1,7 @@
-
 from __future__ import annotations
 
 from typing import Optional
-from fastapi import APIRouter, File, UploadFile, Header, HTTPException
+from fastapi import APIRouter, File, UploadFile, Header, HTTPException, Query
 from fastapi.responses import RedirectResponse, Response
 
 from .schemas import FileItem, UploadResponse, DeleteResponse
@@ -30,11 +29,11 @@ def create_file(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{file_id}")
+# --- Path-based routes (work if proxy preserves encoded slashes) ---
+
+@router.get("/{file_id:path}")
 def get_file(file_id: str):
-    """Return raw file bytes with correct Content-Type for inline preview.
-    Frontend selects text/image/pdf handling based on Content-Type.
-    """
+    """Return raw file bytes with correct Content-Type for inline preview."""
     try:
         data, content_type = service.get_file_bytes(file_id)
         return Response(content=data, media_type=content_type)
@@ -43,7 +42,7 @@ def get_file(file_id: str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.get("/{file_id}/download")
+@router.get("/{file_id:path}/download")
 def download_file(file_id: str):
     try:
         url = service.get_signed_download_url(file_id)
@@ -53,7 +52,7 @@ def download_file(file_id: str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.delete("/{file_id}", response_model=DeleteResponse)
+@router.delete("/{file_id:path}", response_model=DeleteResponse)
 def delete_file(file_id: str, x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False)):
     try:
         ok = service.delete_file(x_tenant_id, file_id)
@@ -62,5 +61,28 @@ def delete_file(file_id: str, x_tenant_id: Optional[str] = Header(default=None, 
         return DeleteResponse(ok=True)
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# --- Query-string routes (robust when proxies mangle %2F) ---
+
+@router.get("/by-id")
+def get_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id")):
+    """Safer variant that uses a query string so proxies won't touch encoded slashes."""
+    try:
+        data, content_type = service.get_file_bytes(id)
+        return Response(content=data, media_type=content_type)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/download/by-id")
+def download_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id")):
+    try:
+        url = service.get_signed_download_url(id)
+        return RedirectResponse(url)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
