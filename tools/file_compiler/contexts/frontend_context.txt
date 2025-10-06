@@ -577,15 +577,17 @@ export default function AppShell({
   fullBleed = false,
 }: AppShellProps) {
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground">
+    // Use dynamic viewport height and prevent outer-page scrolling.
+    <div className="h-dvh min-h-0 flex flex-col bg-background text-foreground overflow-hidden">
       <TopNav appName={appName} navItems={navItems} />
       {fullBleed ? (
-        // Full-bleed: let the child handle layout + padding. Ensure it can overflow within the available height.
-        <main className="flex-1 min-h-0">
+        // Full-bleed: content manages its own padding; keep it height-constrained
+        <main className="flex-1 min-h-0 overflow-hidden">
           {children}
         </main>
       ) : (
-        <main className="flex-1">
+        // Non-full-bleed pages may still need page scroll, so keep overflow-auto here.
+        <main className="flex-1 overflow-auto">
           <div className="container mx-auto px-4 py-6">{children}</div>
         </main>
       )}

@@ -240,7 +240,6 @@ export default function ChatPage() {
 
   const onPickSuggestion = (s: string) => {
     setInput(s);
-    // could auto-send here if desired
   };
 
   const historyForRequest: chatApi.ChatTurn[] = useMemo(
@@ -254,7 +253,7 @@ export default function ChatPage() {
 
     const attachmentNote =
       selectedFileIds.length > 0
-        ? `\n\n[Attached files: ${selectedFileIds.join(", ")}]`
+        ? `\\n\\n[Attached files: ${selectedFileIds.join(", ")}]`
         : "";
 
     const userMsg: RenderMessage = {
@@ -332,7 +331,8 @@ export default function ChatPage() {
         onSelect={switchSession}
       />
 
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Ensure this column can shrink and avoid creating a page scrollbar */}
+      <div className="flex-1 min-h-0 min-w-0 flex flex-col">
         <div className="flex items-center justify-between px-4 py-2 border-b">
           <div className="font-medium">LBP Assistant</div>
           <Button variant="ghost" size="sm" onClick={() => setShowHud(s => !s)} title="Toggle debug HUD">
@@ -343,6 +343,7 @@ export default function ChatPage() {
 
         {showHud && <DebugHud last={messages.filter(m => m.role === "assistant").slice(-1)[0]} />}
 
+        {/* Scrollable thread */}
         <div ref={listRef} className="flex-1 overflow-auto">
           {!hasThread ? (
             <EmptyState
@@ -363,7 +364,8 @@ export default function ChatPage() {
 
         <Separator />
 
-        <form onSubmit={onSubmit} className="p-3 sm:p-4 sticky bottom-0 bg-background">
+        {/* Composer stays pinned inside the column; no need for page scroll */}
+        <form onSubmit={onSubmit} className="p-3 sm:p-4 bg-background">
           <div className="rounded-2xl border border-input bg-background shadow-sm">
             {selectedFileIds.length > 0 && (
               <div className="px-3 py-2 flex flex-wrap gap-2 border-b border-input bg-secondary/50">
@@ -507,7 +509,7 @@ function EmptyState({
                 }
               }}
               placeholder="Ask anything…"
-              className="min-h-[44px] max-h-40 resize-none border-0 focus-visible:ring-0 focus-visible:border-0 px-0"
+              className="min-h-[44px] max-h-40 resize-none border-0 focus-visible:ring-0 focus-visible;border-0 px-0"
             />
             <Button onClick={onHeroSubmit} disabled={!heroValue.trim()}>
               <Send className="h-4 w-4" />
@@ -663,7 +665,7 @@ function cryptoRandomId() {
 }
 
 function trimForTitle(s: string) {
-  const t = s.replace(/\s+/g, " ").trim();
+  const t = s.replace(/\\s+/g, " ").trim();
   return t.length > 48 ? t.slice(0, 45) + "…" : t || "New chat";
 }
 
