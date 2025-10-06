@@ -10,27 +10,42 @@ import {
   type Price,
 } from "./api";
 import { Button } from "@/components/ui/button";
+import { getJSON } from "@/shared/api";
+
+type LimitsResp = {
+  plan: "FREE" | "PRO";
+  window: string; // YYYYMM
+  caps: { messages: number; upload_tokens: number };
+  usage: { messages: number; upload_tokens: number };
+  remaining: { messages: number; upload_tokens: number };
+};
 
 /**
- * Simple two-card pricing UI:
- * - Free
- * - Pro (drives Stripe Checkout via startCheckout)
- *
- * A single "Manage billing" link sits underneath and opens the Stripe Customer Portal.
+ * Pricing + Usage screen:
+ * - shows Free/Pro cards
+ * - shows current monthly usage pulled from /limits/me
+ * - handles upgrade via Stripe Checkout, and "Manage billing" via Customer Portal
  */
 export default function BillingPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
+  const [limits, setLimits] = useState<LimitsResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // Load products and observe subscription state
+  // Load products, usage and observe subscription state
   useEffect(() => {
     let cancel = false;
     (async () => {
       try {
-        const prods = await loadActiveProducts();
-        if (!cancel) setProducts(prods);
+        const [prods, lim] = await Promise.all([
+          loadActiveProducts(),
+          getJSON<LimitsResp>("/limits/me").catch(() => null),
+        ]);
+        if (!cancel) {
+          setProducts(prods);
+          if (lim) setLimits(lim);
+        }
       } catch (e: any) {
         if (!cancel) setErr(e.message || String(e));
       } finally {
@@ -51,7 +66,7 @@ export default function BillingPage() {
 
   // Figure out whether the user is on Pro
   const activeSub = subs.find((s) => ["active", "trialing", "past_due"].includes(s.status));
-  const onPro = !!activeSub;
+  const onPro = !!activeSub || limits?.plan === "PRO";
 
   // Pick a "Pro" price:
   // 1) environment override (if provided),
@@ -79,7 +94,7 @@ export default function BillingPage() {
   return (
     <div className="max-w-5xl mx-auto">
       <header className="text-center mb-10">
-        <h1 className="text-3xl font-semibold">Upgrade your plan</h1>
+        <h1 className="text-3xl font-semibold">Plans & Usage</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Choose the plan that fits. You can manage or cancel anytime.
         </p>
@@ -89,6 +104,22 @@ export default function BillingPage() {
         <div className="mb-6 text-sm text-destructive">
           {err}
         </div>
+      )}
+
+      {/* Usage snapshot */}
+      {limits && (
+        <section className="mb-8 grid gap-4 md:grid-cols-2">
+          <UsageCard
+            title="Messages"
+            used={limits.usage.messages || 0}
+            cap={limits.caps.messages}
+          />
+          <UsageCard
+            title="Upload tokens"
+            used={limits.usage.upload_tokens || 0}
+            cap={limits.caps.upload_tokens}
+          />
+        </section>
       )}
 
       {/* Pricing cards */}
@@ -105,8 +136,8 @@ export default function BillingPage() {
             <li>• Community support</li>
             <li>• Limited uploads</li>
           </ul>
-          <Button className="mt-6" variant="outline" disabled>
-            Your current plan
+          <Button className="mt-6" variant="outline" disabled={onPro}>
+            {onPro ? "You're on Pro" : "Your current plan"}
           </Button>
         </div>
 
@@ -159,4 +190,31 @@ function formatMoney(amount?: number, currency?: string) {
   if (amount == null) return "—";
   const c = (currency || "eur").toUpperCase();
   return (amount / 100).toLocaleString(undefined, { style: "currency", currency: c });
+}
+
+function UsageCard({ title, used, cap }: { title: string; used: number; cap: number }) {
+  const pct = Math.min(100, Math.round((used / Math.max(1, cap)) * 100));
+  const remaining = Math.max(0, cap - used);
+  return (
+    <div className="card p-4">
+      <div className="flex items-baseline justify-between mb-2">
+        <h4 className="font-medium">{title}</h4>
+        <div className="text-sm text-muted-foreground">
+          {used.toLocaleString()} / {cap.toLocaleString()}
+        </div>
+      </div>
+      <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
+        <div
+          className="h-2 bg-primary"
+          style={{ width: `${pct}%` }}
+          aria-valuemin={0}
+          aria-valuemax={cap}
+          aria-valuenow={used}
+        />
+      </div>
+      <div className="mt-2 text-xs text-muted-foreground">
+        {remaining.toLocaleString()} remaining this month
+      </div>
+    </div>
+  );
 }

@@ -22,19 +22,29 @@ type AppShellProps = {
   children: ReactNode
   appName?: string
   navItems?: NavItem[]
+  /** When true, content fills the full width/height under the top nav (no container padding). */
+  fullBleed?: boolean
 }
 
 export default function AppShell({
   children,
   appName = "LexBot PRO",
   navItems = [],
+  fullBleed = false,
 }: AppShellProps) {
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
       <TopNav appName={appName} navItems={navItems} />
-      <main className="flex-1">
-        <div className="container mx-auto px-4 py-6">{children}</div>
-      </main>
+      {fullBleed ? (
+        // Full-bleed: let the child handle layout + padding. Ensure it can overflow within the available height.
+        <main className="flex-1 min-h-0">
+          {children}
+        </main>
+      ) : (
+        <main className="flex-1">
+          <div className="container mx-auto px-4 py-6">{children}</div>
+        </main>
+      )}
       <SiteFooter appName={appName} />
     </div>
   )

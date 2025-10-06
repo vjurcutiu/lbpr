@@ -422,10 +422,11 @@ def firebase_folder(uid: str) -> str:
 
 C:/code2/lbpr/backend/core/plan.py
 from __future__ import annotations
-import logging, time
-from typing import Literal, Optional
-from core.config import settings
+import logging
+from typing import Literal
 from core.redis_utils import get_client
+from core.config import settings
+from core.rate_limit import reset_usage_current_window
 
 log = logging.getLogger("plan")
 
@@ -437,7 +438,14 @@ async def _fetch_plan_from_firestore(uid: str) -> Plan:
         # Use Firebase Admin SDK
         from firebase_admin import firestore  # type: ignore
         db = firestore.client()
-        subs = db.collection("customers").document(uid).collection("subscriptions").order_by("created", direction=firestore.Query.DESCENDING).limit(5).stream()
+        subs = (
+            db.collection("customers")
+              .document(uid)
+              .collection("subscriptions")
+              .order_by("created", direction=firestore.Query.DESCENDING)
+              .limit(5)
+              .stream()
+        )
         active_like = {"active", "trialing", "past_due"}
         for s in subs:
             data = s.to_dict() or {}
@@ -448,18 +456,42 @@ async def _fetch_plan_from_firestore(uid: str) -> Plan:
         log.exception("plan_firestore_error", uid=uid)
     return "FREE"
 
+async def _refresh_and_handle_transition(uid: str, cache_ttl_sec: int = 300) -> Plan:
+    """Fetch latest plan, compare with previous, handle FREE->PRO transition, then cache."""
+    r = await get_client()
+    new_plan: Plan = await _fetch_plan_from_firestore(uid)
+
+    last_key = f"plan:{uid}:last"
+    cached_last = await r.get(last_key)
+    last_plan: Plan | None = cached_last if cached_last in ("FREE","PRO") else None  # type: ignore
+
+    # Transition handling: reset usage when moving from FREE to PRO
+    if last_plan == "FREE" and new_plan == "PRO":
+        try:
+            await reset_usage_current_window(uid)
+            log.info("plan_transition_reset", uid=uid, from_plan=last_plan, to_plan=new_plan)
+        except Exception:
+            log.exception("plan_transition_reset_failed", uid=uid)
+
+    # Persist "last" (no expiry) and the normal short-lived cache
+    try:
+        await r.set(last_key, new_plan)
+        await r.set(f"plan:{uid}", new_plan, ex=cache_ttl_sec)
+    except Exception:
+        # Non-fatal
+        pass
+
+    return new_plan
+
 async def get_user_plan(uid: str, cache_ttl_sec: int = 300) -> Plan:
+    """Return the cached plan quickly; refresh if needed (and handle transitions)."""
     r = await get_client()
     key = f"plan:{uid}"
     plan = await r.get(key)
     if plan in ("FREE","PRO"):
         return plan  # type: ignore
-    plan = await _fetch_plan_from_firestore(uid)
-    try:
-        await r.set(key, plan, ex=cache_ttl_sec)
-    except Exception:
-        pass
-    return plan  # type: ignore
+    # No cache → fetch fresh and handle transitions
+    return await _refresh_and_handle_transition(uid, cache_ttl_sec)
 
 def plan_limits(plan: Plan) -> dict[str,int]:
     if plan == "PRO":
@@ -479,7 +511,6 @@ import time, calendar, datetime as dt, logging
 from typing import Tuple, Optional
 from core.redis_utils import get_client
 from core.config import settings
-from core.plan import get_user_plan, plan_limits
 
 log = logging.getLogger("limits")
 
@@ -529,6 +560,7 @@ async def _check_and_add(uid: str, metric: str, inc: int, cap: int) -> Tuple[boo
         return True, -1
 
 async def add_message(uid: str) -> Tuple[bool, int, int]:
+    from core.plan import get_user_plan, plan_limits
     plan = await get_user_plan(uid)
     caps = plan_limits(plan)
     ok, newv = await _check_and_add(uid, "messages", 1, caps["messages"])
@@ -536,6 +568,7 @@ async def add_message(uid: str) -> Tuple[bool, int, int]:
 
 # For uploads and /ingest: increment token budget by N tokens
 async def add_upload_tokens(uid: str, tokens: int) -> Tuple[bool, int, int]:
+    from core.plan import get_user_plan, plan_limits
     plan = await get_user_plan(uid)
     caps = plan_limits(plan)
     ok, newv = await _check_and_add(uid, "upload_tokens", tokens, caps["upload_tokens"])
@@ -548,6 +581,18 @@ async def read_usage(uid: str) -> dict:
     key = f"usage:{uid}:{ym}"
     data = await r.hgetall(key)
     return {k:int(v) for k,v in data.items() if v is not None and str(v).isdigit()}
+
+# NEW: reset current month's usage (called when upgrading FREE -> PRO)
+async def reset_usage_current_window(uid: str) -> None:
+    """Hard reset the current month usage hash for the given user."""
+    r = await get_client()
+    ym, _ = month_key()
+    key = f"usage:{uid}:{ym}"
+    try:
+        await r.delete(key)
+        log.info("usage_reset", uid=uid, window=ym)
+    except Exception:
+        log.exception("usage_reset_failed", uid=uid, window=ym)
 
 
 C:/code2/lbpr/backend/core/redis_utils.py

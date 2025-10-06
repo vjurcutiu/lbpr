@@ -1,8 +1,4 @@
 {
   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_billing_context.txt",
-  "files": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\billing\\api.ts",
-            "C:\\code2\\lbpr\\static\\spa\\src\\features\\billing\\BillingPage.tsx",
-            "C:\\code2\\lbpr\\static\\spa\\src\\features\\billing\\index.ts",
-            "C:\\code2\\lbpr\\static\\spa\\firestore.rules"
-        ]
+  "folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\billing"]
 }

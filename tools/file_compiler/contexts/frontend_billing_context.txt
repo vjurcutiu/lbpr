@@ -248,27 +248,42 @@ import {
   type Price,
 } from "./api";
 import { Button } from "@/components/ui/button";
+import { getJSON } from "@/shared/api";
+
+type LimitsResp = {
+  plan: "FREE" | "PRO";
+  window: string; // YYYYMM
+  caps: { messages: number; upload_tokens: number };
+  usage: { messages: number; upload_tokens: number };
+  remaining: { messages: number; upload_tokens: number };
+};
 
 /**
- * Simple two-card pricing UI:
- * - Free
- * - Pro (drives Stripe Checkout via startCheckout)
- *
- * A single "Manage billing" link sits underneath and opens the Stripe Customer Portal.
+ * Pricing + Usage screen:
+ * - shows Free/Pro cards
+ * - shows current monthly usage pulled from /limits/me
+ * - handles upgrade via Stripe Checkout, and "Manage billing" via Customer Portal
  */
 export default function BillingPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
+  const [limits, setLimits] = useState<LimitsResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // Load products and observe subscription state
+  // Load products, usage and observe subscription state
   useEffect(() => {
     let cancel = false;
     (async () => {
       try {
-        const prods = await loadActiveProducts();
-        if (!cancel) setProducts(prods);
+        const [prods, lim] = await Promise.all([
+          loadActiveProducts(),
+          getJSON<LimitsResp>("/limits/me").catch(() => null),
+        ]);
+        if (!cancel) {
+          setProducts(prods);
+          if (lim) setLimits(lim);
+        }
       } catch (e: any) {
         if (!cancel) setErr(e.message || String(e));
       } finally {
@@ -289,7 +304,7 @@ export default function BillingPage() {
 
   // Figure out whether the user is on Pro
   const activeSub = subs.find((s) => ["active", "trialing", "past_due"].includes(s.status));
-  const onPro = !!activeSub;
+  const onPro = !!activeSub || limits?.plan === "PRO";
 
   // Pick a "Pro" price:
   // 1) environment override (if provided),
@@ -317,7 +332,7 @@ export default function BillingPage() {
   return (
     <div className="max-w-5xl mx-auto">
       <header className="text-center mb-10">
-        <h1 className="text-3xl font-semibold">Upgrade your plan</h1>
+        <h1 className="text-3xl font-semibold">Plans & Usage</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Choose the plan that fits. You can manage or cancel anytime.
         </p>
@@ -327,6 +342,22 @@ export default function BillingPage() {
         <div className="mb-6 text-sm text-destructive">
           {err}
         </div>
+      )}
+
+      {/* Usage snapshot */}
+      {limits && (
+        <section className="mb-8 grid gap-4 md:grid-cols-2">
+          <UsageCard
+            title="Messages"
+            used={limits.usage.messages || 0}
+            cap={limits.caps.messages}
+          />
+          <UsageCard
+            title="Upload tokens"
+            used={limits.usage.upload_tokens || 0}
+            cap={limits.caps.upload_tokens}
+          />
+        </section>
       )}
 
       {/* Pricing cards */}
@@ -343,8 +374,8 @@ export default function BillingPage() {
             <li>• Community support</li>
             <li>• Limited uploads</li>
           </ul>
-          <Button className="mt-6" variant="outline" disabled>
-            Your current plan
+          <Button className="mt-6" variant="outline" disabled={onPro}>
+            {onPro ? "You're on Pro" : "Your current plan"}
           </Button>
         </div>
 
@@ -399,97 +430,73 @@ function formatMoney(amount?: number, currency?: string) {
   return (amount / 100).toLocaleString(undefined, { style: "currency", currency: c });
 }
 
+function UsageCard({ title, used, cap }: { title: string; used: number; cap: number }) {
+  const pct = Math.min(100, Math.round((used / Math.max(1, cap)) * 100));
+  const remaining = Math.max(0, cap - used);
+  return (
+    <div className="card p-4">
+      <div className="flex items-baseline justify-between mb-2">
+        <h4 className="font-medium">{title}</h4>
+        <div className="text-sm text-muted-foreground">
+          {used.toLocaleString()} / {cap.toLocaleString()}
+        </div>
+      </div>
+      <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
+        <div
+          className="h-2 bg-primary"
+          style={{ width: `${pct}%` }}
+          aria-valuemin={0}
+          aria-valuemax={cap}
+          aria-valuenow={used}
+        />
+      </div>
+      <div className="mt-2 text-xs text-muted-foreground">
+        {remaining.toLocaleString()} remaining this month
+      </div>
+    </div>
+  );
+}
+
 
 C:/code2/lbpr/static/spa/src/features/billing/index.ts
 export * from "./api";
 export { default as BillingPage } from "./BillingPage";
 
 
-C:/code2/lbpr/static/spa/firestore.rules
-// Firestore Security Rules for Firebase Authentication + Stripe Extension
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
+C:/code2/lbpr/static/spa/src/features/billing/README.md
+# Billing Feature (Firestore Stripe Payments)
 
-    // ---------- Public Catalog (read-only) ----------
-    match /products/{productId} {
-      allow read: if true;
-      allow write: if false;
+This frontend-only slice integrates with the **Firestore Stripe Payments** extension:
+https://extensions.dev/extensions/invertase/firestore-stripe-payments
 
-      match /prices/{priceId} {
-        allow read: if true;
-        allow write: if false;
-      }
-    }
+## What it does
+- Lists active Stripe Products & Prices mirrored into Firestore by the extension.
+- Starts a Checkout by writing a document to `customers/{uid}/checkout_sessions`.
+- Opens the Billing Portal by writing a document to `customers/{uid}/portal_sessions`.
+- Shows the user's current subscriptions from `customers/{uid}/subscriptions`.
 
-    // ---------- Per-User Stripe Mirror ----------
-    match /customers/{uid} {
-      allow read: if request.auth != null && request.auth.uid == uid;
-      allow write: if false; // managed by the extension
+## Assumptions
+- Firebase Web SDK is installed (`firebase` v9+ modular).
+- Your app initializes Firebase once. This slice tries to reuse the default app;
+  if no app exists it will initialize from Vite env vars:
+    - `VITE_FIREBASE_API_KEY`
+    - `VITE_FIREBASE_AUTH_DOMAIN`
+    - `VITE_FIREBASE_PROJECT_ID`
+- User must be authenticated with Firebase Auth (this screen is behind your `ProtectedRoute`).
+- The extension is already installed and configured in your Firebase project.
 
-      // --- Checkout Sessions ---
-      match /checkout_sessions/{sessionId} {
-        allow create: if request.auth != null
-                      && request.auth.uid == uid
-                      && request.resource.data.keys().hasOnly([
-                        // core
-                        "mode","success_url","cancel_url","client_reference_id","metadata",
-                        // pricing (either price+quantity or line_items[])
-                        "price","quantity","line_items",
-                        // promos/discounts
-                        "allow_promotion_codes","discounts","promotion_code",
-                        // address & tax
-                        "billing_address_collection","shipping_address_collection",
-                        "collect_shipping_address","shipping_options",
-                        "automatic_tax","tax_id_collection",
-                        // customer info
-                        "customer","customer_email","customer_update","phone_number_collection",
-                        // subscriptions
-                        "trial_from_plan","subscription_data","invoice_creation",
-                        // UI/locale
-                        "ui_mode","locale","consent_collection","custom_text",
-                        // payments
-                        "payment_method_types","payment_intent_data","automatic_payment_methods"
-                      ]);
-        allow read: if request.auth != null && request.auth.uid == uid;
-        allow update, delete: if false;
-      }
+## Security Rules (sketch)
+Use the rules recommended by the extension docs. Minimum: allow read on `products/*` and `products/*/prices/*` for signed-in users,
+and allow writes to `customers/{uid}/checkout_sessions` and `customers/{uid}/portal_sessions` only by that user.
+The extension completes these writes server-side and adds readonly fields like `url` or `sessionId`.
 
-      // --- Customer Portal Sessions ---
-      match /portal_sessions/{portalId} {
-        allow create: if request.auth != null
-                      && request.auth.uid == uid
-                      && request.resource.data.keys().hasOnly([
-                        "return_url","configuration","locale","flow_data"
-                      ]);
-        allow read: if request.auth != null && request.auth.uid == uid;
-        allow update, delete: if false;
-      }
+## Files
+- `features/billing/api.ts`        — Firestore helpers (create checkout/portal sessions, load products, observe subscriptions).
+- `features/billing/BillingPage.tsx` — A ready-to-use UI that plugs into your existing routes at `/billing`.
+- `features/billing/index.ts`      — Barrel exports.
 
-      // --- Subscriptions (extension-managed) ---
-      match /subscriptions/{subId} {
-        allow read: if request.auth != null && request.auth.uid == uid;
-        allow write: if false;
-      }
-
-      // --- Payments (extension-managed) ---
-      match /payments/{payId} {
-        allow read: if request.auth != null && request.auth.uid == uid;
-        allow write: if false;
-      }
-
-      // --- Invoices (extension-managed) ---
-      match /invoices/{invId} {
-        allow read: if request.auth != null && request.auth.uid == uid;
-        allow write: if false;
-      }
-    }
-
-    // Deny everything else by default
-    match /{document=**} {
-      allow read, write: if false;
-    }
-  }
-}
+## Optional: Restrict visible products
+If you want to pin which prices appear in UI, set `VITE_STRIPE_PRICE_ALLOWLIST` to a comma-separated list of price IDs
+(e.g. `price_123,price_456`). Otherwise all active prices are shown.
 
 

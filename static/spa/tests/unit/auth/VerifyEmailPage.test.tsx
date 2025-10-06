@@ -4,7 +4,7 @@ import VerifyEmailPage from "@/features/auth/VerifyEmailPage";
 import { withRouter } from "./testUtils";
 
 vi.mock("@/features/auth/firebase", async () => {
-  const mock = await import("./__mocks__/firebase");
+  const mock = await import("../__mocks__/firebase");
   return {
     ...mock,
     auth: {},

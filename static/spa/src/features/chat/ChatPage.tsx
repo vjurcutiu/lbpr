@@ -1,6 +1,6 @@
 // src/features/chat/ChatPage.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Paperclip, Send, Loader2, Trash2, Plus, LinkIcon, Bug, PlusCircle, MessageSquare } from "lucide-react";
+import { Paperclip, Send, Loader2, Trash2, PlusCircle, LinkIcon, Bug, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
@@ -165,9 +165,7 @@ export default function ChatPage() {
 
   const onPickSuggestion = (s: string) => {
     setInput(s);
-    // focus send area behavior similar to screenshot – pressing a suggestion should submit immediately
-    // but to stay safe, we just fill the input; uncomment the next line to auto-send:
-    // void onSubmit();
+    // could auto-send here if desired
   };
 
   const historyForRequest: chatApi.ChatTurn[] = useMemo(
@@ -249,9 +247,9 @@ export default function ChatPage() {
     setInput("");
   };
 
-  // ---- layout with left sidebar ----
+  // ---- full-bleed layout (fills AppShell main) ----
   return (
-    <div className="mx-auto w-full max-w-6xl h-[calc(100vh-8rem)] card p-0 overflow-hidden flex">
+    <div className="h-full w-full overflow-hidden flex">
       <LeftSidebar
         sessions={sessions}
         currentId={sessionId}
@@ -259,7 +257,7 @@ export default function ChatPage() {
         onSelect={switchSession}
       />
 
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center justify-between px-4 py-2 border-b">
           <div className="font-medium">LBP Assistant</div>
           <Button variant="ghost" size="sm" onClick={() => setShowHud(s => !s)} title="Toggle debug HUD">

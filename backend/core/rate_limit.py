@@ -3,7 +3,6 @@ import time, calendar, datetime as dt, logging
 from typing import Tuple, Optional
 from core.redis_utils import get_client
 from core.config import settings
-from core.plan import get_user_plan, plan_limits
 
 log = logging.getLogger("limits")
 
@@ -53,6 +52,7 @@ async def _check_and_add(uid: str, metric: str, inc: int, cap: int) -> Tuple[boo
         return True, -1
 
 async def add_message(uid: str) -> Tuple[bool, int, int]:
+    from core.plan import get_user_plan, plan_limits
     plan = await get_user_plan(uid)
     caps = plan_limits(plan)
     ok, newv = await _check_and_add(uid, "messages", 1, caps["messages"])
@@ -60,6 +60,7 @@ async def add_message(uid: str) -> Tuple[bool, int, int]:
 
 # For uploads and /ingest: increment token budget by N tokens
 async def add_upload_tokens(uid: str, tokens: int) -> Tuple[bool, int, int]:
+    from core.plan import get_user_plan, plan_limits
     plan = await get_user_plan(uid)
     caps = plan_limits(plan)
     ok, newv = await _check_and_add(uid, "upload_tokens", tokens, caps["upload_tokens"])
@@ -72,3 +73,15 @@ async def read_usage(uid: str) -> dict:
     key = f"usage:{uid}:{ym}"
     data = await r.hgetall(key)
     return {k:int(v) for k,v in data.items() if v is not None and str(v).isdigit()}
+
+# NEW: reset current month's usage (called when upgrading FREE -> PRO)
+async def reset_usage_current_window(uid: str) -> None:
+    """Hard reset the current month usage hash for the given user."""
+    r = await get_client()
+    ym, _ = month_key()
+    key = f"usage:{uid}:{ym}"
+    try:
+        await r.delete(key)
+        log.info("usage_reset", uid=uid, window=ym)
+    except Exception:
+        log.exception("usage_reset_failed", uid=uid, window=ym)

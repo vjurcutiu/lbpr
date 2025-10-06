@@ -1,3 +1,4 @@
+// src/App.tsx
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Suspense, lazy } from "react";
 import type { ReactNode } from "react";
@@ -102,8 +103,15 @@ export default function App() {
 
           {/* Protected */}
           <Route element={<ProtectedRoute />}>
+
+            {/* Full-bleed Chat */}
+            <Route
+              path="/chat"
+              element={<AppShell navItems={navItems} fullBleed children={<ChatPage />} />}
+            />
+
+            {/* Standard pages */}
             <Route path="/files" element={<AppShell navItems={navItems} children={<FilesPage />} />} />
-            <Route path="/chat" element={<AppShell navItems={navItems} children={<ChatPage />} />} />
             <Route path="/billing" element={<AppShell navItems={navItems} children={<BillingPage />} />} />
             <Route path="/support" element={<AppShell navItems={navItems} children={<SupportPage />} />} />
             <Route path="/profile" element={<AppShell navItems={navItems} children={<ProfilePage />} />} />
