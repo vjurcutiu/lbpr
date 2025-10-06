@@ -1,25 +1,21 @@
 // src/features/chat/ChatPage.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Paperclip, Send, Loader2, Trash2, PlusCircle, LinkIcon, Bug, MessageSquare } from "lucide-react";
+import { Send, Loader2, PlusCircle, LinkIcon, Bug, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import * as chatApi from "./api";
-import { listFiles } from "@/features/files/api";
 import { getAuth } from "firebase/auth";
 import {
   appendMessage,
   createConversation,
   ensureConversation,
-  getMessages,
   listConversations,
   renameConversation,
   subscribeMessages,
 } from "./chatStore";
 import type { ChatTurn, ConversationMeta } from "./types";
-
-type FileItem = { id: string; name: string; size: number; created_at?: string };
 
 function useTenantId() {
   // Keep as-is; you can wire real tenant IDs when ready.
@@ -46,8 +42,6 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<RenderMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const [streamEnabled] = useState(false);
   const [showHud, setShowHud] = useState(false);
 
@@ -60,11 +54,6 @@ export default function ChatPage() {
 
   const canSend = input.trim().length > 0 && !sending;
   const uid = getAuth().currentUser?.uid;
-
-  // ---- load files ----
-  useEffect(() => {
-    listFiles().then(setFiles).catch(() => {});
-  }, []);
 
   // ---- list conversations whenever namespace/user changes ----
   async function refreshConversations(ns = namespace) {
@@ -99,12 +88,6 @@ export default function ChatPage() {
     return () => unsub();
   }, [uid, namespace, sessionId]);
 
-  const toggleAttach = (id: string) => {
-    setSelectedFileIds(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
-  };
-
   const onPickSuggestion = (s: string) => setInput(s);
 
   const historyForRequest: chatApi.ChatTurn[] = useMemo(
@@ -118,7 +101,6 @@ export default function ChatPage() {
       await refreshConversations();
       setSessionId(id);
       setMessages([]);
-      setSelectedFileIds([]);
       setInput("");
     } catch (e) {
       console.error("[chat] createConversation error", e);
@@ -128,7 +110,6 @@ export default function ChatPage() {
   const switchSession = useCallback((id: string) => {
     if (id === sessionId) return;
     setSessionId(id);
-    setSelectedFileIds([]);
     setInput("");
   }, [sessionId]);
 
@@ -136,14 +117,9 @@ export default function ChatPage() {
     e?.preventDefault();
     if (!canSend) return;
 
-    const attachmentNote =
-      selectedFileIds.length > 0
-        ? `\n\n[Attached files: ${selectedFileIds.join(", ")}]`
-        : "";
-
     const userMsg: ChatTurn = {
       role: "user",
-      content: input.trim() + attachmentNote,
+      content: input.trim(),
       created_at: new Date().toISOString(),
       trace_id: null,
       request_id: null,
@@ -200,13 +176,10 @@ export default function ChatPage() {
     }
   };
 
-  const clear = () => {
-    // Clear composer; keep conversation (you can optionally add a "Delete conversation" later)
-    setSelectedFileIds([]);
-    setInput("");
-  };
-
   const hasThread = messages.length > 0;
+
+  // When input is empty, center the placeholder & text for a more centered look.
+  const composerTextClass = input.trim().length === 0 ? "text-center placeholder:text-center" : "";
 
   return (
     <div className="h-full w-full overflow-hidden flex">
@@ -253,25 +226,7 @@ export default function ChatPage() {
         {/* Composer stays pinned inside the column; no need for page scroll */}
         <form onSubmit={onSubmit} className="p-3 sm:p-4 bg-background">
           <div className="rounded-2xl border border-input bg-background shadow-sm">
-            {selectedFileIds.length > 0 && (
-              <div className="px-3 py-2 flex flex-wrap gap-2 border-b border-input bg-secondary/50">
-                {selectedFileIds.map(fid => {
-                  const f = files.find(x => x.id === fid);
-                  return (
-                    <span
-                      key={fid}
-                      className="pill px-2 py-1 text-xs text-muted-foreground bg-background rounded-md"
-                      title={f?.name}
-                    >
-                      {f?.name ?? fid}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-
             <div className="p-2 sm:p-3 flex items-end gap-2">
-              <AttachPopover files={files} selected={selectedFileIds} toggle={toggleAttach} />
               <Textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -282,12 +237,9 @@ export default function ChatPage() {
                   }
                 }}
                 placeholder="Ask anything…"
-                className="min-h-[52px] max-h-44 resize-y border-0 focus-visible:ring-0 focus-visible:border-0 px-0"
+                className={`min-h-[52px] max-h-44 resize-y border-0 focus-visible:ring-0 focus-visible:border-0 px-0 ${composerTextClass}`}
               />
               <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={clear} title="Clear composer">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
                 <Button type="submit" disabled={!canSend} className="min-w-[92px]">
                   {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   <span className="ml-2">{sending ? "Sending" : "Send"}</span>
@@ -375,6 +327,7 @@ function EmptyState({
   onHeroChange: (v: string) => void;
   onHeroSubmit: () => void;
 }) {
+  const heroTextClass = heroValue.trim().length === 0 ? "text-center placeholder:text-center" : "";
   return (
     <div className="flex h-[60vh] items-center justify-center">
       <div className="text-center px-6 max-w-3xl w-full">
@@ -395,7 +348,7 @@ function EmptyState({
                 }
               }}
               placeholder="Ask anything…"
-              className="min-h-[44px] max-h-40 resize-none border-0 focus-visible:ring-0 focus-visible;border-0 px-0"
+              className={`min-h-[44px] max-h-40 resize-none border-0 focus-visible:ring-0 focus-visible;border-0 px-0 ${heroTextClass}`}
             />
             <Button onClick={onHeroSubmit} disabled={!heroValue.trim()}>
               <Send className="h-4 w-4" />
@@ -488,55 +441,6 @@ function CitationList({ citations }: { citations: chatApi.Citation[] }) {
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function AttachPopover({
-  files,
-  selected,
-  toggle,
-}: {
-  files: FileItem[];
-  selected: string[];
-  toggle: (id: string) => void;
-}) {
-  return (
-    <div className="relative">
-      <details className="group">
-        <summary className="list-none">
-          <Button type="button" variant="outline" title="Attach files">
-            <Paperclip className="h-4 w-4" />
-            <span className="ml-2 hidden sm:inline">Attach</span>
-          </Button>
-        </summary>
-        <div className="absolute z-10 mt-2 w-72 max-h-64 overflow-auto rounded-xl border bg-popover p-2 shadow-md">
-          {files.length === 0 ? (
-            <div className="text-xs text-muted-foreground p-2">
-              No files yet. Upload some on the Files page.
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {files.map((f) => (
-                <label
-                  key={f.id}
-                  className="flex items-center gap-2 text-sm rounded-md px-2 py-1 hover:bg-accent/60 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    className="accent-[hsl(var(--ring))]"
-                    checked={selected.includes(f.id)}
-                    onChange={() => toggle(f.id)}
-                  />
-                  <span className="truncate" title={f.name}>
-                    {f.name}
-                  </span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      </details>
     </div>
   );
 }
