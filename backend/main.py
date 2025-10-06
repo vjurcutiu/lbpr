@@ -21,7 +21,9 @@ from features.files.router import router as files_router  # type: ignore
 log = logging.getLogger("app")
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):            
+        if request.url.path in ("/healthz", "/v1/healthz"):
+            return await call_next(request)
         t0 = time.time()
         trace_id = request.headers.get("x-trace-id") or str(uuid.uuid4())
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())

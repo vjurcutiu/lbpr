@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 from fastapi import APIRouter, File, UploadFile, Header, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 
 from .schemas import FileItem, UploadResponse, DeleteResponse
 from . import service
@@ -27,6 +27,19 @@ def create_file(
         return service.upload_file(x_tenant_id, file, dataset=dataset)
     except ValueError as ve:
         raise HTTPException(status_code=413, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/{file_id}")
+def get_file(file_id: str):
+    """Return raw file bytes with correct Content-Type for inline preview.
+    Frontend selects text/image/pdf handling based on Content-Type.
+    """
+    try:
+        data, content_type = service.get_file_bytes(file_id)
+        return Response(content=data, media_type=content_type)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

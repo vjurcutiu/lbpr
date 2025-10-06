@@ -210,7 +210,8 @@ services:
       --reload-exclude 'venv/*'
       --reload-exclude '.venv/*'
       --reload-exclude 'node_modules/*'
-      --reload-exclude '.git/*'"
+      --reload-exclude '.git/*'
+      --no-access-log"
     env_file:
       - ./backend/.env
     environment:

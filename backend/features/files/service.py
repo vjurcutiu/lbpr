@@ -4,7 +4,7 @@ from __future__ import annotations
 import io
 import uuid
 import hashlib
-from typing import List, Optional, Dict, Any, Iterable
+from typing import List, Optional, Dict, Any, Iterable, Tuple
 
 from fastapi import UploadFile
 from firebase_admin import storage
@@ -25,7 +25,7 @@ def _tenant_prefix(tenant_id: Optional[str]) -> str:
     return f"t:{tenant_id or 'demo'}"
 
 def _object_path(tenant_id: Optional[str], filename: str, file_id: Optional[str]=None) -> str:
-    # Store under t:{tenant}/uploads/{uuid}-{filename}
+    # Store under t:{tenant}/uploads/{uuid}/{filename}
     fid = file_id or str(uuid.uuid4())
     return f"{_tenant_prefix(tenant_id)}/uploads/{fid}/{filename}"
 
@@ -108,12 +108,15 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
     text = _extract_text(file.filename, file.content_type, data)
     if text:
         try:
-            orchestrator.ingest(
+            # Use tenant as a stand-in "uid" for per-user namespace
+            uid = (tenant_id or "demo")
+            orchestrator.ingest_request(
                 IngestRequest(
                     dataset=dataset,
                     text=text,
                     metadata={"tenant_id": tenant_id or "demo", "source": "upload", "title": file.filename},
-                )
+                ),
+                uid=uid,
             )
         except Exception as e:
             # Don't fail the upload if indexing fails
@@ -159,3 +162,13 @@ def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
         raise FileNotFoundError("File not found")
     from datetime import timedelta
     return blob.generate_signed_url(expiration=timedelta(minutes=minutes), method="GET")
+
+def get_file_bytes(file_id: str) -> Tuple[bytes, str]:
+    """Fetch raw bytes and content-type for a stored file so the frontend can preview inline."""
+    bkt = _bucket()
+    blob = bkt.blob(file_id)
+    if not blob.exists():
+        raise FileNotFoundError("File not found")
+    data: bytes = blob.download_as_bytes()
+    content_type: str = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"
+    return data, content_type
