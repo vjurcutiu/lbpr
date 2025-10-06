@@ -7,11 +7,30 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import * as chatApi from "./api";
 import { listFiles } from "@/features/files/api";
+import { getAuth } from "firebase/auth";
+import {
+  appendMessage,
+  createConversation,
+  ensureConversation,
+  getMessages,
+  listConversations,
+  renameConversation,
+  subscribeMessages,
+} from "./chatStore";
+import type { ChatTurn, ConversationMeta } from "./types";
 
 type FileItem = { id: string; name: string; size: number; created_at?: string };
 
 function useTenantId() {
+  // Keep as-is; you can wire real tenant IDs when ready.
   return "tenant_demo";
+}
+
+function useNamespace() {
+  // Namespace can be toggled in UI later; default to "default".
+  const [ns, setNs] = useState<string>(() => localStorage.getItem("lbp_chat_ns") || "default");
+  useEffect(() => { localStorage.setItem("lbp_chat_ns", ns); }, [ns]);
+  return { namespace: ns, setNamespace: setNs };
 }
 
 const STARTER_SUGGESTIONS = [
@@ -21,20 +40,7 @@ const STARTER_SUGGESTIONS = [
   "What should we log for chat retries?"
 ];
 
-type RenderMessage = {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  citations?: chatApi.Citation[];
-  created_at?: string;
-  trace_id?: string | null;
-  request_id?: string | null;
-};
-
-type SessionMeta = { id: string; title: string; updated_at: string };
-
-const SESSIONS_KEY = "lbp_chat_sessions";
-const SESSION_DATA_PREFIX = "lbp_chat_session_";
+type RenderMessage = ChatTurn & { id: string };
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<RenderMessage[]>([]);
@@ -45,117 +51,53 @@ export default function ChatPage() {
   const [streamEnabled] = useState(false);
   const [showHud, setShowHud] = useState(false);
 
-  const [sessions, setSessions] = useState<SessionMeta[]>(() => loadSessions());
-  const [sessionId, setSessionId] = useState<string>(() => createSessionIfNone(loadSessions()));
+  const [sessions, setSessions] = useState<ConversationMeta[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
+  const { namespace } = useNamespace();
   const listRef = useRef<HTMLDivElement>(null);
   const tenantId = useTenantId();
 
-  const hasThread = messages.length > 0;
   const canSend = input.trim().length > 0 && !sending;
+  const uid = getAuth().currentUser?.uid;
 
-  // ---- storage helpers ----
-  function loadSessions(): SessionMeta[] {
-    try {
-      const raw = localStorage.getItem(SESSIONS_KEY);
-      if (!raw) return [];
-      return JSON.parse(raw) as SessionMeta[];
-    } catch {
-      return [];
-    }
-  }
-
-  function saveSessions(next: SessionMeta[]) {
-    localStorage.setItem(SESSIONS_KEY, JSON.stringify(next));
-  }
-
-  function saveSessionData(id: string, msgs: RenderMessage[]) {
-    localStorage.setItem(SESSION_DATA_PREFIX + id, JSON.stringify(msgs));
-  }
-
-  function loadSessionData(id: string): RenderMessage[] {
-    try {
-      const raw = localStorage.getItem(SESSION_DATA_PREFIX + id);
-      if (!raw) return [];
-      return JSON.parse(raw) as RenderMessage[];
-    } catch {
-      return [];
-    }
-  }
-
-  function createSessionIfNone(existing: SessionMeta[]) {
-    if (existing.length > 0) return existing[0].id;
-    const id = cryptoRandomId();
-    const meta: SessionMeta = {
-      id,
-      title: "New chat",
-      updated_at: new Date().toISOString(),
-    };
-    const next = [meta];
-    saveSessions(next);
-    saveSessionData(id, []);
-    return id;
-  }
-
-  const startNewSearch = useCallback(() => {
-    const id = cryptoRandomId();
-    const meta: SessionMeta = {
-      id,
-      title: "New chat",
-      updated_at: new Date().toISOString(),
-    };
-    const next = [meta, ...sessions].slice(0, 50);
-    setSessions(next);
-    saveSessions(next);
-    saveSessionData(id, []);
-    setSessionId(id);
-    setMessages([]);
-    setSelectedFileIds([]);
-    setInput("");
-  }, [sessions]);
-
-  const switchSession = useCallback((id: string) => {
-    if (id === sessionId) return;
-    setSessionId(id);
-    const msgs = loadSessionData(id);
-    setMessages(msgs);
-    setSelectedFileIds([]);
-    setInput("");
-  }, [sessionId]);
-
-  // ---- effects ----
+  // ---- load files ----
   useEffect(() => {
     listFiles().then(setFiles).catch(() => {});
   }, []);
 
-  // load current session messages on mount / session change
-  useEffect(() => {
-    const msgs = loadSessionData(sessionId);
-    setMessages(msgs);
-  }, [sessionId]);
-
-  // persist messages to session
-  useEffect(() => {
-    saveSessionData(sessionId, messages);
-    // update session title from first user message
-    if (messages.length > 0) {
-      const firstUser = messages.find(m => m.role === "user");
-      const title = firstUser ? trimForTitle(firstUser.content) : "New chat";
-      const updated_at = new Date().toISOString();
-      setSessions(prev => {
-        const next = [
-          { id: sessionId, title, updated_at },
-          ...prev.filter(s => s.id !== sessionId),
-        ];
-        saveSessions(next);
-        return next;
-      });
+  // ---- list conversations whenever namespace/user changes ----
+  async function refreshConversations(ns = namespace) {
+    try {
+      const convs = await listConversations(ns);
+      setSessions(convs);
+      if (!sessionId && convs[0]) {
+        setSessionId(convs[0].id);
+      }
+    } catch (e) {
+      console.error("[chat] listConversations error", e);
     }
-  }, [messages, sessionId]);
+  }
 
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+    if (!uid) return;
+    refreshConversations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, namespace]);
+
+  // ---- subscribe to messages for the active conversation ----
+  useEffect(() => {
+    if (!uid || !sessionId) {
+      setMessages([]);
+      return;
+    }
+    const unsub = subscribeMessages(namespace, sessionId, (msgs) => {
+      // Map to render messages with synthetic ids
+      setMessages(msgs.map((m, i) => ({ ...m, id: `${i}` })));
+      listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+    });
+    return () => unsub();
+  }, [uid, namespace, sessionId]);
 
   const toggleAttach = (id: string) => {
     setSelectedFileIds(prev =>
@@ -163,14 +105,32 @@ export default function ChatPage() {
     );
   };
 
-  const onPickSuggestion = (s: string) => {
-    setInput(s);
-  };
+  const onPickSuggestion = (s: string) => setInput(s);
 
   const historyForRequest: chatApi.ChatTurn[] = useMemo(
     () => messages.map(m => ({ role: m.role, content: m.content })),
     [messages]
   );
+
+  const startNewSearch = useCallback(async () => {
+    try {
+      const id = await createConversation(namespace, "New chat", tenantId);
+      await refreshConversations();
+      setSessionId(id);
+      setMessages([]);
+      setSelectedFileIds([]);
+      setInput("");
+    } catch (e) {
+      console.error("[chat] createConversation error", e);
+    }
+  }, [namespace, tenantId]);
+
+  const switchSession = useCallback((id: string) => {
+    if (id === sessionId) return;
+    setSessionId(id);
+    setSelectedFileIds([]);
+    setInput("");
+  }, [sessionId]);
 
   const onSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -178,11 +138,10 @@ export default function ChatPage() {
 
     const attachmentNote =
       selectedFileIds.length > 0
-        ? `\\n\\n[Attached files: ${selectedFileIds.join(", ")}]`
+        ? `\n\n[Attached files: ${selectedFileIds.join(", ")}]`
         : "";
 
-    const userMsg: RenderMessage = {
-      id: cryptoRandomId(),
+    const userMsg: ChatTurn = {
       role: "user",
       content: input.trim() + attachmentNote,
       created_at: new Date().toISOString(),
@@ -190,13 +149,16 @@ export default function ChatPage() {
       request_id: null,
     };
 
-    setMessages(prev => [...prev, userMsg]);
     setSending(true);
 
-    const traceId = cryptoRandomId();
-    console.debug("[chat.ui] sending", { traceId, tenantId, len: userMsg.content.length });
-
     try {
+      // Ensure there's a conversation selected
+      const convId = await ensureConversation(namespace, sessionId);
+      if (!sessionId) setSessionId(convId);
+
+      // Optimistic: append the user message to Firestore (and local render via subscription)
+      await appendMessage(namespace, convId, userMsg);
+
       const req: chatApi.ChatRequest = {
         tenant_id: tenantId,
         message: userMsg.content,
@@ -204,10 +166,9 @@ export default function ChatPage() {
         stream: streamEnabled,
       };
 
-      const res = await chatApi.sendChat(req, traceId);
+      const res = await chatApi.sendChat(req);
 
-      const assistantMsg: RenderMessage = {
-        id: cryptoRandomId(),
+      const assistantMsg: ChatTurn = {
         role: "assistant",
         content: res.answer,
         citations: res.citations ?? [],
@@ -216,42 +177,42 @@ export default function ChatPage() {
         request_id: (res as any).__request_id ?? null,
       };
 
-      setMessages(prev => [...prev, assistantMsg]);
+      await appendMessage(namespace, convId, assistantMsg);
+
+      // Rename conversation from first user message (only once)
+      if (messages.length === 0) {
+        const title = trimForTitle(userMsg.content);
+        await renameConversation(namespace, convId, title);
+        await refreshConversations();
+      }
       setInput("");
-      console.debug("[chat.ui] ok", {
-        traceId: assistantMsg.trace_id,
-        requestId: assistantMsg.request_id,
-        retrieved: res.usage?.retrieved,
-        dur_ms: (res as any).__dur_ms,
-        status: (res as any).__status,
-      });
     } catch (err: any) {
-      const errMsg: RenderMessage = {
-        id: cryptoRandomId(),
+      const sysMsg: ChatTurn = {
         role: "system",
-        content: (err?.message || "Failed to send message") + (traceId ? ` (trace ${traceId})` : ""),
-        trace_id: traceId,
-        request_id: null,
+        content: (err?.message || "Failed to send message"),
       };
-      setMessages(prev => [...prev, errMsg]);
-      console.error("[chat.ui] error", { traceId, err });
+      if (sessionId) {
+        await appendMessage(namespace, sessionId, sysMsg);
+      }
+      console.error("[chat.ui] error", err);
     } finally {
       setSending(false);
     }
   };
 
   const clear = () => {
-    setMessages([]);
+    // Clear composer; keep conversation (you can optionally add a "Delete conversation" later)
     setSelectedFileIds([]);
     setInput("");
   };
 
-  // ---- full-bleed layout (fills AppShell main) ----
+  const hasThread = messages.length > 0;
+
   return (
     <div className="h-full w-full overflow-hidden flex">
       <LeftSidebar
         sessions={sessions}
-        currentId={sessionId}
+        currentId={sessionId || ""}
         onNew={startNewSearch}
         onSelect={switchSession}
       />
@@ -280,8 +241,8 @@ export default function ChatPage() {
             />
           ) : (
             <div className="px-4 sm:px-6 py-6 space-y-6">
-              {messages.map(m => (
-                <MessageRow key={m.id} role={m.role} content={m.content} citations={m.citations} />
+              {messages.map((m, idx) => (
+                <MessageRow key={m.id || String(idx)} role={m.role} content={m.content} citations={m.citations as any} />
               ))}
             </div>
           )}
@@ -324,7 +285,7 @@ export default function ChatPage() {
                 className="min-h-[52px] max-h-44 resize-y border-0 focus-visible:ring-0 focus-visible:border-0 px-0"
               />
               <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={clear} title="Clear chat">
+                <Button type="button" variant="outline" onClick={clear} title="Clear composer">
                   <Trash2 className="h-4 w-4" />
                 </Button>
                 <Button type="submit" disabled={!canSend} className="min-w-[92px]">
@@ -346,7 +307,7 @@ function LeftSidebar({
   onNew,
   onSelect,
 }: {
-  sessions: SessionMeta[];
+  sessions: ConversationMeta[];
   currentId: string;
   onNew: () => void;
   onSelect: (id: string) => void;
@@ -580,17 +541,8 @@ function AttachPopover({
   );
 }
 
-function cryptoRandomId() {
-  if (typeof crypto !== "undefined" && "getRandomValues" in crypto) {
-    const buf = new Uint32Array(2);
-    crypto.getRandomValues(buf);
-    return Array.from(buf).map(n => n.toString(36)).join("");
-  }
-  return Math.random().toString(36).slice(2);
-}
-
 function trimForTitle(s: string) {
-  const t = s.replace(/\\s+/g, " ").trim();
+  const t = s.replace(/\s+/g, " ").trim();
   return t.length > 48 ? t.slice(0, 45) + "…" : t || "New chat";
 }
 
