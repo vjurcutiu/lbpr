@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import io
 import uuid
+import hashlib
 import logging
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Iterable, Tuple
 
 from fastapi import UploadFile
 from firebase_admin import storage
@@ -13,26 +14,20 @@ from .schemas import FileItem, UploadResponse
 from features.rag import orchestrator
 from features.rag.schemas import IngestRequest
 
+TENANT_HEADER = "x-tenant-id"
 log = logging.getLogger("files.service")
-
-# Namespacing helpers
-try:
-    from core.namespaces import firebase_folder  # type: ignore
-except Exception:  # pragma: no cover
-    def firebase_folder(uid: str) -> str:
-        # Fallback: keep consistent with per-user Pinecone ns "u:{uid}"
-        return f"u:{uid}"
 
 def _bucket():
     bucket_name = settings.FIREBASE_STORAGE_BUCKET or f"{settings.FIREBASE_PROJECT_ID}.appspot.com"
     log.debug("bucket_resolve", extra={"bucket": bucket_name})
     return storage.bucket(bucket_name)
 
-def _object_path(uid: str, filename: str, file_id: Optional[str]=None) -> str:
+def _tenant_prefix(tenant_id: Optional[str]) -> str:
+    return f"t:{tenant_id or 'demo'}"
+
+def _object_path(tenant_id: Optional[str], filename: str, file_id: Optional[str]=None) -> str:
     fid = file_id or str(uuid.uuid4())
-    # Store under:  {firebase_folder(uid)}/uploads/{uuid}/{filename}
-    base = firebase_folder(uid).rstrip("/")
-    return f"{base}/uploads/{fid}/{filename}"
+    return f"{_tenant_prefix(tenant_id)}/uploads/{fid}/{filename}"
 
 def _hash_bytes(b: bytes) -> str:
     import hashlib as _hashlib
@@ -75,23 +70,22 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
         return None
     return None
 
-def upload_file(user_uid: str, file: UploadFile, dataset: str = "default") -> UploadResponse:
-    """Store in the **user's** Firebase folder and ingest into `u:{uid}:{dataset}`."""
+def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "default") -> UploadResponse:
     data = file.file.read()
     size = len(data)
     if size > 50 * 1024 * 1024:
         raise ValueError("File too large (>50MB)")
     checksum = _hash_bytes(data)
-    object_name = _object_path(user_uid, file.filename)
+    object_name = _object_path(tenant_id, file.filename)
     bkt = _bucket()
     blob = bkt.blob(object_name)
 
-    log.info("upload_start", uid=user_uid, object=object_name, filename=file.filename, ctype=file.content_type or "", size=size, checksum=checksum[:12], dataset=dataset)
+    log.info("upload_start", tenant=tenant_id or "demo", object=object_name, filename=file.filename, ctype=file.content_type or "", size=size, checksum=checksum[:12])
 
     blob.metadata = {
         "checksum": checksum,
         "original_name": file.filename,
-        "owner_uid": user_uid,
+        "tenant_id": tenant_id or "demo",
         "dataset": dataset,
         "content_type": file.content_type or "",
     }
@@ -101,13 +95,14 @@ def upload_file(user_uid: str, file: UploadFile, dataset: str = "default") -> Up
     if text:
         log.info("upload_text_extracted", object=object_name, chars=len(text), ctype=file.content_type or "")
         try:
+            uid = (tenant_id or "demo")
             orchestrator.ingest_request(
                 IngestRequest(
                     dataset=dataset,
                     text=text,
-                    metadata={"owner_uid": user_uid, "source": "upload", "title": file.filename},
+                    metadata={"tenant_id": tenant_id or "demo", "source": "upload", "title": file.filename},
                 ),
-                uid=user_uid,
+                uid=uid,
             )
             log.info("upload_ingest_ok", object=object_name, chars=len(text))
         except Exception as e:
@@ -118,10 +113,10 @@ def upload_file(user_uid: str, file: UploadFile, dataset: str = "default") -> Up
     log.info("upload_done", object=object_name)
     return UploadResponse(job_id=object_name)
 
-def list_files(user_uid: str) -> List[FileItem]:
+def list_files(tenant_id: Optional[str]) -> List[FileItem]:
     bkt = _bucket()
-    prefix = f"{firebase_folder(user_uid).rstrip('/')}/uploads/"
-    log.info("list_start", prefix=prefix, uid=user_uid)
+    prefix = f"{_tenant_prefix(tenant_id)}/uploads/"
+    log.info("list_start", prefix=prefix)
     items: List[FileItem] = []
     for blob in bkt.list_blobs(prefix=prefix):
         if blob.name.endswith("/"):
@@ -137,10 +132,10 @@ def list_files(user_uid: str) -> List[FileItem]:
             )
         )
     items.sort(key=lambda x: x.created_at or "", reverse=True)
-    log.info("list_ok", count=len(items), uid=user_uid)
+    log.info("list_ok", count=len(items))
     return items
 
-def delete_file(file_id: str) -> bool:
+def delete_file(tenant_id: Optional[str], file_id: str) -> bool:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()
@@ -168,12 +163,16 @@ def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
     except Exception:
         filename = file_id.split("/")[-1] or "download.bin"
 
+    # IMPORTANT: For GCS signed URLs, use response_disposition to force download.
+    # See google.cloud.storage.blob.Blob.generate_signed_url docs.
     from datetime import timedelta
     disposition = f'attachment; filename="{filename}"'
     url = blob.generate_signed_url(
         expiration=timedelta(minutes=minutes),
         method="GET",
         response_disposition=disposition,
+        # Optionally, hint the content type. It won't override stored metadata,
+        # but helps when missing.
         response_type=blob.content_type or "application/octet-stream",
     )
     log.info("download_url_generated", file_id=file_id, expires_min=minutes, url_len=len(url) if url else 0, disposition=disposition)
