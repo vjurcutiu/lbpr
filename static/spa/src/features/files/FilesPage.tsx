@@ -1,33 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload,
-  Folder,
-  FileText,
   ChevronRight,
   Loader2,
   RefreshCw,
-  Download,
   Trash2,
-  MoreVertical,
   Search,
-  File as FileGeneric,
-  FileCode,
-  FileImage,
-  FileAudio2,
-  FileVideo2,
-  FileArchive,
-  FileSpreadsheet,
-  FileType,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,7 +19,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-// ⬇️ Switched from shadcn useToast to sonner
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -46,87 +26,17 @@ import {
   uploadFile,
   deleteFile,
   getFileContent,
-  fileDownloadUrl,
   type FileItem,
 } from "./api";
 
-/** --------------------------
- * Derived folder tree (client-side)
- * ------------------------- */
-type TreeNode = {
-  type: "folder" | "file";
-  name: string;
-  path: string;
-  children?: TreeNode[];
-  file?: FileItem;
-};
-
-function buildTree(files: FileItem[]): TreeNode {
-  const root: TreeNode = { type: "folder", name: "", path: "", children: [] };
-  for (const f of files) {
-    const parts = f.name.split("/").filter(Boolean);
-    let cur = root;
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      const atLeaf = i === parts.length - 1;
-      if (atLeaf) {
-        (cur.children ||= []).push({
-          type: "file",
-          name: part,
-          path: (cur.path ? cur.path + "/" : "") + part,
-          file: f,
-        });
-      } else {
-        let next = cur.children?.find(
-          (c) => c.type === "folder" && c.name === part
-        );
-        if (!next) {
-          next = {
-            type: "folder",
-            name: part,
-            path: (cur.path ? cur.path + "/" : "") + part,
-            children: [],
-          };
-          (cur.children ||= []).push(next);
-        }
-        cur = next;
-      }
-    }
-  }
-  function sort(node: TreeNode) {
-    if (!node.children) return;
-    node.children.sort((a, b) => {
-      if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-    node.children.forEach(sort);
-  }
-  sort(root);
-  return root;
-}
-
-/** --------------------------
- * Tabs & viewer state
- * ------------------------- */
-type OpenTab = {
-  id: string;
-  title: string;
-  contentType?: string;
-};
-
-function parseErr(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
-  try {
-    const s = JSON.stringify(err);
-    return s.length ? s : "Unexpected error";
-  } catch {
-    return "Unexpected error";
-  }
-}
+import { buildTree, type TreeNode } from "./utils/fileTree";
+import { fmtSize, parseErr } from "./utils/formatters";
+import { FileTree } from "./components/FileTree";
+import { FileViewer } from "./components/FileViewer";
+import { EmptyState } from "./components/EmptyState";
+import { FileIconByName } from "./components/FileIconByName";
 
 export default function FilesPage() {
-  // ⬇️ removed: const { toast } = useToast();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [busy, setBusy] = useState(false);
@@ -145,7 +55,7 @@ export default function FilesPage() {
   const [content, setContent] = useState<
     Record<string, Awaited<ReturnType<typeof getFileContent>>>
   >({});
-  const [tabs, setTabs] = useState<OpenTab[]>([]);
+  const [tabs, setTabs] = useState<Array<{ id: string; title: string; contentType?: string }>>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -273,7 +183,9 @@ export default function FilesPage() {
           (n.file?.name.toLowerCase().includes(q) ?? false);
         return hit ? n : null;
       }
-      const kids = (n.children || []).map(filterNode).filter(Boolean) as TreeNode[];
+      const kids = (n.children || [])
+        .map(filterNode)
+        .filter(Boolean) as TreeNode[];
       if (kids.length === 0 && n.name !== "") return null;
       return { ...n, children: kids };
     }
@@ -329,7 +241,7 @@ export default function FilesPage() {
             Explorer
           </div>
           <div className="h-full overflow-auto px-1 py-2">
-            <Tree node={filteredTree} onOpen={(f) => openFile(f)} onDelete={(f) => requestDelete(f)} />
+            <FileTree node={filteredTree} onOpen={(f) => openFile(f)} onDelete={(f) => requestDelete(f)} />
           </div>
         </aside>
 
@@ -360,7 +272,7 @@ export default function FilesPage() {
                 )}
                 title={t.title}
               >
-                <span className="truncate max-w*[18rem] inline-flex items-center gap-2">
+                <span className="truncate inline-flex max-w-[18rem] items-center gap-2">
                   <FileIconByName name={t.title} className="h-4 w-4" />
                   {t.title.split("/").slice(-1)[0]}
                 </span>
@@ -460,225 +372,4 @@ export default function FilesPage() {
       </AlertDialog>
     </div>
   );
-}
-
-/** ---- Components ---- */
-
-function EmptyState() {
-  return (
-    <div className="h-full w-full grid place-items-center">
-      <div className="text-sm text-muted-foreground">
-        Select a file from the sidebar to preview it here.
-      </div>
-    </div>
-  );
-}
-
-function Tree({
-  node,
-  onOpen,
-  onDelete,
-}: {
-  node: TreeNode | null | undefined;
-  onOpen: (f: FileItem) => void;
-  onDelete: (f: FileItem) => void;
-}) {
-  if (!node) return <div className="text-sm text-muted-foreground p-2">No files.</div>;
-  return (
-    <div className="text-sm">
-      {(node.children || []).map((child) =>
-        child.type === "folder" ? (
-          <FolderRow key={child.path} node={child} onOpen={onOpen} onDelete={onDelete} />
-        ) : (
-          <FileRow key={child.path} node={child} onOpen={onOpen} onDelete={onDelete} />
-        )
-      )}
-    </div>
-  );
-}
-
-function FolderRow({
-  node,
-  onOpen,
-  onDelete,
-}: {
-  node: TreeNode;
-  onOpen: (f: FileItem) => void;
-  onDelete: (f: FileItem) => void;
-}) {
-  const [open, setOpen] = useState(true);
-  const caretClass = cn("h-4 w-4 transition-transform", open ? "rotate-90" : "rotate-0");
-
-  return (
-    <div className="mb-0.5">
-      <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-muted/40 rounded text-left"
-        onClick={() => setOpen((v) => !v)}
-        title={node.path}
-      >
-        <ChevronRight className={caretClass} />
-        <Folder className="h-4 w-4" />
-        <span className="font-medium">{node.name || "root"}</span>
-      </button>
-      {open && (
-        <div className="ml-5">
-          {(node.children || []).map((child) =>
-            child.type === "folder" ? (
-              <FolderRow key={child.path} node={child} onOpen={onOpen} onDelete={onDelete} />
-            ) : (
-              <FileRow key={child.path} node={child} onOpen={onOpen} onDelete={onDelete} />
-            )
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FileRow({
-  node,
-  onOpen,
-  onDelete,
-}: {
-  node: TreeNode;
-  onOpen: (f: FileItem) => void;
-  onDelete: (f: FileItem) => void;
-}) {
-  const f = node.file!;
-  const href = fileDownloadUrl(f.id);
-  return (
-    <div className="group flex items-center justify-between rounded hover:bg-muted/40">
-      <button
-        className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-left"
-        title={`${f.name} (${fmtSize(f.size)})`}
-        onClick={() => onOpen(f)}
-      >
-        <FileIconByName name={node.name} className="h-4 w-4" />
-        <span className="truncate">{node.name}</span>
-      </button>
-      <div className="opacity-0 group-hover:opacity-100 transition flex items-center gap-0.5 pr-1">
-        <a
-          href={href}
-          title="Download"
-          className="p-1 rounded hover:bg-muted"
-          onClick={() =>
-            console.debug("[files] click sidebar download", { id: f.id, href })
-          }
-        >
-          <Download className="h-4 w-4" />
-        </a>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="p-1 rounded hover:bg-muted" title="More">
-              <MoreVertical className="h-4 w-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[10rem]">
-            <DropdownMenuItem
-              onClick={() => {
-                console.debug("[files] dropdown download", { id: f.id, href });
-                window.open(href, "_self");
-              }}
-            >
-              <Download className="h-4 w-4" /> Download
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              onClick={() => onDelete(f)}
-            >
-              <Trash2 className="h-4 w-4" /> Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </div>
-  );
-}
-
-function FileViewer({
-  payload,
-  file,
-}: {
-  payload: Awaited<ReturnType<typeof getFileContent>> | undefined;
-  file: FileItem | null;
-}) {
-  if (!file) return null;
-  if (!payload) {
-    return (
-      <div className="text-sm text-muted-foreground flex items-center gap-2">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-      </div>
-    );
-  }
-
-  if (payload.kind === "text") {
-    const text = payload.text ?? "";
-    return <pre className="whitespace-pre-wrap leading-6">{text}</pre>;
-  }
-
-  if (payload.kind === "image" && payload.url) {
-    return (
-      <div className="w-full h-full grid place-items-center">
-        <img
-          src={payload.url}
-          alt={file.name}
-          className="max-w-full max-h-full object-contain"
-        />
-      </div>
-    );
-  }
-
-  if (payload.kind === "pdf" && payload.url) {
-    return (
-      <iframe src={payload.url} title={file.name} className="w-full h-full border rounded" />
-    );
-  }
-
-  return (
-    <div className="text-sm">
-      Preview not available.{" "}
-      <a
-        className="underline"
-        href={fileDownloadUrl(file.id)}
-        onClick={() => console.debug("[files] viewer download", { id: file.id })}
-      >
-        Download
-      </a>
-    </div>
-  );
-}
-
-function FileIconByName({ name, className }: { name: string; className?: string }) {
-  const ext = name.split(".").pop()?.toLowerCase() || "";
-  const Icon =
-    ext === "png" || ext === "jpg" || ext === "jpeg" || ext === "gif" || ext === "svg"
-      ? FileImage
-      : ext === "mp3" || ext === "wav" || ext === "flac"
-      ? FileAudio2
-      : ext === "mp4" || ext === "mov" || ext === "webm"
-      ? FileVideo2
-      : ext === "zip" || ext === "gz" || ext === "rar" || ext === "7z"
-      ? FileArchive
-      : ext === "csv" || ext === "xlsx"
-      ? FileSpreadsheet
-      : ext === "ts" || ext === "tsx" || ext === "js" || ext === "jsx" || ext === "py" || ext === "go" || ext === "rs" || ext === "java" || ext === "json" || ext === "yml" || ext === "yaml" || ext === "toml" || ext === "md"
-      ? FileCode
-      : ext === "txt"
-      ? FileText
-      : ext
-      ? FileType
-      : FileGeneric;
-  return <Icon className={className} />;
-}
-
-function fmtSize(n: number) {
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let i = 0,
-    v = n;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(1)} ${units[i]}`;
 }
