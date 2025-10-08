@@ -28,6 +28,7 @@ class SparseEncoder:
             )
         # NOTE: .default() downloads defaults on first use; cache persists.
         self._bm25 = BM25Encoder.default()
+        log.info("sparse_encoder_ready", impl="BM25Encoder.default")
 
     def encode_doc(self, text: str) -> Dict[str, List[float]]:
         """Return sparse vector dict: {'indices':[...], 'values':[...]}"""

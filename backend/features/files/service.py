@@ -80,14 +80,7 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
     bkt = _bucket()
     blob = bkt.blob(object_name)
 
-    log.info("upload_start", extra={
-        "tenant": tenant_id or "demo",
-        "object": object_name,
-        "filename": file.filename,
-        "ctype": file.content_type or "",
-        "size": size,
-        "checksum": checksum[:12],
-    })
+    log.info("upload_start", tenant=tenant_id or "demo", object=object_name, filename=file.filename, ctype=file.content_type or "", size=size, checksum=checksum[:12])
 
     blob.metadata = {
         "checksum": checksum,
@@ -100,6 +93,7 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
 
     text = _extract_text(file.filename, file.content_type, data)
     if text:
+        log.info("upload_text_extracted", object=object_name, chars=len(text), ctype=file.content_type or "")
         try:
             uid = (tenant_id or "demo")
             orchestrator.ingest_request(
@@ -110,17 +104,19 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
                 ),
                 uid=uid,
             )
-            log.info("upload_ingest_ok", extra={"object": object_name, "chars": len(text)})
+            log.info("upload_ingest_ok", object=object_name, chars=len(text))
         except Exception as e:
-            log.warning("upload_ingest_error", extra={"object": object_name, "error": str(e)})
+            log.warning("upload_ingest_error", object=object_name, error=str(e))
+    else:
+        log.info("upload_text_skipped", object=object_name, reason="no extractable text", ctype=file.content_type or "", size=size)
 
-    log.info("upload_done", extra={"object": object_name})
+    log.info("upload_done", object=object_name)
     return UploadResponse(job_id=object_name)
 
 def list_files(tenant_id: Optional[str]) -> List[FileItem]:
     bkt = _bucket()
     prefix = f"{_tenant_prefix(tenant_id)}/uploads/"
-    log.info("list_start", extra={"prefix": prefix})
+    log.info("list_start", prefix=prefix)
     items: List[FileItem] = []
     for blob in bkt.list_blobs(prefix=prefix):
         if blob.name.endswith("/"):
@@ -136,18 +132,18 @@ def list_files(tenant_id: Optional[str]) -> List[FileItem]:
             )
         )
     items.sort(key=lambda x: x.created_at or "", reverse=True)
-    log.info("list_ok", extra={"count": len(items)})
+    log.info("list_ok", count=len(items))
     return items
 
 def delete_file(tenant_id: Optional[str], file_id: str) -> bool:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()
-    log.info("delete_start", extra={"file_id": file_id, "exists": exists})
+    log.info("delete_start", file_id=file_id, exists=exists)
     if not exists:
         return False
     blob.delete()
-    log.info("delete_ok", extra={"file_id": file_id})
+    log.info("delete_ok", file_id=file_id)
     return True
 
 def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
@@ -156,7 +152,7 @@ def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
     blob = bkt.blob(file_id)
     exists = blob.exists()
     if not exists:
-        log.warning("download_missing", extra={"file_id": file_id})
+        log.warning("download_missing", file_id=file_id)
         raise FileNotFoundError("File not found")
 
     # Prefer the original filename from metadata; otherwise, last segment of path.
@@ -179,22 +175,17 @@ def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
         # but helps when missing.
         response_type=blob.content_type or "application/octet-stream",
     )
-    log.info("download_url_generated", extra={
-        "file_id": file_id,
-        "expires_min": minutes,
-        "url_len": len(url) if url else 0,
-        "disposition": disposition,
-    })
+    log.info("download_url_generated", file_id=file_id, expires_min=minutes, url_len=len(url) if url else 0, disposition=disposition)
     return url
 
 def get_file_bytes(file_id: str) -> Tuple[bytes, str]:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()
-    log.info("get_bytes_start", extra={"file_id": file_id, "exists": exists})
+    log.info("get_bytes_start", file_id=file_id, exists=exists)
     if not exists:
         raise FileNotFoundError("File not found")
     data: bytes = blob.download_as_bytes()
     content_type: str = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"
-    log.info("get_bytes_ok", extra={"file_id": file_id, "bytes": len(data), "content_type": content_type})
+    log.info("get_bytes_ok", file_id=file_id, bytes=len(data), content_type=content_type)
     return data, content_type

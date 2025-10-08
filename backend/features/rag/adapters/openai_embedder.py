@@ -33,8 +33,10 @@ class OpenAIEmbedder:
             try:
                 resp = self.client.embeddings.create(model=self.model, input=texts, timeout=self.timeout)
                 dur_ms = int((time.time() - t0) * 1000)
-                log.info("openai_embed_ok", model=self.model, count=len(texts), dur_ms=dur_ms)
-                return [d.embedding for d in resp.data]
+                data = resp.data or []
+                dim = len(data[0].embedding) if data else 0
+                log.info("openai_embed_ok", model=self.model, count=len(texts), dur_ms=dur_ms, dim=dim)
+                return [d.embedding for d in data]
             except Exception as e:
                 if attempt == self.max_retries - 1:
                     log.exception("openai_embed_error_final")

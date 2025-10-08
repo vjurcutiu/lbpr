@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from typing import Dict, List, Tuple
 import os
@@ -25,11 +24,21 @@ ALPHA = float(os.getenv("RAG_HYBRID_ALPHA") or "0.5")
 def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
     """Low-level ingest: takes prepared chunks with 'text' and precomputed vectors."""
     texts = [c["text"] for c in chunks]
+    log.info("ingest_embed_start", dataset=dataset, doc_id=doc_id, chunks=len(chunks))
+
     vectors = embed_texts(texts)
-    sparse_list = [_sparse.encode_doc(t) for t in texts]
+    dim = len(vectors[0]) if vectors else 0
+    log.info("ingest_vectors_ready", dataset=dataset, doc_id=doc_id, dim=dim, chunks=len(chunks))
+
+    sparse_list = []
+    try:
+        sparse_list = [_sparse.encode_doc(t) for t in texts]
+        log.info("ingest_sparse_ready", dataset=dataset, doc_id=doc_id, chunks=len(sparse_list))
+    except Exception as e:
+        log.warning("ingest_sparse_failed", dataset=dataset, doc_id=doc_id, error=str(e))
 
     entries = []
-    for c, v, sv in zip(chunks, vectors, sparse_list):
+    for c, v, sv in zip(chunks, vectors, sparse_list or [{} for _ in range(len(vectors))]):
         span = c.get("span") or {"start": 0, "end": 0}
         entries.append(
             {
@@ -58,7 +67,11 @@ def ingest_request(req: IngestRequest, uid: str) -> IngestResponse:
     meta = dict(req.metadata or {})
     meta.setdefault("owner_uid", uid)
 
+    log.info("ingest_start", dataset=req.dataset, dataset_ns=dataset_ns, uid=uid, text_chars=len(text), meta_keys=list(meta.keys()))
+
     chunks = simple_word_chunker(text) if text else []
+    log.info("ingest_chunked", dataset=dataset_ns, doc_id=doc_id, chunks=len(chunks))
+
     _ingest_impl(dataset_ns, doc_id, chunks, meta)
 
     return IngestResponse(dataset=dataset_ns, doc_id=doc_id, chunk_ids=[c["chunk_id"] for c in chunks])
@@ -69,7 +82,11 @@ def query_request(req: QueryRequest, uid: str) -> QueryResponse:
     dataset_ns = pinecone_namespace(uid, req.dataset)
 
     qvec = embed_one(req.query)
-    qsparse = _sparse.encode_query(req.query)
+    qsparse = {}
+    try:
+        qsparse = _sparse.encode_query(req.query)
+    except Exception as e:
+        log.warning("query_sparse_failed", dataset=dataset_ns, error=str(e))
 
     log.info("query_start", dataset=dataset_ns, k=req.k, fusion=FUSION, alpha=ALPHA)
 

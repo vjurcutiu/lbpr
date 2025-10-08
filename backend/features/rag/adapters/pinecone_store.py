@@ -22,38 +22,66 @@ def _pc():
 class PineconeVectorStore:
     def __init__(self):
         self._index_name = os.getenv("PINECONE_INDEX", "lbpr")
+        # NOTE: Treat this as a *hint*. We'll still validate against actual vector dims at upsert time.
         self._dimension = int(os.getenv("RAG_EMBED_DIM", "512"))
         self._cloud = os.getenv("PINECONE_CLOUD", "aws")
         self._region = os.getenv("PINECONE_REGION", "us-east-1")
         self._index = None
-        log.info("pinecone_store_init", extra={"index": self._index_name})
+        log.info("pinecone_store_init", index=self._index_name, cloud=self._cloud, region=self._region, dim_hint=self._dimension)
 
     # ---- index management --------------------------------------------------
-    def _ensure_index(self, dimension: int):
+    def _ensure_index(self, required_dim: int):
         pc = _pc()
-        if self._index_name not in [i["name"] for i in pc.list_indexes()]:
-            log.info(
-                "pinecone_create_index",
-                extra={"index": self._index_name, "dim": dimension, "region": self._region},
-            )
+
+        # Create if missing
+        names = []
+        try:
+            names = [i["name"] for i in pc.list_indexes()]
+        except Exception as e:
+            log.exception("pinecone_list_indexes_error")
+        if self._index_name not in names:
+            dim_to_use = required_dim or self._dimension
+            log.info("pinecone_create_index", index=self._index_name, dim=dim_to_use, region=self._region, cloud=self._cloud, metric="cosine", serverless=True)
             pc.create_index(
                 name=self._index_name,
-                dimension=dimension,
+                dimension=dim_to_use,
                 metric="cosine",
                 spec=ServerlessSpec(cloud=self._cloud, region=self._region),
             )
         self._index = pc.Index(self._index_name)
 
-    def _index_handle(self):
+        # Validate dimension using describe_index_stats (data plane) as it's widely available
+        try:
+            stats = self._index.describe_index_stats()
+            idx_dim = int(stats.get("dimension") or 0)
+            log.info("pinecone_index_stats", index=self._index_name, dimension=idx_dim, namespaces=list((stats.get("namespaces") or {}).keys()))
+            if required_dim and idx_dim and idx_dim != required_dim:
+                # Hard error — this is the #1 cause of silent upsert failures.
+                log.error("pinecone_index_dim_mismatch", index=self._index_name, index_dim=idx_dim, embed_dim=required_dim)
+                raise ValueError(f"Pinecone index '{self._index_name}' dimension ({idx_dim}) does not match embedding size ({required_dim}). "
+                                 "Create a new index with the correct dimension or set RAG_EMBED_DIM accordingly.")
+        except Exception as e:
+            # Non-fatal: if stats call fails, proceed but at least log it.
+            log.warning("pinecone_describe_index_stats_failed", index=self._index_name, error=str(e))
+
+    def _index_handle(self, required_dim: Optional[int] = None):
         if self._index is None:
-            self._ensure_index(self._dimension)
+            self._ensure_index(required_dim or self._dimension)
         return self._index
 
     # ---- upsert -----------------------------------------------------------
     def upsert_chunks(self, dataset: str, entries: List[Dict]):
         if not entries:
             return
-        idx = self._index_handle()
+
+        # Determine vector dimension from first entry
+        first_vec = entries[0].get("vector") or []
+        vec_dim = len(first_vec) if isinstance(first_vec, (list, tuple)) else 0
+        if vec_dim <= 0:
+            log.error("pinecone_upsert_missing_vectors", namespace=dataset, count=len(entries))
+            raise ValueError("Attempted to upsert without dense vectors")
+
+        idx = self._index_handle(required_dim=vec_dim)
         ns = dataset
         vectors = []
         for e in entries:
@@ -71,9 +99,15 @@ class PineconeVectorStore:
                 # Pinecone expects 'sparse_values': {'indices': [...], 'values': [...]}
                 vec["sparse_values"] = e["sparse"]
             vectors.append(vec)
-        log.info("pinecone_upsert_start", extra={"namespace": ns, "count": len(vectors)})
-        idx.upsert(vectors=vectors, namespace=ns)
-        log.info("pinecone_upsert_done", extra={"namespace": ns, "count": len(vectors)})
+        log.info("pinecone_upsert_start", namespace=ns, count=len(vectors), index=self._index_name, dim=vec_dim)
+        try:
+            idx.upsert(vectors=vectors, namespace=ns)
+            log.info("pinecone_upsert_done", namespace=ns, count=len(vectors))
+        except Exception as e:
+            # Add a super-detailed error to help diagnose
+            ids_preview = [v["id"] for v in vectors[:3]]
+            log.exception("pinecone_upsert_error", namespace=ns, index=self._index_name, dim=vec_dim, sample_ids=ids_preview)
+            raise
 
     # ---- query helpers ----------------------------------------------------
     def _to_hits(self, res) -> List[Tuple[float, Dict]]:
@@ -98,7 +132,7 @@ class PineconeVectorStore:
         return out
 
     def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
-        idx = self._index_handle()
+        idx = self._index_handle(required_dim=len(q_dense or []))
         res = idx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
         return self._to_hits(res)
 
@@ -116,11 +150,10 @@ class PineconeVectorStore:
         fusion: str = "rrf",
         alpha: float = 0.5,
     ):
-        idx = self._index_handle()
+        idx = self._index_handle(required_dim=len(q_dense or []))
 
         if fusion == "alpha":
-            # Single-call hybrid with convex scaling (recommended when you want strict weighting).
-            # If you want *external* scaling (pinecone_text.hybrid), do it in caller; here we send both vectors.
+            # Single-call hybrid with convex scaling.
             res = idx.query(
                 vector=q_dense,
                 sparse_vector=q_sparse,
@@ -130,7 +163,7 @@ class PineconeVectorStore:
             )
             return self._to_hits(res)
 
-        # Default: two queries + RRF fusion (robust, simple, dependency-free).
+        # Default: two queries + RRF fusion.
         topd = self.query_dense(dataset, q_dense, k=max(k, 20))
         tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
         dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
