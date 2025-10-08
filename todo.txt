@@ -1,4 +1,6 @@
 add env vars in prod (secrets)
 make sure pdfs and  docx  are rate limited
 change url on confirmation email to prod confirmation page
-check signup page
+check email confirmation page
+add md to chat
+fix scrollbars in darkmode

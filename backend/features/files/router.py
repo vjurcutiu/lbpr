@@ -2,11 +2,23 @@ from __future__ import annotations
 
 from typing import Optional
 import logging
-from fastapi import APIRouter, File, UploadFile, Header, HTTPException, Query, Request
+from fastapi import APIRouter, File, UploadFile, Header, HTTPException, Query, Request, Depends
 from fastapi.responses import RedirectResponse, Response
 
 from .schemas import FileItem, UploadResponse, DeleteResponse
 from . import service
+
+# Auth deps
+try:
+    from features.auth.deps import get_current_user  # type: ignore
+    from features.auth.models import SessionOut  # type: ignore
+except Exception:  # pragma: no cover
+    def get_current_user():
+        class _U:
+            uid = "dev"
+        return _U()  # type: ignore
+    class SessionOut:  # type: ignore
+        uid: str = "dev"
 
 router = APIRouter(prefix="/v1/files", tags=["Files"])
 log = logging.getLogger("files.router")
@@ -18,15 +30,18 @@ def _hdr(request: Request, name: str) -> str | None:
         return None
 
 @router.get("", response_model=list[FileItem])
-def list_files(x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False), request: Request = None):
+def list_files(request: Request, user: SessionOut = Depends(get_current_user)):
+    """
+    List files for the **current user**, stored under the per-user folder.
+    """
     try:
         log.info("files_list_request", extra={
-            "tenant": x_tenant_id or "demo",
+            "uid": getattr(user, "uid", None) or "dev",
             "client": str(getattr(request, "client", "")) if request else None,
             "ua": _hdr(request, "user-agent") if request else None,
         })
-        out = service.list_files(x_tenant_id)
-        log.info("files_list_ok", extra={"count": len(out), "tenant": x_tenant_id or "demo"})
+        out = service.list_files(user_uid=user.uid)
+        log.info("files_list_ok", extra={"count": len(out), "uid": user.uid})
         return out
     except Exception as e:
         log.exception("files_list_error")
@@ -35,18 +50,23 @@ def list_files(x_tenant_id: Optional[str] = Header(default=None, convert_undersc
 @router.post("", response_model=UploadResponse, status_code=202)
 def create_file(
     file: UploadFile = File(...),
-    x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False),
     dataset: str = "default",
     request: Request = None,
+    user: SessionOut = Depends(get_current_user),
 ):
+    """
+    Upload a file into the **current user's** storage namespace and ingest it into
+    the matching per-user Pinecone namespace `u:{uid}:{dataset}`.
+    """
     try:
         log.info("files_upload_request", extra={
-            "tenant": x_tenant_id or "demo",
+            "uid": user.uid,
             "filename": getattr(file, "filename", None),
             "ctype": getattr(file, "content_type", None),
+            "dataset": dataset,
         })
-        resp = service.upload_file(x_tenant_id, file, dataset=dataset)
-        log.info("files_upload_ok", extra={"job_id": resp.job_id, "tenant": x_tenant_id or "demo"})
+        resp = service.upload_file(user_uid=user.uid, file=file, dataset=dataset)
+        log.info("files_upload_ok", extra={"job_id": resp.job_id, "uid": user.uid})
         return resp
     except ValueError as ve:
         log.warning("files_upload_rejected", extra={"reason": str(ve)})
@@ -56,15 +76,15 @@ def create_file(
         raise HTTPException(status_code=400, detail=str(e))
 
 # IMPORTANT: order matters in FastAPI. The more specific route must appear BEFORE the catch-all {file_id:path}.
-# Put the download variant first so it doesn't get swallowed by the generic get_file route below.
 
 @router.get("/{file_id:path}/download")
-def download_file(file_id: str, request: Request):
+def download_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
         log.info("files_download_request", extra={
             "file_id": file_id,
             "referer": _hdr(request, "referer"),
             "ua": _hdr(request, "user-agent"),
+            "uid": user.uid,
         })
         url = service.get_signed_download_url(file_id)
         log.info("files_download_redirect", extra={
@@ -81,13 +101,14 @@ def download_file(file_id: str, request: Request):
 
 # --- Path-based inline preview (catch-all) ---
 @router.get("/{file_id:path}")
-def get_file(file_id: str, request: Request):
+def get_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     """Return raw file bytes with correct Content-Type for inline preview."""
     try:
         log.info("files_get_request", extra={
             "file_id": file_id,
             "accept": _hdr(request, "accept"),
             "referer": _hdr(request, "referer"),
+            "uid": user.uid,
         })
         data, content_type = service.get_file_bytes(file_id)
         log.info("files_get_ok", extra={"file_id": file_id, "content_type": content_type, "bytes": len(data)})
@@ -100,13 +121,13 @@ def get_file(file_id: str, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{file_id:path}", response_model=DeleteResponse)
-def delete_file(file_id: str, x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False), request: Request = None):
+def delete_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
         log.info("files_delete_request", extra={
             "file_id": file_id,
-            "tenant": x_tenant_id or "demo",
+            "uid": user.uid,
         })
-        ok = service.delete_file(x_tenant_id, file_id)
+        ok = service.delete_file(file_id)
         if not ok:
             log.warning("files_delete_not_found", extra={"file_id": file_id})
             raise HTTPException(status_code=404, detail="File not found")

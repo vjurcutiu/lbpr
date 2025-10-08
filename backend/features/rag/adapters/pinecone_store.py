@@ -1,182 +1,76 @@
 from __future__ import annotations
-from typing import Dict, List, Tuple, Optional
-import os
+
 import logging
+from typing import List, Dict, Tuple, Optional
+from pinecone.exceptions.exceptions import PineconeApiException
 
 log = logging.getLogger("rag.pinecone")
 
-try:
-    from pinecone import Pinecone, ServerlessSpec
-except Exception as e:  # pragma: no cover
-    Pinecone = None
-    ServerlessSpec = None
-    log.warning("pinecone sdk not available: %s", e)
+class PineconeStore:
+    def __init__(self, index, settings):
+        self.index = index
+        self.settings = settings
+        # use env toggle; default True (hybrid), but will auto-fallback on 400 errors
+        self._sparse_enabled = getattr(settings, "RAG_SPARSE_ENABLED", True)
 
-
-def _pc():
-    if Pinecone is None:
-        raise RuntimeError("pinecone sdk not installed. pip install pinecone")
-    return Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-
-
-class PineconeVectorStore:
-    def __init__(self):
-        self._index_name = os.getenv("PINECONE_INDEX", "lbpr")
-        # NOTE: Treat this as a *hint*. We'll still validate against actual vector dims at upsert time.
-        self._dimension = int(os.getenv("RAG_EMBED_DIM", "512"))
-        self._cloud = os.getenv("PINECONE_CLOUD", "aws")
-        self._region = os.getenv("PINECONE_REGION", "us-east-1")
-        self._index = None
-        log.info("pinecone_store_init", index=self._index_name, cloud=self._cloud, region=self._region, dim_hint=self._dimension)
-
-    # ---- index management --------------------------------------------------
-    def _ensure_index(self, required_dim: int):
-        pc = _pc()
-
-        # Create if missing
-        names = []
+    def _safe_query_sparse(self, dataset: str, q_sparse: Dict, k: int):
+        if not self._sparse_enabled:
+            log.info("pinecone_sparse_disabled", dataset=dataset, k=k)
+            return []
         try:
-            names = [i["name"] for i in pc.list_indexes()]
-        except Exception as e:
-            log.exception("pinecone_list_indexes_error")
-        if self._index_name not in names:
-            dim_to_use = required_dim or self._dimension
-            log.info("pinecone_create_index", index=self._index_name, dim=dim_to_use, region=self._region, cloud=self._cloud, metric="cosine", serverless=True)
-            pc.create_index(
-                name=self._index_name,
-                dimension=dim_to_use,
-                metric="cosine",
-                spec=ServerlessSpec(cloud=self._cloud, region=self._region),
-            )
-        self._index = pc.Index(self._index_name)
-
-        # Validate dimension using describe_index_stats (data plane) as it's widely available
-        try:
-            stats = self._index.describe_index_stats()
-            idx_dim = int(stats.get("dimension") or 0)
-            log.info("pinecone_index_stats", index=self._index_name, dimension=idx_dim, namespaces=list((stats.get("namespaces") or {}).keys()))
-            if required_dim and idx_dim and idx_dim != required_dim:
-                # Hard error — this is the #1 cause of silent upsert failures.
-                log.error("pinecone_index_dim_mismatch", index=self._index_name, index_dim=idx_dim, embed_dim=required_dim)
-                raise ValueError(f"Pinecone index '{self._index_name}' dimension ({idx_dim}) does not match embedding size ({required_dim}). "
-                                 "Create a new index with the correct dimension or set RAG_EMBED_DIM accordingly.")
-        except Exception as e:
-            # Non-fatal: if stats call fails, proceed but at least log it.
-            log.warning("pinecone_describe_index_stats_failed", index=self._index_name, error=str(e))
-
-    def _index_handle(self, required_dim: Optional[int] = None):
-        if self._index is None:
-            self._ensure_index(required_dim or self._dimension)
-        return self._index
-
-    # ---- upsert -----------------------------------------------------------
-    def upsert_chunks(self, dataset: str, entries: List[Dict]):
-        if not entries:
-            return
-
-        # Determine vector dimension from first entry
-        first_vec = entries[0].get("vector") or []
-        vec_dim = len(first_vec) if isinstance(first_vec, (list, tuple)) else 0
-        if vec_dim <= 0:
-            log.error("pinecone_upsert_missing_vectors", namespace=dataset, count=len(entries))
-            raise ValueError("Attempted to upsert without dense vectors")
-
-        idx = self._index_handle(required_dim=vec_dim)
-        ns = dataset
-        vectors = []
-        for e in entries:
-            vec = {
-                "id": f"{e['doc_id']}::{e['chunk_id']}",
-                "values": e["vector"],
-                "metadata": {
-                    "doc_id": e["doc_id"],
-                    "chunk_id": e["chunk_id"],
-                    "text": e["text"],
-                    **(e.get("metadata") or {}),
-                },
-            }
-            if e.get("sparse"):
-                # Pinecone expects 'sparse_values': {'indices': [...], 'values': [...]}
-                vec["sparse_values"] = e["sparse"]
-            vectors.append(vec)
-        log.info("pinecone_upsert_start", namespace=ns, count=len(vectors), index=self._index_name, dim=vec_dim)
-        try:
-            idx.upsert(vectors=vectors, namespace=ns)
-            log.info("pinecone_upsert_done", namespace=ns, count=len(vectors))
-        except Exception as e:
-            # Add a super-detailed error to help diagnose
-            ids_preview = [v["id"] for v in vectors[:3]]
-            log.exception("pinecone_upsert_error", namespace=ns, index=self._index_name, dim=vec_dim, sample_ids=ids_preview)
-            raise
-
-    # ---- query helpers ----------------------------------------------------
-    def _to_hits(self, res) -> List[Tuple[float, Dict]]:
-        out: List[Tuple[float, Dict]] = []
-        for m in res.get("matches", []) or []:
-            md = m.get("metadata", {}) or {}
-            out.append(
-                (
-                    float(m.get("score", 0.0)),
-                    {
-                        "chunk_id": md.get("chunk_id"),
-                        "doc_id": md.get("doc_id"),
-                        "text": md.get("text", ""),
-                        "metadata": {
-                            k: v for k, v in md.items() if k not in ("chunk_id", "doc_id", "text")
-                        },
-                        "vector": None,
-                    },
-                )
-            )
-        out.sort(key=lambda t: t[0], reverse=True)
-        return out
-
-    def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
-        idx = self._index_handle(required_dim=len(q_dense or []))
-        res = idx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
-        return self._to_hits(res)
-
-    def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
-        idx = self._index_handle()
-        res = idx.query(sparse_vector=q_sparse, top_k=k, include_metadata=True, namespace=str(dataset))
-        return self._to_hits(res)
-
-    def query_hybrid(
-        self,
-        dataset: str,
-        q_dense: List[float],
-        q_sparse: Dict,
-        k: int = 5,
-        fusion: str = "rrf",
-        alpha: float = 0.5,
-    ):
-        idx = self._index_handle(required_dim=len(q_dense or []))
-
-        if fusion == "alpha":
-            # Single-call hybrid with convex scaling.
-            res = idx.query(
-                vector=q_dense,
+            res = self.index.query(
                 sparse_vector=q_sparse,
                 top_k=k,
                 include_metadata=True,
                 namespace=str(dataset),
             )
-            return self._to_hits(res)
+            return res.matches or []
+        except PineconeApiException as e:
+            # Example: {"message":"Cannot query index with dense 'vector_type' with only sparse vector"}
+            msg = getattr(e, "body", None) or str(e)
+            if "only sparse vector" in msg or "with only sparse vector" in msg:
+                log.warning("pinecone_sparse_unsupported", dataset=dataset, error=str(e))
+                # Permanently disable further sparse attempts in this process
+                self._sparse_enabled = False
+                return []
+            # Other API errors should still surface
+            raise
 
-        # Default: two queries + RRF fusion.
-        topd = self.query_dense(dataset, q_dense, k=max(k, 20))
-        tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
-        dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
-        sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
+    def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 20):
+        return self._safe_query_sparse(dataset, q_sparse, k)
 
-        def rrf(ids_a, ids_b, k_out, k_rrf=60):
-            ranks = {}
-            for r, id_ in enumerate(ids_a, 1):
-                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
-            for r, id_ in enumerate(ids_b, 1):
-                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
-            return sorted(ranks.items(), key=lambda t: t[1], reverse=True)[:k_out]
+    def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
+        res = self.index.query(
+            vector=q_dense,
+            top_k=k,
+            include_metadata=True,
+            namespace=str(dataset),
+        )
+        return res.matches or []
 
-        fused = rrf(dense_ids, sparse_ids, k)
-        id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
-        return [(score, id2e[i]) for i, score in fused]
+    def query_hybrid(self, dataset: str, q_sparse: Optional[Dict], q_dense: Optional[List[float]], k: int = 5):
+        # Always try dense; sparse may be disabled/unsupported.
+        dense_matches = self.query_dense(dataset, q_dense, k=k) if q_dense is not None else []
+        sparse_matches = self.query_sparse(dataset, q_sparse, k=max(k, 20)) if q_sparse is not None else []
+
+        # Reciprocal Rank Fusion when both present, else return whichever exists
+        if dense_matches and sparse_matches:
+            return self._rrf_merge(dense_matches, sparse_matches, k=k)
+        return dense_matches or sparse_matches or []
+
+    @staticmethod
+    def _rrf_merge(dense, sparse, k=5, k_rrf: int = 60):
+        # Build rank maps
+        rank_d = {m.id: i for i, m in enumerate(dense)}
+        rank_s = {m.id: i for i, m in enumerate(sparse)}
+        ids = set(rank_d) | set(rank_s)
+        scored = []
+        for _id in ids:
+            rd = rank_d.get(_id, 1e9)
+            rs = rank_s.get(_id, 1e9)
+            score = 1.0 / (k_rrf + rd) + 1.0 / (k_rrf + rs)
+            # pick any representative match (prefer dense)
+            rep = next((m for m in dense if m.id == _id), None) or next((m for m in sparse if m.id == _id), None)
+            scored.append((score, rep))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [m for _, m in scored[:k]]

@@ -1,6 +1,7 @@
+# Per-user namespaces (UPDATED)
 
-# Per-user namespaces
+- **Pinecone**: queries & upserts use `u:{uid}:{dataset}` via `core.namespaces.pinecone_namespace(uid, dataset)`.
+- **Firebase**: files are stored under `core.namespaces.firebase_folder(uid)`, e.g. `users/{uid}/...` or `u:{uid}/...`.
+  This patch writes uploads at: `{firebase_folder(uid)}/uploads/{uuid}/{filename}` and sets `owner_uid` metadata.
 
-- **Pinecone**: we now write/query using namespaces of the form `u:{uid}:{dataset}`.
-- **Firebase**: when storing files or metadata, use `core.namespaces.firebase_folder(uid)`
-  as the base path, e.g. `users/{uid}/files/{fileId}`. Wire this in your Files router/service.
+Make sure the UI queries the RAG endpoints while authenticated so `uid` matches between upload and query.

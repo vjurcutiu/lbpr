@@ -162,7 +162,6 @@ C:/code2/lbpr/backend/features/rag/NAMESPACES.md
 
 
 C:/code2/lbpr/backend/features/rag/orchestrator.py
-
 from __future__ import annotations
 from typing import Dict, List, Tuple
 import os
@@ -189,11 +188,21 @@ ALPHA = float(os.getenv("RAG_HYBRID_ALPHA") or "0.5")
 def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
     """Low-level ingest: takes prepared chunks with 'text' and precomputed vectors."""
     texts = [c["text"] for c in chunks]
+    log.info("ingest_embed_start", dataset=dataset, doc_id=doc_id, chunks=len(chunks))
+
     vectors = embed_texts(texts)
-    sparse_list = [_sparse.encode_doc(t) for t in texts]
+    dim = len(vectors[0]) if vectors else 0
+    log.info("ingest_vectors_ready", dataset=dataset, doc_id=doc_id, dim=dim, chunks=len(chunks))
+
+    sparse_list = []
+    try:
+        sparse_list = [_sparse.encode_doc(t) for t in texts]
+        log.info("ingest_sparse_ready", dataset=dataset, doc_id=doc_id, chunks=len(sparse_list))
+    except Exception as e:
+        log.warning("ingest_sparse_failed", dataset=dataset, doc_id=doc_id, error=str(e))
 
     entries = []
-    for c, v, sv in zip(chunks, vectors, sparse_list):
+    for c, v, sv in zip(chunks, vectors, sparse_list or [{} for _ in range(len(vectors))]):
         span = c.get("span") or {"start": 0, "end": 0}
         entries.append(
             {
@@ -222,7 +231,11 @@ def ingest_request(req: IngestRequest, uid: str) -> IngestResponse:
     meta = dict(req.metadata or {})
     meta.setdefault("owner_uid", uid)
 
+    log.info("ingest_start", dataset=req.dataset, dataset_ns=dataset_ns, uid=uid, text_chars=len(text), meta_keys=list(meta.keys()))
+
     chunks = simple_word_chunker(text) if text else []
+    log.info("ingest_chunked", dataset=dataset_ns, doc_id=doc_id, chunks=len(chunks))
+
     _ingest_impl(dataset_ns, doc_id, chunks, meta)
 
     return IngestResponse(dataset=dataset_ns, doc_id=doc_id, chunk_ids=[c["chunk_id"] for c in chunks])
@@ -233,7 +246,11 @@ def query_request(req: QueryRequest, uid: str) -> QueryResponse:
     dataset_ns = pinecone_namespace(uid, req.dataset)
 
     qvec = embed_one(req.query)
-    qsparse = _sparse.encode_query(req.query)
+    qsparse = {}
+    try:
+        qsparse = _sparse.encode_query(req.query)
+    except Exception as e:
+        log.warning("query_sparse_failed", dataset=dataset_ns, error=str(e))
 
     log.info("query_start", dataset=dataset_ns, k=req.k, fusion=FUSION, alpha=ALPHA)
 
@@ -427,6 +444,7 @@ class SparseEncoder:
             )
         # NOTE: .default() downloads defaults on first use; cache persists.
         self._bm25 = BM25Encoder.default()
+        log.info("sparse_encoder_ready", impl="BM25Encoder.default")
 
     def encode_doc(self, text: str) -> Dict[str, List[float]]:
         """Return sparse vector dict: {'indices':[...], 'values':[...]}"""
@@ -695,8 +713,10 @@ class OpenAIEmbedder:
             try:
                 resp = self.client.embeddings.create(model=self.model, input=texts, timeout=self.timeout)
                 dur_ms = int((time.time() - t0) * 1000)
-                log.info("openai_embed_ok", model=self.model, count=len(texts), dur_ms=dur_ms)
-                return [d.embedding for d in resp.data]
+                data = resp.data or []
+                dim = len(data[0].embedding) if data else 0
+                log.info("openai_embed_ok", model=self.model, count=len(texts), dur_ms=dur_ms, dim=dim)
+                return [d.embedding for d in data]
             except Exception as e:
                 if attempt == self.max_retries - 1:
                     log.exception("openai_embed_error_final")
@@ -734,38 +754,66 @@ def _pc():
 class PineconeVectorStore:
     def __init__(self):
         self._index_name = os.getenv("PINECONE_INDEX", "lbpr")
+        # NOTE: Treat this as a *hint*. We'll still validate against actual vector dims at upsert time.
         self._dimension = int(os.getenv("RAG_EMBED_DIM", "512"))
         self._cloud = os.getenv("PINECONE_CLOUD", "aws")
         self._region = os.getenv("PINECONE_REGION", "us-east-1")
         self._index = None
-        log.info("pinecone_store_init", extra={"index": self._index_name})
+        log.info("pinecone_store_init", index=self._index_name, cloud=self._cloud, region=self._region, dim_hint=self._dimension)
 
     # ---- index management --------------------------------------------------
-    def _ensure_index(self, dimension: int):
+    def _ensure_index(self, required_dim: int):
         pc = _pc()
-        if self._index_name not in [i["name"] for i in pc.list_indexes()]:
-            log.info(
-                "pinecone_create_index",
-                extra={"index": self._index_name, "dim": dimension, "region": self._region},
-            )
+
+        # Create if missing
+        names = []
+        try:
+            names = [i["name"] for i in pc.list_indexes()]
+        except Exception as e:
+            log.exception("pinecone_list_indexes_error")
+        if self._index_name not in names:
+            dim_to_use = required_dim or self._dimension
+            log.info("pinecone_create_index", index=self._index_name, dim=dim_to_use, region=self._region, cloud=self._cloud, metric="cosine", serverless=True)
             pc.create_index(
                 name=self._index_name,
-                dimension=dimension,
+                dimension=dim_to_use,
                 metric="cosine",
                 spec=ServerlessSpec(cloud=self._cloud, region=self._region),
             )
         self._index = pc.Index(self._index_name)
 
-    def _index_handle(self):
+        # Validate dimension using describe_index_stats (data plane) as it's widely available
+        try:
+            stats = self._index.describe_index_stats()
+            idx_dim = int(stats.get("dimension") or 0)
+            log.info("pinecone_index_stats", index=self._index_name, dimension=idx_dim, namespaces=list((stats.get("namespaces") or {}).keys()))
+            if required_dim and idx_dim and idx_dim != required_dim:
+                # Hard error — this is the #1 cause of silent upsert failures.
+                log.error("pinecone_index_dim_mismatch", index=self._index_name, index_dim=idx_dim, embed_dim=required_dim)
+                raise ValueError(f"Pinecone index '{self._index_name}' dimension ({idx_dim}) does not match embedding size ({required_dim}). "
+                                 "Create a new index with the correct dimension or set RAG_EMBED_DIM accordingly.")
+        except Exception as e:
+            # Non-fatal: if stats call fails, proceed but at least log it.
+            log.warning("pinecone_describe_index_stats_failed", index=self._index_name, error=str(e))
+
+    def _index_handle(self, required_dim: Optional[int] = None):
         if self._index is None:
-            self._ensure_index(self._dimension)
+            self._ensure_index(required_dim or self._dimension)
         return self._index
 
     # ---- upsert -----------------------------------------------------------
     def upsert_chunks(self, dataset: str, entries: List[Dict]):
         if not entries:
             return
-        idx = self._index_handle()
+
+        # Determine vector dimension from first entry
+        first_vec = entries[0].get("vector") or []
+        vec_dim = len(first_vec) if isinstance(first_vec, (list, tuple)) else 0
+        if vec_dim <= 0:
+            log.error("pinecone_upsert_missing_vectors", namespace=dataset, count=len(entries))
+            raise ValueError("Attempted to upsert without dense vectors")
+
+        idx = self._index_handle(required_dim=vec_dim)
         ns = dataset
         vectors = []
         for e in entries:
@@ -783,9 +831,15 @@ class PineconeVectorStore:
                 # Pinecone expects 'sparse_values': {'indices': [...], 'values': [...]}
                 vec["sparse_values"] = e["sparse"]
             vectors.append(vec)
-        log.info("pinecone_upsert_start", extra={"namespace": ns, "count": len(vectors)})
-        idx.upsert(vectors=vectors, namespace=ns)
-        log.info("pinecone_upsert_done", extra={"namespace": ns, "count": len(vectors)})
+        log.info("pinecone_upsert_start", namespace=ns, count=len(vectors), index=self._index_name, dim=vec_dim)
+        try:
+            idx.upsert(vectors=vectors, namespace=ns)
+            log.info("pinecone_upsert_done", namespace=ns, count=len(vectors))
+        except Exception as e:
+            # Add a super-detailed error to help diagnose
+            ids_preview = [v["id"] for v in vectors[:3]]
+            log.exception("pinecone_upsert_error", namespace=ns, index=self._index_name, dim=vec_dim, sample_ids=ids_preview)
+            raise
 
     # ---- query helpers ----------------------------------------------------
     def _to_hits(self, res) -> List[Tuple[float, Dict]]:
@@ -810,7 +864,7 @@ class PineconeVectorStore:
         return out
 
     def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
-        idx = self._index_handle()
+        idx = self._index_handle(required_dim=len(q_dense or []))
         res = idx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
         return self._to_hits(res)
 
@@ -828,11 +882,10 @@ class PineconeVectorStore:
         fusion: str = "rrf",
         alpha: float = 0.5,
     ):
-        idx = self._index_handle()
+        idx = self._index_handle(required_dim=len(q_dense or []))
 
         if fusion == "alpha":
-            # Single-call hybrid with convex scaling (recommended when you want strict weighting).
-            # If you want *external* scaling (pinecone_text.hybrid), do it in caller; here we send both vectors.
+            # Single-call hybrid with convex scaling.
             res = idx.query(
                 vector=q_dense,
                 sparse_vector=q_sparse,
@@ -842,7 +895,7 @@ class PineconeVectorStore:
             )
             return self._to_hits(res)
 
-        # Default: two queries + RRF fusion (robust, simple, dependency-free).
+        # Default: two queries + RRF fusion.
         topd = self.query_dense(dataset, q_dense, k=max(k, 20))
         tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
         dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
@@ -1120,14 +1173,7 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
     bkt = _bucket()
     blob = bkt.blob(object_name)
 
-    log.info("upload_start", extra={
-        "tenant": tenant_id or "demo",
-        "object": object_name,
-        "filename": file.filename,
-        "ctype": file.content_type or "",
-        "size": size,
-        "checksum": checksum[:12],
-    })
+    log.info("upload_start", tenant=tenant_id or "demo", object=object_name, filename=file.filename, ctype=file.content_type or "", size=size, checksum=checksum[:12])
 
     blob.metadata = {
         "checksum": checksum,
@@ -1140,6 +1186,7 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
 
     text = _extract_text(file.filename, file.content_type, data)
     if text:
+        log.info("upload_text_extracted", object=object_name, chars=len(text), ctype=file.content_type or "")
         try:
             uid = (tenant_id or "demo")
             orchestrator.ingest_request(
@@ -1150,17 +1197,19 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
                 ),
                 uid=uid,
             )
-            log.info("upload_ingest_ok", extra={"object": object_name, "chars": len(text)})
+            log.info("upload_ingest_ok", object=object_name, chars=len(text))
         except Exception as e:
-            log.warning("upload_ingest_error", extra={"object": object_name, "error": str(e)})
+            log.warning("upload_ingest_error", object=object_name, error=str(e))
+    else:
+        log.info("upload_text_skipped", object=object_name, reason="no extractable text", ctype=file.content_type or "", size=size)
 
-    log.info("upload_done", extra={"object": object_name})
+    log.info("upload_done", object=object_name)
     return UploadResponse(job_id=object_name)
 
 def list_files(tenant_id: Optional[str]) -> List[FileItem]:
     bkt = _bucket()
     prefix = f"{_tenant_prefix(tenant_id)}/uploads/"
-    log.info("list_start", extra={"prefix": prefix})
+    log.info("list_start", prefix=prefix)
     items: List[FileItem] = []
     for blob in bkt.list_blobs(prefix=prefix):
         if blob.name.endswith("/"):
@@ -1176,18 +1225,18 @@ def list_files(tenant_id: Optional[str]) -> List[FileItem]:
             )
         )
     items.sort(key=lambda x: x.created_at or "", reverse=True)
-    log.info("list_ok", extra={"count": len(items)})
+    log.info("list_ok", count=len(items))
     return items
 
 def delete_file(tenant_id: Optional[str], file_id: str) -> bool:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()
-    log.info("delete_start", extra={"file_id": file_id, "exists": exists})
+    log.info("delete_start", file_id=file_id, exists=exists)
     if not exists:
         return False
     blob.delete()
-    log.info("delete_ok", extra={"file_id": file_id})
+    log.info("delete_ok", file_id=file_id)
     return True
 
 def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
@@ -1196,7 +1245,7 @@ def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
     blob = bkt.blob(file_id)
     exists = blob.exists()
     if not exists:
-        log.warning("download_missing", extra={"file_id": file_id})
+        log.warning("download_missing", file_id=file_id)
         raise FileNotFoundError("File not found")
 
     # Prefer the original filename from metadata; otherwise, last segment of path.
@@ -1219,24 +1268,19 @@ def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
         # but helps when missing.
         response_type=blob.content_type or "application/octet-stream",
     )
-    log.info("download_url_generated", extra={
-        "file_id": file_id,
-        "expires_min": minutes,
-        "url_len": len(url) if url else 0,
-        "disposition": disposition,
-    })
+    log.info("download_url_generated", file_id=file_id, expires_min=minutes, url_len=len(url) if url else 0, disposition=disposition)
     return url
 
 def get_file_bytes(file_id: str) -> Tuple[bytes, str]:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()
-    log.info("get_bytes_start", extra={"file_id": file_id, "exists": exists})
+    log.info("get_bytes_start", file_id=file_id, exists=exists)
     if not exists:
         raise FileNotFoundError("File not found")
     data: bytes = blob.download_as_bytes()
     content_type: str = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"
-    log.info("get_bytes_ok", extra={"file_id": file_id, "bytes": len(data), "content_type": content_type})
+    log.info("get_bytes_ok", file_id=file_id, bytes=len(data), content_type=content_type)
     return data, content_type
 
 
