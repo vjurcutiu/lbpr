@@ -1,7 +1,8 @@
 {
   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_files_context.txt",
-  "files": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\files\\api.ts",
-            "C:\\code2\\lbpr\\static\\spa\\src\\features\\files\\FilesPage.tsx"
-        ]
+  "folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\files\\components",
+              "C:\\code2\\lbpr\\static\\spa\\src\\features\\files\\utils",
+              "C:\\code2\\lbpr\\static\\spa\\src\\features\\files"
+            ]
 }
 

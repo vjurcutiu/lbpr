@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Trash2,
   Search,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -57,6 +66,10 @@ export default function FilesPage() {
   >({});
   const [tabs, setTabs] = useState<Array<{ id: string; title: string; contentType?: string }>>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  // in-file search + metadata modal
+  const [infileQuery, setInfileQuery] = useState("");
+  const [metaOpen, setMetaOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -302,28 +315,45 @@ export default function FilesPage() {
             )}
           </div>
 
-          {/* Breadcrumb header */}
-          <div className="h-8 flex items-center px-3 text-xs border-b text-muted-foreground">
-            {breadcrumbs.length > 0 ? (
-              <div className="truncate">
-                {breadcrumbs.map((p, i) => (
-                  <span key={i} className="mr-1">
-                    {i > 0 && <span className="mx-1">/</span>}
-                    <span className={cn(i === breadcrumbs.length - 1 && "text-foreground")}>
-                      {p}
-                    </span>
-                  </span>
-                ))}
+          {/* Title section with breadcrumbs + in-file search + metadata */}
+          <div className="flex items-center gap-2 px-3 py-2 border-b bg-background">
+            <div className="flex-1 min-w-0">
+              <div className="text-xs text-muted-foreground truncate">
+                {activeId ? (
+                  (files.find((f) => f.id === activeId)?.name || "Unknown")
+                ) : (
+                  "Ready."
+                )}
               </div>
-            ) : (
-              <span>Ready.</span>
-            )}
+            </div>
+            {/* In-file search bar */}
+            <div className="relative w-[26rem] max-w-[60vw]">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder={activeId ? "Search in this file…" : "Open a file to search…"}
+                value={infileQuery}
+                onChange={(e) => setInfileQuery(e.target.value)}
+                className="pl-8"
+                disabled={!activeId}
+              />
+            </div>
+            {/* Metadata button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMetaOpen(true)}
+              disabled={!activeId}
+              title="View file metadata"
+            >
+              <Info className="h-4 w-4" />
+              <span className="ml-1.5 hidden sm:inline">Metadata</span>
+            </Button>
           </div>
 
           {/* Viewer */}
           <div className="flex-1 min-h-0 overflow-auto p-4 font-mono text-sm">
             {activeId ? (
-              <FileViewer payload={content[activeId]} file={activeFile} />
+              <FileViewer payload={content[activeId]} file={activeFile} searchTerm={infileQuery} />
             ) : (
               <EmptyState />
             )}
@@ -370,6 +400,48 @@ export default function FilesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Metadata modal */}
+      <Dialog open={metaOpen} onOpenChange={setMetaOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>File info</DialogTitle>
+            <DialogDescription>Details and metadata for the selected file.</DialogDescription>
+          </DialogHeader>
+          {activeFile ? (
+            <div className="text-sm grid grid-cols-3 gap-x-4 gap-y-2">
+              <div className="text-muted-foreground">Name</div>
+              <div className="col-span-2 break-all">{activeFile.name}</div>
+
+              <div className="text-muted-foreground">ID</div>
+              <div className="col-span-2 break-all">{activeFile.id}</div>
+
+              <div className="text-muted-foreground">Size</div>
+              <div className="col-span-2">{fmtSize(activeFile.size)}</div>
+
+              <div className="text-muted-foreground">Type</div>
+              <div className="col-span-2">{activeFile.content_type || "—"}</div>
+
+              <div className="text-muted-foreground">Created</div>
+              <div className="col-span-2">
+                {activeFile.created_at ? new Date(activeFile.created_at).toLocaleString() : "—"}
+              </div>
+
+              {content[activeFile.id]?.contentType && (
+                <>
+                  <div className="text-muted-foreground">Preview type</div>
+                  <div className="col-span-2">{content[activeFile.id]?.contentType}</div>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground">No file selected.</div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMetaOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
