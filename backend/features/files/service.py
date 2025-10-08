@@ -1,9 +1,9 @@
-
 from __future__ import annotations
 
 import io
 import uuid
 import hashlib
+import logging
 from typing import List, Optional, Dict, Any, Iterable, Tuple
 
 from fastapi import UploadFile
@@ -15,10 +15,12 @@ from features.rag import orchestrator
 from features.rag.schemas import IngestRequest
 
 TENANT_HEADER = "x-tenant-id"
+log = logging.getLogger("files.service")
 
 def _bucket():
     # Uses default app from core.firebase.init_firebase()
     bucket_name = settings.FIREBASE_STORAGE_BUCKET or f"{settings.FIREBASE_PROJECT_ID}.appspot.com"
+    log.debug("bucket_resolve", extra={"bucket": bucket_name})
     return storage.bucket(bucket_name)
 
 def _tenant_prefix(tenant_id: Optional[str]) -> str:
@@ -94,6 +96,15 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
     bkt = _bucket()
     blob = bkt.blob(object_name)
 
+    log.info("upload_start", extra={
+        "tenant": tenant_id or "demo",
+        "object": object_name,
+        "filename": file.filename,
+        "ctype": file.content_type or "",
+        "size": size,
+        "checksum": checksum[:12],
+    })
+
     # Upload with metadata
     blob.metadata = {
         "checksum": checksum,
@@ -118,16 +129,19 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
                 ),
                 uid=uid,
             )
+            log.info("upload_ingest_ok", extra={"object": object_name, "chars": len(text)})
         except Exception as e:
             # Don't fail the upload if indexing fails
-            print(f"[files] Ingest failed for {file.filename}: {e}")
+            log.warning("upload_ingest_error", extra={"object": object_name, "error": str(e)})
 
     # job_id can be the blob name for now (acts as a stable handle)
+    log.info("upload_done", extra={"object": object_name})
     return UploadResponse(job_id=object_name)
 
 def list_files(tenant_id: Optional[str]) -> List[FileItem]:
     bkt = _bucket()
     prefix = f"{_tenant_prefix(tenant_id)}/uploads/"
+    log.info("list_start", extra={"prefix": prefix})
     items: List[FileItem] = []
     for blob in bkt.list_blobs(prefix=prefix):
         # Only leaf files (skip 'folder' markers)
@@ -145,30 +159,45 @@ def list_files(tenant_id: Optional[str]) -> List[FileItem]:
         )
     # Sort newest first
     items.sort(key=lambda x: x.created_at or "", reverse=True)
+    log.info("list_ok", extra={"count": len(items)})
     return items
 
 def delete_file(tenant_id: Optional[str], file_id: str) -> bool:
     bkt = _bucket()
     blob = bkt.blob(file_id)
-    if not blob.exists():
+    exists = blob.exists()
+    log.info("delete_start", extra={"file_id": file_id, "exists": exists})
+    if not exists:
         return False
     blob.delete()
+    log.info("delete_ok", extra={"file_id": file_id})
     return True
 
 def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
     bkt = _bucket()
     blob = bkt.blob(file_id)
-    if not blob.exists():
+    exists = blob.exists()
+    if not exists:
+        log.warning("download_missing", extra={"file_id": file_id})
         raise FileNotFoundError("File not found")
     from datetime import timedelta
-    return blob.generate_signed_url(expiration=timedelta(minutes=minutes), method="GET")
+    url = blob.generate_signed_url(expiration=timedelta(minutes=minutes), method="GET")
+    log.info("download_url_generated", extra={
+        "file_id": file_id,
+        "expires_min": minutes,
+        "url_len": len(url) if url else 0,
+    })
+    return url
 
 def get_file_bytes(file_id: str) -> Tuple[bytes, str]:
     """Fetch raw bytes and content-type for a stored file so the frontend can preview inline."""
     bkt = _bucket()
     blob = bkt.blob(file_id)
-    if not blob.exists():
+    exists = blob.exists()
+    log.info("get_bytes_start", extra={"file_id": file_id, "exists": exists})
+    if not exists:
         raise FileNotFoundError("File not found")
     data: bytes = blob.download_as_bytes()
     content_type: str = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"
+    log.info("get_bytes_ok", extra={"file_id": file_id, "bytes": len(data), "content_type": content_type})
     return data, content_type

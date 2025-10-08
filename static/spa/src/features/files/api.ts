@@ -35,7 +35,9 @@ export async function uploadFile(file: File): Promise<{ job_id: string }> {
 }
 
 export function fileDownloadUrl(id: string) {
-  return `${API_BASE}/v1/files/${encodeURIComponent(id)}/download`;
+  const url = `${API_BASE}/v1/files/${encodeURIComponent(id)}/download`;
+  console.debug("[files] fileDownloadUrl", { id, url });
+  return url;
 }
 
 /** Optional: if/when backend supports it:
@@ -53,20 +55,28 @@ export async function getFileContent(id: string): Promise<{
   url?: string;          // blob URL for image/pdf/other
   contentType?: string;
 }> {
-  const res = await fetch(`${API_BASE}/v1/files/${encodeURIComponent(id)}`, {
+  const url = `${API_BASE}/v1/files/${encodeURIComponent(id)}`;
+  console.debug("[files] getFileContent ->", { id, url });
+  const res = await fetch(url, {
     credentials: "include",
     headers: { Accept: "*/*" },
   });
-  if (!res.ok) throw new Error(await res.text());
+  console.debug("[files] getFileContent status", res.status, res.statusText);
+  if (!res.ok) {
+    const txt = await res.text();
+    console.error("[files] getFileContent error", txt);
+    throw new Error(txt);
+  }
   const ct = res.headers.get("content-type") || "";
+  console.debug("[files] getFileContent content-type", ct);
   if (ct.startsWith("text/") || ct.includes("json") || ct.includes("xml") || ct.includes("markdown")) {
     const text = await res.text();
     return { kind: "text", text, contentType: ct };
   }
   // treat common binaries
   const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  if (ct.includes("pdf")) return { kind: "pdf", url, contentType: ct };
-  if (ct.startsWith("image/")) return { kind: "image", url, contentType: ct };
-  return { kind: "other", url, contentType: ct };
+  const blobUrl = URL.createObjectURL(blob);
+  if (ct.includes("pdf")) return { kind: "pdf", url: blobUrl, contentType: ct };
+  if (ct.startsWith("image/")) return { kind: "image", url: blobUrl, contentType: ct };
+  return { kind: "other", url: blobUrl, contentType: ct };
 }

@@ -118,10 +118,11 @@ export default function FilesPage() {
     setBusy(true);
     try {
       const data = await listFiles();
+      console.debug("[files] listFiles ok", data.length);
       setFiles(data);
       setTree(buildTree(data));
     } catch (err) {
-      console.error(err);
+      console.error("[files] listFiles error", err);
     } finally {
       setBusy(false);
     }
@@ -168,6 +169,7 @@ export default function FilesPage() {
   };
 
   const openFile = async (file: FileItem) => {
+    console.debug("[files] openFile", file.id, file.name);
     // open tab if not already
     setTabs((prev) => {
       if (prev.some((t) => t.id === file.id)) return prev;
@@ -178,6 +180,7 @@ export default function FilesPage() {
     if (!content[file.id]) {
       try {
         const payload = await getFileContent(file.id);
+        console.debug("[files] content loaded", { id: file.id, kind: payload.kind, ct: payload.contentType });
         setContent((m) => ({ ...m, [file.id]: payload }));
       } catch (e) {
         console.error(e);
@@ -464,6 +467,7 @@ function FileRow({
   onDelete: (f: FileItem) => void;
 }) {
   const f = node.file!;
+  const href = fileDownloadUrl(f.id);
   return (
     <div className="group flex items-center justify-between rounded hover:bg-muted/40">
       <button
@@ -475,7 +479,12 @@ function FileRow({
         <span className="truncate">{node.name}</span>
       </button>
       <div className="opacity-0 group-hover:opacity-100 transition flex items-center gap-0.5 pr-1">
-        <a href={fileDownloadUrl(f.id)} title="Download" className="p-1 rounded hover:bg-muted">
+        <a
+          href={href}
+          title="Download"
+          className="p-1 rounded hover:bg-muted"
+          onClick={() => console.debug("[files] click sidebar download", { id: f.id, href })}
+        >
           <Download className="h-4 w-4" />
         </a>
 
@@ -487,7 +496,12 @@ function FileRow({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[10rem]">
-            <DropdownMenuItem onClick={() => window.open(fileDownloadUrl(f.id), "_self")}>
+            <DropdownMenuItem
+              onClick={() => {
+                console.debug("[files] dropdown download", { id: f.id, href });
+                window.open(href, "_self");
+              }}
+            >
               <Download className="h-4 w-4" /> Download
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -550,7 +564,7 @@ function FileViewer({
   return (
     <div className="text-sm">
       Preview not available.{" "}
-      <a className="underline" href={fileDownloadUrl(file.id)}>
+      <a className="underline" href={fileDownloadUrl(file.id)} onClick={() => console.debug("[files] viewer download", { id: file.id })}>
         Download
       </a>
     </div>
