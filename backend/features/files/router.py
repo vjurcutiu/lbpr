@@ -55,8 +55,31 @@ def create_file(
         log.exception("files_upload_error")
         raise HTTPException(status_code=400, detail=str(e))
 
-# --- Path-based routes (work if proxy preserves encoded slashes) ---
+# IMPORTANT: order matters in FastAPI. The more specific route must appear BEFORE the catch-all {file_id:path}.
+# Put the download variant first so it doesn't get swallowed by the generic get_file route below.
 
+@router.get("/{file_id:path}/download")
+def download_file(file_id: str, request: Request):
+    try:
+        log.info("files_download_request", extra={
+            "file_id": file_id,
+            "referer": _hdr(request, "referer"),
+            "ua": _hdr(request, "user-agent"),
+        })
+        url = service.get_signed_download_url(file_id)
+        log.info("files_download_redirect", extra={
+            "file_id": file_id,
+            "signed_url_len": len(url) if url else 0,
+        })
+        return RedirectResponse(url)
+    except FileNotFoundError:
+        log.warning("files_download_not_found", extra={"file_id": file_id})
+        raise HTTPException(status_code=404, detail="File not found")
+    except Exception as e:
+        log.exception("files_download_error")
+        raise HTTPException(status_code=400, detail=str(e))
+
+# --- Path-based inline preview (catch-all) ---
 @router.get("/{file_id:path}")
 def get_file(file_id: str, request: Request):
     """Return raw file bytes with correct Content-Type for inline preview."""
@@ -74,28 +97,6 @@ def get_file(file_id: str, request: Request):
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
         log.exception("files_get_error")
-        raise HTTPException(status_code=400, detail=str(e))
-
-@router.get("/{file_id:path}/download")
-def download_file(file_id: str, request: Request):
-    try:
-        log.info("files_download_request", extra={
-            "file_id": file_id,
-            "referer": _hdr(request, "referer"),
-            "ua": _hdr(request, "user-agent"),
-        })
-        url = service.get_signed_download_url(file_id)
-        # Don't log full signed URL (may be long); show length & host if possible
-        log.info("files_download_redirect", extra={
-            "file_id": file_id,
-            "signed_url_len": len(url) if url else 0,
-        })
-        return RedirectResponse(url)
-    except FileNotFoundError:
-        log.warning("files_download_not_found", extra={"file_id": file_id})
-        raise HTTPException(status_code=404, detail="File not found")
-    except Exception as e:
-        log.exception("files_download_error")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{file_id:path}", response_model=DeleteResponse)
@@ -117,7 +118,7 @@ def delete_file(file_id: str, x_tenant_id: Optional[str] = Header(default=None, 
         log.exception("files_delete_error")
         raise HTTPException(status_code=400, detail=str(e))
 
-# --- Query-string routes (robust when proxies mangle %2F) ---
+# --- Query-string variants (robust when proxies mangle %2F) ---
 
 @router.get("/by-id")
 def get_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), request: Request = None):
