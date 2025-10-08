@@ -14,12 +14,24 @@ export async function listFiles(): Promise<FileItem[]> {
   return getJSON<FileItem[]>("/v1/files");
 }
 
+function extractMessage(text: string): string {
+  // try to parse common backend error envelopes
+  try {
+    const data = JSON.parse(text);
+    const msg = data?.detail || data?.message || data?.error || data?.msg;
+    if (typeof msg === "string" && msg.trim()) return msg;
+  } catch {}
+  // strip noisy html if any
+  const trimmed = text.replace(/<[^>]*>/g, "").trim();
+  return trimmed || "Unexpected server error";
+}
+
 export async function deleteFile(id: string): Promise<{ ok: boolean }> {
   const res = await fetch(`${API_BASE}/v1/files/${encodeURIComponent(id)}`, {
     method: "DELETE",
     credentials: "include",
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
   return { ok: true };
 }
 
@@ -31,7 +43,7 @@ export async function uploadFile(file: File): Promise<{ job_id: string }> {
     body: form,
     credentials: "include",
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
   return res.json();
 }
 
@@ -66,7 +78,14 @@ export async function getFileContent(id: string): Promise<{
   if (!res.ok) {
     const txt = await res.text();
     console.error("[files] getFileContent error", txt);
-    throw new Error(txt);
+    // surface a clean message up
+    try {
+      const data = JSON.parse(txt);
+      const msg = data?.detail || data?.message || data?.error || data?.msg || txt;
+      throw new Error(typeof msg === "string" ? msg : "Failed to load file");
+    } catch {
+      throw new Error(txt || "Failed to load file");
+    }
   }
   const ct = res.headers.get("content-type") || "";
   console.debug("[files] getFileContent content-type", ct);
@@ -109,6 +128,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import {
   listFiles,
@@ -184,7 +205,19 @@ type OpenTab = {
   contentType?: string;
 };
 
+function parseErr(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    const s = JSON.stringify(err);
+    return s.length ? s : "Unexpected error";
+  } catch {
+    return "Unexpected error";
+  }
+}
+
 export default function FilesPage() {
+  const { toast } = useToast();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [busy, setBusy] = useState(false);
@@ -194,6 +227,11 @@ export default function FilesPage() {
   const [isResizing, setIsResizing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
+
+  // delete modal
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
 
   // file content cache: id -> content payload
   const [content, setContent] = useState<Record<string, Awaited<ReturnType<typeof getFileContent>>>>({});
@@ -209,10 +247,15 @@ export default function FilesPage() {
       setTree(buildTree(data));
     } catch (err) {
       console.error("[files] listFiles error", err);
+      toast({
+        variant: "destructive",
+        title: "Failed to load files",
+        description: parseErr(err),
+      });
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -245,9 +288,17 @@ export default function FilesPage() {
     try {
       await uploadFile(f);
       await refresh();
+      toast({
+        title: "Upload complete",
+        description: `"${f.name}" has been uploaded.`,
+      });
     } catch (err) {
       console.error(err);
-      alert((err as any)?.message || "Upload failed");
+      toast({
+        variant: "destructive",
+        title: "Upload failed",
+        description: parseErr(err),
+      });
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -270,7 +321,11 @@ export default function FilesPage() {
         setContent((m) => ({ ...m, [file.id]: payload }));
       } catch (e) {
         console.error(e);
-        alert((e as any)?.message || "Failed to load file");
+        toast({
+          variant: "destructive",
+          title: "Preview failed",
+          description: parseErr(e),
+        });
       }
     }
   };
@@ -288,17 +343,32 @@ export default function FilesPage() {
     });
   };
 
-  const onDelete = async (file: FileItem) => {
-    if (!confirm(`Delete "${file.name}"?`)) return;
+  const requestDelete = (file: FileItem) => {
+    setFileToDelete(file);
+    setConfirmOpen(true);
+  };
+
+  const performDelete = async () => {
+    if (!fileToDelete) return;
+    setDeleting(true);
     try {
-      await deleteFile(file.id);
-      setFiles((prev) => prev.filter((f) => f.id !== file.id));
-      setTree((t) => (t ? buildTree(files.filter((f) => f.id !== file.id)) : t));
+      await deleteFile(fileToDelete.id);
+      setFiles((prev) => prev.filter((f) => f.id !== fileToDelete.id));
+      setTree((t) => (t ? buildTree(files.filter((f) => f.id !== fileToDelete.id)) : t));
       // close any open tab for this file
-      closeTab(file.id);
+      closeTab(fileToDelete.id);
+      toast({ title: "File deleted", description: `"${fileToDelete.name}" removed.` });
     } catch (err) {
       console.error(err);
-      alert((err as any)?.message || "Delete failed");
+      toast({
+        variant: "destructive",
+        title: "Delete failed",
+        description: parseErr(err),
+      });
+    } finally {
+      setDeleting(false);
+      setConfirmOpen(false);
+      setFileToDelete(null);
     }
   };
 
@@ -366,7 +436,7 @@ export default function FilesPage() {
             <Tree
               node={filteredTree}
               onOpen={(f) => openFile(f)}
-              onDelete={(f) => onDelete(f)}
+              onDelete={(f) => requestDelete(f)}
             />
           </div>
         </aside>
@@ -463,6 +533,29 @@ export default function FilesPage() {
           </div>
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {fileToDelete ? `This will permanently delete "${fileToDelete.name}". You can't undo this action.` : "This will permanently delete the file."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={performDelete}
+              disabled={deleting}
+            >
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              <span className="ml-2">Delete</span>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -591,7 +684,7 @@ function FileRow({
               <Download className="h-4 w-4" /> Download
             </DropdownMenuItem>
             <DropdownMenuItem
-              variant="destructive"
+              className="text-destructive focus:text-destructive"
               onClick={() => onDelete(f)}
             >
               <Trash2 className="h-4 w-4" /> Delete

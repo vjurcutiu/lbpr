@@ -1058,7 +1058,6 @@ TENANT_HEADER = "x-tenant-id"
 log = logging.getLogger("files.service")
 
 def _bucket():
-    # Uses default app from core.firebase.init_firebase()
     bucket_name = settings.FIREBASE_STORAGE_BUCKET or f"{settings.FIREBASE_PROJECT_ID}.appspot.com"
     log.debug("bucket_resolve", extra={"bucket": bucket_name})
     return storage.bucket(bucket_name)
@@ -1067,33 +1066,23 @@ def _tenant_prefix(tenant_id: Optional[str]) -> str:
     return f"t:{tenant_id or 'demo'}"
 
 def _object_path(tenant_id: Optional[str], filename: str, file_id: Optional[str]=None) -> str:
-    # Store under t:{tenant}/uploads/{uuid}/{filename}
     fid = file_id or str(uuid.uuid4())
     return f"{_tenant_prefix(tenant_id)}/uploads/{fid}/{filename}"
 
 def _hash_bytes(b: bytes) -> str:
-    return hashlib.sha256(b).hexdigest()
+    import hashlib as _hashlib
+    return _hashlib.sha256(b).hexdigest()
 
 def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Optional[str]:
-    """
-    Best-effort text extraction:
-    - For text/*, application/json, application/xml, csv, md: decode as utf-8
-    - PDF via pypdf (if installed)
-    - DOCX via python-docx (if installed)
-    Other formats return None.
-    """
     ct = (content_type or "").lower()
     name_lower = name.lower()
     try:
-        # Simple text-ish types
         if ct.startswith("text/") or ct in {"application/json","application/xml"}:
             return data.decode("utf-8", errors="ignore")
         if ct == "text/markdown" or name_lower.endswith(".md") or name_lower.endswith(".markdown"):
             return data.decode("utf-8", errors="ignore")
         if name_lower.endswith((".txt", ".json", ".xml", ".csv")):
             return data.decode("utf-8", errors="ignore")
-
-        # PDF (optional)
         if ct == "application/pdf" or name_lower.endswith(".pdf"):
             try:
                 from pypdf import PdfReader  # type: ignore
@@ -1108,8 +1097,6 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
                 return text or None
             except Exception:
                 return None
-
-        # DOCX (optional)
         if ct in {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"} or name_lower.endswith(".docx"):
             try:
                 import docx  # type: ignore
@@ -1119,18 +1106,15 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
                 return "\n".join(paragraphs) or None
             except Exception:
                 return None
-
     except Exception:
         return None
     return None
 
 def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "default") -> UploadResponse:
-    # Read all bytes (<= 50MB expected by design invariants)
     data = file.file.read()
     size = len(data)
     if size > 50 * 1024 * 1024:
         raise ValueError("File too large (>50MB)")
-
     checksum = _hash_bytes(data)
     object_name = _object_path(tenant_id, file.filename)
     bkt = _bucket()
@@ -1145,7 +1129,6 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
         "checksum": checksum[:12],
     })
 
-    # Upload with metadata
     blob.metadata = {
         "checksum": checksum,
         "original_name": file.filename,
@@ -1155,11 +1138,9 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
     }
     blob.upload_from_string(data, content_type=file.content_type or "application/octet-stream")
 
-    # Try inline indexing for text-like files (best-effort)
     text = _extract_text(file.filename, file.content_type, data)
     if text:
         try:
-            # Use tenant as a stand-in "uid" for per-user namespace
             uid = (tenant_id or "demo")
             orchestrator.ingest_request(
                 IngestRequest(
@@ -1171,10 +1152,8 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
             )
             log.info("upload_ingest_ok", extra={"object": object_name, "chars": len(text)})
         except Exception as e:
-            # Don't fail the upload if indexing fails
             log.warning("upload_ingest_error", extra={"object": object_name, "error": str(e)})
 
-    # job_id can be the blob name for now (acts as a stable handle)
     log.info("upload_done", extra={"object": object_name})
     return UploadResponse(job_id=object_name)
 
@@ -1184,7 +1163,6 @@ def list_files(tenant_id: Optional[str]) -> List[FileItem]:
     log.info("list_start", extra={"prefix": prefix})
     items: List[FileItem] = []
     for blob in bkt.list_blobs(prefix=prefix):
-        # Only leaf files (skip 'folder' markers)
         if blob.name.endswith("/"):
             continue
         name = (blob.metadata or {}).get("original_name")
@@ -1197,7 +1175,6 @@ def list_files(tenant_id: Optional[str]) -> List[FileItem]:
                 content_type=blob.content_type or (blob.metadata or {}).get("content_type"),
             )
         )
-    # Sort newest first
     items.sort(key=lambda x: x.created_at or "", reverse=True)
     log.info("list_ok", extra={"count": len(items)})
     return items
@@ -1214,23 +1191,43 @@ def delete_file(tenant_id: Optional[str], file_id: str) -> bool:
     return True
 
 def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
+    """Generate a signed URL forcing a download 'Save As' dialog."""
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()
     if not exists:
         log.warning("download_missing", extra={"file_id": file_id})
         raise FileNotFoundError("File not found")
+
+    # Prefer the original filename from metadata; otherwise, last segment of path.
+    filename = None
+    try:
+        md = blob.metadata or {}
+        filename = (md.get("original_name") or file_id.split("/")[-1]).strip() or "download.bin"
+    except Exception:
+        filename = file_id.split("/")[-1] or "download.bin"
+
+    # IMPORTANT: For GCS signed URLs, use response_disposition to force download.
+    # See google.cloud.storage.blob.Blob.generate_signed_url docs.
     from datetime import timedelta
-    url = blob.generate_signed_url(expiration=timedelta(minutes=minutes), method="GET")
+    disposition = f'attachment; filename="{filename}"'
+    url = blob.generate_signed_url(
+        expiration=timedelta(minutes=minutes),
+        method="GET",
+        response_disposition=disposition,
+        # Optionally, hint the content type. It won't override stored metadata,
+        # but helps when missing.
+        response_type=blob.content_type or "application/octet-stream",
+    )
     log.info("download_url_generated", extra={
         "file_id": file_id,
         "expires_min": minutes,
         "url_len": len(url) if url else 0,
+        "disposition": disposition,
     })
     return url
 
 def get_file_bytes(file_id: str) -> Tuple[bytes, str]:
-    """Fetch raw bytes and content-type for a stored file so the frontend can preview inline."""
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()

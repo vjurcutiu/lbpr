@@ -22,7 +22,24 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+// ⬇️ Switched from shadcn useToast to sonner
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   listFiles,
@@ -38,10 +55,10 @@ import {
  * ------------------------- */
 type TreeNode = {
   type: "folder" | "file";
-  name: string;            // label (no slashes)
-  path: string;            // full virtual path
-  children?: TreeNode[];   // only for folders
-  file?: FileItem;         // only for files
+  name: string;
+  path: string;
+  children?: TreeNode[];
+  file?: FileItem;
 };
 
 function buildTree(files: FileItem[]): TreeNode {
@@ -76,7 +93,6 @@ function buildTree(files: FileItem[]): TreeNode {
       }
     }
   }
-  // sort folders first, then files
   function sort(node: TreeNode) {
     if (!node.children) return;
     node.children.sort((a, b) => {
@@ -98,19 +114,37 @@ type OpenTab = {
   contentType?: string;
 };
 
+function parseErr(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    const s = JSON.stringify(err);
+    return s.length ? s : "Unexpected error";
+  } catch {
+    return "Unexpected error";
+  }
+}
+
 export default function FilesPage() {
+  // ⬇️ removed: const { toast } = useToast();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [filter, setFilter] = useState("");
-  const [sidebarWidth, setSidebarWidth] = useState(280); // resizable
+  const [sidebarWidth, setSidebarWidth] = useState(280);
   const [isResizing, setIsResizing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
 
-  // file content cache: id -> content payload
-  const [content, setContent] = useState<Record<string, Awaited<ReturnType<typeof getFileContent>>>>({});
+  // delete modal
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
+
+  const [content, setContent] = useState<
+    Record<string, Awaited<ReturnType<typeof getFileContent>>>
+  >({});
   const [tabs, setTabs] = useState<OpenTab[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
 
@@ -118,28 +152,26 @@ export default function FilesPage() {
     setBusy(true);
     try {
       const data = await listFiles();
-      console.debug("[files] listFiles ok", data.length);
       setFiles(data);
       setTree(buildTree(data));
     } catch (err) {
       console.error("[files] listFiles error", err);
+      toast.error("Failed to load files", { description: parseErr(err) });
     } finally {
       setBusy(false);
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
-  // --- Resizer handlers (drag to resize left pane) ---
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!isResizing) return;
       const min = 200;
       const max = 520;
-      setSidebarWidth((w) => {
-        const next = Math.min(max, Math.max(min, e.clientX));
-        return next;
-      });
+      setSidebarWidth(() => Math.min(max, Math.max(min, e.clientX)));
     };
     const onUp = () => setIsResizing(false);
     window.addEventListener("mousemove", onMove);
@@ -159,9 +191,12 @@ export default function FilesPage() {
     try {
       await uploadFile(f);
       await refresh();
+      toast.success("Upload complete", {
+        description: `"${f.name}" has been uploaded.`,
+      });
     } catch (err) {
       console.error(err);
-      alert((err as any)?.message || "Upload failed");
+      toast.error("Upload failed", { description: parseErr(err) });
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -169,22 +204,21 @@ export default function FilesPage() {
   };
 
   const openFile = async (file: FileItem) => {
-    console.debug("[files] openFile", file.id, file.name);
-    // open tab if not already
     setTabs((prev) => {
       if (prev.some((t) => t.id === file.id)) return prev;
-      return [...prev, { id: file.id, title: file.name, contentType: file.content_type }];
+      return [
+        ...prev,
+        { id: file.id, title: file.name, contentType: file.content_type },
+      ];
     });
     setActiveId(file.id);
-    // lazy-load content (cache)
     if (!content[file.id]) {
       try {
         const payload = await getFileContent(file.id);
-        console.debug("[files] content loaded", { id: file.id, kind: payload.kind, ct: payload.contentType });
         setContent((m) => ({ ...m, [file.id]: payload }));
       } catch (e) {
         console.error(e);
-        alert((e as any)?.message || "Failed to load file");
+        toast.error("Preview failed", { description: parseErr(e) });
       }
     }
   };
@@ -193,7 +227,6 @@ export default function FilesPage() {
     setTabs((prev) => {
       const idx = prev.findIndex((t) => t.id === id);
       const next = prev.filter((t) => t.id !== id);
-      // switch active if we closed the active one
       if (id === activeId) {
         const fallback = next[idx - 1]?.id ?? next[idx]?.id ?? null;
         setActiveId(fallback);
@@ -202,17 +235,31 @@ export default function FilesPage() {
     });
   };
 
-  const onDelete = async (file: FileItem) => {
-    if (!confirm(`Delete "${file.name}"?`)) return;
+  const requestDelete = (file: FileItem) => {
+    setFileToDelete(file);
+    setConfirmOpen(true);
+  };
+
+  const performDelete = async () => {
+    if (!fileToDelete) return;
+    setDeleting(true);
     try {
-      await deleteFile(file.id);
-      setFiles((prev) => prev.filter((f) => f.id !== file.id));
-      setTree((t) => (t ? buildTree(files.filter((f) => f.id !== file.id)) : t));
-      // close any open tab for this file
-      closeTab(file.id);
+      await deleteFile(fileToDelete.id);
+      setFiles((prev) => prev.filter((f) => f.id !== fileToDelete.id));
+      setTree((t) =>
+        t ? buildTree(files.filter((f) => f.id !== fileToDelete.id)) : t
+      );
+      closeTab(fileToDelete.id);
+      toast.success("File deleted", {
+        description: `"${fileToDelete.name}" removed.`,
+      });
     } catch (err) {
       console.error(err);
-      alert((err as any)?.message || "Delete failed");
+      toast.error("Delete failed", { description: parseErr(err) });
+    } finally {
+      setDeleting(false);
+      setConfirmOpen(false);
+      setFileToDelete(null);
     }
   };
 
@@ -221,19 +268,21 @@ export default function FilesPage() {
     const q = filter.toLowerCase();
     function filterNode(n: TreeNode): TreeNode | null {
       if (n.type === "file") {
-        const hit = n.name.toLowerCase().includes(q) || (n.file?.name.toLowerCase().includes(q) ?? false);
+        const hit =
+          n.name.toLowerCase().includes(q) ||
+          (n.file?.name.toLowerCase().includes(q) ?? false);
         return hit ? n : null;
       }
-      const kids = (n.children || [])
-        .map(filterNode)
-        .filter(Boolean) as TreeNode[];
+      const kids = (n.children || []).map(filterNode).filter(Boolean) as TreeNode[];
       if (kids.length === 0 && n.name !== "") return null;
       return { ...n, children: kids };
     }
     return filterNode(tree);
   }, [tree, filter]);
 
-  const activeFile = activeId ? files.find((f) => f.id === activeId) || null : null;
+  const activeFile = activeId
+    ? files.find((f) => f.id === activeId) || null
+    : null;
   const breadcrumbs = activeFile?.name.split("/").filter(Boolean) ?? [];
 
   return (
@@ -241,15 +290,14 @@ export default function FilesPage() {
       {/* Top bar */}
       <div className="sticky top-0 z-10 flex items-center gap-3 px-3 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <Button onClick={onPick} disabled={uploading} size="sm">
-          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          {uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="h-4 w-4" />
+          )}
           <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
         </Button>
-        <Input
-          ref={inputRef}
-          type="file"
-          className="hidden"
-          onChange={onChange}
-        />
+        <Input ref={inputRef} type="file" className="hidden" onChange={onChange} />
         <div className="relative max-w-sm w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -261,7 +309,11 @@ export default function FilesPage() {
         </div>
         <div className="flex-1" />
         <Button variant="outline" onClick={refresh} disabled={busy} size="sm">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1.5" />}
+          {busy ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-1.5" />
+          )}
           Refresh
         </Button>
       </div>
@@ -277,11 +329,7 @@ export default function FilesPage() {
             Explorer
           </div>
           <div className="h-full overflow-auto px-1 py-2">
-            <Tree
-              node={filteredTree}
-              onOpen={(f) => openFile(f)}
-              onDelete={(f) => onDelete(f)}
-            />
+            <Tree node={filteredTree} onOpen={(f) => openFile(f)} onDelete={(f) => requestDelete(f)} />
           </div>
         </aside>
 
@@ -336,7 +384,9 @@ export default function FilesPage() {
               </button>
             ))}
             {tabs.length === 0 && (
-              <div className="text-xs text-muted-foreground px-2">← Open a file from the sidebar</div>
+              <div className="text-xs text-muted-foreground px-2">
+                ← Open a file from the sidebar
+              </div>
             )}
           </div>
 
@@ -370,13 +420,44 @@ export default function FilesPage() {
           {/* Status bar */}
           <div className="h-8 border-t text-xs px-3 flex items-center justify-between text-muted-foreground bg-muted/10">
             <div className="flex items-center gap-3">
-              <span>{files.length} file{files.length === 1 ? "" : "s"}</span>
+              <span>
+                {files.length} file{files.length === 1 ? "" : "s"}
+              </span>
               {activeFile && <span>• {fmtSize(activeFile.size)}</span>}
             </div>
             <div>LexBot PRO • File Explorer</div>
           </div>
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete file?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {fileToDelete
+                ? `This will permanently delete "${fileToDelete.name}". You can't undo this action.`
+                : "This will permanently delete the file."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={performDelete}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              <span className="ml-2">Delete</span>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -426,10 +507,7 @@ function FolderRow({
   onDelete: (f: FileItem) => void;
 }) {
   const [open, setOpen] = useState(true);
-  const caretClass = cn(
-    "h-4 w-4 transition-transform",
-    open ? "rotate-90" : "rotate-0"
-  );
+  const caretClass = cn("h-4 w-4 transition-transform", open ? "rotate-90" : "rotate-0");
 
   return (
     <div className="mb-0.5">
@@ -462,7 +540,7 @@ function FileRow({
   onOpen,
   onDelete,
 }: {
-  node: TreeNode; // with .file
+  node: TreeNode;
   onOpen: (f: FileItem) => void;
   onDelete: (f: FileItem) => void;
 }) {
@@ -483,12 +561,13 @@ function FileRow({
           href={href}
           title="Download"
           className="p-1 rounded hover:bg-muted"
-          onClick={() => console.debug("[files] click sidebar download", { id: f.id, href })}
+          onClick={() =>
+            console.debug("[files] click sidebar download", { id: f.id, href })
+          }
         >
           <Download className="h-4 w-4" />
         </a>
 
-        {/* Context menu trigger */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="p-1 rounded hover:bg-muted" title="More">
@@ -505,7 +584,7 @@ function FileRow({
               <Download className="h-4 w-4" /> Download
             </DropdownMenuItem>
             <DropdownMenuItem
-              variant="destructive"
+              className="text-destructive focus:text-destructive"
               onClick={() => onDelete(f)}
             >
               <Trash2 className="h-4 w-4" /> Delete
@@ -535,36 +614,35 @@ function FileViewer({
 
   if (payload.kind === "text") {
     const text = payload.text ?? "";
-    return (
-      <pre className="whitespace-pre-wrap leading-6">
-        {text}
-      </pre>
-    );
+    return <pre className="whitespace-pre-wrap leading-6">{text}</pre>;
   }
 
   if (payload.kind === "image" && payload.url) {
     return (
       <div className="w-full h-full grid place-items-center">
-        <img src={payload.url} alt={file.name} className="max-w-full max-h-full object-contain" />
+        <img
+          src={payload.url}
+          alt={file.name}
+          className="max-w-full max-h-full object-contain"
+        />
       </div>
     );
   }
 
   if (payload.kind === "pdf" && payload.url) {
     return (
-      <iframe
-        src={payload.url}
-        title={file.name}
-        className="w-full h-full border rounded"
-      />
+      <iframe src={payload.url} title={file.name} className="w-full h-full border rounded" />
     );
   }
 
-  // default binary
   return (
     <div className="text-sm">
       Preview not available.{" "}
-      <a className="underline" href={fileDownloadUrl(file.id)} onClick={() => console.debug("[files] viewer download", { id: file.id })}>
+      <a
+        className="underline"
+        href={fileDownloadUrl(file.id)}
+        onClick={() => console.debug("[files] viewer download", { id: file.id })}
+      >
         Download
       </a>
     </div>
@@ -596,7 +674,11 @@ function FileIconByName({ name, className }: { name: string; className?: string 
 
 function fmtSize(n: number) {
   const units = ["B", "KB", "MB", "GB", "TB"];
-  let i = 0, v = n;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  let i = 0,
+    v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
   return `${v.toFixed(1)} ${units[i]}`;
 }

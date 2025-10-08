@@ -13,12 +13,24 @@ export async function listFiles(): Promise<FileItem[]> {
   return getJSON<FileItem[]>("/v1/files");
 }
 
+function extractMessage(text: string): string {
+  // try to parse common backend error envelopes
+  try {
+    const data = JSON.parse(text);
+    const msg = data?.detail || data?.message || data?.error || data?.msg;
+    if (typeof msg === "string" && msg.trim()) return msg;
+  } catch {}
+  // strip noisy html if any
+  const trimmed = text.replace(/<[^>]*>/g, "").trim();
+  return trimmed || "Unexpected server error";
+}
+
 export async function deleteFile(id: string): Promise<{ ok: boolean }> {
   const res = await fetch(`${API_BASE}/v1/files/${encodeURIComponent(id)}`, {
     method: "DELETE",
     credentials: "include",
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
   return { ok: true };
 }
 
@@ -30,7 +42,7 @@ export async function uploadFile(file: File): Promise<{ job_id: string }> {
     body: form,
     credentials: "include",
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
   return res.json();
 }
 
@@ -65,7 +77,14 @@ export async function getFileContent(id: string): Promise<{
   if (!res.ok) {
     const txt = await res.text();
     console.error("[files] getFileContent error", txt);
-    throw new Error(txt);
+    // surface a clean message up
+    try {
+      const data = JSON.parse(txt);
+      const msg = data?.detail || data?.message || data?.error || data?.msg || txt;
+      throw new Error(typeof msg === "string" ? msg : "Failed to load file");
+    } catch {
+      throw new Error(txt || "Failed to load file");
+    }
   }
   const ct = res.headers.get("content-type") || "";
   console.debug("[files] getFileContent content-type", ct);
