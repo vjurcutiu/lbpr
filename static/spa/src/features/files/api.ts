@@ -46,21 +46,38 @@ export async function uploadFile(file: File): Promise<{ job_id: string }> {
   return res.json();
 }
 
+export async function uploadFiles(files: File[]): Promise<{ jobs: string[] }> {
+  if (files.length === 0) return { jobs: [] };
+  // Try the batch endpoint first for efficiency
+  const form = new FormData();
+  for (const f of files) form.append("files", f);
+  try {
+    const res = await fetch(`${API_BASE}/v1/files/batch`, {
+      method: "POST",
+      body: form,
+      credentials: "include",
+    });
+    if (res.ok) return res.json();
+    // If server doesn't support batch, fall back to single uploads
+    console.warn("[files] batch upload not available, falling back to single uploads", res.status);
+  } catch (e) {
+    console.warn("[files] batch upload failed, falling back to single uploads", e);
+  }
+  const jobs: string[] = [];
+  for (const f of files) {
+    const { job_id } = await uploadFile(f);
+    jobs.push(job_id);
+  }
+  return { jobs };
+}
+
 export function fileDownloadUrl(id: string) {
   const url = `${API_BASE}/v1/files/${encodeURIComponent(id)}/download`;
   console.debug("[files] fileDownloadUrl", { id, url });
   return url;
 }
 
-/** Optional: if/when backend supports it:
- * export async function getFileTree(): Promise<FolderNode> { return getJSON("/v1/files/tree"); }
- */
-
-/** Fetch file content for preview.
- * Tries text first; falls back to blob URL for binary (image/pdf).
- * Endpoint options:
- *   - If you already have /v1/files/:id/raw or ?raw=1, switch the URL accordingly.
- */
+/** Fetch file content for preview. */
 export async function getFileContent(id: string): Promise<{
   kind: "text" | "image" | "pdf" | "other";
   text?: string;
@@ -77,7 +94,6 @@ export async function getFileContent(id: string): Promise<{
   if (!res.ok) {
     const txt = await res.text();
     console.error("[files] getFileContent error", txt);
-    // surface a clean message up
     try {
       const data = JSON.parse(txt);
       const msg = data?.detail || data?.message || data?.error || data?.msg || txt;
@@ -92,7 +108,6 @@ export async function getFileContent(id: string): Promise<{
     const text = await res.text();
     return { kind: "text", text, contentType: ct };
   }
-  // treat common binaries
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);
   if (ct.includes("pdf")) return { kind: "pdf", url: blobUrl, contentType: ct };

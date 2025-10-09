@@ -413,21 +413,38 @@ export async function uploadFile(file: File): Promise<{ job_id: string }> {
   return res.json();
 }
 
+export async function uploadFiles(files: File[]): Promise<{ jobs: string[] }> {
+  if (files.length === 0) return { jobs: [] };
+  // Try the batch endpoint first for efficiency
+  const form = new FormData();
+  for (const f of files) form.append("files", f);
+  try {
+    const res = await fetch(`${API_BASE}/v1/files/batch`, {
+      method: "POST",
+      body: form,
+      credentials: "include",
+    });
+    if (res.ok) return res.json();
+    // If server doesn't support batch, fall back to single uploads
+    console.warn("[files] batch upload not available, falling back to single uploads", res.status);
+  } catch (e) {
+    console.warn("[files] batch upload failed, falling back to single uploads", e);
+  }
+  const jobs: string[] = [];
+  for (const f of files) {
+    const { job_id } = await uploadFile(f);
+    jobs.push(job_id);
+  }
+  return { jobs };
+}
+
 export function fileDownloadUrl(id: string) {
   const url = `${API_BASE}/v1/files/${encodeURIComponent(id)}/download`;
   console.debug("[files] fileDownloadUrl", { id, url });
   return url;
 }
 
-/** Optional: if/when backend supports it:
- * export async function getFileTree(): Promise<FolderNode> { return getJSON("/v1/files/tree"); }
- */
-
-/** Fetch file content for preview.
- * Tries text first; falls back to blob URL for binary (image/pdf).
- * Endpoint options:
- *   - If you already have /v1/files/:id/raw or ?raw=1, switch the URL accordingly.
- */
+/** Fetch file content for preview. */
 export async function getFileContent(id: string): Promise<{
   kind: "text" | "image" | "pdf" | "other";
   text?: string;
@@ -444,7 +461,6 @@ export async function getFileContent(id: string): Promise<{
   if (!res.ok) {
     const txt = await res.text();
     console.error("[files] getFileContent error", txt);
-    // surface a clean message up
     try {
       const data = JSON.parse(txt);
       const msg = data?.detail || data?.message || data?.error || data?.msg || txt;
@@ -459,7 +475,6 @@ export async function getFileContent(id: string): Promise<{
     const text = await res.text();
     return { kind: "text", text, contentType: ct };
   }
-  // treat common binaries
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);
   if (ct.includes("pdf")) return { kind: "pdf", url: blobUrl, contentType: ct };
@@ -504,6 +519,7 @@ import { cn } from "@/lib/utils";
 import {
   listFiles,
   uploadFile,
+  uploadFiles,
   deleteFile,
   getFileContent,
   type FileItem,
@@ -579,15 +595,23 @@ export default function FilesPage() {
   const onPick = () => inputRef.current?.click();
 
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+    const fs = Array.from(e.target.files || []);
+    if (fs.length === 0) return;
     setUploading(true);
     try {
-      await uploadFile(f);
+      if (fs.length === 1) {
+        // keep old path for nicer toast wording
+        await uploadFile(fs[0]);
+        toast.success("Upload complete", {
+          description: `"${fs[0].name}" has been uploaded.`,
+        });
+      } else {
+        const { jobs } = await uploadFiles(fs);
+        toast.success("Uploads complete", {
+          description: `${fs.length} files uploaded.`,
+        });
+      }
       await refresh();
-      toast.success("Upload complete", {
-        description: `"${f.name}" has been uploaded.`,
-      });
     } catch (err) {
       console.error(err);
       toast.error("Upload failed", { description: parseErr(err) });
@@ -693,7 +717,13 @@ export default function FilesPage() {
           )}
           <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
         </Button>
-        <Input ref={inputRef} type="file" className="hidden" onChange={onChange} />
+        <Input
+          ref={inputRef}
+          type="file"
+          className="hidden"
+          onChange={onChange}
+          multiple
+        />
         <div className="relative max-w-sm w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input

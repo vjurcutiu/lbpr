@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, List
 import logging
 from fastapi import APIRouter, File, UploadFile, HTTPException, Query, Request, Depends
 from fastapi.responses import RedirectResponse, Response
 
-from .schemas import FileItem, UploadResponse, DeleteResponse
+from .schemas import FileItem, UploadResponse, UploadBatchResponse, DeleteResponse
 from . import service
 
 # Auth deps
@@ -46,8 +46,8 @@ def create_file(
     dataset: str = "default",
     user: SessionOut = Depends(get_current_user),
 ):
-    """Upload a file into user-based storage and auto-ingest to the user's RAG namespace.
-    NOTE: Removed Optional[Request] parameter to satisfy FastAPI's parameter rules.
+    """Upload a single file into user-based storage and auto-ingest to the user's RAG namespace.
+    Kept for backward compatibility.
     """
     try:
         log.info("files_upload_request", user_uid=user.uid, filename=getattr(file, "filename", None), ctype=getattr(file, "content_type", None))
@@ -59,6 +59,40 @@ def create_file(
         raise HTTPException(status_code=413, detail=str(ve))
     except Exception as e:
         log.exception("files_upload_error")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/batch", response_model=UploadBatchResponse, status_code=202)
+def create_files_batch(
+    files: List[UploadFile] = File(...),
+    dataset: str = "default",
+    user: SessionOut = Depends(get_current_user),
+):
+    """Upload **multiple** files in one request.
+
+    Frontend should append each file under the key 'files' in the same FormData.
+    """
+    jobs: List[str] = []
+    try:
+        if not files:
+            raise HTTPException(status_code=400, detail="No files provided")
+        log.info("files_batch_upload_request", user_uid=user.uid, count=len(files), dataset=dataset)
+        for f in files:
+            try:
+                resp = service.upload_file(user.uid, f, dataset=dataset)
+                jobs.append(resp.job_id)
+                log.info("files_batch_upload_item_ok", job_id=resp.job_id, filename=getattr(f, "filename", None))
+            except ValueError as ve:
+                log.warning("files_batch_upload_item_rejected", filename=getattr(f, "filename", None), reason=str(ve))
+                raise HTTPException(status_code=413, detail=str(ve))
+            except Exception as e:
+                log.exception("files_batch_upload_item_error", filename=getattr(f, "filename", None))
+                raise HTTPException(status_code=400, detail=f"Failed to upload {getattr(f, 'filename', 'file')}")
+        log.info("files_batch_upload_ok", user_uid=user.uid, jobs=len(jobs))
+        return UploadBatchResponse(jobs=jobs)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("files_batch_upload_error")
         raise HTTPException(status_code=400, detail=str(e))
 
 # IMPORTANT: keep download route before catch-all {file_id:path}

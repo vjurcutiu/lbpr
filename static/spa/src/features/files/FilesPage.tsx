@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import {
   listFiles,
   uploadFile,
+  uploadFiles,
   deleteFile,
   getFileContent,
   type FileItem,
@@ -108,15 +109,23 @@ export default function FilesPage() {
   const onPick = () => inputRef.current?.click();
 
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
+    const fs = Array.from(e.target.files || []);
+    if (fs.length === 0) return;
     setUploading(true);
     try {
-      await uploadFile(f);
+      if (fs.length === 1) {
+        // keep old path for nicer toast wording
+        await uploadFile(fs[0]);
+        toast.success("Upload complete", {
+          description: `"${fs[0].name}" has been uploaded.`,
+        });
+      } else {
+        const { jobs } = await uploadFiles(fs);
+        toast.success("Uploads complete", {
+          description: `${fs.length} files uploaded.`,
+        });
+      }
       await refresh();
-      toast.success("Upload complete", {
-        description: `"${f.name}" has been uploaded.`,
-      });
     } catch (err) {
       console.error(err);
       toast.error("Upload failed", { description: parseErr(err) });
@@ -222,7 +231,13 @@ export default function FilesPage() {
           )}
           <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
         </Button>
-        <Input ref={inputRef} type="file" className="hidden" onChange={onChange} />
+        <Input
+          ref={inputRef}
+          type="file"
+          className="hidden"
+          onChange={onChange}
+          multiple
+        />
         <div className="relative max-w-sm w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
