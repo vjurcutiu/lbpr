@@ -153,13 +153,18 @@ def embed_one(text: str) -> List[float]:
 
 
 C:/code2/lbpr/backend/features/rag/NAMESPACES.md
-# Per-user namespaces (UPDATED)
+# Per-user namespaces (FINAL)
 
-- **Pinecone**: queries & upserts use `u:{uid}:{dataset}` via `core.namespaces.pinecone_namespace(uid, dataset)`.
-- **Firebase**: files are stored under `core.namespaces.firebase_folder(uid)`, e.g. `users/{uid}/...` or `u:{uid}/...`.
-  This patch writes uploads at: `{firebase_folder(uid)}/uploads/{uuid}/{filename}` and sets `owner_uid` metadata.
+We now use **user-based** namespaces consistently across storage, ingestion, and chat.
 
-Make sure the UI queries the RAG endpoints while authenticated so `uid` matches between upload and query.
+- **Firebase Storage:** objects are written under `u:{uid}/uploads/{uuid}/{filename}` and carry metadata
+  `owner_uid={uid}`. Listing only returns objects with prefix `u:{uid}/uploads/`.
+- **RAG / Pinecone:** the orchestrator already calls `core.namespaces.pinecone_namespace(uid, dataset)`;
+  your Pinecone `namespace` therefore looks like `u:{uid}:{dataset}`.
+- **Frontend:** the Files and Chat API calls no longer send any tenant header/body. The backend infers the
+  user from the authenticated session and uses the user-based namespaces internally.
+
+> IMPORTANT: re-uploading may be required if you previously stored under `t:{tenant}/...`.
 
 
 C:/code2/lbpr/backend/features/rag/orchestrator.py
@@ -923,11 +928,22 @@ from __future__ import annotations
 
 from typing import Optional
 import logging
-from fastapi import APIRouter, File, UploadFile, Header, HTTPException, Query, Request
+from fastapi import APIRouter, File, UploadFile, HTTPException, Query, Request, Depends
 from fastapi.responses import RedirectResponse, Response
 
 from .schemas import FileItem, UploadResponse, DeleteResponse
 from . import service
+
+# Auth deps
+try:
+    from features.auth.deps import get_current_user  # type: ignore
+    from features.auth.models import SessionOut  # type: ignore
+except Exception:  # fallback for local/dev
+    def get_current_user():
+        class _U: uid = "dev"
+        return _U()  # type: ignore
+    class SessionOut:  # type: ignore
+        uid: str = "dev"
 
 router = APIRouter(prefix="/v1/files", tags=["Files"])
 log = logging.getLogger("files.router")
@@ -939,15 +955,12 @@ def _hdr(request: Request, name: str) -> str | None:
         return None
 
 @router.get("", response_model=list[FileItem])
-def list_files(x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False), request: Request = None):
+def list_files(request: Request, user: SessionOut = Depends(get_current_user)):
+    """List files for the *current user* using user-based namespaces."""
     try:
-        log.info("files_list_request", extra={
-            "tenant": x_tenant_id or "demo",
-            "client": str(getattr(request, "client", "")) if request else None,
-            "ua": _hdr(request, "user-agent") if request else None,
-        })
-        out = service.list_files(x_tenant_id)
-        log.info("files_list_ok", extra={"count": len(out), "tenant": x_tenant_id or "demo"})
+        log.info("files_list_request", user_uid=user.uid, client=str(getattr(request, "client", "")), ua=_hdr(request, "user-agent"))
+        out = service.list_files(user.uid)
+        log.info("files_list_ok", count=len(out), user_uid=user.uid)
         return out
     except Exception as e:
         log.exception("files_list_error")
@@ -956,82 +969,63 @@ def list_files(x_tenant_id: Optional[str] = Header(default=None, convert_undersc
 @router.post("", response_model=UploadResponse, status_code=202)
 def create_file(
     file: UploadFile = File(...),
-    x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False),
     dataset: str = "default",
-    request: Request = None,
+    user: SessionOut = Depends(get_current_user),
 ):
+    """Upload a file into user-based storage and auto-ingest to the user's RAG namespace.
+    NOTE: Removed Optional[Request] parameter to satisfy FastAPI's parameter rules.
+    """
     try:
-        log.info("files_upload_request", extra={
-            "tenant": x_tenant_id or "demo",
-            "filename": getattr(file, "filename", None),
-            "ctype": getattr(file, "content_type", None),
-        })
-        resp = service.upload_file(x_tenant_id, file, dataset=dataset)
-        log.info("files_upload_ok", extra={"job_id": resp.job_id, "tenant": x_tenant_id or "demo"})
+        log.info("files_upload_request", user_uid=user.uid, filename=getattr(file, "filename", None), ctype=getattr(file, "content_type", None))
+        resp = service.upload_file(user.uid, file, dataset=dataset)
+        log.info("files_upload_ok", job_id=resp.job_id, user_uid=user.uid)
         return resp
     except ValueError as ve:
-        log.warning("files_upload_rejected", extra={"reason": str(ve)})
+        log.warning("files_upload_rejected", reason=str(ve))
         raise HTTPException(status_code=413, detail=str(ve))
     except Exception as e:
         log.exception("files_upload_error")
         raise HTTPException(status_code=400, detail=str(e))
 
-# IMPORTANT: order matters in FastAPI. The more specific route must appear BEFORE the catch-all {file_id:path}.
-# Put the download variant first so it doesn't get swallowed by the generic get_file route below.
-
+# IMPORTANT: keep download route before catch-all {file_id:path}
 @router.get("/{file_id:path}/download")
-def download_file(file_id: str, request: Request):
+def download_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
-        log.info("files_download_request", extra={
-            "file_id": file_id,
-            "referer": _hdr(request, "referer"),
-            "ua": _hdr(request, "user-agent"),
-        })
+        log.info("files_download_request", file_id=file_id, referer=_hdr(request, "referer"), ua=_hdr(request, "user-agent"), user_uid=user.uid)
         url = service.get_signed_download_url(file_id)
-        log.info("files_download_redirect", extra={
-            "file_id": file_id,
-            "signed_url_len": len(url) if url else 0,
-        })
+        log.info("files_download_redirect", file_id=file_id, signed_url_len=len(url) if url else 0)
         return RedirectResponse(url)
     except FileNotFoundError:
-        log.warning("files_download_not_found", extra={"file_id": file_id})
+        log.warning("files_download_not_found", file_id=file_id)
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
         log.exception("files_download_error")
         raise HTTPException(status_code=400, detail=str(e))
 
-# --- Path-based inline preview (catch-all) ---
 @router.get("/{file_id:path}")
-def get_file(file_id: str, request: Request):
+def get_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     """Return raw file bytes with correct Content-Type for inline preview."""
     try:
-        log.info("files_get_request", extra={
-            "file_id": file_id,
-            "accept": _hdr(request, "accept"),
-            "referer": _hdr(request, "referer"),
-        })
+        log.info("files_get_request", file_id=file_id, accept=_hdr(request, "accept"), referer=_hdr(request, "referer"), user_uid=user.uid)
         data, content_type = service.get_file_bytes(file_id)
-        log.info("files_get_ok", extra={"file_id": file_id, "content_type": content_type, "bytes": len(data)})
+        log.info("files_get_ok", file_id=file_id, content_type=content_type, bytes=len(data))
         return Response(content=data, media_type=content_type)
     except FileNotFoundError:
-        log.warning("files_get_not_found", extra={"file_id": file_id})
+        log.warning("files_get_not_found", file_id=file_id)
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
         log.exception("files_get_error")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{file_id:path}", response_model=DeleteResponse)
-def delete_file(file_id: str, x_tenant_id: Optional[str] = Header(default=None, convert_underscores=False), request: Request = None):
+def delete_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
-        log.info("files_delete_request", extra={
-            "file_id": file_id,
-            "tenant": x_tenant_id or "demo",
-        })
-        ok = service.delete_file(x_tenant_id, file_id)
+        log.info("files_delete_request", file_id=file_id, user_uid=user.uid)
+        ok = service.delete_file(file_id)
         if not ok:
-            log.warning("files_delete_not_found", extra={"file_id": file_id})
+            log.warning("files_delete_not_found", file_id=file_id)
             raise HTTPException(status_code=404, detail="File not found")
-        log.info("files_delete_ok", extra={"file_id": file_id})
+        log.info("files_delete_ok", file_id=file_id)
         return DeleteResponse(ok=True)
     except HTTPException:
         raise
@@ -1039,32 +1033,30 @@ def delete_file(file_id: str, x_tenant_id: Optional[str] = Header(default=None, 
         log.exception("files_delete_error")
         raise HTTPException(status_code=400, detail=str(e))
 
-# --- Query-string variants (robust when proxies mangle %2F) ---
-
+# Query-string variants (useful if proxies mangle %2F)
 @router.get("/by-id")
-def get_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), request: Request = None):
-    """Safer variant that uses a query string so proxies won't touch encoded slashes."""
+def get_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), user: SessionOut = Depends(get_current_user)):
     try:
-        log.info("files_get_by_id_request", extra={"id": id})
+        log.info("files_get_by_id_request", id=id, user_uid=user.uid)
         data, content_type = service.get_file_bytes(id)
-        log.info("files_get_by_id_ok", extra={"id": id, "content_type": content_type, "bytes": len(data)})
+        log.info("files_get_by_id_ok", id=id, content_type=content_type, bytes=len(data))
         return Response(content=data, media_type=content_type)
     except FileNotFoundError:
-        log.warning("files_get_by_id_not_found", extra={"id": id})
+        log.warning("files_get_by_id_not_found", id=id)
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
         log.exception("files_get_by_id_error")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/download/by-id")
-def download_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), request: Request = None):
+def download_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), user: SessionOut = Depends(get_current_user)):
     try:
-        log.info("files_download_by_id_request", extra={"id": id})
+        log.info("files_download_by_id_request", id=id, user_uid=user.uid)
         url = service.get_signed_download_url(id)
-        log.info("files_download_by_id_redirect", extra={"id": id, "signed_url_len": len(url) if url else 0})
+        log.info("files_download_by_id_redirect", id=id, signed_url_len=len(url) if url else 0)
         return RedirectResponse(url)
     except FileNotFoundError:
-        log.warning("files_download_by_id_not_found", extra={"id": id})
+        log.warning("files_download_by_id_not_found", id=id)
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
         log.exception("files_download_by_id_error")
@@ -1096,9 +1088,8 @@ from __future__ import annotations
 
 import io
 import uuid
-import hashlib
 import logging
-from typing import List, Optional, Dict, Any, Iterable, Tuple
+from typing import List, Optional
 
 from fastapi import UploadFile
 from firebase_admin import storage
@@ -1108,20 +1099,20 @@ from .schemas import FileItem, UploadResponse
 from features.rag import orchestrator
 from features.rag.schemas import IngestRequest
 
-TENANT_HEADER = "x-tenant-id"
 log = logging.getLogger("files.service")
 
 def _bucket():
     bucket_name = settings.FIREBASE_STORAGE_BUCKET or f"{settings.FIREBASE_PROJECT_ID}.appspot.com"
-    log.debug("bucket_resolve", extra={"bucket": bucket_name})
+    log.debug("bucket_resolve", bucket=bucket_name)
     return storage.bucket(bucket_name)
 
-def _tenant_prefix(tenant_id: Optional[str]) -> str:
-    return f"t:{tenant_id or 'demo'}"
+def _user_prefix(uid: str) -> str:
+    # Canonical user-based namespace prefix
+    return f"u:{uid}"
 
-def _object_path(tenant_id: Optional[str], filename: str, file_id: Optional[str]=None) -> str:
+def _object_path(uid: str, filename: str, file_id: Optional[str]=None) -> str:
     fid = file_id or str(uuid.uuid4())
-    return f"{_tenant_prefix(tenant_id)}/uploads/{fid}/{filename}"
+    return f"{_user_prefix(uid)}/uploads/{fid}/{filename}"
 
 def _hash_bytes(b: bytes) -> str:
     import hashlib as _hashlib
@@ -1164,22 +1155,22 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
         return None
     return None
 
-def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "default") -> UploadResponse:
+def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> UploadResponse:
     data = file.file.read()
     size = len(data)
     if size > 50 * 1024 * 1024:
         raise ValueError("File too large (>50MB)")
     checksum = _hash_bytes(data)
-    object_name = _object_path(tenant_id, file.filename)
+    object_name = _object_path(uid, file.filename)
     bkt = _bucket()
     blob = bkt.blob(object_name)
 
-    log.info("upload_start", tenant=tenant_id or "demo", object=object_name, filename=file.filename, ctype=file.content_type or "", size=size, checksum=checksum[:12])
+    log.info("upload_start", user_uid=uid, object=object_name, filename=file.filename, ctype=file.content_type or "", size=size, checksum=checksum[:12])
 
     blob.metadata = {
         "checksum": checksum,
         "original_name": file.filename,
-        "tenant_id": tenant_id or "demo",
+        "owner_uid": uid,
         "dataset": dataset,
         "content_type": file.content_type or "",
     }
@@ -1189,12 +1180,11 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
     if text:
         log.info("upload_text_extracted", object=object_name, chars=len(text), ctype=file.content_type or "")
         try:
-            uid = (tenant_id or "demo")
             orchestrator.ingest_request(
                 IngestRequest(
                     dataset=dataset,
                     text=text,
-                    metadata={"tenant_id": tenant_id or "demo", "source": "upload", "title": file.filename},
+                    metadata={"owner_uid": uid, "source": "upload", "title": file.filename},
                 ),
                 uid=uid,
             )
@@ -1207,10 +1197,10 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
     log.info("upload_done", object=object_name)
     return UploadResponse(job_id=object_name)
 
-def list_files(tenant_id: Optional[str]) -> List[FileItem]:
+def list_files(uid: str) -> List[FileItem]:
     bkt = _bucket()
-    prefix = f"{_tenant_prefix(tenant_id)}/uploads/"
-    log.info("list_start", prefix=prefix)
+    prefix = f"{_user_prefix(uid)}/uploads/"
+    log.info("list_start", prefix=prefix, user_uid=uid)
     items: List[FileItem] = []
     for blob in bkt.list_blobs(prefix=prefix):
         if blob.name.endswith("/"):
@@ -1226,10 +1216,10 @@ def list_files(tenant_id: Optional[str]) -> List[FileItem]:
             )
         )
     items.sort(key=lambda x: x.created_at or "", reverse=True)
-    log.info("list_ok", count=len(items))
+    log.info("list_ok", count=len(items), user_uid=uid)
     return items
 
-def delete_file(tenant_id: Optional[str], file_id: str) -> bool:
+def delete_file(file_id: str) -> bool:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()
@@ -1242,46 +1232,36 @@ def delete_file(tenant_id: Optional[str], file_id: str) -> bool:
 
 def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
     """Generate a signed URL forcing a download 'Save As' dialog."""
+    from datetime import timedelta
     bkt = _bucket()
     blob = bkt.blob(file_id)
-    exists = blob.exists()
-    if not exists:
+    if not blob.exists():
         log.warning("download_missing", file_id=file_id)
         raise FileNotFoundError("File not found")
 
-    # Prefer the original filename from metadata; otherwise, last segment of path.
     filename = None
     try:
         md = blob.metadata or {}
-        filename = (md.get("original_name") or file_id.split("/")[-1]).strip() or "download.bin"
+        filename = (md.get("original_name") or file_id.split("/")[-1])
     except Exception:
-        filename = file_id.split("/")[-1] or "download.bin"
+        filename = file_id.split("/")[-1]
 
-    # IMPORTANT: For GCS signed URLs, use response_disposition to force download.
-    # See google.cloud.storage.blob.Blob.generate_signed_url docs.
-    from datetime import timedelta
-    disposition = f'attachment; filename="{filename}"'
+    # firebase_admin 6+ supports generate_signed_url with response_disposition
     url = blob.generate_signed_url(
         expiration=timedelta(minutes=minutes),
         method="GET",
-        response_disposition=disposition,
-        # Optionally, hint the content type. It won't override stored metadata,
-        # but helps when missing.
-        response_type=blob.content_type or "application/octet-stream",
+        response_disposition=f"attachment; filename*=UTF-8''{filename}",
     )
-    log.info("download_url_generated", file_id=file_id, expires_min=minutes, url_len=len(url) if url else 0, disposition=disposition)
     return url
 
-def get_file_bytes(file_id: str) -> Tuple[bytes, str]:
+def get_file_bytes(file_id: str) -> tuple[bytes, str]:
     bkt = _bucket()
     blob = bkt.blob(file_id)
-    exists = blob.exists()
-    log.info("get_bytes_start", file_id=file_id, exists=exists)
-    if not exists:
+    if not blob.exists():
+        log.warning("get_missing", file_id=file_id)
         raise FileNotFoundError("File not found")
-    data: bytes = blob.download_as_bytes()
-    content_type: str = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"
-    log.info("get_bytes_ok", file_id=file_id, bytes=len(data), content_type=content_type)
-    return data, content_type
+    data = blob.download_as_bytes()
+    ct = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"
+    return data, ct
 
 

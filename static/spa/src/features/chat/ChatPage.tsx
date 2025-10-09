@@ -20,9 +20,11 @@ import type { ChatTurn, ConversationMeta } from "./types";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 
-/** User-based namespaces:
- * - No tenant header/body; backend infers the user from session.
- * - Local conversation storage continues to use an app-level `namespace` string.
+/**
+ * Namespacing model:
+ * - Keep the app-level "namespace" UX (stored in localStorage).
+ * - Derive a per-user effective namespace: `u:<uid>:<namespace>` (or `anon:<namespace>` when signed out).
+ * - Use the effective namespace for ALL chatStore calls and subscriptions.
  */
 
 function useNamespace() {
@@ -47,9 +49,17 @@ export default function ChatPage() {
   const { namespace } = useNamespace();
   const listRef = useRef<HTMLDivElement>(null);
   const canSend = input.trim().length > 0 && !sending;
-  const uid = getAuth().currentUser?.uid;
 
-  async function refreshConversations(ns = namespace) {
+  // Current Firebase user
+  const uid = getAuth().currentUser?.uid || null;
+
+  // ----- NEW: derive a per-user effective namespace -----
+  const effectiveNs = useMemo(() => {
+    return uid ? `u:${uid}:${namespace}` : `anon:${namespace}`;
+  }, [uid, namespace]);
+
+  // Helpers
+  async function refreshConversations(ns = effectiveNs) {
     try {
       const convs = await listConversations(ns);
       setSessions(convs);
@@ -59,24 +69,32 @@ export default function ChatPage() {
     }
   }
 
+  // When user or namespace changes, (re)load list
   useEffect(() => {
-    if (!uid) return;
-    refreshConversations();
-  }, [uid, namespace]);
-
-  useEffect(() => {
-    if (!uid || !sessionId) {
+    if (!uid) {
+      // When signed out, reset UI state but still allow anon namespace separation
+      setSessions([]);
+      setSessionId(null);
       setMessages([]);
       return;
     }
-    const unsub = subscribeMessages(namespace, sessionId, (msgs) => {
+    refreshConversations();
+  }, [uid, effectiveNs]); // effectiveNs includes namespace
+
+  // Subscribe message thread for selected session
+  useEffect(() => {
+    if (!sessionId) {
+      setMessages([]);
+      return;
+    }
+    const unsub = subscribeMessages(effectiveNs, sessionId, (msgs) => {
       setMessages(msgs.map((m, i) => ({ ...m, id: `${i}` })));
       queueMicrotask(() => {
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
       });
     });
     return () => unsub();
-  }, [uid, namespace, sessionId]);
+  }, [effectiveNs, sessionId]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
@@ -89,7 +107,7 @@ export default function ChatPage() {
 
   const startNewSearch = useCallback(async () => {
     try {
-      const id = await createConversation(namespace, "New chat");
+      const id = await createConversation(effectiveNs, "New chat");
       await refreshConversations();
       setSessionId(id);
       setMessages([]);
@@ -97,7 +115,7 @@ export default function ChatPage() {
     } catch (e) {
       console.error("[chat] createConversation error", e);
     }
-  }, [namespace]);
+  }, [effectiveNs]);
 
   const switchSession = useCallback(
     (id: string) => {
@@ -125,10 +143,10 @@ export default function ChatPage() {
     setSending(true);
 
     try {
-      const convId = await ensureConversation(namespace, sessionId);
+      const convId = await ensureConversation(effectiveNs, sessionId);
       if (!sessionId) setSessionId(convId);
 
-      await appendMessage(namespace, convId, userMsg);
+      await appendMessage(effectiveNs, convId, userMsg);
 
       const req: chatApi.ChatRequest = {
         message: userMsg.content,
@@ -146,11 +164,11 @@ export default function ChatPage() {
         request_id: (res as any).__request_id ?? null,
       } as any;
 
-      await appendMessage(namespace, convId, assistantMsg);
+      await appendMessage(effectiveNs, convId, assistantMsg);
 
       if (messages.length === 0) {
         const title = trimForTitle(userMsg.content);
-        await renameConversation(namespace, convId, title);
+        await renameConversation(effectiveNs, convId, title);
         await refreshConversations();
       }
     } catch (err: any) {
@@ -160,7 +178,7 @@ export default function ChatPage() {
           content: err?.message || "Failed to send message",
           created_at: new Date().toISOString(),
         } as any;
-        await appendMessage(namespace, sessionId, sysMsg);
+        await appendMessage(effectiveNs, sessionId, sysMsg);
       }
       console.error("[chat.ui] error", err);
     } finally {
@@ -182,14 +200,14 @@ export default function ChatPage() {
         onNew={startNewSearch}
         onSelect={switchSession}
         onRename={async (id, title) => {
-          await renameConversation(namespace, id, title);
+          await renameConversation(effectiveNs, id, title);
           await refreshConversations();
         }}
         onDelete={async (id) => {
-          await deleteConversation(namespace, id);
+          await deleteConversation(effectiveNs, id);
           await refreshConversations();
           if (id === sessionId) {
-            const next = (await listConversations(namespace))[0]?.id || null;
+            const next = (await listConversations(effectiveNs))[0]?.id || null;
             setSessionId(next);
             setMessages([]);
           }
@@ -251,7 +269,7 @@ export default function ChatPage() {
   );
 }
 
-/* --- Sidebar, Message, and Helper Components (unchanged) --- */
+/* --- Sidebar, Message, and Helper Components --- */
 
 function LeftSidebar({
   sessions,
@@ -457,7 +475,7 @@ function MessageRow({
           >
             {content}
           </div>
-          {!isUser && !!citations?.length && <CitationList citations={citations} />}
+          {!isUser && !!citations?.length && <CitationList citations={citations as any} />}
         </div>
       </div>
     </div>
