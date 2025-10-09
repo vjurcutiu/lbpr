@@ -7,9 +7,11 @@ log = logging.getLogger("rag.pinecone")
 
 try:
     from pinecone import Pinecone, ServerlessSpec
+    from pinecone.exceptions.exceptions import PineconeApiException  # type: ignore
 except Exception as e:  # pragma: no cover
     Pinecone = None
     ServerlessSpec = None
+    PineconeApiException = Exception  # type: ignore
     log.warning("pinecone sdk not available: %s", e)
 
 
@@ -58,8 +60,10 @@ class PineconeVectorStore:
             if required_dim and idx_dim and idx_dim != required_dim:
                 # Hard error — this is the #1 cause of silent upsert failures.
                 log.error("pinecone_index_dim_mismatch", index=self._index_name, index_dim=idx_dim, embed_dim=required_dim)
-                raise ValueError(f"Pinecone index '{self._index_name}' dimension ({idx_dim}) does not match embedding size ({required_dim}). "
-                                 "Create a new index with the correct dimension or set RAG_EMBED_DIM accordingly.")
+                raise ValueError(
+                    f"Pinecone index '{self._index_name}' dimension ({idx_dim}) does not match embedding size ({required_dim}). "
+                    "Create a new index with the correct dimension or set RAG_EMBED_DIM accordingly."
+                )
         except Exception as e:
             # Non-fatal: if stats call fails, proceed but at least log it.
             log.warning("pinecone_describe_index_stats_failed", index=self._index_name, error=str(e))
@@ -138,7 +142,19 @@ class PineconeVectorStore:
 
     def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
         idx = self._index_handle()
-        res = idx.query(sparse_vector=q_sparse, top_k=k, include_metadata=True, namespace=str(dataset))
+        try:
+            res = idx.query(sparse_vector=q_sparse, top_k=k, include_metadata=True, namespace=str(dataset))
+        except PineconeApiException as e:
+            # ✅ FIX: gracefully handle dense-only indexes that reject sparse-only queries
+            msg = getattr(e, "body", None) or str(e)
+            if "Cannot query index with dense 'vector_type' with only sparse vector" in str(msg):
+                log.warning(
+                    "pinecone_sparse_query_unsupported",
+                    namespace=str(dataset),
+                    reason="index is dense-only",
+                )
+                return []
+            raise
         return self._to_hits(res)
 
     def query_hybrid(
@@ -163,7 +179,7 @@ class PineconeVectorStore:
             )
             return self._to_hits(res)
 
-        # Default: two queries + RRF fusion.
+        # Default: two queries + RRF fusion. (Sparse may be unsupported; then it just contributes 0.)
         topd = self.query_dense(dataset, q_dense, k=max(k, 20))
         tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
         dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
