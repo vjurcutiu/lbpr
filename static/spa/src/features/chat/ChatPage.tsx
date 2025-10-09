@@ -20,21 +20,10 @@ import type { ChatTurn, ConversationMeta } from "./types";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 
-/**
- * UX behavior:
- * - On send: immediately show the user's message in the thread and clear the input.
- * - While waiting for the assistant: show a left-aligned assistant "bubble" with a spinner
- *   in the exact spot where the assistant's reply will appear.
- * - When the reply arrives: replace the spinner with the assistant's actual message
- *   (by appending the assistant message and hiding the spinner).
- * - Dropdown uses Portal/z-40; delete uses modal.
- * - Empty state shows instructions instead of suggestions.
- * - Smooth scroll on new messages and on conversation switch.
+/** User-based namespaces:
+ * - No tenant header/body; backend infers the user from session.
+ * - Local conversation storage continues to use an app-level `namespace` string.
  */
-
-function useTenantId() {
-  return "tenant_demo";
-}
 
 function useNamespace() {
   const [ns, setNs] = useState<string>(() => localStorage.getItem("lbp_chat_ns") || "default");
@@ -57,7 +46,6 @@ export default function ChatPage() {
 
   const { namespace } = useNamespace();
   const listRef = useRef<HTMLDivElement>(null);
-  const tenantId = useTenantId();
   const canSend = input.trim().length > 0 && !sending;
   const uid = getAuth().currentUser?.uid;
 
@@ -90,7 +78,6 @@ export default function ChatPage() {
     return () => unsub();
   }, [uid, namespace, sessionId]);
 
-  // Keep list pinned to bottom during sending as well
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [sending]);
@@ -102,7 +89,7 @@ export default function ChatPage() {
 
   const startNewSearch = useCallback(async () => {
     try {
-      const id = await createConversation(namespace, "New chat", tenantId);
+      const id = await createConversation(namespace, "New chat");
       await refreshConversations();
       setSessionId(id);
       setMessages([]);
@@ -110,14 +97,13 @@ export default function ChatPage() {
     } catch (e) {
       console.error("[chat] createConversation error", e);
     }
-  }, [namespace, tenantId]);
+  }, [namespace]);
 
   const switchSession = useCallback(
     (id: string) => {
       if (id === sessionId) return;
       setSessionId(id);
       setInput("");
-      // Scroll handled by subscription
     },
     [sessionId]
   );
@@ -133,22 +119,18 @@ export default function ChatPage() {
       created_at: new Date().toISOString(),
       trace_id: null,
       request_id: null,
-    };
+    } as any;
 
-    // Clear composer immediately
     setInput("");
     setSending(true);
 
     try {
-      // Ensure we have a conversation and append the USER message right away
       const convId = await ensureConversation(namespace, sessionId);
       if (!sessionId) setSessionId(convId);
 
       await appendMessage(namespace, convId, userMsg);
 
-      // Prepare request (include the just-sent user message in the history we pass)
       const req: chatApi.ChatRequest = {
-        tenant_id: tenantId,
         message: userMsg.content,
         history: [...historyForRequest, { role: "user", content: userMsg.content }],
         stream: streamEnabled,
@@ -162,24 +144,22 @@ export default function ChatPage() {
         created_at: new Date().toISOString(),
         trace_id: (res as any).__trace_id,
         request_id: (res as any).__request_id ?? null,
-      };
+      } as any;
 
       await appendMessage(namespace, convId, assistantMsg);
 
-      // Rename a newly-created chat based on first user message
       if (messages.length === 0) {
         const title = trimForTitle(userMsg.content);
         await renameConversation(namespace, convId, title);
         await refreshConversations();
       }
     } catch (err: any) {
-      // Emit a system message on error
       if (sessionId) {
         const sysMsg: ChatTurn = {
           role: "system",
           content: err?.message || "Failed to send message",
           created_at: new Date().toISOString(),
-        };
+        } as any;
         await appendMessage(namespace, sessionId, sysMsg);
       }
       console.error("[chat.ui] error", err);
@@ -231,16 +211,14 @@ export default function ChatPage() {
                   key={m.id || String(idx)}
                   role={m.role}
                   content={m.content}
-                  citations={m.citations as any}
+                  citations={(m as any).citations as any}
                 />
               ))}
-              {/* Assistant "thinking" placeholder bubble while awaiting reply */}
               {sending && <AssistantThinkingRow />}
             </div>
           )}
         </div>
 
-        {/* Bottom composer is shown ONLY when there's a thread */}
         {hasThread && (
           <>
             <Separator />
@@ -273,7 +251,7 @@ export default function ChatPage() {
   );
 }
 
-/* --- Sidebar, Message, and Helper Components --- */
+/* --- Sidebar, Message, and Helper Components (unchanged) --- */
 
 function LeftSidebar({
   sessions,
@@ -332,7 +310,6 @@ function LeftSidebar({
                   </div>
                 </button>
 
-                {/* 3-dots actions */}
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>
                     <Button variant="ghost" size="icon" aria-label="Conversation actions">
@@ -376,7 +353,6 @@ function LeftSidebar({
         </ul>
       </div>
 
-      {/* Rename Dialog */}
       <Dialog.Root open={!!renameId} onOpenChange={(o) => !o && setRenameId(null)}>
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[95vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-popover p-4 shadow-lg">
           <Dialog.Title className="text-base font-medium">Rename conversation</Dialog.Title>
@@ -414,7 +390,6 @@ function LeftSidebar({
         </Dialog.Content>
       </Dialog.Root>
 
-      {/* Delete Confirmation Modal */}
       <Dialog.Root open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[95vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl border bg-popover p-5 shadow-lg">
           <Dialog.Title className="text-base font-semibold">Delete conversation</Dialog.Title>
@@ -442,75 +417,6 @@ function LeftSidebar({
         </Dialog.Content>
       </Dialog.Root>
     </aside>
-  );
-}
-
-function EmptyState({
-  heroValue,
-  onHeroChange,
-  onHeroSubmit,
-}: {
-  heroValue: string;
-  onHeroChange: (v: string) => void;
-  onHeroSubmit: () => void;
-}) {
-  const heroTextClass = "text-left placeholder:text-left leading-[1.4] h-11 py-3";
-  return (
-    <div className="flex h-[60vh] items-center justify-center">
-      <div className="text-center px-6 max-w-3xl w-full">
-        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mb-4">
-          Welcome to RAG Chat
-        </h1>
-
-        <div className="mx-auto max-w-2xl">
-          <div className="flex items-center gap-2 rounded-2xl border bg-card px-3 py-2 shadow-sm">
-            <Textarea
-              value={heroValue}
-              onChange={(e) => onHeroChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  onHeroSubmit();
-                }
-              }}
-              placeholder="Ask anything…"
-              className={`max-h-40 resize-none border-0 focus-visible:ring-0 focus-visible:border-0 px-2 ${heroTextClass}`}
-            />
-            <Button onClick={onHeroSubmit} disabled={!heroValue.trim()}>
-              <Send className="h-4 w-4" />
-              <span className="ml-2 hidden sm:inline">Ask</span>
-            </Button>
-          </div>
-        </div>
-
-        {/* Instructions replacing suggestions */}
-        <div className="mt-6 text-left mx-auto max-w-2xl space-y-3">
-          <div className="flex items-start gap-2">
-            <Info className="h-4 w-4 mt-1 shrink-0" />
-            <p className="text-sm">
-              <span className="font-medium">How it works:</span> your question is embedded and matched against your uploaded docs, then the assistant answers with citations.
-            </p>
-          </div>
-          <div className="flex items-start gap-2">
-            <Info className="h-4 w-4 mt-1 shrink-0" />
-            <p className="text-sm">
-              <span className="font-medium">Upload files:</span> drag & drop PDFs, docs, or text into the knowledge area (left menu) to make them searchable.
-            </p>
-          </div>
-          <div className="flex items-start gap-2">
-            <Info className="h-4 w-4 mt-1 shrink-0" />
-            <p className="text-sm">
-              <span className="font-medium">Tips:</span> be specific; include file names or sections when possible; follow-ups refine the context.
-            </p>
-          </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Press <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> to send,&nbsp;
-            <kbd className="px-1 py-0.5 bg-muted rounded">Shift</kbd>+
-            <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> for a new line.
-          </p>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -558,7 +464,6 @@ function MessageRow({
   );
 }
 
-/** Assistant placeholder bubble (spinner in the exact assistant position) */
 function AssistantThinkingRow() {
   return (
     <div className="w-full flex justify-start">
@@ -607,4 +512,72 @@ function formatTimeAgo(iso: string) {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.round(hrs / 24);
   return `${days}d ago`;
+}
+
+function EmptyState({
+  heroValue,
+  onHeroChange,
+  onHeroSubmit,
+}: {
+  heroValue: string;
+  onHeroChange: (v: string) => void;
+  onHeroSubmit: () => void;
+}) {
+  const heroTextClass = "text-left placeholder:text-left leading-[1.4] h-11 py-3";
+  return (
+    <div className="flex h-[60vh] items-center justify-center">
+      <div className="text-center px-6 max-w-3xl w-full">
+        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mb-4">
+          Welcome to RAG Chat
+        </h1>
+
+        <div className="mx-auto max-w-2xl">
+          <div className="flex items-center gap-2 rounded-2xl border bg-card px-3 py-2 shadow-sm">
+            <Textarea
+              value={heroValue}
+              onChange={(e) => onHeroChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  onHeroSubmit();
+                }
+              }}
+              placeholder="Ask anything…"
+              className={`max-h-40 resize-none border-0 focus-visible:ring-0 focus-visible:border-0 px-2 ${heroTextClass}`}
+            />
+            <Button onClick={onHeroSubmit} disabled={!heroValue.trim()}>
+              <Send className="h-4 w-4" />
+              <span className="ml-2 hidden sm:inline">Ask</span>
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-6 text-left mx-auto max-w-2xl space-y-3">
+          <div className="flex items-start gap-2">
+            <Info className="h-4 w-4 mt-1 shrink-0" />
+            <p className="text-sm">
+              <span className="font-medium">How it works:</span> your question is embedded and matched against your uploaded docs, then the assistant answers with citations.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <Info className="h-4 w-4 mt-1 shrink-0" />
+            <p className="text-sm">
+              <span className="font-medium">Upload files:</span> drag & drop PDFs, docs, or text into the knowledge area (left menu) to make them searchable.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <Info className="h-4 w-4 mt-1 shrink-0" />
+            <p className="text-sm">
+              <span className="font-medium">Tips:</span> be specific; include file names or sections when possible; follow-ups refine the context.
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Press <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> to send,&nbsp;
+            <kbd className="px-1 py-0.5 bg-muted rounded">Shift</kbd>+
+            <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> for a new line.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }

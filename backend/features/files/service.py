@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import io
 import uuid
-import hashlib
 import logging
-from typing import List, Optional, Dict, Any, Iterable, Tuple
+from typing import List, Optional
 
 from fastapi import UploadFile
 from firebase_admin import storage
@@ -14,20 +13,20 @@ from .schemas import FileItem, UploadResponse
 from features.rag import orchestrator
 from features.rag.schemas import IngestRequest
 
-TENANT_HEADER = "x-tenant-id"
 log = logging.getLogger("files.service")
 
 def _bucket():
     bucket_name = settings.FIREBASE_STORAGE_BUCKET or f"{settings.FIREBASE_PROJECT_ID}.appspot.com"
-    log.debug("bucket_resolve", extra={"bucket": bucket_name})
+    log.debug("bucket_resolve", bucket=bucket_name)
     return storage.bucket(bucket_name)
 
-def _tenant_prefix(tenant_id: Optional[str]) -> str:
-    return f"t:{tenant_id or 'demo'}"
+def _user_prefix(uid: str) -> str:
+    # Canonical user-based namespace prefix
+    return f"u:{uid}"
 
-def _object_path(tenant_id: Optional[str], filename: str, file_id: Optional[str]=None) -> str:
+def _object_path(uid: str, filename: str, file_id: Optional[str]=None) -> str:
     fid = file_id or str(uuid.uuid4())
-    return f"{_tenant_prefix(tenant_id)}/uploads/{fid}/{filename}"
+    return f"{_user_prefix(uid)}/uploads/{fid}/{filename}"
 
 def _hash_bytes(b: bytes) -> str:
     import hashlib as _hashlib
@@ -70,22 +69,22 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
         return None
     return None
 
-def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "default") -> UploadResponse:
+def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> UploadResponse:
     data = file.file.read()
     size = len(data)
     if size > 50 * 1024 * 1024:
         raise ValueError("File too large (>50MB)")
     checksum = _hash_bytes(data)
-    object_name = _object_path(tenant_id, file.filename)
+    object_name = _object_path(uid, file.filename)
     bkt = _bucket()
     blob = bkt.blob(object_name)
 
-    log.info("upload_start", tenant=tenant_id or "demo", object=object_name, filename=file.filename, ctype=file.content_type or "", size=size, checksum=checksum[:12])
+    log.info("upload_start", user_uid=uid, object=object_name, filename=file.filename, ctype=file.content_type or "", size=size, checksum=checksum[:12])
 
     blob.metadata = {
         "checksum": checksum,
         "original_name": file.filename,
-        "tenant_id": tenant_id or "demo",
+        "owner_uid": uid,
         "dataset": dataset,
         "content_type": file.content_type or "",
     }
@@ -95,12 +94,11 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
     if text:
         log.info("upload_text_extracted", object=object_name, chars=len(text), ctype=file.content_type or "")
         try:
-            uid = (tenant_id or "demo")
             orchestrator.ingest_request(
                 IngestRequest(
                     dataset=dataset,
                     text=text,
-                    metadata={"tenant_id": tenant_id or "demo", "source": "upload", "title": file.filename},
+                    metadata={"owner_uid": uid, "source": "upload", "title": file.filename},
                 ),
                 uid=uid,
             )
@@ -113,10 +111,10 @@ def upload_file(tenant_id: Optional[str], file: UploadFile, dataset: str = "defa
     log.info("upload_done", object=object_name)
     return UploadResponse(job_id=object_name)
 
-def list_files(tenant_id: Optional[str]) -> List[FileItem]:
+def list_files(uid: str) -> List[FileItem]:
     bkt = _bucket()
-    prefix = f"{_tenant_prefix(tenant_id)}/uploads/"
-    log.info("list_start", prefix=prefix)
+    prefix = f"{_user_prefix(uid)}/uploads/"
+    log.info("list_start", prefix=prefix, user_uid=uid)
     items: List[FileItem] = []
     for blob in bkt.list_blobs(prefix=prefix):
         if blob.name.endswith("/"):
@@ -132,10 +130,10 @@ def list_files(tenant_id: Optional[str]) -> List[FileItem]:
             )
         )
     items.sort(key=lambda x: x.created_at or "", reverse=True)
-    log.info("list_ok", count=len(items))
+    log.info("list_ok", count=len(items), user_uid=uid)
     return items
 
-def delete_file(tenant_id: Optional[str], file_id: str) -> bool:
+def delete_file(file_id: str) -> bool:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()
@@ -148,44 +146,34 @@ def delete_file(tenant_id: Optional[str], file_id: str) -> bool:
 
 def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
     """Generate a signed URL forcing a download 'Save As' dialog."""
+    from datetime import timedelta
     bkt = _bucket()
     blob = bkt.blob(file_id)
-    exists = blob.exists()
-    if not exists:
+    if not blob.exists():
         log.warning("download_missing", file_id=file_id)
         raise FileNotFoundError("File not found")
 
-    # Prefer the original filename from metadata; otherwise, last segment of path.
     filename = None
     try:
         md = blob.metadata or {}
-        filename = (md.get("original_name") or file_id.split("/")[-1]).strip() or "download.bin"
+        filename = (md.get("original_name") or file_id.split("/")[-1])
     except Exception:
-        filename = file_id.split("/")[-1] or "download.bin"
+        filename = file_id.split("/")[-1]
 
-    # IMPORTANT: For GCS signed URLs, use response_disposition to force download.
-    # See google.cloud.storage.blob.Blob.generate_signed_url docs.
-    from datetime import timedelta
-    disposition = f'attachment; filename="{filename}"'
+    # firebase_admin 6+ supports generate_signed_url with response_disposition
     url = blob.generate_signed_url(
         expiration=timedelta(minutes=minutes),
         method="GET",
-        response_disposition=disposition,
-        # Optionally, hint the content type. It won't override stored metadata,
-        # but helps when missing.
-        response_type=blob.content_type or "application/octet-stream",
+        response_disposition=f"attachment; filename*=UTF-8''{filename}",
     )
-    log.info("download_url_generated", file_id=file_id, expires_min=minutes, url_len=len(url) if url else 0, disposition=disposition)
     return url
 
-def get_file_bytes(file_id: str) -> Tuple[bytes, str]:
+def get_file_bytes(file_id: str) -> tuple[bytes, str]:
     bkt = _bucket()
     blob = bkt.blob(file_id)
-    exists = blob.exists()
-    log.info("get_bytes_start", file_id=file_id, exists=exists)
-    if not exists:
+    if not blob.exists():
+        log.warning("get_missing", file_id=file_id)
         raise FileNotFoundError("File not found")
-    data: bytes = blob.download_as_bytes()
-    content_type: str = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"
-    log.info("get_bytes_ok", file_id=file_id, bytes=len(data), content_type=content_type)
-    return data, content_type
+    data = blob.download_as_bytes()
+    ct = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"
+    return data, ct
