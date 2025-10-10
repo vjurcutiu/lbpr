@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from typing import Optional, List
@@ -29,7 +30,7 @@ def _hdr(request: Request, name: str) -> str | None:
         return None
 
 @router.get("", response_model=list[FileItem])
-def list_files(request: Request, user: SessionOut = Depends(get_current_user)):
+async def list_files(request: Request, user: SessionOut = Depends(get_current_user)):
     """List files for the *current user* using user-based namespaces."""
     try:
         log.info("files_list_request", user_uid=user.uid, client=str(getattr(request, "client", "")), ua=_hdr(request, "user-agent"))
@@ -41,17 +42,15 @@ def list_files(request: Request, user: SessionOut = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("", response_model=UploadResponse, status_code=202)
-def create_file(
+async def create_file(
     file: UploadFile = File(...),
     dataset: str = "default",
     user: SessionOut = Depends(get_current_user),
 ):
-    """Upload a single file into user-based storage and auto-ingest to the user's RAG namespace.
-    Kept for backward compatibility.
-    """
+    """Upload a single file into user-based storage and auto-ingest to the user's RAG namespace."""
     try:
         log.info("files_upload_request", user_uid=user.uid, filename=getattr(file, "filename", None), ctype=getattr(file, "content_type", None))
-        resp = service.upload_file(user.uid, file, dataset=dataset)
+        resp = await service.upload_file(user.uid, file, dataset=dataset)
         log.info("files_upload_ok", job_id=resp.job_id, user_uid=user.uid)
         return resp
     except ValueError as ve:
@@ -62,15 +61,12 @@ def create_file(
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/batch", response_model=UploadBatchResponse, status_code=202)
-def create_files_batch(
+async def create_files_batch(
     files: List[UploadFile] = File(...),
     dataset: str = "default",
     user: SessionOut = Depends(get_current_user),
 ):
-    """Upload **multiple** files in one request.
-
-    Frontend should append each file under the key 'files' in the same FormData.
-    """
+    """Upload **multiple** files in one request. Frontend should append each file under the key 'files'."""
     jobs: List[str] = []
     try:
         if not files:
@@ -78,7 +74,7 @@ def create_files_batch(
         log.info("files_batch_upload_request", user_uid=user.uid, count=len(files), dataset=dataset)
         for f in files:
             try:
-                resp = service.upload_file(user.uid, f, dataset=dataset)
+                resp = await service.upload_file(user.uid, f, dataset=dataset)
                 jobs.append(resp.job_id)
                 log.info("files_batch_upload_item_ok", job_id=resp.job_id, filename=getattr(f, "filename", None))
             except ValueError as ve:
@@ -97,7 +93,7 @@ def create_files_batch(
 
 # IMPORTANT: keep download route before catch-all {file_id:path}
 @router.get("/{file_id:path}/download")
-def download_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
+async def download_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
         log.info("files_download_request", file_id=file_id, referer=_hdr(request, "referer"), ua=_hdr(request, "user-agent"), user_uid=user.uid)
         url = service.get_signed_download_url(file_id)
@@ -111,7 +107,7 @@ def download_file(file_id: str, request: Request, user: SessionOut = Depends(get
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{file_id:path}")
-def get_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
+async def get_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     """Return raw file bytes with correct Content-Type for inline preview."""
     try:
         log.info("files_get_request", file_id=file_id, accept=_hdr(request, "accept"), referer=_hdr(request, "referer"), user_uid=user.uid)
@@ -126,7 +122,7 @@ def get_file(file_id: str, request: Request, user: SessionOut = Depends(get_curr
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{file_id:path}", response_model=DeleteResponse)
-def delete_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
+async def delete_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
         log.info("files_delete_request", file_id=file_id, user_uid=user.uid)
         ok = service.delete_file(file_id)
@@ -143,7 +139,7 @@ def delete_file(file_id: str, request: Request, user: SessionOut = Depends(get_c
 
 # Query-string variants (useful if proxies mangle %2F)
 @router.get("/by-id")
-def get_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), user: SessionOut = Depends(get_current_user)):
+async def get_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), user: SessionOut = Depends(get_current_user)):
     try:
         log.info("files_get_by_id_request", id=id, user_uid=user.uid)
         data, content_type = service.get_file_bytes(id)
@@ -157,7 +153,7 @@ def get_file_by_id(id: str = Query(..., description="Exact object path as return
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/download/by-id")
-def download_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), user: SessionOut = Depends(get_current_user)):
+async def download_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), user: SessionOut = Depends(get_current_user)):
     try:
         log.info("files_download_by_id_request", id=id, user_uid=user.uid)
         url = service.get_signed_download_url(id)

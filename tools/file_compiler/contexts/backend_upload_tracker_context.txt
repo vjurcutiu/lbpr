@@ -1,0 +1,214 @@
+C:/code2/lbpr/backend/core/tracker.py
+
+from __future__ import annotations
+
+import time
+import logging
+from typing import Optional, Dict, Any, List, Tuple
+
+from core.redis_utils import get_client
+
+log = logging.getLogger("upload.tracker")
+
+# Redis key helpers
+def _job_key(job_id: str) -> str:
+    return f"ut:job:{job_id}"
+
+def _user_set(uid: str) -> str:
+    return f"ut:user:{uid}:jobs"
+
+# Public job schema (wire format for API/FE)
+# {
+#   "job_id": str,
+#   "uid": str,
+#   "filename": str,
+#   "dataset": str,
+#   "total_bytes": int,
+#   "bytes": int,
+#   "phase": str,       # receive|upload|ocr|extract|embed|upsert|complete|error
+#   "pct": int,         # 0..100 best-effort
+#   "status": str,      # running|done|error
+#   "error": Optional[str],
+#   "created_at": int,  # epoch seconds
+#   "updated_at": int,  # epoch seconds
+# }
+
+ACTIVE_STATUSES = {"running"}
+DONE_STATUSES = {"done", "error"}
+
+def _now() -> int:
+    return int(time.time())
+
+async def create_job(*, job_id: str, uid: str, filename: str, dataset: str, total_bytes: int) -> None:
+    r = await get_client()
+    now = _now()
+    m = {
+        "job_id": job_id,
+        "uid": uid,
+        "filename": filename,
+        "dataset": dataset,
+        "total_bytes": str(int(total_bytes)),
+        "bytes": "0",
+        "phase": "receive",
+        "pct": "0",
+        "status": "running",
+        "error": "",
+        "created_at": str(now),
+        "updated_at": str(now),
+    }
+    key = _job_key(job_id)
+    pipe = r.pipeline()
+    pipe.hset(key, mapping=m)
+    # Keep jobs for a week after completion; will set expiry on finish as well.
+    pipe.expire(key, 7 * 24 * 3600)
+    pipe.zadd(_user_set(uid), {job_id: now})
+    pipe.execute()
+
+async def incr_bytes(job_id: str, n: int) -> int:
+    """Increase processed bytes and recompute pct if total is known."""
+    r = await get_client()
+    key = _job_key(job_id)
+    # Increase bytes
+    new_bytes = await r.hincrby(key, "bytes", int(max(0, n)))
+    # Clamp and recompute pct
+    tot = await r.hget(key, "total_bytes")
+    pct = 0
+    try:
+        tot_i = int(tot or 0)
+        if tot_i > 0:
+            pct = int(min(100, round(new_bytes * 100 / tot_i)))
+    except Exception:
+        pass
+    pipe = r.pipeline()
+    pipe.hset(key, mapping={"pct": str(pct), "updated_at": str(_now())})
+    pipe.execute()
+    return int(new_bytes)
+
+async def set_phase(job_id: str, phase: str, *, pct: Optional[int] = None, status: Optional[str] = None, error: Optional[str] = None) -> None:
+    r = await get_client()
+    key = _job_key(job_id)
+    m: Dict[str, str] = {"phase": phase, "updated_at": str(_now())}
+    if pct is not None:
+        m["pct"] = str(max(0, min(100, pct)))
+    if status is not None:
+        m["status"] = status
+    if error is not None:
+        m["error"] = error
+    await r.hset(key, mapping=m)
+    # If terminal, extend retention
+    if status in ("done", "error"):
+        await r.expire(key, 14 * 24 * 3600)
+
+async def mark_done(job_id: str) -> None:
+    await set_phase(job_id, "complete", pct=100, status="done")
+
+async def mark_error(job_id: str, message: str) -> None:
+    await set_phase(job_id, "error", status="error", error=message)
+
+async def get_job(job_id: str) -> Dict[str, Any]:
+    r = await get_client()
+    m = await r.hgetall(_job_key(job_id))
+    # normalize numerics
+    if not m:
+        return {}
+    out: Dict[str, Any] = {k: v for k, v in m.items()}
+    for k in ("total_bytes", "bytes", "pct", "created_at", "updated_at"):
+        if k in out:
+            try:
+                out[k] = int(out[k])
+            except Exception:
+                pass
+    return out
+
+async def list_jobs(uid: str, *, limit: int = 50, active_only: bool = False) -> List[Dict[str, Any]]:
+    r = await get_client()
+    # Most recent first
+    ids = await r.zrevrange(_user_set(uid), 0, max(0, limit - 1))
+    jobs: List[Dict[str, Any]] = []
+    for jid in ids:
+        m = await get_job(jid)
+        if not m:
+            continue
+        if active_only and m.get("status") not in ACTIVE_STATUSES:
+            continue
+        jobs.append(m)
+    # Sort in Python by updated_at desc to be safe
+    jobs.sort(key=lambda x: x.get("updated_at", 0), reverse=True)
+    return jobs
+
+
+C:/code2/lbpr/backend/features/upload_tracker/router.py
+
+from __future__ import annotations
+
+import logging
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from core.tracker import get_job, list_jobs
+from .schemas import Job, JobsResponse
+
+# Auth deps (use same pattern as other features)
+try:
+    from features.auth.deps import get_current_user  # type: ignore
+    from features.auth.models import SessionOut  # type: ignore
+except Exception:  # fallback for local/dev
+    def get_current_user():
+        class _U: uid = "dev"
+        return _U()  # type: ignore
+    class SessionOut:  # type: ignore
+        uid: str = "dev"
+
+router = APIRouter(prefix="/v1/upload-tracker", tags=["Upload Tracker"])
+log = logging.getLogger("upload.tracker.router")
+
+@router.get("/jobs", response_model=JobsResponse)
+async def jobs(user: SessionOut = Depends(get_current_user)):
+    try:
+        items = await list_jobs(user.uid, limit=100)
+        return JobsResponse(items=[Job(**it) for it in items])  # type: ignore[arg-type]
+    except Exception:
+        log.exception("jobs_list_error")
+        raise HTTPException(status_code=400, detail="Failed to list jobs")
+
+@router.get("/jobs/{job_id}", response_model=Job)
+async def job(job_id: str, user: SessionOut = Depends(get_current_user)):
+    try:
+        m = await get_job(job_id)
+        if not m:
+            raise HTTPException(status_code=404, detail="Job not found")
+        # (Optional) authz: ensure job belongs to user; else 404
+        if m.get("uid") != user.uid:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return Job(**m)  # type: ignore[arg-type]
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("job_get_error", extra={"job_id": job_id})
+        raise HTTPException(status_code=400, detail="Failed to get job")
+
+
+C:/code2/lbpr/backend/features/upload_tracker/schemas.py
+
+from __future__ import annotations
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field
+
+class Job(BaseModel):
+    job_id: str
+    uid: str
+    filename: str
+    dataset: str = "default"
+    total_bytes: int = 0
+    bytes: int = 0
+    phase: str = "receive"     # receive|upload|ocr|extract|embed|upsert|complete|error
+    pct: int = 0
+    status: str = "running"    # running|done|error
+    error: Optional[str] = None
+    created_at: int
+    updated_at: int
+
+class JobsResponse(BaseModel):
+    items: List[Job] = Field(default_factory=list)
+
+

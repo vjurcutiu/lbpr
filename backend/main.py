@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -17,6 +18,8 @@ from features.profile import routes as profile_routes  # type: ignore
 from features.rag.router import router as rag_router
 from features.rag.contracts_router import router as rag_contracts_router
 from features.files.router import router as files_router  # type: ignore
+# NEW
+from features.upload_tracker.router import router as upload_tracker_router  # type: ignore
 
 log = logging.getLogger("app")
 
@@ -107,6 +110,8 @@ def create_app() -> FastAPI:
     app.include_router(rag_router)
     app.include_router(rag_contracts_router)
     app.include_router(files_router)
+    # NEW
+    app.include_router(upload_tracker_router)
 
     # Versioned mirrors
     app.include_router(auth_routes.router, prefix="/v1")

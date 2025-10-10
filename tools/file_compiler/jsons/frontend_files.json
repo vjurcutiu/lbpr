@@ -2,7 +2,8 @@
   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_files_context.txt",
   "folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\files\\components",
               "C:\\code2\\lbpr\\static\\spa\\src\\features\\files\\utils",
-              "C:\\code2\\lbpr\\static\\spa\\src\\features\\files"
+              "C:\\code2\\lbpr\\static\\spa\\src\\features\\files",
+              "C:\\code2\\lbpr\\static\\spa\\src\\features\\files\\hooks"
             ]
 }
 

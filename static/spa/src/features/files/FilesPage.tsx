@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload,
@@ -7,6 +8,7 @@ import {
   Trash2,
   Search,
   Info,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +47,7 @@ import { FileTree } from "./components/FileTree";
 import { FileViewer } from "./components/FileViewer";
 import { EmptyState } from "./components/EmptyState";
 import { FileIconByName } from "./components/FileIconByName";
+import { UploadTrackerPanel } from "./components/UploadTracker";
 
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -71,6 +74,9 @@ export default function FilesPage() {
   // in-file search + metadata modal
   const [infileQuery, setInfileQuery] = useState("");
   const [metaOpen, setMetaOpen] = useState(false);
+
+  // Upload tracker panel
+  const [trackerOpen, setTrackerOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -114,7 +120,6 @@ export default function FilesPage() {
     setUploading(true);
     try {
       if (fs.length === 1) {
-        // keep old path for nicer toast wording
         await uploadFile(fs[0]);
         toast.success("Upload complete", {
           description: `"${fs[0].name}" has been uploaded.`,
@@ -125,6 +130,8 @@ export default function FilesPage() {
           description: `${fs.length} files uploaded.`,
         });
       }
+      // Open tracker so users can watch post-processing (OCR, embedding, upsert)
+      setTrackerOpen(true);
       await refresh();
     } catch (err) {
       console.error(err);
@@ -255,6 +262,10 @@ export default function FilesPage() {
             <RefreshCw className="h-4 w-4 mr-1.5" />
           )}
           Refresh
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setTrackerOpen(v => !v)} title="Show transfers">
+          <Activity className="h-4 w-4" />
+          <span className="ml-1 hidden sm:inline">Transfers</span>
         </Button>
       </div>
 
@@ -441,13 +452,6 @@ export default function FilesPage() {
               <div className="col-span-2">
                 {activeFile.created_at ? new Date(activeFile.created_at).toLocaleString() : "—"}
               </div>
-
-              {content[activeFile.id]?.contentType && (
-                <>
-                  <div className="text-muted-foreground">Preview type</div>
-                  <div className="col-span-2">{content[activeFile.id]?.contentType}</div>
-                </>
-              )}
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">No file selected.</div>
@@ -457,6 +461,9 @@ export default function FilesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Upload tracker floating panel */}
+      <UploadTrackerPanel open={trackerOpen} onClose={() => setTrackerOpen(false)} />
     </div>
   );
 }
