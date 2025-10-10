@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import time
@@ -62,7 +61,7 @@ async def create_job(*, job_id: str, uid: str, filename: str, dataset: str, tota
     # Keep jobs for a week after completion; will set expiry on finish as well.
     pipe.expire(key, 7 * 24 * 3600)
     pipe.zadd(_user_set(uid), {job_id: now})
-    # BUGFIX: pipeline.execute() is a coroutine in redis.asyncio -> must await
+    # pipeline.execute() is a coroutine in redis.asyncio -> must await
     await pipe.execute()
     log.debug("ut_create_job_ok", job_id=job_id)
 
@@ -147,3 +146,45 @@ async def list_jobs(uid: str, *, limit: int = 50, active_only: bool = False) -> 
     jobs.sort(key=lambda x: x.get("updated_at", 0), reverse=True)
     log.info("ut_list_jobs_ok", uid=uid, items=len(jobs), active_only=active_only)
     return jobs
+
+# ---- NEW: clearing helpers -------------------------------------------------
+
+async def clear_jobs(uid: str, *, only_done: bool = True) -> int:
+    """
+    Remove tracker entries for a user.
+    - only_done=True: remove jobs with status in DONE_STATUSES (default)
+    - only_done=False: remove all jobs (running jobs will vanish from UI)
+    Returns number of removed jobs.
+    """
+    r = await get_client()
+    set_key = _user_set(uid)
+    ids: List[str] = await r.zrange(set_key, 0, -1)  # oldest..newest
+    if not ids:
+        return 0
+
+    removed = 0
+    pipe = r.pipeline()
+
+    if not only_done:
+        # nuke everything
+        for jid in ids:
+            pipe.delete(_job_key(jid))
+        pipe.delete(set_key)
+        await pipe.execute()
+        removed = len(ids)
+        log.info("ut_clear_jobs_all", uid=uid, removed=removed)
+        return removed
+
+    # Clear completed/error only
+    # We do small per-id reads to avoid fetching entire hashes
+    for jid in ids:
+        status = await r.hget(_job_key(jid), "status")
+        if status and status in DONE_STATUSES:
+            pipe.delete(_job_key(jid))
+            pipe.zrem(set_key, jid)
+            removed += 1
+
+    if removed:
+        await pipe.execute()
+    log.info("ut_clear_jobs_done", uid=uid, removed=removed, total=len(ids))
+    return removed

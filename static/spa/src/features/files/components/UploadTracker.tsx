@@ -1,10 +1,11 @@
-
-import { useEffect, useMemo, useState } from "react";
-import { listUploadJobs, type UploadJob } from "../uploadTrackerApi";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { listUploadJobs, type UploadJob, clearUploadJobs } from "../uploadTrackerApi";
 import { useInterval } from "../hooks/useInterval";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { Loader2, MoreHorizontal } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 
 function phaseLabel(p: UploadJob["phase"]) {
   switch (p) {
@@ -29,19 +30,41 @@ function fmtBytes(n: number) {
 export function UploadTrackerPanel({
   open,
   onClose,
+  refreshKey,
+  onAnyComplete,
 }: {
   open: boolean;
   onClose: () => void;
+  /** When this changes, the panel will force-refresh immediately. */
+  refreshKey?: number | string;
+  /** Called when one or more jobs transition to 'done' (or 'error'). */
+  onAnyComplete?: (newlyCompleted: UploadJob[]) => void;
 }) {
   const [jobs, setJobs] = useState<UploadJob[]>([]);
   const [busy, setBusy] = useState(false);
+  const prevStatusRef = useRef<Map<string, UploadJob["status"]>>(new Map());
 
   const refresh = async () => {
     if (!open) return;
     setBusy(true);
     try {
       const items = await listUploadJobs();
+      // detect newly completed/error
+      const prev = prevStatusRef.current;
+      const newly: UploadJob[] = [];
+      for (const j of items) {
+        const before = prev.get(j.job_id);
+        if ((before === "running" || before === undefined) && (j.status === "done" || j.status === "error")) {
+          newly.push(j);
+        }
+      }
+      // update status map
+      const nextMap = new Map<string, UploadJob["status"]>();
+      for (const j of items) nextMap.set(j.job_id, j.status);
+      prevStatusRef.current = nextMap;
+
       setJobs(items);
+      if (newly.length > 0) onAnyComplete?.(newly);
     } catch (e) {
       console.error("[uploadTracker] list error", e);
     } finally {
@@ -50,6 +73,8 @@ export function UploadTrackerPanel({
   };
 
   useEffect(() => { if (open) refresh(); }, [open]);
+  useEffect(() => { if (open) refresh(); }, [refreshKey]); // force refresh when key changes
+
   // Poll every second while any job is running
   const anyActive = jobs.some(j => j.status === "running");
   useInterval(() => { refresh(); }, open ? (anyActive ? 1000 : 5000) : null);
@@ -59,6 +84,23 @@ export function UploadTrackerPanel({
     const done = jobs.filter(j => j.status !== "running").length;
     return { all, done };
   }, [jobs]);
+
+  const doClear = async (scope: "done" | "all") => {
+    try {
+      const { removed } = await clearUploadJobs(scope);
+      if (removed > 0) {
+        toast.success(scope === "all" ? "Tracker cleared" : "Completed cleared", {
+          description: `${removed} entr${removed === 1 ? "y" : "ies"} removed.`
+        });
+      } else {
+        toast.message("Nothing to clear", { description: "No matching entries." });
+      }
+      await refresh();
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to clear", { description: e instanceof Error ? e.message : String(e) });
+    }
+  };
 
   return (
     <div
@@ -74,6 +116,21 @@ export function UploadTrackerPanel({
         <div className="text-sm font-medium">Transfers</div>
         <div className="text-xs text-muted-foreground">({totals.done}/{totals.all} complete)</div>
         <div className="flex-1" />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="sm" variant="ghost" title="More actions">
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[12rem]">
+            <DropdownMenuItem onClick={() => doClear("done")}>
+              Clear completed
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => doClear("all")}>
+              Clear all
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button size="sm" variant="ghost" onClick={refresh} disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
         </Button>

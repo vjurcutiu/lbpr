@@ -1,5 +1,4 @@
-
-import { API_BASE, getJSON } from "@/shared/api";
+import { API_BASE } from "@/shared/api";
 
 export type UploadJob = {
   job_id: string;
@@ -16,11 +15,38 @@ export type UploadJob = {
   updated_at: number;
 };
 
+function extractMessage(text: string): string {
+  try {
+    const data = JSON.parse(text);
+    const msg = (data as any)?.detail || (data as any)?.message || (data as any)?.error || (data as any)?.msg;
+    if (typeof msg === "string" && msg.trim()) return msg;
+  } catch {}
+  const trimmed = text.replace(/<[^>]*>/g, "").trim();
+  return trimmed || "Unexpected server error";
+}
+
 export async function listUploadJobs(): Promise<UploadJob[]> {
-  const resp = await getJSON<{ items: UploadJob[] }>("/v1/upload-tracker/jobs");
-  return resp.items;
+  const res = await fetch(`${API_BASE}/v1/upload-tracker/jobs`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  const payload = await res.json() as { items: UploadJob[] };
+  return payload.items;
 }
 
 export async function getUploadJob(id: string): Promise<UploadJob> {
-  return getJSON<UploadJob>(`/v1/upload-tracker/jobs/${encodeURIComponent(id)}`);
+  const res = await fetch(`${API_BASE}/v1/upload-tracker/jobs/${encodeURIComponent(id)}`, {
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  return res.json() as Promise<UploadJob>;
+}
+
+export async function clearUploadJobs(scope: "done" | "all" = "done"): Promise<{ removed: number }> {
+  const res = await fetch(`${API_BASE}/v1/upload-tracker/jobs?scope=${scope}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  return res.json() as Promise<{ removed: number }>;
 }

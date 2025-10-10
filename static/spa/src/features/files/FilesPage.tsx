@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload,
@@ -48,6 +47,7 @@ import { FileViewer } from "./components/FileViewer";
 import { EmptyState } from "./components/EmptyState";
 import { FileIconByName } from "./components/FileIconByName";
 import { UploadTrackerPanel } from "./components/UploadTracker";
+import type { UploadJob } from "./uploadTrackerApi";
 
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -77,6 +77,7 @@ export default function FilesPage() {
 
   // Upload tracker panel
   const [trackerOpen, setTrackerOpen] = useState(false);
+  const [trackerRefreshKey, setTrackerRefreshKey] = useState<number>(0);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -117,21 +118,24 @@ export default function FilesPage() {
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fs = Array.from(e.target.files || []);
     if (fs.length === 0) return;
+    // OPEN TRACKER immediately
+    setTrackerOpen(true);
     setUploading(true);
     try {
       if (fs.length === 1) {
-        await uploadFile(fs[0]);
-        toast.success("Upload complete", {
-          description: `"${fs[0].name}" has been uploaded.`,
+        const { job_id } = await uploadFile(fs[0]);
+        // ping tracker to refresh now that we know a job exists
+        setTrackerRefreshKey(Date.now());
+        toast.success("Upload started", {
+          description: `"${fs[0].name}" is being processed. You can watch progress in Transfers.`,
         });
       } else {
         const { jobs } = await uploadFiles(fs);
-        toast.success("Uploads complete", {
-          description: `${fs.length} files uploaded.`,
+        setTrackerRefreshKey(Date.now());
+        toast.success("Uploads started", {
+          description: `${fs.length} files are being processed. You can watch progress in Transfers.`,
         });
       }
-      // Open tracker so users can watch post-processing (OCR, embedding, upsert)
-      setTrackerOpen(true);
       await refresh();
     } catch (err) {
       console.error(err);
@@ -225,6 +229,11 @@ export default function FilesPage() {
     ? files.find((f) => f.id === activeId) || null
     : null;
   const breadcrumbs = activeFile?.name.split("/").filter(Boolean) ?? [];
+
+  // When jobs finish, auto-refresh files so new items appear without manual reload
+  const handleAnyComplete = async (_newly: UploadJob[]) => {
+    await refresh();
+  };
 
   return (
     <div className="h-full min-h-0 flex flex-col">
@@ -463,7 +472,12 @@ export default function FilesPage() {
       </Dialog>
 
       {/* Upload tracker floating panel */}
-      <UploadTrackerPanel open={trackerOpen} onClose={() => setTrackerOpen(false)} />
+      <UploadTrackerPanel
+        open={trackerOpen}
+        onClose={() => setTrackerOpen(false)}
+        refreshKey={trackerRefreshKey}
+        onAnyComplete={handleAnyComplete}
+      />
     </div>
   );
 }
