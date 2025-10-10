@@ -32,6 +32,7 @@ export function UploadTrackerPanel({
   onClose,
   refreshKey,
   onAnyComplete,
+  optimistic = [],
 }: {
   open: boolean;
   onClose: () => void;
@@ -39,8 +40,10 @@ export function UploadTrackerPanel({
   refreshKey?: number | string;
   /** Called when one or more jobs transition to 'done' (or 'error'). */
   onAnyComplete?: (newlyCompleted: UploadJob[]) => void;
+  /** Optimistic jobs seeded by the Files page when files are *selected* (before the server creates jobs). */
+  optimistic?: UploadJob[];
 }) {
-  const [jobs, setJobs] = useState<UploadJob[]>([]);
+  const [jobsFetched, setJobsFetched] = useState<UploadJob[]>([]);
   const [busy, setBusy] = useState(false);
   const prevStatusRef = useRef<Map<string, UploadJob["status"]>>(new Map());
 
@@ -63,7 +66,7 @@ export function UploadTrackerPanel({
       for (const j of items) nextMap.set(j.job_id, j.status);
       prevStatusRef.current = nextMap;
 
-      setJobs(items);
+      setJobsFetched(items);
       if (newly.length > 0) onAnyComplete?.(newly);
     } catch (e) {
       console.error("[uploadTracker] list error", e);
@@ -75,15 +78,23 @@ export function UploadTrackerPanel({
   useEffect(() => { if (open) refresh(); }, [open]);
   useEffect(() => { if (open) refresh(); }, [refreshKey]); // force refresh when key changes
 
+  // Merge optimistic + fetched (fetched overrides optimistic by job_id), newest first.
+  const mergedJobs = useMemo(() => {
+    const m = new Map<string, UploadJob>();
+    for (const j of optimistic) m.set(j.job_id, j);
+    for (const j of jobsFetched) m.set(j.job_id, j); // overwrite if same id
+    return Array.from(m.values()).sort((a, b) => (b.updated_at - a.updated_at));
+  }, [optimistic, jobsFetched]);
+
   // Poll every second while any job is running
-  const anyActive = jobs.some(j => j.status === "running");
+  const anyActive = mergedJobs.some(j => j.status === "running");
   useInterval(() => { refresh(); }, open ? (anyActive ? 1000 : 5000) : null);
 
   const totals = useMemo(() => {
-    const all = jobs.length;
-    const done = jobs.filter(j => j.status !== "running").length;
+    const all = mergedJobs.length;
+    const done = mergedJobs.filter(j => j.status !== "running").length;
     return { all, done };
-  }, [jobs]);
+  }, [mergedJobs]);
 
   const doClear = async (scope: "done" | "all") => {
     try {
@@ -137,10 +148,10 @@ export function UploadTrackerPanel({
         <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
       </div>
       <div className="max-h-[50vh] overflow-auto p-2 space-y-2">
-        {jobs.length === 0 && (
+        {mergedJobs.length === 0 && (
           <div className="text-sm text-muted-foreground px-2 py-6 text-center">No recent uploads.</div>
         )}
-        {jobs.map((j) => (
+        {mergedJobs.map((j) => (
           <div key={j.job_id} className="border rounded p-2">
             <div className="flex items-center justify-between text-xs mb-1">
               <div className="truncate" title={j.filename}>{j.filename}</div>

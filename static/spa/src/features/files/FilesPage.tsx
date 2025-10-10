@@ -79,6 +79,9 @@ export default function FilesPage() {
   const [trackerOpen, setTrackerOpen] = useState(false);
   const [trackerRefreshKey, setTrackerRefreshKey] = useState<number>(0);
 
+  // NEW: optimistic upload jobs (added immediately after file selection)
+  const [optimisticJobs, setOptimisticJobs] = useState<UploadJob[]>([]);
+
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
@@ -115,31 +118,71 @@ export default function FilesPage() {
 
   const onPick = () => inputRef.current?.click();
 
+  function makeTempJob(file: File): UploadJob {
+    const now = Math.floor(Date.now() / 1000);
+    const tempId = `temp:${(globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2))}`;
+    return {
+      job_id: tempId,
+      uid: "me",
+      filename: file.name,
+      dataset: "default",
+      total_bytes: file.size,
+      bytes: 0,
+      phase: "receive",
+      pct: 0,
+      status: "running",
+      error: null,
+      created_at: now,
+      updated_at: now,
+    };
+  }
+
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fs = Array.from(e.target.files || []);
     if (fs.length === 0) return;
-    // OPEN TRACKER immediately
+
+    // ---- OPEN TRACKER + seed *optimistic* jobs immediately ----
+    const temps = fs.map(makeTempJob);
+    setOptimisticJobs((prev) => prev.concat(temps));
     setTrackerOpen(true);
+    // Show an immediate "upload started" toaster with correct X (total selected)
+    toast.message("Uploads started", {
+      description: `0/${fs.length} complete. Tracking in Transfers.`,
+    });
+
     setUploading(true);
     try {
       if (fs.length === 1) {
         const { job_id } = await uploadFile(fs[0]);
-        // ping tracker to refresh now that we know a job exists
-        setTrackerRefreshKey(Date.now());
-        toast.success("Upload started", {
-          description: `"${fs[0].name}" is being processed. You can watch progress in Transfers.`,
-        });
+        // Replace temp id with real job id (so fetched state can take over)
+        const tempId = temps[0].job_id;
+        setOptimisticJobs((list) =>
+          list.map((j) => (j.job_id === tempId ? { ...j, job_id, updated_at: Math.floor(Date.now() / 1000) } : j))
+        );
       } else {
         const { jobs } = await uploadFiles(fs);
-        setTrackerRefreshKey(Date.now());
-        toast.success("Uploads started", {
-          description: `${fs.length} files are being processed. You can watch progress in Transfers.`,
-        });
+        // Map returned job ids in the same order as selected files
+        const now = Math.floor(Date.now() / 1000);
+        const idMap = new Map<string, string>(); // temp -> real
+        for (let i = 0; i < temps.length; i++) {
+          if (jobs[i]) idMap.set(temps[i].job_id, jobs[i]);
+        }
+        setOptimisticJobs((list) =>
+          list.map((j) => (idMap.has(j.job_id) ? { ...j, job_id: idMap.get(j.job_id)!, updated_at: now } : j))
+        );
       }
+      // Force an immediate panel refresh to swap in server-backed job states
+      setTrackerRefreshKey(Date.now());
       await refresh();
     } catch (err) {
       console.error(err);
       toast.error("Upload failed", { description: parseErr(err) });
+      // Optionally mark the optimistic items as errored
+      const now = Math.floor(Date.now() / 1000);
+      const tempIds = new Set(temps.map(t => t.job_id));
+      setOptimisticJobs((list) =>
+        list.map((j) => (tempIds.has(j.job_id) ? { ...j, status: "error", phase: "error", updated_at: now, error: "Failed to start upload" } : j))
+      );
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -477,6 +520,7 @@ export default function FilesPage() {
         onClose={() => setTrackerOpen(false)}
         refreshKey={trackerRefreshKey}
         onAnyComplete={handleAnyComplete}
+        optimistic={optimisticJobs}
       />
     </div>
   );
