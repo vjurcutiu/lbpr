@@ -26,9 +26,10 @@ log = logging.getLogger("upload.tracker.router")
 async def jobs(user: SessionOut = Depends(get_current_user)):
     try:
         items = await list_jobs(user.uid, limit=100)
+        log.info("ut_api_list_jobs_ok", uid=user.uid, items=len(items))
         return JobsResponse(items=[Job(**it) for it in items])  # type: ignore[arg-type]
-    except Exception:
-
+    except Exception as e:
+        log.exception("ut_api_list_jobs_error", uid=getattr(user, "uid", "unknown"))
         raise HTTPException(status_code=400, detail="Failed to list jobs")
 
 @router.get("/jobs/{job_id}", response_model=Job)
@@ -36,13 +37,16 @@ async def job(job_id: str, user: SessionOut = Depends(get_current_user)):
     try:
         m = await get_job(job_id)
         if not m:
+            log.info("ut_api_get_job_missing", uid=user.uid, job_id=job_id)
             raise HTTPException(status_code=404, detail="Job not found")
         # (Optional) authz: ensure job belongs to user; else 404
         if m.get("uid") != user.uid:
+            log.warning("ut_api_get_job_forbidden", uid=user.uid, job_uid=m.get("uid"), job_id=job_id)
             raise HTTPException(status_code=404, detail="Job not found")
+        log.debug("ut_api_get_job_ok", uid=user.uid, job_id=job_id, phase=m.get("phase"), pct=m.get("pct"))
         return Job(**m)  # type: ignore[arg-type]
     except HTTPException:
         raise
-    except Exception:
-
+    except Exception as e:
+        log.exception("ut_api_get_job_error", uid=getattr(user, "uid", "unknown"), job_id=job_id)
         raise HTTPException(status_code=400, detail="Failed to get job")

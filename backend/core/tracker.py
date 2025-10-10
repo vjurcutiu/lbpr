@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 import logging
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any, List
 
 from core.redis_utils import get_client
 
@@ -56,19 +56,23 @@ async def create_job(*, job_id: str, uid: str, filename: str, dataset: str, tota
         "updated_at": str(now),
     }
     key = _job_key(job_id)
+    log.info("ut_create_job", job_id=job_id, uid=uid, filename=filename, dataset=dataset, total_bytes=total_bytes)
     pipe = r.pipeline()
     pipe.hset(key, mapping=m)
     # Keep jobs for a week after completion; will set expiry on finish as well.
     pipe.expire(key, 7 * 24 * 3600)
     pipe.zadd(_user_set(uid), {job_id: now})
-    pipe.execute()
+    # BUGFIX: pipeline.execute() is a coroutine in redis.asyncio -> must await
+    await pipe.execute()
+    log.debug("ut_create_job_ok", job_id=job_id)
 
 async def incr_bytes(job_id: str, n: int) -> int:
     """Increase processed bytes and recompute pct if total is known."""
     r = await get_client()
     key = _job_key(job_id)
+    inc = int(max(0, n))
     # Increase bytes
-    new_bytes = await r.hincrby(key, "bytes", int(max(0, n)))
+    new_bytes = await r.hincrby(key, "bytes", inc)
     # Clamp and recompute pct
     tot = await r.hget(key, "total_bytes")
     pct = 0
@@ -76,11 +80,12 @@ async def incr_bytes(job_id: str, n: int) -> int:
         tot_i = int(tot or 0)
         if tot_i > 0:
             pct = int(min(100, round(new_bytes * 100 / tot_i)))
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("ut_incr_bytes_pct_fail", job_id=job_id, error=str(e))
     pipe = r.pipeline()
     pipe.hset(key, mapping={"pct": str(pct), "updated_at": str(_now())})
-    pipe.execute()
+    await pipe.execute()
+    log.debug("ut_incr_bytes", job_id=job_id, add=n, total=new_bytes, pct=pct, total_bytes=tot)
     return int(new_bytes)
 
 async def set_phase(job_id: str, phase: str, *, pct: Optional[int] = None, status: Optional[str] = None, error: Optional[str] = None) -> None:
@@ -93,23 +98,28 @@ async def set_phase(job_id: str, phase: str, *, pct: Optional[int] = None, statu
         m["status"] = status
     if error is not None:
         m["error"] = error
+    log.info("ut_set_phase", job_id=job_id, phase=phase, pct=m.get("pct"), status=m.get("status"))
     await r.hset(key, mapping=m)
     # If terminal, extend retention
     if status in ("done", "error"):
         await r.expire(key, 14 * 24 * 3600)
+        log.info("ut_terminal", job_id=job_id, status=status)
 
 async def mark_done(job_id: str) -> None:
+    log.info("ut_mark_done", job_id=job_id)
     await set_phase(job_id, "complete", pct=100, status="done")
 
 async def mark_error(job_id: str, message: str) -> None:
+    log.error("ut_mark_error", job_id=job_id, error=message)
     await set_phase(job_id, "error", status="error", error=message)
 
 async def get_job(job_id: str) -> Dict[str, Any]:
     r = await get_client()
     m = await r.hgetall(_job_key(job_id))
-    # normalize numerics
     if not m:
+        log.debug("ut_get_job_empty", job_id=job_id)
         return {}
+    # normalize numerics
     out: Dict[str, Any] = {k: v for k, v in m.items()}
     for k in ("total_bytes", "bytes", "pct", "created_at", "updated_at"):
         if k in out:
@@ -117,12 +127,14 @@ async def get_job(job_id: str) -> Dict[str, Any]:
                 out[k] = int(out[k])
             except Exception:
                 pass
+    log.debug("ut_get_job_ok", job_id=job_id, pct=out.get("pct"), phase=out.get("phase"), bytes=out.get("bytes"), total_bytes=out.get("total_bytes"))
     return out
 
 async def list_jobs(uid: str, *, limit: int = 50, active_only: bool = False) -> List[Dict[str, Any]]:
     r = await get_client()
     # Most recent first
     ids = await r.zrevrange(_user_set(uid), 0, max(0, limit - 1))
+    log.debug("ut_list_job_ids", uid=uid, count=len(ids))
     jobs: List[Dict[str, Any]] = []
     for jid in ids:
         m = await get_job(jid)
@@ -133,4 +145,5 @@ async def list_jobs(uid: str, *, limit: int = 50, active_only: bool = False) -> 
         jobs.append(m)
     # Sort in Python by updated_at desc to be safe
     jobs.sort(key=lambda x: x.get("updated_at", 0), reverse=True)
+    log.info("ut_list_jobs_ok", uid=uid, items=len(jobs), active_only=active_only)
     return jobs
