@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload,
-  ChevronRight,
   Loader2,
   RefreshCw,
   Trash2,
@@ -79,8 +78,10 @@ export default function FilesPage() {
   const [trackerOpen, setTrackerOpen] = useState(false);
   const [trackerRefreshKey, setTrackerRefreshKey] = useState<number>(0);
 
-  // NEW: optimistic upload jobs (added immediately after file selection)
+  // Optimistic jobs seeded per-batch
   const [optimisticJobs, setOptimisticJobs] = useState<UploadJob[]>([]);
+  // NEW: This-batch filter by filename
+  const [batchFilenames, setBatchFilenames] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -96,9 +97,7 @@ export default function FilesPage() {
     }
   }, []);
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -141,27 +140,26 @@ export default function FilesPage() {
     const fs = Array.from(e.target.files || []);
     if (fs.length === 0) return;
 
-    // ---- OPEN TRACKER + seed *optimistic* jobs immediately ----
+    // Reset *this batch* state
     const temps = fs.map(makeTempJob);
-    setOptimisticJobs((prev) => prev.concat(temps));
+    setOptimisticJobs(temps); // reset instead of accumulating
+    setBatchFilenames(fs.map(f => f.name));
+
+    // ---- OPEN TRACKER + seed optimistic jobs immediately ----
     setTrackerOpen(true);
-    // Show an immediate "upload started" toaster with correct X (total selected)
-    toast.message("Uploads started", {
-      description: `0/${fs.length} complete. Tracking in Transfers.`,
-    });
+    toast.message("Uploads started", { description: `0/${fs.length} complete. Tracking in Transfers.` });
 
     setUploading(true);
     try {
       if (fs.length === 1) {
         const { job_id } = await uploadFile(fs[0]);
-        // Replace temp id with real job id (so fetched state can take over)
         const tempId = temps[0].job_id;
+        const now = Math.floor(Date.now() / 1000);
         setOptimisticJobs((list) =>
-          list.map((j) => (j.job_id === tempId ? { ...j, job_id, updated_at: Math.floor(Date.now() / 1000) } : j))
+          list.map((j) => (j.job_id === tempId ? { ...j, job_id, updated_at: now } : j))
         );
       } else {
         const { jobs } = await uploadFiles(fs);
-        // Map returned job ids in the same order as selected files
         const now = Math.floor(Date.now() / 1000);
         const idMap = new Map<string, string>(); // temp -> real
         for (let i = 0; i < temps.length; i++) {
@@ -171,13 +169,12 @@ export default function FilesPage() {
           list.map((j) => (idMap.has(j.job_id) ? { ...j, job_id: idMap.get(j.job_id)!, updated_at: now } : j))
         );
       }
-      // Force an immediate panel refresh to swap in server-backed job states
+      // Force immediate refresh
       setTrackerRefreshKey(Date.now());
       await refresh();
     } catch (err) {
       console.error(err);
       toast.error("Upload failed", { description: parseErr(err) });
-      // Optionally mark the optimistic items as errored
       const now = Math.floor(Date.now() / 1000);
       const tempIds = new Set(temps.map(t => t.job_id));
       setOptimisticJobs((list) =>
@@ -192,10 +189,7 @@ export default function FilesPage() {
   const openFile = async (file: FileItem) => {
     setTabs((prev) => {
       if (prev.some((t) => t.id === file.id)) return prev;
-      return [
-        ...prev,
-        { id: file.id, title: file.name, contentType: file.content_type },
-      ];
+      return [...prev, { id: file.id, title: file.name, contentType: file.content_type }];
     });
     setActiveId(file.id);
     if (!content[file.id]) {
@@ -232,13 +226,9 @@ export default function FilesPage() {
     try {
       await deleteFile(fileToDelete.id);
       setFiles((prev) => prev.filter((f) => f.id !== fileToDelete.id));
-      setTree((t) =>
-        t ? buildTree(files.filter((f) => f.id !== fileToDelete.id)) : t
-      );
+      setTree((t) => t ? buildTree(files.filter((f) => f.id !== fileToDelete.id)) : t);
       closeTab(fileToDelete.id);
-      toast.success("File deleted", {
-        description: `"${fileToDelete.name}" removed.`,
-      });
+      toast.success("File deleted", { description: `"${fileToDelete.name}" removed.` });
     } catch (err) {
       console.error(err);
       toast.error("Delete failed", { description: parseErr(err) });
@@ -254,27 +244,20 @@ export default function FilesPage() {
     const q = filter.toLowerCase();
     function filterNode(n: TreeNode): TreeNode | null {
       if (n.type === "file") {
-        const hit =
-          n.name.toLowerCase().includes(q) ||
-          (n.file?.name.toLowerCase().includes(q) ?? false);
+        const hit = n.name.toLowerCase().includes(q) || (n.file?.name.toLowerCase().includes(q) ?? false);
         return hit ? n : null;
       }
-      const kids = (n.children || [])
-        .map(filterNode)
-        .filter(Boolean) as TreeNode[];
+      const kids = (n.children || []).map(filterNode).filter(Boolean) as TreeNode[];
       if (kids.length === 0 && n.name !== "") return null;
       return { ...n, children: kids };
     }
     return filterNode(tree);
   }, [tree, filter]);
 
-  const activeFile = activeId
-    ? files.find((f) => f.id === activeId) || null
-    : null;
-  const breadcrumbs = activeFile?.name.split("/").filter(Boolean) ?? [];
+  const activeFile = activeId ? files.find((f) => f.id === activeId) || null : null;
 
   // When jobs finish, auto-refresh files so new items appear without manual reload
-  const handleAnyComplete = async (_newly: UploadJob[]) => {
+  const handleAnyComplete = async () => {
     await refresh();
   };
 
@@ -283,36 +266,17 @@ export default function FilesPage() {
       {/* Top bar */}
       <div className="sticky top-0 z-10 flex items-center gap-3 px-3 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <Button onClick={onPick} disabled={uploading} size="sm">
-          {uploading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Upload className="h-4 w-4" />
-          )}
+          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
         </Button>
-        <Input
-          ref={inputRef}
-          type="file"
-          className="hidden"
-          onChange={onChange}
-          multiple
-        />
+        <Input ref={inputRef} type="file" className="hidden" onChange={onChange} multiple />
         <div className="relative max-w-sm w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Filter files…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="pl-8"
-          />
+          <Input placeholder="Filter files…" value={filter} onChange={(e) => setFilter(e.target.value)} className="pl-8" />
         </div>
         <div className="flex-1" />
         <Button variant="outline" onClick={refresh} disabled={busy} size="sm">
-          {busy ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-1.5" />
-          )}
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1.5" />}
           Refresh
         </Button>
         <Button variant="ghost" size="sm" onClick={() => setTrackerOpen(v => !v)} title="Show transfers">
@@ -321,16 +285,11 @@ export default function FilesPage() {
         </Button>
       </div>
 
-      {/* Main split: LEFT sidebar (folders), RIGHT viewer */}
+      {/* Main split */}
       <div className="flex min-h-0 flex-1">
         {/* LEFT: File tree */}
-        <aside
-          className="shrink-0 overflow-hidden border-r bg-muted/20"
-          style={{ width: sidebarWidth }}
-        >
-          <div className="h-9 flex items-center px-3 text-xs uppercase tracking-wide text-muted-foreground border-b">
-            Explorer
-          </div>
+        <aside className="shrink-0 overflow-hidden border-r bg-muted/20" style={{ width: sidebarWidth }}>
+          <div className="h-9 flex items-center px-3 text-xs uppercase tracking-wide text-muted-foreground border-b">Explorer</div>
           <div className="h-full overflow-auto px-1 py-2">
             <FileTree node={filteredTree} onOpen={(f) => openFile(f)} onDelete={(f) => requestDelete(f)} />
           </div>
@@ -340,10 +299,7 @@ export default function FilesPage() {
         <div
           ref={resizeRef}
           onMouseDown={() => setIsResizing(true)}
-          className={cn(
-            "w-1 cursor-col-resize bg-transparent hover:bg-primary/20 transition-colors",
-            isResizing && "bg-primary/30"
-          )}
+          className={cn("w-1 cursor-col-resize bg-transparent hover:bg-primary/20 transition-colors", isResizing && "bg-primary/30")}
           title="Drag to resize"
         />
 
@@ -357,9 +313,7 @@ export default function FilesPage() {
                 onClick={() => setActiveId(t.id)}
                 className={cn(
                   "h-8 px-3 rounded-t-md border-b-0 border text-sm transition",
-                  activeId === t.id
-                    ? "bg-background"
-                    : "bg-muted/40 text-muted-foreground hover:bg-muted"
+                  activeId === t.id ? "bg-background" : "bg-muted/40 text-muted-foreground hover:bg-muted"
                 )}
                 title={t.title}
               >
@@ -374,55 +328,29 @@ export default function FilesPage() {
                     closeTab(t.id);
                   }}
                 >
-                  <svg
-                    className="h-4 w-4 opacity-70 hover:opacity-100"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
+                  <svg className="h-4 w-4 opacity-70 hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M18 6 6 18M6 6l12 12" />
                   </svg>
                 </span>
               </button>
             ))}
             {tabs.length === 0 && (
-              <div className="text-xs text-muted-foreground px-2">
-                ← Open a file from the sidebar
-              </div>
+              <div className="text-xs text-muted-foreground px-2">← Open a file from the sidebar</div>
             )}
           </div>
 
-          {/* Title section with breadcrumbs + in-file search + metadata */}
+          {/* Title section */}
           <div className="flex items-center gap-2 px-3 py-2 border-b bg-background">
             <div className="flex-1 min-w-0">
               <div className="text-xs text-muted-foreground truncate">
-                {activeId ? (
-                  (files.find((f) => f.id === activeId)?.name || "Unknown")
-                ) : (
-                  "Ready."
-                )}
+                {activeId ? (files.find((f) => f.id === activeId)?.name || "Unknown") : "Ready."}
               </div>
             </div>
-            {/* In-file search bar */}
             <div className="relative w-[26rem] max-w-[60vw]">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={activeId ? "Search in this file…" : "Open a file to search…"}
-                value={infileQuery}
-                onChange={(e) => setInfileQuery(e.target.value)}
-                className="pl-8"
-                disabled={!activeId}
-              />
+              <Input placeholder={activeId ? "Search in this file…" : "Open a file to search…"} value={infileQuery} onChange={(e) => setInfileQuery(e.target.value)} className="pl-8" disabled={!activeId} />
             </div>
-            {/* Metadata button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setMetaOpen(true)}
-              disabled={!activeId}
-              title="View file metadata"
-            >
+            <Button variant="outline" size="sm" onClick={() => setMetaOpen(true)} disabled={!activeId} title="View file metadata">
               <Info className="h-4 w-4" />
               <span className="ml-1.5 hidden sm:inline">Metadata</span>
             </Button>
@@ -430,20 +358,13 @@ export default function FilesPage() {
 
           {/* Viewer */}
           <div className="flex-1 min-h-0 overflow-auto p-4 font-mono text-sm">
-            {activeId ? (
-              <FileViewer payload={content[activeId]} file={activeFile} searchTerm={infileQuery} />
-            ) : (
-              <EmptyState />
-            )}
+            {activeId ? <FileViewer payload={content[activeId]} file={files.find((f) => f.id === activeId) || null} searchTerm={infileQuery} /> : <EmptyState />}
           </div>
 
           {/* Status bar */}
           <div className="h-8 border-t text-xs px-3 flex items-center justify-between text-muted-foreground bg-muted/10">
             <div className="flex items-center gap-3">
-              <span>
-                {files.length} file{files.length === 1 ? "" : "s"}
-              </span>
-              {activeFile && <span>• {fmtSize(activeFile.size)}</span>}
+              <span>{files.length} file{files.length === 1 ? "" : "s"}</span>
             </div>
             <div>LexBot PRO • File Explorer</div>
           </div>
@@ -456,23 +377,13 @@ export default function FilesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete file?</AlertDialogTitle>
             <AlertDialogDescription>
-              {fileToDelete
-                ? `This will permanently delete "${fileToDelete.name}". You can't undo this action.`
-                : "This will permanently delete the file."}
+              {fileToDelete ? `This will permanently delete "${fileToDelete.name}". You can't undo this action.` : "This will permanently delete the file."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={performDelete}
-              disabled={deleting}
-            >
-              {deleting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={performDelete} disabled={deleting}>
+              {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               <span className="ml-2">Delete</span>
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -486,24 +397,12 @@ export default function FilesPage() {
             <DialogTitle>File info</DialogTitle>
             <DialogDescription>Details and metadata for the selected file.</DialogDescription>
           </DialogHeader>
-          {activeFile ? (
+          {activeId ? (
             <div className="text-sm grid grid-cols-3 gap-x-4 gap-y-2">
               <div className="text-muted-foreground">Name</div>
-              <div className="col-span-2 break-all">{activeFile.name}</div>
-
+              <div className="col-span-2 break-all">{files.find((f) => f.id === activeId)?.name}</div>
               <div className="text-muted-foreground">ID</div>
-              <div className="col-span-2 break-all">{activeFile.id}</div>
-
-              <div className="text-muted-foreground">Size</div>
-              <div className="col-span-2">{fmtSize(activeFile.size)}</div>
-
-              <div className="text-muted-foreground">Type</div>
-              <div className="col-span-2">{activeFile.content_type || "—"}</div>
-
-              <div className="text-muted-foreground">Created</div>
-              <div className="col-span-2">
-                {activeFile.created_at ? new Date(activeFile.created_at).toLocaleString() : "—"}
-              </div>
+              <div className="col-span-2 break-all">{activeId}</div>
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">No file selected.</div>
@@ -521,6 +420,8 @@ export default function FilesPage() {
         refreshKey={trackerRefreshKey}
         onAnyComplete={handleAnyComplete}
         optimistic={optimisticJobs}
+        batchFilenames={batchFilenames}
+        showHistory={false}
       />
     </div>
   );

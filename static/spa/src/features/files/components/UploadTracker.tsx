@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listUploadJobs, type UploadJob, clearUploadJobs } from "../uploadTrackerApi";
-import { useInterval } from "../hooks/useInterval";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Loader2, MoreHorizontal } from "lucide-react";
@@ -33,6 +32,10 @@ export function UploadTrackerPanel({
   refreshKey,
   onAnyComplete,
   optimistic = [],
+  /** NEW: filter panel to *this* batch only (by filename). */
+  batchFilenames = [],
+  /** Optional: show completed items from earlier history even if not in this batch. */
+  showHistory = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -42,6 +45,8 @@ export function UploadTrackerPanel({
   onAnyComplete?: (newlyCompleted: UploadJob[]) => void;
   /** Optimistic jobs seeded by the Files page when files are *selected* (before the server creates jobs). */
   optimistic?: UploadJob[];
+  batchFilenames?: string[];
+  showHistory?: boolean;
 }) {
   const [jobsFetched, setJobsFetched] = useState<UploadJob[]>([]);
   const [busy, setBusy] = useState(false);
@@ -51,7 +56,7 @@ export function UploadTrackerPanel({
     if (!open) return;
     setBusy(true);
     try {
-      const items = await listUploadJobs();
+      const items = await listUploadJobs(); // returns recent history (not just active)
       // detect newly completed/error
       const prev = prevStatusRef.current;
       const newly: UploadJob[] = [];
@@ -78,17 +83,51 @@ export function UploadTrackerPanel({
   useEffect(() => { if (open) refresh(); }, [open]);
   useEffect(() => { if (open) refresh(); }, [refreshKey]); // force refresh when key changes
 
-  // Merge optimistic + fetched (fetched overrides optimistic by job_id), newest first.
+  // Merge optimistic + fetched (fetched overrides optimistic by job_id)
   const mergedJobs = useMemo(() => {
     const m = new Map<string, UploadJob>();
     for (const j of optimistic) m.set(j.job_id, j);
     for (const j of jobsFetched) m.set(j.job_id, j); // overwrite if same id
-    return Array.from(m.values()).sort((a, b) => (b.updated_at - a.updated_at));
-  }, [optimistic, jobsFetched]);
+    let arr = Array.from(m.values());
+    // Apply batch filter unless explicitly showing history
+    if (!showHistory && batchFilenames.length > 0) {
+      const allow = new Set(batchFilenames);
+      arr = arr.filter(j => allow.has(j.filename) || j.job_id.startsWith("temp:"));
+    }
+    return arr.sort((a, b) => (b.updated_at - a.updated_at));
+  }, [optimistic, jobsFetched, batchFilenames, showHistory]);
 
-  // Poll every second while any job is running
+  // Compute "any active" from VISIBLE rows only to drive polling cadence
   const anyActive = mergedJobs.some(j => j.status === "running");
-  useInterval(() => { refresh(); }, open ? (anyActive ? 1000 : 5000) : null);
+
+  // Replace useInterval with a self-scheduling, de-duped poller to avoid request storms
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    let timer: any = null;
+    let inflight = false;
+
+    const tick = async () => {
+      if (cancelled || inflight) return;
+      inflight = true;
+      try {
+        await refresh();
+      } finally {
+        inflight = false;
+        if (cancelled) return;
+        const delay = anyActive ? 1000 : 5000;
+        timer = setTimeout(tick, delay);
+      }
+    };
+
+    // Kick off immediately
+    tick();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [open, anyActive, refreshKey]); // intentionally not depending on `refresh` identity
 
   const totals = useMemo(() => {
     const all = mergedJobs.length;
@@ -149,7 +188,11 @@ export function UploadTrackerPanel({
       </div>
       <div className="max-h-[50vh] overflow-auto p-2 space-y-2">
         {mergedJobs.length === 0 && (
-          <div className="text-sm text-muted-foreground px-2 py-6 text-center">No recent uploads.</div>
+          <div className="text-sm text-muted-foreground px-2 py-6 text-center">
+            {batchFilenames.length > 0 && !showHistory
+              ? "This batch has no visible items yet. Waiting for server to create jobs…"
+              : "No recent uploads."}
+          </div>
         )}
         {mergedJobs.map((j) => (
           <div key={j.job_id} className="border rounded p-2">
