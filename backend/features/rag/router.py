@@ -29,27 +29,27 @@ async def ingest(req: IngestRequest, request: Request, user: SessionOut = Depend
             "client": str(request.client), "uid": user.uid,
             "tokens": tokens, "used_upload_tokens": used, "cap_upload_tokens": cap
         }
-        log.info("ingest_request", **log_info)
+
 
         # Apply per-user namespace under the hood
         resp = orchestrator.ingest_request(req, user.uid)
-        log.info("ingest_ok", dataset=resp.dataset, doc_id=resp.doc_id, chunks=len(resp.chunk_ids), uid=user.uid)
+
         return resp
     except HTTPException:
         raise
     except Exception as e:
-        log.exception("ingest_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
-        log.info("query_request", dataset=req.dataset, k=req.k, client=str(request.client), uid=user.uid)
+
         # Apply per-user namespace under the hood
         resp = orchestrator.query_request(req, user.uid)
-        log.info("query_ok", dataset=resp.dataset, sources=len(resp.sources), uid=user.uid)
+
         return resp
     except Exception as e:
-        log.exception("query_error")
+
         raise HTTPException(status_code=400, detail=str(e))

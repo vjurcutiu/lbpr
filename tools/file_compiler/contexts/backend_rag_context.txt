@@ -215,16 +215,16 @@ ALPHA = float(os.getenv("RAG_HYBRID_ALPHA") or "0.5")
 def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
     """Low-level ingest: takes prepared chunks with 'text' and precomputed vectors."""
     texts = [c["text"] for c in chunks]
-    log.info("ingest_embed_start", dataset=dataset, doc_id=doc_id, chunks=len(chunks))
+
 
     vectors = embed_texts(texts)
     dim = len(vectors[0]) if vectors else 0
-    log.info("ingest_vectors_ready", dataset=dataset, doc_id=doc_id, dim=dim, chunks=len(chunks))
+
 
     sparse_list = []
     try:
         sparse_list = [_sparse.encode_doc(t) for t in texts]
-        log.info("ingest_sparse_ready", dataset=dataset, doc_id=doc_id, chunks=len(sparse_list))
+
     except Exception as e:
         log.warning("ingest_sparse_failed", dataset=dataset, doc_id=doc_id, error=str(e))
 
@@ -246,7 +246,7 @@ def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict)
             }
         )
 
-    log.info("ingest_upsert", dataset=dataset, entries=len(entries))
+
     _store.upsert_chunks(dataset, entries)
 
 
@@ -258,10 +258,10 @@ def ingest_request(req: IngestRequest, uid: str) -> IngestResponse:
     meta = dict(req.metadata or {})
     meta.setdefault("owner_uid", uid)
 
-    log.info("ingest_start", dataset=req.dataset, dataset_ns=dataset_ns, uid=uid, text_chars=len(text), meta_keys=list(meta.keys()))
+
 
     chunks = simple_word_chunker(text) if text else []
-    log.info("ingest_chunked", dataset=dataset_ns, doc_id=doc_id, chunks=len(chunks))
+
 
     _ingest_impl(dataset_ns, doc_id, chunks, meta)
 
@@ -279,13 +279,12 @@ def query_request(req: QueryRequest, uid: str) -> QueryResponse:
     except Exception as e:
         log.warning("query_sparse_failed", dataset=dataset_ns, error=str(e))
 
-    log.info("query_start", dataset=dataset_ns, k=req.k, fusion=FUSION, alpha=ALPHA)
 
     results: List[Tuple[float, Dict]] = _store.query_hybrid(
         dataset_ns, qvec, qsparse, k=req.k, fusion=FUSION, alpha=ALPHA
     )
 
-    log.info("query_done", dataset=dataset_ns, found=len(results))
+
 
     sources: List[Source] = []
     if req.with_sources:
@@ -379,29 +378,29 @@ async def ingest(req: IngestRequest, request: Request, user: SessionOut = Depend
             "client": str(request.client), "uid": user.uid,
             "tokens": tokens, "used_upload_tokens": used, "cap_upload_tokens": cap
         }
-        log.info("ingest_request", **log_info)
+
 
         # Apply per-user namespace under the hood
         resp = orchestrator.ingest_request(req, user.uid)
-        log.info("ingest_ok", dataset=resp.dataset, doc_id=resp.doc_id, chunks=len(resp.chunk_ids), uid=user.uid)
+
         return resp
     except HTTPException:
         raise
     except Exception as e:
-        log.exception("ingest_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
-        log.info("query_request", dataset=req.dataset, k=req.k, client=str(request.client), uid=user.uid)
+
         # Apply per-user namespace under the hood
         resp = orchestrator.query_request(req, user.uid)
-        log.info("query_ok", dataset=resp.dataset, sources=len(resp.sources), uid=user.uid)
+
         return resp
     except Exception as e:
-        log.exception("query_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -771,7 +770,7 @@ except Exception as e:  # pragma: no cover
     Pinecone = None
     ServerlessSpec = None
     PineconeApiException = Exception  # type: ignore
-    log.warning("pinecone sdk not available: %s", e)
+
 
 
 def _pc():
@@ -788,7 +787,7 @@ class PineconeVectorStore:
         self._cloud = os.getenv("PINECONE_CLOUD", "aws")
         self._region = os.getenv("PINECONE_REGION", "us-east-1")
         self._index = None
-        log.info("pinecone_store_init", index=self._index_name, cloud=self._cloud, region=self._region, dim_hint=self._dimension)
+
 
     # ---- index management --------------------------------------------------
     def _ensure_index(self, required_dim: int):
@@ -802,7 +801,7 @@ class PineconeVectorStore:
             log.exception("pinecone_list_indexes_error")
         if self._index_name not in names:
             dim_to_use = required_dim or self._dimension
-            log.info("pinecone_create_index", index=self._index_name, dim=dim_to_use, region=self._region, cloud=self._cloud, metric="cosine", serverless=True)
+
             pc.create_index(
                 name=self._index_name,
                 dimension=dim_to_use,
@@ -815,10 +814,10 @@ class PineconeVectorStore:
         try:
             stats = self._index.describe_index_stats()
             idx_dim = int(stats.get("dimension") or 0)
-            log.info("pinecone_index_stats", index=self._index_name, dimension=idx_dim, namespaces=list((stats.get("namespaces") or {}).keys()))
+
             if required_dim and idx_dim and idx_dim != required_dim:
                 # Hard error — this is the #1 cause of silent upsert failures.
-                log.error("pinecone_index_dim_mismatch", index=self._index_name, index_dim=idx_dim, embed_dim=required_dim)
+
                 raise ValueError(
                     f"Pinecone index '{self._index_name}' dimension ({idx_dim}) does not match embedding size ({required_dim}). "
                     "Create a new index with the correct dimension or set RAG_EMBED_DIM accordingly."
@@ -841,7 +840,7 @@ class PineconeVectorStore:
         first_vec = entries[0].get("vector") or []
         vec_dim = len(first_vec) if isinstance(first_vec, (list, tuple)) else 0
         if vec_dim <= 0:
-            log.error("pinecone_upsert_missing_vectors", namespace=dataset, count=len(entries))
+
             raise ValueError("Attempted to upsert without dense vectors")
 
         idx = self._index_handle(required_dim=vec_dim)
@@ -862,14 +861,14 @@ class PineconeVectorStore:
                 # Pinecone expects 'sparse_values': {'indices': [...], 'values': [...]}
                 vec["sparse_values"] = e["sparse"]
             vectors.append(vec)
-        log.info("pinecone_upsert_start", namespace=ns, count=len(vectors), index=self._index_name, dim=vec_dim)
+
         try:
             idx.upsert(vectors=vectors, namespace=ns)
-            log.info("pinecone_upsert_done", namespace=ns, count=len(vectors))
+
         except Exception as e:
             # Add a super-detailed error to help diagnose
             ids_preview = [v["id"] for v in vectors[:3]]
-            log.exception("pinecone_upsert_error", namespace=ns, index=self._index_name, dim=vec_dim, sample_ids=ids_preview)
+
             raise
 
     # ---- query helpers ----------------------------------------------------
@@ -996,12 +995,12 @@ def _hdr(request: Request, name: str) -> str | None:
 async def list_files(request: Request, user: SessionOut = Depends(get_current_user)):
     """List files for the *current user* using user-based namespaces."""
     try:
-        log.info("files_list_request", user_uid=user.uid, client=str(getattr(request, "client", "")), ua=_hdr(request, "user-agent"))
+
         out = service.list_files(user.uid)
-        log.info("files_list_ok", count=len(out), user_uid=user.uid)
+
         return out
     except Exception as e:
-        log.exception("files_list_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("", response_model=UploadResponse, status_code=202)
@@ -1012,15 +1011,15 @@ async def create_file(
 ):
     """Upload a single file into user-based storage and auto-ingest to the user's RAG namespace."""
     try:
-        log.info("files_upload_request", user_uid=user.uid, filename=getattr(file, "filename", None), ctype=getattr(file, "content_type", None))
+
         resp = await service.upload_file(user.uid, file, dataset=dataset)
-        log.info("files_upload_ok", job_id=resp.job_id, user_uid=user.uid)
+
         return resp
     except ValueError as ve:
-        log.warning("files_upload_rejected", reason=str(ve))
+
         raise HTTPException(status_code=413, detail=str(ve))
     except Exception as e:
-        log.exception("files_upload_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/batch", response_model=UploadBatchResponse, status_code=202)
@@ -1034,99 +1033,99 @@ async def create_files_batch(
     try:
         if not files:
             raise HTTPException(status_code=400, detail="No files provided")
-        log.info("files_batch_upload_request", user_uid=user.uid, count=len(files), dataset=dataset)
+
         for f in files:
             try:
                 resp = await service.upload_file(user.uid, f, dataset=dataset)
                 jobs.append(resp.job_id)
-                log.info("files_batch_upload_item_ok", job_id=resp.job_id, filename=getattr(f, "filename", None))
+
             except ValueError as ve:
-                log.warning("files_batch_upload_item_rejected", filename=getattr(f, "filename", None), reason=str(ve))
+
                 raise HTTPException(status_code=413, detail=str(ve))
             except Exception as e:
-                log.exception("files_batch_upload_item_error", filename=getattr(f, "filename", None))
+
                 raise HTTPException(status_code=400, detail=f"Failed to upload {getattr(f, 'filename', 'file')}")
-        log.info("files_batch_upload_ok", user_uid=user.uid, jobs=len(jobs))
+
         return UploadBatchResponse(jobs=jobs)
     except HTTPException:
         raise
     except Exception as e:
-        log.exception("files_batch_upload_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 # IMPORTANT: keep download route before catch-all {file_id:path}
 @router.get("/{file_id:path}/download")
 async def download_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
-        log.info("files_download_request", file_id=file_id, referer=_hdr(request, "referer"), ua=_hdr(request, "user-agent"), user_uid=user.uid)
+
         url = service.get_signed_download_url(file_id)
-        log.info("files_download_redirect", file_id=file_id, signed_url_len=len(url) if url else 0)
+
         return RedirectResponse(url)
     except FileNotFoundError:
-        log.warning("files_download_not_found", file_id=file_id)
+
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
-        log.exception("files_download_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{file_id:path}")
 async def get_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     """Return raw file bytes with correct Content-Type for inline preview."""
     try:
-        log.info("files_get_request", file_id=file_id, accept=_hdr(request, "accept"), referer=_hdr(request, "referer"), user_uid=user.uid)
+
         data, content_type = service.get_file_bytes(file_id)
-        log.info("files_get_ok", file_id=file_id, content_type=content_type, bytes=len(data))
+
         return Response(content=data, media_type=content_type)
     except FileNotFoundError:
-        log.warning("files_get_not_found", file_id=file_id)
+
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
-        log.exception("files_get_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{file_id:path}", response_model=DeleteResponse)
 async def delete_file(file_id: str, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
-        log.info("files_delete_request", file_id=file_id, user_uid=user.uid)
+
         ok = service.delete_file(file_id)
         if not ok:
-            log.warning("files_delete_not_found", file_id=file_id)
+
             raise HTTPException(status_code=404, detail="File not found")
-        log.info("files_delete_ok", file_id=file_id)
+
         return DeleteResponse(ok=True)
     except HTTPException:
         raise
     except Exception as e:
-        log.exception("files_delete_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 # Query-string variants (useful if proxies mangle %2F)
 @router.get("/by-id")
 async def get_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), user: SessionOut = Depends(get_current_user)):
     try:
-        log.info("files_get_by_id_request", id=id, user_uid=user.uid)
+
         data, content_type = service.get_file_bytes(id)
-        log.info("files_get_by_id_ok", id=id, content_type=content_type, bytes=len(data))
+
         return Response(content=data, media_type=content_type)
     except FileNotFoundError:
-        log.warning("files_get_by_id_not_found", id=id)
+
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
-        log.exception("files_get_by_id_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/download/by-id")
 async def download_file_by_id(id: str = Query(..., description="Exact object path as returned by list_files().id"), user: SessionOut = Depends(get_current_user)):
     try:
-        log.info("files_download_by_id_request", id=id, user_uid=user.uid)
+
         url = service.get_signed_download_url(id)
-        log.info("files_download_by_id_redirect", id=id, signed_url_len=len(url) if url else 0)
+
         return RedirectResponse(url)
     except FileNotFoundError:
-        log.warning("files_download_by_id_not_found", id=id)
+
         raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
-        log.exception("files_download_by_id_error")
+
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -1176,7 +1175,7 @@ log = logging.getLogger("files.service")
 
 def _bucket():
     bucket_name = settings.FIREBASE_STORAGE_BUCKET or f"{settings.FIREBASE_PROJECT_ID}.appspot.com"
-    log.debug("bucket_resolve", bucket=bucket_name)
+
     return storage.bucket(bucket_name)
 
 def _user_prefix(uid: str) -> str:
@@ -1269,7 +1268,7 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
     # We'll compute total along the way.
     await uptrack.create_job(job_id=object_name, uid=uid, filename=filename or "file", dataset=dataset, total_bytes=int(total_guess))
 
-    log.info("upload_start", user_uid=uid, object=object_name, filename=filename, ctype=file.content_type or "")
+
 
     # Read in chunks to compute checksum, bytes, and optional text
     sha256 = None
@@ -1315,7 +1314,7 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
         await uptrack.set_phase(object_name, "upload", pct=25)
     except Exception as e:
         await uptrack.mark_error(object_name, f"Storage error: {e}")
-        log.exception("upload_storage_error", extra={"object": object_name})
+
         raise
 
     # Text extraction (with OCR fallback for images)
@@ -1323,7 +1322,7 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
         await uptrack.set_phase(object_name, "extract", pct=40)
         text = _extract_text(filename, file.content_type, data)
         if text:
-            log.info("upload_text_extracted", object=object_name, chars=len(text), ctype=file.content_type or "")
+
             await uptrack.set_phase(object_name, "embed", pct=60)
             try:
                 orchestrator.ingest_request(
@@ -1335,7 +1334,7 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
                     uid=uid,
                 )
                 await uptrack.set_phase(object_name, "upsert", pct=85)
-                log.info("upload_ingest_ok", object=object_name, chars=len(text))
+
             except Exception as e:
                 log.warning("upload_ingest_error", object=object_name, error=str(e))
         else:
@@ -1343,17 +1342,17 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
             await uptrack.set_phase(object_name, "upsert", pct=85)
     except Exception as e:
         await uptrack.mark_error(object_name, f"Extract error: {e}")
-        log.exception("upload_extract_error", extra={"object": object_name})
+
         raise
 
     await uptrack.mark_done(object_name)
-    log.info("upload_done", object=object_name, size=total)
+
     return UploadResponse(job_id=object_name)
 
 def list_files(uid: str) -> List[FileItem]:
     bkt = _bucket()
     prefix = f"{_user_prefix(uid)}/uploads/"
-    log.info("list_start", prefix=prefix, user_uid=uid)
+
     items: List[FileItem] = []
     for blob in bkt.list_blobs(prefix=prefix):
         if blob.name.endswith("/"):
@@ -1369,18 +1368,18 @@ def list_files(uid: str) -> List[FileItem]:
             )
         )
     items.sort(key=lambda x: x.created_at or "", reverse=True)
-    log.info("list_ok", count=len(items), user_uid=uid)
+
     return items
 
 def delete_file(file_id: str) -> bool:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()
-    log.info("delete_start", file_id=file_id, exists=exists)
+
     if not exists:
         return False
     blob.delete()
-    log.info("delete_ok", file_id=file_id)
+
     return True
 
 def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
@@ -1389,7 +1388,7 @@ def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     if not blob.exists():
-        log.warning("download_missing", file_id=file_id)
+
         raise FileNotFoundError("File not found")
 
     filename = None
@@ -1410,7 +1409,7 @@ def get_file_bytes(file_id: str) -> tuple[bytes, str]:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     if not blob.exists():
-        log.warning("get_missing", file_id=file_id)
+
         raise FileNotFoundError("File not found")
     data = blob.download_as_bytes()
     ct = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"

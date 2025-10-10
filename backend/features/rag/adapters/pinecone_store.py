@@ -12,7 +12,7 @@ except Exception as e:  # pragma: no cover
     Pinecone = None
     ServerlessSpec = None
     PineconeApiException = Exception  # type: ignore
-    log.warning("pinecone sdk not available: %s", e)
+
 
 
 def _pc():
@@ -29,7 +29,7 @@ class PineconeVectorStore:
         self._cloud = os.getenv("PINECONE_CLOUD", "aws")
         self._region = os.getenv("PINECONE_REGION", "us-east-1")
         self._index = None
-        log.info("pinecone_store_init", index=self._index_name, cloud=self._cloud, region=self._region, dim_hint=self._dimension)
+
 
     # ---- index management --------------------------------------------------
     def _ensure_index(self, required_dim: int):
@@ -43,7 +43,7 @@ class PineconeVectorStore:
             log.exception("pinecone_list_indexes_error")
         if self._index_name not in names:
             dim_to_use = required_dim or self._dimension
-            log.info("pinecone_create_index", index=self._index_name, dim=dim_to_use, region=self._region, cloud=self._cloud, metric="cosine", serverless=True)
+
             pc.create_index(
                 name=self._index_name,
                 dimension=dim_to_use,
@@ -56,10 +56,10 @@ class PineconeVectorStore:
         try:
             stats = self._index.describe_index_stats()
             idx_dim = int(stats.get("dimension") or 0)
-            log.info("pinecone_index_stats", index=self._index_name, dimension=idx_dim, namespaces=list((stats.get("namespaces") or {}).keys()))
+
             if required_dim and idx_dim and idx_dim != required_dim:
                 # Hard error — this is the #1 cause of silent upsert failures.
-                log.error("pinecone_index_dim_mismatch", index=self._index_name, index_dim=idx_dim, embed_dim=required_dim)
+
                 raise ValueError(
                     f"Pinecone index '{self._index_name}' dimension ({idx_dim}) does not match embedding size ({required_dim}). "
                     "Create a new index with the correct dimension or set RAG_EMBED_DIM accordingly."
@@ -82,7 +82,7 @@ class PineconeVectorStore:
         first_vec = entries[0].get("vector") or []
         vec_dim = len(first_vec) if isinstance(first_vec, (list, tuple)) else 0
         if vec_dim <= 0:
-            log.error("pinecone_upsert_missing_vectors", namespace=dataset, count=len(entries))
+
             raise ValueError("Attempted to upsert without dense vectors")
 
         idx = self._index_handle(required_dim=vec_dim)
@@ -103,14 +103,14 @@ class PineconeVectorStore:
                 # Pinecone expects 'sparse_values': {'indices': [...], 'values': [...]}
                 vec["sparse_values"] = e["sparse"]
             vectors.append(vec)
-        log.info("pinecone_upsert_start", namespace=ns, count=len(vectors), index=self._index_name, dim=vec_dim)
+
         try:
             idx.upsert(vectors=vectors, namespace=ns)
-            log.info("pinecone_upsert_done", namespace=ns, count=len(vectors))
+
         except Exception as e:
             # Add a super-detailed error to help diagnose
             ids_preview = [v["id"] for v in vectors[:3]]
-            log.exception("pinecone_upsert_error", namespace=ns, index=self._index_name, dim=vec_dim, sample_ids=ids_preview)
+
             raise
 
     # ---- query helpers ----------------------------------------------------

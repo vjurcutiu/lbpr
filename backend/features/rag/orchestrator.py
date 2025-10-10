@@ -24,16 +24,16 @@ ALPHA = float(os.getenv("RAG_HYBRID_ALPHA") or "0.5")
 def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
     """Low-level ingest: takes prepared chunks with 'text' and precomputed vectors."""
     texts = [c["text"] for c in chunks]
-    log.info("ingest_embed_start", dataset=dataset, doc_id=doc_id, chunks=len(chunks))
+
 
     vectors = embed_texts(texts)
     dim = len(vectors[0]) if vectors else 0
-    log.info("ingest_vectors_ready", dataset=dataset, doc_id=doc_id, dim=dim, chunks=len(chunks))
+
 
     sparse_list = []
     try:
         sparse_list = [_sparse.encode_doc(t) for t in texts]
-        log.info("ingest_sparse_ready", dataset=dataset, doc_id=doc_id, chunks=len(sparse_list))
+
     except Exception as e:
         log.warning("ingest_sparse_failed", dataset=dataset, doc_id=doc_id, error=str(e))
 
@@ -55,7 +55,7 @@ def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict)
             }
         )
 
-    log.info("ingest_upsert", dataset=dataset, entries=len(entries))
+
     _store.upsert_chunks(dataset, entries)
 
 
@@ -67,10 +67,10 @@ def ingest_request(req: IngestRequest, uid: str) -> IngestResponse:
     meta = dict(req.metadata or {})
     meta.setdefault("owner_uid", uid)
 
-    log.info("ingest_start", dataset=req.dataset, dataset_ns=dataset_ns, uid=uid, text_chars=len(text), meta_keys=list(meta.keys()))
+
 
     chunks = simple_word_chunker(text) if text else []
-    log.info("ingest_chunked", dataset=dataset_ns, doc_id=doc_id, chunks=len(chunks))
+
 
     _ingest_impl(dataset_ns, doc_id, chunks, meta)
 
@@ -88,13 +88,12 @@ def query_request(req: QueryRequest, uid: str) -> QueryResponse:
     except Exception as e:
         log.warning("query_sparse_failed", dataset=dataset_ns, error=str(e))
 
-    log.info("query_start", dataset=dataset_ns, k=req.k, fusion=FUSION, alpha=ALPHA)
 
     results: List[Tuple[float, Dict]] = _store.query_hybrid(
         dataset_ns, qvec, qsparse, k=req.k, fusion=FUSION, alpha=ALPHA
     )
 
-    log.info("query_done", dataset=dataset_ns, found=len(results))
+
 
     sources: List[Source] = []
     if req.with_sources:

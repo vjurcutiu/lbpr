@@ -21,7 +21,7 @@ log = logging.getLogger("files.service")
 
 def _bucket():
     bucket_name = settings.FIREBASE_STORAGE_BUCKET or f"{settings.FIREBASE_PROJECT_ID}.appspot.com"
-    log.debug("bucket_resolve", bucket=bucket_name)
+
     return storage.bucket(bucket_name)
 
 def _user_prefix(uid: str) -> str:
@@ -114,7 +114,7 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
     # We'll compute total along the way.
     await uptrack.create_job(job_id=object_name, uid=uid, filename=filename or "file", dataset=dataset, total_bytes=int(total_guess))
 
-    log.info("upload_start", user_uid=uid, object=object_name, filename=filename, ctype=file.content_type or "")
+
 
     # Read in chunks to compute checksum, bytes, and optional text
     sha256 = None
@@ -160,7 +160,7 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
         await uptrack.set_phase(object_name, "upload", pct=25)
     except Exception as e:
         await uptrack.mark_error(object_name, f"Storage error: {e}")
-        log.exception("upload_storage_error", extra={"object": object_name})
+
         raise
 
     # Text extraction (with OCR fallback for images)
@@ -168,7 +168,7 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
         await uptrack.set_phase(object_name, "extract", pct=40)
         text = _extract_text(filename, file.content_type, data)
         if text:
-            log.info("upload_text_extracted", object=object_name, chars=len(text), ctype=file.content_type or "")
+
             await uptrack.set_phase(object_name, "embed", pct=60)
             try:
                 orchestrator.ingest_request(
@@ -180,7 +180,7 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
                     uid=uid,
                 )
                 await uptrack.set_phase(object_name, "upsert", pct=85)
-                log.info("upload_ingest_ok", object=object_name, chars=len(text))
+
             except Exception as e:
                 log.warning("upload_ingest_error", object=object_name, error=str(e))
         else:
@@ -188,17 +188,17 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
             await uptrack.set_phase(object_name, "upsert", pct=85)
     except Exception as e:
         await uptrack.mark_error(object_name, f"Extract error: {e}")
-        log.exception("upload_extract_error", extra={"object": object_name})
+
         raise
 
     await uptrack.mark_done(object_name)
-    log.info("upload_done", object=object_name, size=total)
+
     return UploadResponse(job_id=object_name)
 
 def list_files(uid: str) -> List[FileItem]:
     bkt = _bucket()
     prefix = f"{_user_prefix(uid)}/uploads/"
-    log.info("list_start", prefix=prefix, user_uid=uid)
+
     items: List[FileItem] = []
     for blob in bkt.list_blobs(prefix=prefix):
         if blob.name.endswith("/"):
@@ -214,18 +214,18 @@ def list_files(uid: str) -> List[FileItem]:
             )
         )
     items.sort(key=lambda x: x.created_at or "", reverse=True)
-    log.info("list_ok", count=len(items), user_uid=uid)
+
     return items
 
 def delete_file(file_id: str) -> bool:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     exists = blob.exists()
-    log.info("delete_start", file_id=file_id, exists=exists)
+
     if not exists:
         return False
     blob.delete()
-    log.info("delete_ok", file_id=file_id)
+
     return True
 
 def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
@@ -234,7 +234,7 @@ def get_signed_download_url(file_id: str, minutes: int = 10) -> str:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     if not blob.exists():
-        log.warning("download_missing", file_id=file_id)
+
         raise FileNotFoundError("File not found")
 
     filename = None
@@ -255,7 +255,7 @@ def get_file_bytes(file_id: str) -> tuple[bytes, str]:
     bkt = _bucket()
     blob = bkt.blob(file_id)
     if not blob.exists():
-        log.warning("get_missing", file_id=file_id)
+
         raise FileNotFoundError("File not found")
     data = blob.download_as_bytes()
     ct = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"
