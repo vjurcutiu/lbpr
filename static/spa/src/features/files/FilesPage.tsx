@@ -46,7 +46,7 @@ import { FileViewer } from "./components/FileViewer";
 import { EmptyState } from "./components/EmptyState";
 import { FileIconByName } from "./components/FileIconByName";
 import { UploadTrackerPanel } from "./components/UploadTracker";
-import type { UploadJob } from "./uploadTrackerApi";
+import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
 
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -80,8 +80,10 @@ export default function FilesPage() {
 
   // Optimistic jobs seeded per-batch
   const [optimisticJobs, setOptimisticJobs] = useState<UploadJob[]>([]);
-  // NEW: This-batch filter by filename
+  // This-batch filter by filename
   const [batchFilenames, setBatchFilenames] = useState<string[]>([]);
+  // NEW: seed the tracker with existing history so it shows immediately
+  const [seedFetched, setSeedFetched] = useState<UploadJob[]>([]);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -140,17 +142,26 @@ export default function FilesPage() {
     const fs = Array.from(e.target.files || []);
     if (fs.length === 0) return;
 
-    // Reset *this batch* state
-    const temps = fs.map(makeTempJob);
-    setOptimisticJobs(temps); // reset instead of accumulating
-    setBatchFilenames(fs.map(f => f.name));
-
-    // ---- OPEN TRACKER + seed optimistic jobs immediately ----
-    setTrackerOpen(true);
-    toast.message("Uploads started", { description: `0/${fs.length} complete. Tracking in Transfers.` });
-
     setUploading(true);
     try {
+      // 1) Pre-fetch existing jobs so the tracker opens already populated
+      try {
+        const existing = await listUploadJobs();
+        setSeedFetched(existing);
+      } catch (prefetchErr) {
+        console.debug("[files] prefetch upload jobs failed (non-fatal)", prefetchErr);
+      }
+
+      // 2) Prepare *this batch* optimistic entries
+      const temps = fs.map(makeTempJob);
+      setOptimisticJobs(temps); // reset instead of accumulating
+      setBatchFilenames(fs.map(f => f.name));
+
+      // 3) Open tracker *after* seeding existing + optimistic
+      setTrackerOpen(true);
+      toast.message("Uploads started", { description: `0/${fs.length} complete. Tracking in Transfers.` });
+
+      // 4) Kick the uploads
       if (fs.length === 1) {
         const { job_id } = await uploadFile(fs[0]);
         const tempId = temps[0].job_id;
@@ -169,14 +180,15 @@ export default function FilesPage() {
           list.map((j) => (idMap.has(j.job_id) ? { ...j, job_id: idMap.get(j.job_id)!, updated_at: now } : j))
         );
       }
-      // Force immediate refresh
+
+      // 5) Force an immediate panel refresh
       setTrackerRefreshKey(Date.now());
       await refresh();
     } catch (err) {
       console.error(err);
       toast.error("Upload failed", { description: parseErr(err) });
       const now = Math.floor(Date.now() / 1000);
-      const tempIds = new Set(temps.map(t => t.job_id));
+      const tempIds = new Set(optimisticJobs.map(t => t.job_id));
       setOptimisticJobs((list) =>
         list.map((j) => (tempIds.has(j.job_id) ? { ...j, status: "error", phase: "error", updated_at: now, error: "Failed to start upload" } : j))
       );
@@ -421,7 +433,8 @@ export default function FilesPage() {
         onAnyComplete={handleAnyComplete}
         optimistic={optimisticJobs}
         batchFilenames={batchFilenames}
-        showHistory={false}
+        showHistory={true}
+        seedFetched={seedFetched}
       />
     </div>
   );

@@ -36,6 +36,8 @@ export function UploadTrackerPanel({
   batchFilenames = [],
   /** Optional: show completed items from earlier history even if not in this batch. */
   showHistory = false,
+  /** NEW: seed fetched jobs so existing history appears immediately when panel opens. */
+  seedFetched = [],
 }: {
   open: boolean;
   onClose: () => void;
@@ -47,10 +49,23 @@ export function UploadTrackerPanel({
   optimistic?: UploadJob[];
   batchFilenames?: string[];
   showHistory?: boolean;
+  seedFetched?: UploadJob[];
 }) {
-  const [jobsFetched, setJobsFetched] = useState<UploadJob[]>([]);
+  // Initialize from seedFetched to show existing jobs immediately
+  const [jobsFetched, setJobsFetched] = useState<UploadJob[]>(seedFetched || []);
   const [busy, setBusy] = useState(false);
   const prevStatusRef = useRef<Map<string, UploadJob["status"]>>(new Map());
+
+  // Keep jobsFetched in sync if parent updates the seed
+  useEffect(() => {
+    if (seedFetched && seedFetched.length > 0) {
+      setJobsFetched(seedFetched);
+      const nextMap = new Map<string, UploadJob["status"]>();
+      for (const j of seedFetched) nextMap.set(j.job_id, j.status);
+      prevStatusRef.current = nextMap;
+    }
+    // if seed becomes empty we do nothing (panel will poll anyway)
+  }, [seedFetched]);
 
   const refresh = async () => {
     if (!open) return;
@@ -83,24 +98,54 @@ export function UploadTrackerPanel({
   useEffect(() => { if (open) refresh(); }, [open]);
   useEffect(() => { if (open) refresh(); }, [refreshKey]); // force refresh when key changes
 
-  // Merge optimistic + fetched (fetched overrides optimistic by job_id)
+  // Merge optimistic + fetched with *robust de-duplication*:
+  // - Prefer server-fetched items over optimistic "temp:" rows for the same filename
+  // - When filtering to the current batch (showHistory=false), collapse to the *latest per filename*
   const mergedJobs = useMemo(() => {
-    const m = new Map<string, UploadJob>();
-    for (const j of optimistic) m.set(j.job_id, j);
-    for (const j of jobsFetched) m.set(j.job_id, j); // overwrite if same id
-    let arr = Array.from(m.values());
-    // Apply batch filter unless explicitly showing history
+    // Index fetched by filename
+    const fetchedByFilename = new Map<string, UploadJob>();
+    for (const j of jobsFetched) {
+      const prev = fetchedByFilename.get(j.filename);
+      if (!prev || j.updated_at >= prev.updated_at) fetchedByFilename.set(j.filename, j);
+    }
+
+    // Keep only optimistic items that don't have a server record for the same filename
+    const dedupOptimistic = optimistic.filter(o => {
+      if (!o.job_id.startsWith("temp:")) return true; // if it's already a real id, keep
+      return !fetchedByFilename.has(o.filename); // drop temp if server already sent a row for this filename
+    });
+
+    let arr = [...jobsFetched, ...dedupOptimistic];
+
+    // Apply batch filter unless we explicitly want full history
     if (!showHistory && batchFilenames.length > 0) {
       const allow = new Set(batchFilenames);
-      arr = arr.filter(j => allow.has(j.filename) || j.job_id.startsWith("temp:"));
+      // Collapse to latest per filename, preferring server vs temp
+      const best = new Map<string, UploadJob>();
+      for (const j of arr) {
+        if (!allow.has(j.filename) && !j.job_id.startsWith("temp:")) continue;
+        const prev = best.get(j.filename);
+        const isBetter =
+          !prev ||
+          j.updated_at > prev.updated_at ||
+          (prev.job_id.startsWith("temp:") && !j.job_id.startsWith("temp:"));
+        if (isBetter) best.set(j.filename, j);
+      }
+      arr = Array.from(best.values());
+    } else {
+      // Else: ensure uniqueness by job_id
+      const byId = new Map<string, UploadJob>();
+      for (const j of arr) byId.set(j.job_id, j);
+      arr = Array.from(byId.values());
     }
+
     return arr.sort((a, b) => (b.updated_at - a.updated_at));
   }, [optimistic, jobsFetched, batchFilenames, showHistory]);
 
   // Compute "any active" from VISIBLE rows only to drive polling cadence
   const anyActive = mergedJobs.some(j => j.status === "running");
 
-  // Replace useInterval with a self-scheduling, de-duped poller to avoid request storms
+  // Self-scheduling poller
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -127,7 +172,7 @@ export function UploadTrackerPanel({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [open, anyActive, refreshKey]); // intentionally not depending on `refresh` identity
+  }, [open, anyActive, refreshKey]);
 
   const totals = useMemo(() => {
     const all = mergedJobs.length;
