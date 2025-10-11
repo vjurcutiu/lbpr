@@ -339,7 +339,7 @@ export function UploadTrackerPanel({
   showHistory?: boolean;
   seedFetched?: UploadJob[];
 }) {
-  // Initialize from seedFetched to show existing jobs immediately
+  // Initialize from seedFetched to show existing history immediately
   const [jobsFetched, setJobsFetched] = useState<UploadJob[]>(seedFetched || []);
   const [busy, setBusy] = useState(false);
   const prevStatusRef = useRef<Map<string, UploadJob["status"]>>(new Map());
@@ -387,20 +387,29 @@ export function UploadTrackerPanel({
   useEffect(() => { if (open) refresh(); }, [refreshKey]); // force refresh when key changes
 
   // Merge optimistic + fetched with *robust de-duplication*:
-  // - Prefer server-fetched items over optimistic "temp:" rows for the same filename
+  // - Prefer server-fetched items over optimistic rows once a match by job_id exists
+  // - For temp:* optimistic rows, drop them once the server shows any row for the same filename
   // - When filtering to the current batch (showHistory=false), collapse to the *latest per filename*
   const mergedJobs = useMemo(() => {
-    // Index fetched by filename
+    // Index fetched by filename and id
     const fetchedByFilename = new Map<string, UploadJob>();
+    const fetchedIds = new Set<string>();
     for (const j of jobsFetched) {
+      fetchedIds.add(j.job_id);
       const prev = fetchedByFilename.get(j.filename);
       if (!prev || j.updated_at >= prev.updated_at) fetchedByFilename.set(j.filename, j);
     }
 
-    // Keep only optimistic items that don't have a server record for the same filename
+    // Keep only optimistic items that don't have a server record for the same *job_id* or (if temp) filename
     const dedupOptimistic = optimistic.filter(o => {
-      if (!o.job_id.startsWith("temp:")) return true; // if it's already a real id, keep
-      return !fetchedByFilename.has(o.filename); // drop temp if server already sent a row for this filename
+      // If server already returned this job_id, prefer the server row
+      if (fetchedIds.has(o.job_id)) return false;
+      // If it's a temp row and we already have a server row for the same filename, hide the temp
+      if (o.job_id.startsWith("temp:")) {
+        return !fetchedByFilename.has(o.filename);
+      }
+      // Otherwise keep it (server hasn't returned this id yet)
+      return true;
     });
 
     let arr = [...jobsFetched, ...dedupOptimistic];
@@ -421,9 +430,12 @@ export function UploadTrackerPanel({
       }
       arr = Array.from(best.values());
     } else {
-      // Else: ensure uniqueness by job_id
+      // Else: ensure uniqueness by job_id (server wins because it's first in the array)
       const byId = new Map<string, UploadJob>();
-      for (const j of arr) byId.set(j.job_id, j);
+      for (const j of arr) {
+        // If a job_id appears twice (optimistic + server), the first occurrence (server) remains
+        if (!byId.has(j.job_id)) byId.set(j.job_id, j);
+      }
       arr = Array.from(byId.values());
     }
 

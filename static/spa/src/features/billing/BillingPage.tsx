@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { Button } from "@/components/ui/button";
 import { getJSON } from "@/shared/api";
+import { useAuthContext } from "@/features/auth/AuthProvider"; // wait for session cookie before /limits/me :contentReference[oaicite:1]{index=1}
 
 type LimitsResp = {
   plan: "FREE" | "PRO";
@@ -27,42 +28,80 @@ type LimitsResp = {
  * - handles upgrade via Stripe Checkout, and "Manage billing" via Customer Portal
  */
 export default function BillingPage() {
+  const { user, loading: authLoading } = useAuthContext(); // from AuthProvider (keeps cookie in sync) :contentReference[oaicite:2]{index=2}
   const [products, setProducts] = useState<Product[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [limits, setLimits] = useState<LimitsResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // Load products, usage and observe subscription state
+  // Load products once (public)
   useEffect(() => {
     let cancel = false;
     (async () => {
       try {
-        const [prods, lim] = await Promise.all([
-          loadActiveProducts(),
-          getJSON<LimitsResp>("/limits/me").catch(() => null),
-        ]);
-        if (!cancel) {
-          setProducts(prods);
-          if (lim) setLimits(lim);
-        }
+        const prods = await loadActiveProducts();
+        if (!cancel) setProducts(prods);
       } catch (e: any) {
         if (!cancel) setErr(e.message || String(e));
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  // Load limits only when auth is ready and a user exists (ensures cookie for /limits/me)
+  useEffect(() => {
+    let cancel = false;
+
+    if (authLoading) return; // wait for Firebase→server session handshake
+    if (!user) {
+      setLimits(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    (async () => {
+      try {
+        const lim = await getJSON<LimitsResp>("/limits/me");
+        if (!cancel) setLimits(lim);
+      } catch (_e) {
+        // swallow; keep UI but no usage bars if it fails
+        if (!cancel) setLimits(null);
       } finally {
         if (!cancel) setLoading(false);
       }
     })();
 
-    let unsub: undefined | (() => void);
-    observeSubscriptions((list) => setSubs(list)).then((fn) => {
-      unsub = fn;
-    }).catch(console.error);
-
     return () => {
       cancel = true;
+    };
+  }, [user, authLoading]); // refetch whenever a user becomes available
+
+  // Observe subscription state (extension writes under customers/{uid}/subscriptions)
+  useEffect(() => {
+    let unsub: undefined | (() => void);
+    observeSubscriptions((list) => setSubs(list))
+      .then((fn) => {
+        unsub = fn;
+      })
+      .catch(console.error);
+    return () => {
       if (unsub) unsub();
     };
-  }, []);
+  }, []); // observeSubscriptions handles requireUser internally :contentReference[oaicite:3]{index=3}
+
+  // Optional: refresh limits on window focus (keeps numbers fresh after upgrades/ingests)
+  useEffect(() => {
+    function onFocus() {
+      if (!user) return;
+      getJSON<LimitsResp>("/limits/me").then(setLimits).catch(() => {});
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [user]);
 
   // Figure out whether the user is on Pro
   const activeSub = subs.find((s) => ["active", "trialing", "past_due"].includes(s.status));
@@ -94,7 +133,7 @@ export default function BillingPage() {
   return (
     <div className="max-w-5xl mx-auto">
       <header className="text-center mb-10">
-        <h1 className="text-3xl font-semibold">Plans & Usage</h1>
+        <h1 className="text-3xl font-semibold">Plans &amp; Usage</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Choose the plan that fits. You can manage or cancel anytime.
         </p>
@@ -153,7 +192,7 @@ export default function BillingPage() {
           <ul className="text-sm space-y-2 flex-1">
             <li>• Priority RAG + longer context</li>
             <li>• Faster image creation</li>
-            <li>• Team-ready features & support</li>
+            <li>• Team-ready features &amp; support</li>
           </ul>
           <Button
             className="mt-6"

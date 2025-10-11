@@ -4,4 +4,5 @@ change url on confirmation email to prod confirmation page
 check email confirmation page
 add md to chat
 fix scrollbars in darkmode
-,
+test upload tracker with errors
+improve context awareness - the ai doesn't know right now that the retrieved files are context and considers them as part of the message
