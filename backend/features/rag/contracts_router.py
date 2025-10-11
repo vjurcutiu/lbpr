@@ -27,6 +27,9 @@ except Exception:
 from . import orchestrator
 from .schemas import QueryRequest  # type: ignore
 
+# NEW: usage counters
+from core.rate_limit import add_message
+
 router = APIRouter(prefix="/v1", tags=["RAG (Contracts)"])
 log = logging.getLogger("rag.contracts")
 
@@ -51,8 +54,20 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
     RAG-first chat. We query the user's namespace, then (if available)
     ask the LLM to answer grounded in those sources. If LLM fails,
     we return the concatenated sources as an answer.
+    Also counts a **message** against the user's monthly quota and logs the result.
     """
     uid = getattr(user, "uid", "dev")
+
+    # 0) Count a message against usage
+    try:
+        ok, used, cap = await add_message(uid)
+        log.info(
+            "usage_message_add",
+            uid=uid, allowed=ok, used_messages=used, cap_messages=cap,
+            path=str(request.url.path)
+        )
+    except Exception:
+        log.exception("usage_message_add_error", uid=uid)
 
     # 1) Retrieval (per-user namespace happens inside orchestrator)
     try:

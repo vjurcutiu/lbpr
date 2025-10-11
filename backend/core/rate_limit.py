@@ -1,3 +1,4 @@
+# backend/core/rate_limit.py
 from __future__ import annotations
 import time, calendar, datetime as dt, logging
 from typing import Tuple, Optional
@@ -56,6 +57,7 @@ async def add_message(uid: str) -> Tuple[bool, int, int]:
     plan = await get_user_plan(uid)
     caps = plan_limits(plan)
     ok, newv = await _check_and_add(uid, "messages", 1, caps["messages"])
+    log.info("usage_message_result", uid=uid, allowed=ok, value=newv, cap=caps["messages"])
     return ok, newv, caps["messages"]
 
 # For uploads and /ingest: increment token budget by N tokens
@@ -64,6 +66,7 @@ async def add_upload_tokens(uid: str, tokens: int) -> Tuple[bool, int, int]:
     plan = await get_user_plan(uid)
     caps = plan_limits(plan)
     ok, newv = await _check_and_add(uid, "upload_tokens", tokens, caps["upload_tokens"])
+    log.info("usage_upload_tokens_result", uid=uid, added=tokens, allowed=ok, value=newv, cap=caps["upload_tokens"])
     return ok, newv, caps["upload_tokens"]
 
 # Fetch current usage snapshot

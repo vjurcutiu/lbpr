@@ -1,3 +1,4 @@
+# backend/features/files/service.py
 
 from __future__ import annotations
 
@@ -16,6 +17,9 @@ from features.rag.schemas import IngestRequest
 
 # NEW: tracker + optional OCR
 from core import tracker as uptrack
+# NEW: usage + tokenizer
+from core.tokenizer import count_tokens
+from core.rate_limit import add_upload_tokens
 
 log = logging.getLogger("files.service")
 
@@ -174,7 +178,27 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
     try:
         await uptrack.set_phase(object_name, "extract", pct=40)
         text = _extract_text(filename, file.content_type, data)
+        # NEW: count upload tokens *only if* we have extractable text
+        # (images with no OCR will not be charged)
         if text:
+            tokens = count_tokens(text or "")
+            try:
+                ok, used, cap = await add_upload_tokens(uid, tokens)
+                log.info(
+                    "usage_upload_tokens_add",
+                    uid=uid, object=object_name, filename=filename, dataset=dataset,
+                    tokens=tokens, allowed=ok, used_upload_tokens=used, cap_upload_tokens=cap
+                )
+                if not ok:
+                    # We still keep the physical file, but skip RAG ingest
+                    log.warning("upload_tokens_exhausted_skip_ingest", uid=uid, object=object_name)
+                    await uptrack.set_phase(object_name, "upsert", pct=85)
+                    await uptrack.mark_done(object_name)
+                    log.info("upload_done_no_ingest", object=object_name)
+                    return UploadResponse(job_id=object_name)
+            except Exception:
+                log.exception("usage_upload_tokens_error", uid=uid, object=object_name)
+
             log.info("upload_extract_ok", object=object_name, chars=len(text))
             await uptrack.set_phase(object_name, "embed", pct=60)
             try:
