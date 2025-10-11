@@ -7,3 +7,6 @@ fix scrollbars in darkmode
 test upload tracker with errors
 improve context awareness - the ai doesn't know right now that the retrieved files are context and considers them as part of the message
 dedup file uploads
+improve infile viewer formatting
+add terms and privacy
+add loading to file explorer

@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # Optional override: count upload tokens using this tokenizer/model id.
     TOKENIZER_MODEL: str | None = None  # if None, auto-pick based on RAG_EMBED_MODEL
 
+    RAG_HYBRID_DUAL_INDEX: bool = False
+    PINECONE_INDEX_DENSE: str | None = None
+    PINECONE_INDEX_SPARSE: str | None = None
+
 settings = Settings()
 
 def safe_settings_snapshot() -> dict:
@@ -79,4 +83,5 @@ def safe_settings_snapshot() -> dict:
         "pinecone_cloud": settings.PINECONE_CLOUD,
         "pinecone_region": settings.PINECONE_REGION,
         "rag_embed_dim": settings.RAG_EMBED_DIM,
+
     }

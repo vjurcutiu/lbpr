@@ -59,6 +59,9 @@ except Exception:
 from . import orchestrator
 from .schemas import QueryRequest  # type: ignore
 
+# NEW: usage counters
+from core.rate_limit import add_message
+
 router = APIRouter(prefix="/v1", tags=["RAG (Contracts)"])
 log = logging.getLogger("rag.contracts")
 
@@ -83,8 +86,20 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
     RAG-first chat. We query the user's namespace, then (if available)
     ask the LLM to answer grounded in those sources. If LLM fails,
     we return the concatenated sources as an answer.
+    Also counts a **message** against the user's monthly quota and logs the result.
     """
     uid = getattr(user, "uid", "dev")
+
+    # 0) Count a message against usage
+    try:
+        ok, used, cap = await add_message(uid)
+        log.info(
+            "usage_message_add",
+            uid=uid, allowed=ok, used_messages=used, cap_messages=cap,
+            path=str(request.url.path)
+        )
+    except Exception:
+        log.exception("usage_message_add_error", uid=uid)
 
     # 1) Retrieval (per-user namespace happens inside orchestrator)
     try:
@@ -347,6 +362,7 @@ Omit the env vars above and you'll get the original hashing embedder and in-memo
 
 
 C:/code2/lbpr/backend/features/rag/router.py
+# backend/features/rag/router.py
 
 from fastapi import APIRouter, HTTPException, Request, Depends
 from .schemas import IngestRequest, IngestResponse, QueryRequest, QueryResponse
@@ -357,7 +373,7 @@ from features.auth.deps import get_current_user
 from features.auth.models import SessionOut
 
 from core.tokenizer import count_tokens
-from core.rate_limit import add_upload_tokens
+from core.rate_limit import add_upload_tokens, add_message
 
 router = APIRouter(prefix="/features/rag", tags=["RAG"]) 
 log = logging.getLogger("rag.router")
@@ -370,37 +386,46 @@ async def ingest(req: IngestRequest, request: Request, user: SessionOut = Depend
         text = req.text or ""
         tokens = count_tokens(text)
         ok, used, cap = await add_upload_tokens(user.uid, tokens)
+        log.info(
+            "usage_upload_tokens_add",
+            uid=user.uid, dataset=req.dataset, tokens=tokens,
+            allowed=ok, used_upload_tokens=used, cap_upload_tokens=cap,
+            client=str(request.client),
+        )
         if not ok:
             raise HTTPException(status_code=429, detail=f"Monthly upload token limit reached ({used}/{cap}). Upgrade to increase your limits.")
-        log_info = {
-            "dataset": req.dataset, "has_text": bool(req.text),
-            "meta_keys": list((req.metadata or {}).keys()),
-            "client": str(request.client), "uid": user.uid,
-            "tokens": tokens, "used_upload_tokens": used, "cap_upload_tokens": cap
-        }
-
 
         # Apply per-user namespace under the hood
         resp = orchestrator.ingest_request(req, user.uid)
-
+        log.info("rag_ingest_ok", uid=user.uid, dataset=req.dataset, doc_id=resp.doc_id, chunks=len(resp.chunk_ids))
         return resp
     except HTTPException:
         raise
     except Exception as e:
-
+        log.exception("rag_ingest_error", uid=user.uid, dataset=getattr(req, "dataset", None))
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
+        # Count a chat message and log usage outcome
+        try:
+            ok, used, cap = await add_message(user.uid)
+            log.info(
+                "usage_message_add",
+                uid=user.uid, allowed=ok, used_messages=used, cap_messages=cap,
+                path=str(request.url.path)
+            )
+        except Exception:
+            log.exception("usage_message_add_error", uid=user.uid)
 
         # Apply per-user namespace under the hood
         resp = orchestrator.query_request(req, user.uid)
-
+        log.info("rag_query_ok", uid=user.uid, dataset=req.dataset, k=req.k, with_sources=req.with_sources)
         return resp
     except Exception as e:
-
+        log.exception("rag_query_error", uid=user.uid, dataset=getattr(req, "dataset", None))
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -1152,6 +1177,7 @@ class DeleteResponse(BaseModel):
 
 
 C:/code2/lbpr/backend/features/files/service.py
+# backend/features/files/service.py
 
 from __future__ import annotations
 
@@ -1170,6 +1196,9 @@ from features.rag.schemas import IngestRequest
 
 # NEW: tracker + optional OCR
 from core import tracker as uptrack
+# NEW: usage + tokenizer
+from core.tokenizer import count_tokens
+from core.rate_limit import add_upload_tokens
 
 log = logging.getLogger("files.service")
 
@@ -1328,7 +1357,27 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
     try:
         await uptrack.set_phase(object_name, "extract", pct=40)
         text = _extract_text(filename, file.content_type, data)
+        # NEW: count upload tokens *only if* we have extractable text
+        # (images with no OCR will not be charged)
         if text:
+            tokens = count_tokens(text or "")
+            try:
+                ok, used, cap = await add_upload_tokens(uid, tokens)
+                log.info(
+                    "usage_upload_tokens_add",
+                    uid=uid, object=object_name, filename=filename, dataset=dataset,
+                    tokens=tokens, allowed=ok, used_upload_tokens=used, cap_upload_tokens=cap
+                )
+                if not ok:
+                    # We still keep the physical file, but skip RAG ingest
+                    log.warning("upload_tokens_exhausted_skip_ingest", uid=uid, object=object_name)
+                    await uptrack.set_phase(object_name, "upsert", pct=85)
+                    await uptrack.mark_done(object_name)
+                    log.info("upload_done_no_ingest", object=object_name)
+                    return UploadResponse(job_id=object_name)
+            except Exception:
+                log.exception("usage_upload_tokens_error", uid=uid, object=object_name)
+
             log.info("upload_extract_ok", object=object_name, chars=len(text))
             await uptrack.set_phase(object_name, "embed", pct=60)
             try:

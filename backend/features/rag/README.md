@@ -1,38 +1,48 @@
+# RAG Happy Path (MVP) — Pinecone dual-index hybrid (RRF)
 
-# RAG Happy Path (MVP) — now with Pinecone + OpenAI adapters
+This slice now supports **two Pinecone indexes** (dense + sparse) per dataset/namespace and performs hybrid retrieval via **RRF** (or rank-α blending).
 
-This slice now supports **production-grade** providers while preserving the original
-in-memory defaults (so local dev & tests still run without any external services).
+## Why dual index?
 
-## Quick start
+Recent Pinecone serverless supports two index types: **dense** and **sparse**. Hybrid search can be implemented by
+querying each index separately and fusing results (RRF), which avoids single-call constraints and lets you tune each
+store independently.
 
-1) Choose providers via env vars:
-   - `RAG_EMBEDDER=openai` to use OpenAI embeddings (else falls back to local hasher)
-   - `RAG_VECTORSTORE=pinecone` to use Pinecone (else falls back to in-memory)
+## Configure
 
-2) Required configuration for OpenAI:
-   - `OPENAI_API_KEY=...`
-   - Optional: `RAG_EMBED_MODEL=text-embedding-3-small` (default) or `text-embedding-3-large`
+Set these env vars (examples):
 
-3) Required configuration for Pinecone:
-   - `PINECONE_API_KEY=...`
-   - `PINECONE_INDEX=lbpr-rag` (or any name)
-   - Optional: `PINECONE_CLOUD=aws` and `PINECONE_REGION=us-east-1`
-   - Optional: `RAG_EMBED_DIM=3072` to force a dimension for index creation
-     (otherwise we infer it from the first embedding at upsert time).
+```bash
+RAG_VECTORSTORE=pinecone
+RAG_HYBRID_DUAL_INDEX=1
 
-The API surface under `/features/rag/*` is unchanged.
+# Base name and explicit index names (optional)
+PINECONE_INDEX=lbpr
+PINECONE_INDEX_DENSE=lbpr-dense
+PINECONE_INDEX_SPARSE=lbpr-sparse
 
-## Notes
+# Cloud/region and embedding size
+PINECONE_CLOUD=aws
+PINECONE_REGION=us-east-1
+RAG_EMBED_DIM=1536
+```
 
-- Index creation is **automatic** on first upsert when using Pinecone. The adapter
-  infers the dimension from your embedding vector length and creates a serverless
-  cosine index if it doesn't exist yet.
-- You can keep using the existing endpoints:
-  - `POST /features/rag/ingest`
-  - `POST /features/rag/query`
-- Tenancy/namespace format stays `t:{tenant}:{dataset}`.
+> If `RAG_HYBRID_DUAL_INDEX` is unset/false, the code falls back to the single-index adapter with optional
+> `sparse_values` stored alongside dense vectors.
 
-## Local dev (no external services)
+## Ingestion flow
 
-Omit the env vars above and you'll get the original hashing embedder and in-memory store.
+1. **Chunk** text (simple word chunker by default).
+2. **Embed** dense vectors using the configured embedder (OpenAI or local).
+3. **Encode** sparse vectors with `pinecone-text` BM25 (public defaults).
+4. **Upsert** each chunk to **both** indexes under the same namespace:
+   - Dense index receives `values` + metadata.
+   - Sparse index receives `sparse_values` + metadata.
+
+## Query flow
+
+- Compute a dense query vector and a sparse query vector.
+- Query **dense** index and **sparse** index independently.
+- Fuse with **RRF** (default) or **alpha** (rank-based convex blend).
+
+No API changes are required. The existing `/features/rag/ingest` and `/features/rag/query` endpoints now route through the dual-index store when enabled.

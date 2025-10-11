@@ -1,3 +1,4 @@
+# backend/features/rag/vectorstore.py
 from __future__ import annotations
 from typing import Dict, List, Tuple, Optional
 import os
@@ -11,8 +12,17 @@ def get_store():
     kind = (os.getenv("RAG_VECTORSTORE") or "pinecone").lower()
     if kind == "memory":
         return InMemoryVectorStore()
-    from .adapters.pinecone_store import PineconeVectorStore
-    return PineconeVectorStore()
+
+    # Pinecone variants
+    dual = (os.getenv("RAG_HYBRID_DUAL_INDEX") or "0").lower() in ("1", "true", "yes", "y", "on")
+    if dual:
+        from .adapters.pinecone_dual_store import PineconeDualVectorStore
+        log.info("vectorstore_init", extra={"kind": "pinecone_dual"})
+        return PineconeDualVectorStore()
+    else:
+        from .adapters.pinecone_store import PineconeVectorStore
+        log.info("vectorstore_init", extra={"kind": "pinecone_single"})
+        return PineconeVectorStore()
 
 
 # ---- In-memory fallback (good for local dev & tests) -----------------------
@@ -76,7 +86,6 @@ class InMemoryVectorStore:
         topd = self.query_dense(dataset, q_dense, k=max(k, 20))
         tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
         if fusion == "alpha":
-            # simple convex blend: normalize ranks via positions
             dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
             sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
             id2rank_d = {id_: i + 1 for i, id_ in enumerate(dense_ids)}
@@ -84,7 +93,6 @@ class InMemoryVectorStore:
             all_ids = set(dense_ids) | set(sparse_ids)
             fused = []
             for id_ in all_ids:
-                # lower rank is better; convert to score by inverse rank
                 rd = id2rank_d.get(id_, 9999)
                 rs = id2rank_s.get(id_, 9999)
                 score = alpha * (1 / rd) + (1 - alpha) * (1 / rs)
@@ -93,9 +101,9 @@ class InMemoryVectorStore:
             id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
             return [(s, id2e[i]) for s, i in fused[:k]]
 
-        # default: RRF
+        # RRF default
         dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
         sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
         fused = self._rrf(dense_ids, sparse_ids, k=k)
         id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
-        return [(score, id2e[id_]) for id_, score in fused]  # score = fused RRF
+        return [(score, id2e[id_]) for id_, score in fused]
