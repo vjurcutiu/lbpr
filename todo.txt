@@ -1,5 +1,5 @@
 add env vars in prod (secrets)
-make sure pdfs and  docx  are rate limited
+make sure pdfs and docx are rate limited
 change url on confirmation email to prod confirmation page
 check email confirmation page
 add md to chat
@@ -10,3 +10,12 @@ dedup file uploads
 improve infile viewer formatting
 add terms and privacy
 add loading to file explorer
+fix upload tracker again
+limit context window to ~10 messages
+improve file viewer  gfx
+fix file and chat page on mobile
+add lazy loading to files and chats
+add loading spinners to billing and filessidebar so we don't see empty components while waiting for the backend to respond
+proper file deletion across indices  and firebase
+in chat, only scroll to the start of the last message (really annoying when it scrolls to the bottom and you have to scroll up)
+extensive chat testing. 

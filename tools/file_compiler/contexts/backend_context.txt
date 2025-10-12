@@ -191,6 +191,10 @@ class Settings(BaseSettings):
     # Optional override: count upload tokens using this tokenizer/model id.
     TOKENIZER_MODEL: str | None = None  # if None, auto-pick based on RAG_EMBED_MODEL
 
+    RAG_HYBRID_DUAL_INDEX: bool = False
+    PINECONE_INDEX_DENSE: str | None = None
+    PINECONE_INDEX_SPARSE: str | None = None
+
 settings = Settings()
 
 def safe_settings_snapshot() -> dict:
@@ -206,6 +210,7 @@ def safe_settings_snapshot() -> dict:
         "pinecone_cloud": settings.PINECONE_CLOUD,
         "pinecone_region": settings.PINECONE_REGION,
         "rag_embed_dim": settings.RAG_EMBED_DIM,
+
     }
 
 
@@ -321,12 +326,28 @@ LIMITS_PRO_UPLOAD_TOKENS=20000000
 # Optional: tokenizer override if you want a specific encoding name
 TOKENIZER_MODEL=cl100k_base
 
+RAG_HYBRID_DUAL_INDEX=1
+
+# Use a base name or explicit names
+PINECONE_INDEX_DENSE=lbpr-dense
+PINECONE_INDEX_SPARSE=lbpr-sparse
+
 C:/code2/lbpr/backend/core/config.py.PATCH.txt
 
 # Add this field to core/config.py Settings:
 # FIREBASE_STORAGE_BUCKET: str | None = None
 #
 # Usage: If not set, we'll default to f"{FIREBASE_PROJECT_ID}.appspot.com"
+
+
+C:/code2/lbpr/backend/core/config.py.PATCH_DUAL_INDEX.txt
+# Add these optional fields to `core/config.py` Settings if you want to expose them via /safe_settings_snapshot():
+#   RAG_HYBRID_DUAL_INDEX: bool = False
+#   PINECONE_INDEX_DENSE: str | None = None
+#   PINECONE_INDEX_SPARSE: str | None = None
+#
+# They are not strictly required because the Pinecone adapters read from environment
+# directly, but adding them keeps configuration discoverable.
 
 
 C:/code2/lbpr/backend/core/logging.py

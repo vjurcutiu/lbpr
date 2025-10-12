@@ -2,28 +2,97 @@
 from __future__ import annotations
 from typing import Dict, List, Tuple, Optional
 import os
+import sys
 import logging
+import platform
+import importlib.util
 
 log = logging.getLogger("rag.pinecone.dual")
 
-try:
-    # Pinecone SDK (>=6.x)
-    from pinecone import Pinecone, ServerlessSpec
-    from pinecone.core.client.exceptions import PineconeApiException  # SDK >=6
-except Exception:  # pragma: no cover
-    Pinecone = None  # type: ignore
-    ServerlessSpec = None  # type: ignore
-    try:
-        # Older SDK (fallback path used elsewhere in the codebase)
-        from pinecone.exceptions.exceptions import PineconeApiException  # type: ignore
-    except Exception:
-        PineconeApiException = Exception  # type: ignore
+# We detect/install details via a helper so we can log *why* import failed.
+def _import_pinecone():
+    """
+    Import Pinecone with rich diagnostics.
 
+    Returns:
+        (Pinecone, ServerlessSpec, PineconeApiException, version_str)
+    Raises:
+        RuntimeError with the original exception chained.
+    """
+    # Try modern SDK first
+    try:
+        from pinecone import Pinecone, ServerlessSpec
+        try:
+            # >=6.x/7.x
+            from pinecone.core.client.exceptions import PineconeApiException  # type: ignore
+        except Exception:
+            # Older fallback path used by some pins
+            try:
+                from pinecone.exceptions.exceptions import PineconeApiException  # type: ignore
+            except Exception:
+                PineconeApiException = Exception  # type: ignore
+
+        try:
+            import importlib.metadata as md
+            ver = md.version("pinecone")
+        except Exception:
+            ver = "unknown"
+
+        # Success path
+        log.info("pinecone_import_ok", pinecone_version=ver)
+        return Pinecone, ServerlessSpec, PineconeApiException, ver
+
+    except Exception as e:
+        # Gather diagnostics to surface the *real* reason
+        find = importlib.util.find_spec("pinecone")
+        try:
+            import importlib.metadata as md
+            installed_version = md.version("pinecone")
+        except Exception:
+            installed_version = None
+
+        # Keep the dict flat (our logger prints kwargs)
+        log.error(
+            "pinecone_import_failed",
+            error_type=type(e).__name__,
+            error_msg=str(e),
+            python_version=sys.version.split()[0],
+            platform=platform.platform(),
+            pinecone_find_spec=bool(find),
+            pinecone_spec_origin=(getattr(find, "origin", None) if find else None),
+            installed_pinecone_version=installed_version,
+            sys_path_head=str(sys.path[:5]),
+            env_PINECONE_API_KEY_present=bool(os.getenv("PINECONE_API_KEY")),
+            env_PINECONE_ENV_present=bool(os.getenv("PINECONE_ENVIRONMENT")) or bool(os.getenv("PINECONE_ENV")),
+            env_PINECONE_INDEX=os.getenv("PINECONE_INDEX"),
+            env_PINECONE_INDEX_dense=os.getenv("PINECONE_INDEX_DENSE"),
+            env_PINECONE_INDEX_sparse=os.getenv("PINECONE_INDEX_SPARSE"),
+            container_image=os.getenv("IMAGE_TAG") or os.getenv("HOSTNAME"),
+            exc_info=True,
+        )
+        raise RuntimeError(
+            "Failed to import Pinecone SDK. See `pinecone_import_failed` log for diagnostics. "
+            "If missing, install with: pip install 'pinecone>=7' 'pinecone-text'"
+        ) from e
+
+
+# Lazily resolved symbols (let import fail loudly with diagnostics)
+Pinecone = None
+ServerlessSpec = None
+PineconeApiException = Exception  # type: ignore
+_PINECONE_VERSION = "unknown"
 
 def _pc():
-    if Pinecone is None:
-        raise RuntimeError("pinecone sdk not installed. `pip install pinecone`")
-    return Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+    global Pinecone, ServerlessSpec, PineconeApiException, _PINECONE_VERSION
+    if Pinecone is None or ServerlessSpec is None:
+        Pinecone, ServerlessSpec, PineconeApiException, _PINECONE_VERSION = _import_pinecone()
+    # Build client
+    api_key = os.getenv("PINECONE_API_KEY")
+    if not api_key:
+        # Make this explicit too
+        log.error("pinecone_missing_api_key")
+        raise RuntimeError("PINECONE_API_KEY is not set")
+    return Pinecone(api_key=api_key)
 
 
 class PineconeDualVectorStore:
@@ -53,14 +122,34 @@ class PineconeDualVectorStore:
         self._region = os.getenv("PINECONE_REGION", "us-east-1")
         self._dense = None
         self._sparse = None
+        log.info(
+            "pinecone_dual_store_init",
+            dense_index=self._dense_name,
+            sparse_index=self._sparse_name,
+            dim_hint=self._dimension,
+            cloud=self._cloud,
+            region=self._region,
+        )
 
     # ---- index management --------------------------------------------------
     def _ensure_dense(self, required_dim: int):
         pc = _pc()
-        names = [i["name"] for i in pc.list_indexes()]
+        try:
+            names = [i["name"] for i in pc.list_indexes()]
+        except Exception as e:
+            log.error("pinecone_list_indexes_error", error=str(e), exc_info=True)
+            names = []
+
         if self._dense_name not in names:
             dim = required_dim or self._dimension or 1536
-            log.info("pinecone_create_dense", name=self._dense_name, dim=dim, region=self._region, cloud=self._cloud)
+            log.info(
+                "pinecone_create_dense",
+                name=self._dense_name,
+                dim=dim,
+                region=self._region,
+                cloud=self._cloud,
+                pinecone_version=_PINECONE_VERSION,
+            )
             pc.create_index(
                 name=self._dense_name,
                 dimension=dim,
@@ -70,7 +159,7 @@ class PineconeDualVectorStore:
             )
         self._dense = pc.Index(self._dense_name)
 
-        # Best-effort validation (describe_index or stats availability may vary)
+        # Best-effort validation (describe_index_stats availability varies)
         try:
             stats = self._dense.describe_index_stats()
             idx_dim = int(stats.get("dimension") or 0)
@@ -84,10 +173,21 @@ class PineconeDualVectorStore:
 
     def _ensure_sparse(self):
         pc = _pc()
-        names = [i["name"] for i in pc.list_indexes()]
+        try:
+            names = [i["name"] for i in pc.list_indexes()]
+        except Exception as e:
+            log.error("pinecone_list_indexes_error", error=str(e), exc_info=True)
+            names = []
+
         if self._sparse_name not in names:
-            log.info("pinecone_create_sparse", name=self._sparse_name, region=self._region, cloud=self._cloud)
-            # NOTE: sparse indexes omit 'dimension' and require metric='dotproduct'
+            log.info(
+                "pinecone_create_sparse",
+                name=self._sparse_name,
+                region=self._region,
+                cloud=self._cloud,
+                pinecone_version=_PINECONE_VERSION,
+            )
+            # Sparse indexes omit 'dimension' and require metric='dotproduct'
             pc.create_index(
                 name=self._sparse_name,
                 metric="dotproduct",
@@ -146,10 +246,26 @@ class PineconeDualVectorStore:
                     "metadata": md,
                 })
 
+        log.info(
+            "pinecone_upsert_begin",
+            dataset=ns,
+            dense_count=len(dense_vectors),
+            sparse_count=len(sparse_vectors),
+            dense_index=self._dense_name,
+            sparse_index=self._sparse_name,
+        )
+
         # Upsert to both indexes
         didx.upsert(vectors=dense_vectors, namespace=ns)
         if sparse_vectors:
             sidx.upsert(vectors=sparse_vectors, namespace=ns)
+
+        log.info(
+            "pinecone_upsert_ok",
+            dataset=ns,
+            dense_count=len(dense_vectors),
+            sparse_count=len(sparse_vectors),
+        )
 
     # ---- result conversion ------------------------------------------------
     @staticmethod
@@ -175,12 +291,13 @@ class PineconeDualVectorStore:
     # ---- queries ----------------------------------------------------------
     def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
         didx = self._dense_idx(required_dim=len(q_dense or []))
+        log.debug("pinecone_query_dense", index=self._dense_name, k=k, namespace=str(dataset))
         res = didx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
         return self._to_hits(res)
 
     def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
         sidx = self._sparse_idx()
-        # some SDK versions raise PineconeApiException on type mismatch; keep try/except for forward-compat
+        log.debug("pinecone_query_sparse", index=self._sparse_name, k=k, namespace=str(dataset))
         try:
             res = sidx.query(sparse_vector=q_sparse, top_k=k, include_metadata=True, namespace=str(dataset))
         except PineconeApiException as e:

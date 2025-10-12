@@ -321,44 +321,54 @@ def query_request(req: QueryRequest, uid: str) -> QueryResponse:
 
 
 C:/code2/lbpr/backend/features/rag/README.md
+# RAG Happy Path (MVP) — Pinecone dual-index hybrid (RRF)
 
-# RAG Happy Path (MVP) — now with Pinecone + OpenAI adapters
+This slice now supports **two Pinecone indexes** (dense + sparse) per dataset/namespace and performs hybrid retrieval via **RRF** (or rank-α blending).
 
-This slice now supports **production-grade** providers while preserving the original
-in-memory defaults (so local dev & tests still run without any external services).
+## Why dual index?
 
-## Quick start
+Recent Pinecone serverless supports two index types: **dense** and **sparse**. Hybrid search can be implemented by
+querying each index separately and fusing results (RRF), which avoids single-call constraints and lets you tune each
+store independently.
 
-1) Choose providers via env vars:
-   - `RAG_EMBEDDER=openai` to use OpenAI embeddings (else falls back to local hasher)
-   - `RAG_VECTORSTORE=pinecone` to use Pinecone (else falls back to in-memory)
+## Configure
 
-2) Required configuration for OpenAI:
-   - `OPENAI_API_KEY=...`
-   - Optional: `RAG_EMBED_MODEL=text-embedding-3-small` (default) or `text-embedding-3-large`
+Set these env vars (examples):
 
-3) Required configuration for Pinecone:
-   - `PINECONE_API_KEY=...`
-   - `PINECONE_INDEX=lbpr-rag` (or any name)
-   - Optional: `PINECONE_CLOUD=aws` and `PINECONE_REGION=us-east-1`
-   - Optional: `RAG_EMBED_DIM=3072` to force a dimension for index creation
-     (otherwise we infer it from the first embedding at upsert time).
+```bash
+RAG_VECTORSTORE=pinecone
+RAG_HYBRID_DUAL_INDEX=1
 
-The API surface under `/features/rag/*` is unchanged.
+# Base name and explicit index names (optional)
+PINECONE_INDEX=lbpr
+PINECONE_INDEX_DENSE=lbpr-dense
+PINECONE_INDEX_SPARSE=lbpr-sparse
 
-## Notes
+# Cloud/region and embedding size
+PINECONE_CLOUD=aws
+PINECONE_REGION=us-east-1
+RAG_EMBED_DIM=1536
+```
 
-- Index creation is **automatic** on first upsert when using Pinecone. The adapter
-  infers the dimension from your embedding vector length and creates a serverless
-  cosine index if it doesn't exist yet.
-- You can keep using the existing endpoints:
-  - `POST /features/rag/ingest`
-  - `POST /features/rag/query`
-- Tenancy/namespace format stays `t:{tenant}:{dataset}`.
+> If `RAG_HYBRID_DUAL_INDEX` is unset/false, the code falls back to the single-index adapter with optional
+> `sparse_values` stored alongside dense vectors.
 
-## Local dev (no external services)
+## Ingestion flow
 
-Omit the env vars above and you'll get the original hashing embedder and in-memory store.
+1. **Chunk** text (simple word chunker by default).
+2. **Embed** dense vectors using the configured embedder (OpenAI or local).
+3. **Encode** sparse vectors with `pinecone-text` BM25 (public defaults).
+4. **Upsert** each chunk to **both** indexes under the same namespace:
+   - Dense index receives `values` + metadata.
+   - Sparse index receives `sparse_values` + metadata.
+
+## Query flow
+
+- Compute a dense query vector and a sparse query vector.
+- Query **dense** index and **sparse** index independently.
+- Fuse with **RRF** (default) or **alpha** (rank-based convex blend).
+
+No API changes are required. The existing `/features/rag/ingest` and `/features/rag/query` endpoints now route through the dual-index store when enabled.
 
 
 C:/code2/lbpr/backend/features/rag/router.py
@@ -520,6 +530,7 @@ class SparseEncoder:
 
 
 C:/code2/lbpr/backend/features/rag/vectorstore.py
+# backend/features/rag/vectorstore.py
 from __future__ import annotations
 from typing import Dict, List, Tuple, Optional
 import os
@@ -533,8 +544,17 @@ def get_store():
     kind = (os.getenv("RAG_VECTORSTORE") or "pinecone").lower()
     if kind == "memory":
         return InMemoryVectorStore()
-    from .adapters.pinecone_store import PineconeVectorStore
-    return PineconeVectorStore()
+
+    # Pinecone variants
+    dual = (os.getenv("RAG_HYBRID_DUAL_INDEX") or "0").lower() in ("1", "true", "yes", "y", "on")
+    if dual:
+        from .adapters.pinecone_dual_store import PineconeDualVectorStore
+        log.info("vectorstore_init", extra={"kind": "pinecone_dual"})
+        return PineconeDualVectorStore()
+    else:
+        from .adapters.pinecone_store import PineconeVectorStore
+        log.info("vectorstore_init", extra={"kind": "pinecone_single"})
+        return PineconeVectorStore()
 
 
 # ---- In-memory fallback (good for local dev & tests) -----------------------
@@ -598,7 +618,6 @@ class InMemoryVectorStore:
         topd = self.query_dense(dataset, q_dense, k=max(k, 20))
         tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
         if fusion == "alpha":
-            # simple convex blend: normalize ranks via positions
             dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
             sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
             id2rank_d = {id_: i + 1 for i, id_ in enumerate(dense_ids)}
@@ -606,7 +625,6 @@ class InMemoryVectorStore:
             all_ids = set(dense_ids) | set(sparse_ids)
             fused = []
             for id_ in all_ids:
-                # lower rank is better; convert to score by inverse rank
                 rd = id2rank_d.get(id_, 9999)
                 rs = id2rank_s.get(id_, 9999)
                 score = alpha * (1 / rd) + (1 - alpha) * (1 / rs)
@@ -615,12 +633,12 @@ class InMemoryVectorStore:
             id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
             return [(s, id2e[i]) for s, i in fused[:k]]
 
-        # default: RRF
+        # RRF default
         dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
         sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
         fused = self._rrf(dense_ids, sparse_ids, k=k)
         id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
-        return [(score, id2e[id_]) for id_, score in fused]  # score = fused RRF
+        return [(score, id2e[id_]) for id_, score in fused]
 
 
 C:/code2/lbpr/backend/features/rag/adapters/openai_chat.py
@@ -778,6 +796,360 @@ class OpenAIEmbedder:
 
     def embed_one(self, text: str) -> List[float]:
         return self.embed_texts([text])[0]
+
+
+C:/code2/lbpr/backend/features/rag/adapters/pinecone_dual_store.py
+# backend/features/rag/adapters/pinecone_dual_store.py
+from __future__ import annotations
+from typing import Dict, List, Tuple, Optional
+import os
+import sys
+import logging
+import platform
+import importlib.util
+
+log = logging.getLogger("rag.pinecone.dual")
+
+# We detect/install details via a helper so we can log *why* import failed.
+def _import_pinecone():
+    """
+    Import Pinecone with rich diagnostics.
+
+    Returns:
+        (Pinecone, ServerlessSpec, PineconeApiException, version_str)
+    Raises:
+        RuntimeError with the original exception chained.
+    """
+    # Try modern SDK first
+    try:
+        from pinecone import Pinecone, ServerlessSpec
+        try:
+            # >=6.x/7.x
+            from pinecone.core.client.exceptions import PineconeApiException  # type: ignore
+        except Exception:
+            # Older fallback path used by some pins
+            try:
+                from pinecone.exceptions.exceptions import PineconeApiException  # type: ignore
+            except Exception:
+                PineconeApiException = Exception  # type: ignore
+
+        try:
+            import importlib.metadata as md
+            ver = md.version("pinecone")
+        except Exception:
+            ver = "unknown"
+
+        # Success path
+        log.info("pinecone_import_ok", pinecone_version=ver)
+        return Pinecone, ServerlessSpec, PineconeApiException, ver
+
+    except Exception as e:
+        # Gather diagnostics to surface the *real* reason
+        find = importlib.util.find_spec("pinecone")
+        try:
+            import importlib.metadata as md
+            installed_version = md.version("pinecone")
+        except Exception:
+            installed_version = None
+
+        # Keep the dict flat (our logger prints kwargs)
+        log.error(
+            "pinecone_import_failed",
+            error_type=type(e).__name__,
+            error_msg=str(e),
+            python_version=sys.version.split()[0],
+            platform=platform.platform(),
+            pinecone_find_spec=bool(find),
+            pinecone_spec_origin=(getattr(find, "origin", None) if find else None),
+            installed_pinecone_version=installed_version,
+            sys_path_head=str(sys.path[:5]),
+            env_PINECONE_API_KEY_present=bool(os.getenv("PINECONE_API_KEY")),
+            env_PINECONE_ENV_present=bool(os.getenv("PINECONE_ENVIRONMENT")) or bool(os.getenv("PINECONE_ENV")),
+            env_PINECONE_INDEX=os.getenv("PINECONE_INDEX"),
+            env_PINECONE_INDEX_dense=os.getenv("PINECONE_INDEX_DENSE"),
+            env_PINECONE_INDEX_sparse=os.getenv("PINECONE_INDEX_SPARSE"),
+            container_image=os.getenv("IMAGE_TAG") or os.getenv("HOSTNAME"),
+            exc_info=True,
+        )
+        raise RuntimeError(
+            "Failed to import Pinecone SDK. See `pinecone_import_failed` log for diagnostics. "
+            "If missing, install with: pip install 'pinecone>=7' 'pinecone-text'"
+        ) from e
+
+
+# Lazily resolved symbols (let import fail loudly with diagnostics)
+Pinecone = None
+ServerlessSpec = None
+PineconeApiException = Exception  # type: ignore
+_PINECONE_VERSION = "unknown"
+
+def _pc():
+    global Pinecone, ServerlessSpec, PineconeApiException, _PINECONE_VERSION
+    if Pinecone is None or ServerlessSpec is None:
+        Pinecone, ServerlessSpec, PineconeApiException, _PINECONE_VERSION = _import_pinecone()
+    # Build client
+    api_key = os.getenv("PINECONE_API_KEY")
+    if not api_key:
+        # Make this explicit too
+        log.error("pinecone_missing_api_key")
+        raise RuntimeError("PINECONE_API_KEY is not set")
+    return Pinecone(api_key=api_key)
+
+
+class PineconeDualVectorStore:
+    """
+    Maintain *two* serverless indexes:
+      - DENSE index for semantic vectors
+      - SPARSE index for BM25/SPLADE sparse vectors
+
+    Upserts go to both indexes; queries run against each separately and are fused in-process
+    via RRF or rank-alpha (convex) blending.
+
+    Env vars:
+      PINECONE_INDEX               # base name (optional)
+      PINECONE_INDEX_DENSE         # explicit dense index name (default: {PINECONE_INDEX or 'lbpr'}-dense)
+      PINECONE_INDEX_SPARSE        # explicit sparse index name (default: {PINECONE_INDEX or 'lbpr'}-sparse)
+      PINECONE_CLOUD               # 'aws' (default)
+      PINECONE_REGION              # 'us-east-1' (default)
+      RAG_EMBED_DIM                # dense vector dim hint (validated at runtime)
+    """
+
+    def __init__(self):
+        base = os.getenv("PINECONE_INDEX", "lbpr")
+        self._dense_name = os.getenv("PINECONE_INDEX_DENSE", f"{base}-dense")
+        self._sparse_name = os.getenv("PINECONE_INDEX_SPARSE", f"{base}-sparse")
+        self._dimension = int(os.getenv("RAG_EMBED_DIM", "1536"))
+        self._cloud = os.getenv("PINECONE_CLOUD", "aws")
+        self._region = os.getenv("PINECONE_REGION", "us-east-1")
+        self._dense = None
+        self._sparse = None
+        log.info(
+            "pinecone_dual_store_init",
+            dense_index=self._dense_name,
+            sparse_index=self._sparse_name,
+            dim_hint=self._dimension,
+            cloud=self._cloud,
+            region=self._region,
+        )
+
+    # ---- index management --------------------------------------------------
+    def _ensure_dense(self, required_dim: int):
+        pc = _pc()
+        try:
+            names = [i["name"] for i in pc.list_indexes()]
+        except Exception as e:
+            log.error("pinecone_list_indexes_error", error=str(e), exc_info=True)
+            names = []
+
+        if self._dense_name not in names:
+            dim = required_dim or self._dimension or 1536
+            log.info(
+                "pinecone_create_dense",
+                name=self._dense_name,
+                dim=dim,
+                region=self._region,
+                cloud=self._cloud,
+                pinecone_version=_PINECONE_VERSION,
+            )
+            pc.create_index(
+                name=self._dense_name,
+                dimension=dim,
+                metric="cosine",
+                spec=ServerlessSpec(cloud=self._cloud, region=self._region),
+                vector_type="dense",
+            )
+        self._dense = pc.Index(self._dense_name)
+
+        # Best-effort validation (describe_index_stats availability varies)
+        try:
+            stats = self._dense.describe_index_stats()
+            idx_dim = int(stats.get("dimension") or 0)
+            if required_dim and idx_dim and idx_dim != required_dim:
+                raise ValueError(
+                    f"Dense index '{self._dense_name}' dim={idx_dim} does not match embedding size {required_dim}. "
+                    "Create an index with the correct dimension or set RAG_EMBED_DIM."
+                )
+        except Exception as e:
+            log.warning("pinecone_dense_stats_failed", index=self._dense_name, error=str(e))
+
+    def _ensure_sparse(self):
+        pc = _pc()
+        try:
+            names = [i["name"] for i in pc.list_indexes()]
+        except Exception as e:
+            log.error("pinecone_list_indexes_error", error=str(e), exc_info=True)
+            names = []
+
+        if self._sparse_name not in names:
+            log.info(
+                "pinecone_create_sparse",
+                name=self._sparse_name,
+                region=self._region,
+                cloud=self._cloud,
+                pinecone_version=_PINECONE_VERSION,
+            )
+            # Sparse indexes omit 'dimension' and require metric='dotproduct'
+            pc.create_index(
+                name=self._sparse_name,
+                metric="dotproduct",
+                spec=ServerlessSpec(cloud=self._cloud, region=self._region),
+                vector_type="sparse",
+            )
+        self._sparse = pc.Index(self._sparse_name)
+
+    def _dense_idx(self, required_dim: Optional[int] = None):
+        if self._dense is None:
+            self._ensure_dense(required_dim or self._dimension)
+        return self._dense
+
+    def _sparse_idx(self):
+        if self._sparse is None:
+            self._ensure_sparse()
+        return self._sparse
+
+    # ---- upsert -----------------------------------------------------------
+    def upsert_chunks(self, dataset: str, entries: List[Dict]):
+        if not entries:
+            return
+
+        # Determine vector dimension from first entry (for dense index validation)
+        first_vec = entries[0].get("vector") or []
+        vec_dim = len(first_vec) if isinstance(first_vec, (list, tuple)) else 0
+        if vec_dim <= 0:
+            raise ValueError("Attempted to upsert without dense vectors")
+
+        didx = self._dense_idx(required_dim=vec_dim)
+        sidx = self._sparse_idx()
+        ns = str(dataset)
+
+        dense_vectors = []
+        sparse_vectors = []
+
+        for e in entries:
+            # common metadata
+            md = {
+                "doc_id": e["doc_id"],
+                "chunk_id": e["chunk_id"],
+                "text": e["text"],
+                **(e.get("metadata") or {}),
+            }
+            # dense payload (no sparse_values in dense index)
+            dense_vectors.append({
+                "id": f"{e['doc_id']}::{e['chunk_id']}",
+                "values": e["vector"],
+                "metadata": md,
+            })
+            # sparse payload (no 'values' in sparse index)
+            if e.get("sparse"):
+                sparse_vectors.append({
+                    "id": f"{e['doc_id']}::{e['chunk_id']}",
+                    "sparse_values": e["sparse"],
+                    "metadata": md,
+                })
+
+        log.info(
+            "pinecone_upsert_begin",
+            dataset=ns,
+            dense_count=len(dense_vectors),
+            sparse_count=len(sparse_vectors),
+            dense_index=self._dense_name,
+            sparse_index=self._sparse_name,
+        )
+
+        # Upsert to both indexes
+        didx.upsert(vectors=dense_vectors, namespace=ns)
+        if sparse_vectors:
+            sidx.upsert(vectors=sparse_vectors, namespace=ns)
+
+        log.info(
+            "pinecone_upsert_ok",
+            dataset=ns,
+            dense_count=len(dense_vectors),
+            sparse_count=len(sparse_vectors),
+        )
+
+    # ---- result conversion ------------------------------------------------
+    @staticmethod
+    def _to_hits(res) -> List[Tuple[float, Dict]]:
+        out: List[Tuple[float, Dict]] = []
+        for m in (res.get("matches") or []):
+            md = m.get("metadata", {}) or {}
+            out.append(
+                (
+                    float(m.get("score", 0.0)),
+                    {
+                        "chunk_id": md.get("chunk_id"),
+                        "doc_id": md.get("doc_id"),
+                        "text": md.get("text", ""),
+                        "metadata": {k: v for k, v in md.items() if k not in ("chunk_id", "doc_id", "text")},
+                        "vector": None,
+                    },
+                )
+            )
+        out.sort(key=lambda t: t[0], reverse=True)
+        return out
+
+    # ---- queries ----------------------------------------------------------
+    def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
+        didx = self._dense_idx(required_dim=len(q_dense or []))
+        log.debug("pinecone_query_dense", index=self._dense_name, k=k, namespace=str(dataset))
+        res = didx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
+        return self._to_hits(res)
+
+    def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
+        sidx = self._sparse_idx()
+        log.debug("pinecone_query_sparse", index=self._sparse_name, k=k, namespace=str(dataset))
+        try:
+            res = sidx.query(sparse_vector=q_sparse, top_k=k, include_metadata=True, namespace=str(dataset))
+        except PineconeApiException as e:
+            log.warning("pinecone_sparse_query_error", error=str(e))
+            return []
+        return self._to_hits(res)
+
+    # ---- hybrid (two calls + fusion) -------------------------------------
+    def query_hybrid(
+        self,
+        dataset: str,
+        q_dense: List[float],
+        q_sparse: Dict,
+        k: int = 5,
+        fusion: str = "rrf",
+        alpha: float = 0.5,
+    ):
+        topd = self.query_dense(dataset, q_dense, k=max(k, 20))
+        tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
+
+        if fusion == "alpha":
+            # Rank-based convex blend (since we can't single-call across indexes)
+            dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
+            sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
+            id2rank_d = {id_: i + 1 for i, id_ in enumerate(dense_ids)}
+            id2rank_s = {id_: i + 1 for i, id_ in enumerate(sparse_ids)}
+            all_ids = set(dense_ids) | set(sparse_ids)
+            fused = []
+            for id_ in all_ids:
+                rd = id2rank_d.get(id_, 9999)
+                rs = id2rank_s.get(id_, 9999)
+                score = alpha * (1 / rd) + (1 - alpha) * (1 / rs)
+                fused.append((score, id_))
+            fused.sort(key=lambda t: t[0], reverse=True)
+            id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
+            return [(s, id2e[i]) for s, i in fused[:k]]
+
+        # Default: Reciprocal Rank Fusion
+        def rrf(ids_a, ids_b, k_out, k_rrf=60):
+            ranks = {}
+            for r, id_ in enumerate(ids_a, 1):
+                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+            for r, id_ in enumerate(ids_b, 1):
+                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+            return sorted(ranks.items(), key=lambda t: t[1], reverse=True)[:k_out]
+
+        dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
+        sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
+        fused = rrf(dense_ids, sparse_ids, k)
+        id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
+        return [(score, id2e[i]) for i, score in fused]
 
 
 C:/code2/lbpr/backend/features/rag/adapters/pinecone_store.py
