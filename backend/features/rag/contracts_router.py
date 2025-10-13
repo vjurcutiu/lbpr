@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 from fastapi import APIRouter, Request, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Auth
 try:
@@ -46,16 +46,26 @@ class ChatRequest(BaseModel):
     k: int = 5
     with_sources: bool = True
 
+class Citation(BaseModel):
+    doc_id: str
+    title: Optional[str] = None
+    span: Optional[str] = None
+
 class ChatResponse(BaseModel):
     answer: str
+    citations: List[Citation] = Field(default_factory=list)
+    usage: Dict[str, Any] = Field(default_factory=dict)
 
-def _build_context_from_sources(sources: List[Source]) -> str:
+def _build_context_from_sources(sources: List[Source]) -> Tuple[str, List[Citation]]:
     """Compose the model context with inline citations that include filenames.
     Format:
         [1] filename.ext (chars a-b)
         <snippet text>
+    Returns:
+        (context_text, citations)
     """
     blocks: List[str] = []
+    cites: List[Citation] = []
     for i, s in enumerate(sources or []):
         meta: Dict[str, Any] = s.metadata or {}
         label = meta.get("filename") or meta.get("title") or s.doc_id
@@ -67,47 +77,99 @@ def _build_context_from_sources(sources: List[Source]) -> str:
         head = f"[{i+1}] {label}{span}"
         text = (s.text or "").strip()
         blocks.append(f"{head}\n{text}" if text else head)
-    return "\n\n".join(blocks).strip()
+
+        # Collect citations for the UI
+        cites.append(Citation(
+            doc_id=s.doc_id,
+            title=str(label),
+            span=(f"{span_start}-{span_end}" if (isinstance(span_start, int) and isinstance(span_end, int)) else None)
+        ))
+    return "\n\n".join(blocks).strip(), cites
+
+def _history_hint(history: Optional[List[ChatTurn]], max_turns: int = 8, max_chars: int = 1200) -> str:
+    if not history:
+        return ""
+    # Last N turns, compact "U:"/"A:" prefixes
+    turns = history[-max_turns:]
+    parts: List[str] = []
+    for t in turns:
+        role = (t.role or "user").lower()
+        prefix = "U:" if role == "user" else ("A:" if role == "assistant" else "S:")
+        parts.append(f"{prefix} {t.content.strip()}".strip())
+    hint = "\n".join(parts).strip()
+    if len(hint) > max_chars:
+        hint = hint[-max_chars:]  # keep the tail (most recent)
+    return hint
+
+async def _rewrite_query(question: str, hint: str) -> str:
+    """Use the LLM (if available) to turn a contextual question into a standalone search query."""
+    if not OpenAIChat:
+        # cheap fallback – include hint inline so embeddings see recent entities
+        if hint:
+            return f"{question}\n\n(History: {hint})"
+        return question
+    try:
+        llm = OpenAIChat()
+        system = (
+            "You rewrite user questions into standalone, concise search queries. "
+            "Keep essential entities, constraints, dates, and file/section names. Output ONE line, no quotes."
+        )
+        user = (
+            "Conversation history (recent → older):\n"
+            f"{hint}\n\n"
+            "User's latest question: \n"
+            f"{question}\n\n"
+            "Rewrite now:"
+        )
+        rewritten = await llm.simple_answer(message=user, history=None, system=system)
+        rewritten = (rewritten or "").strip()
+        # guardrails: single line, trim
+        return " ".join(rewritten.split())[:600] or question
+    except Exception:
+        log.exception("query_rewrite_error")
+        return question if not hint else f"{question} ({hint})"
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(get_current_user)) -> ChatResponse:
-    """
-    RAG-first chat: retrieve per-user sources, build a filename-aware context,
-    then let the LLM answer grounded in that context.
-    Falls back to returning the concatenated sources if the LLM fails.
-    Also counts a **message** against the user's monthly quota.
+    """History-aware RAG chat.
+    Steps:
+      0) count usage
+      1) build a history-aware search query
+      2) retrieve per-user sources and construct filename-aware context
+      3) ask LLM to answer grounded in that context (fallback: return context)
     """
     uid = getattr(user, "uid", "dev")
 
     # 0) Count a message against usage
     try:
         ok, used, cap = await add_message(uid)
-        log.info(
-            "usage_message_add",
-            uid=uid, allowed=ok, used_messages=used, cap_messages=cap,
-            path=str(request.url.path),
-        )
+        log.info("usage_message_add", uid=uid, allowed=ok, used_messages=used, cap_messages=cap, path=str(request.url.path))
     except Exception:
         log.exception("usage_message_add_error", uid=uid)
 
-    # 1) Retrieval
+    # 1) Build history-aware retrieval query
+    hint = _history_hint(req.history)
+    search_query = await _rewrite_query(req.message, hint)
+    if search_query != req.message:
+        log.info("chat_query_rewritten", orig_len=len(req.message or ""), rewritten_len=len(search_query), has_hint=bool(hint))
+
+    # 2) Retrieval
+    citations: List[Citation] = []
     try:
         rag_resp: QueryResponse = query_request(
-            QueryRequest(dataset=req.dataset, query=req.message, k=req.k, with_sources=req.with_sources),
+            QueryRequest(dataset=req.dataset, query=search_query, k=req.k, with_sources=req.with_sources),
             uid=uid,
         )
-        # Build filename-aware context for the model.
-        context_text = ""
-        if (req.with_sources and rag_resp.sources):
-            context_text = _build_context_from_sources(rag_resp.sources)
+        # Build filename-aware context for the model and collect citations
+        if req.with_sources and rag_resp.sources:
+            context_text, citations = _build_context_from_sources(rag_resp.sources)
         else:
-            # fallback to plain concatenated answer text from retrieval
-            context_text = rag_resp.answer or ""
+            context_text, citations = (rag_resp.answer or "", [])
     except Exception:
         log.exception("chat_rag_error")
-        context_text = ""
+        context_text, citations = ("", [])
 
-    # 2) LLM answer grounded in retrieved context
+    # 3) LLM answer grounded in retrieved context
     if OpenAIChat is not None:
         try:
             llm = OpenAIChat()
@@ -118,14 +180,13 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
                 "If the context is empty or irrelevant, say you couldn't find anything relevant."
             )
             user_msg = f"Question:\n{req.message}\n\nContext:\n{context_text}"
-            # adapter expects keyword
             answer = await llm.simple_answer(message=user_msg, history=history, system=system)
             if answer and answer.strip():
-                return ChatResponse(answer=answer)
+                return ChatResponse(answer=answer, citations=citations, usage={})
         except Exception:
             log.exception("chat_llm_error")
 
-    # 3) Fallbacks
+    # 4) Fallbacks
     if context_text:
-        return ChatResponse(answer=context_text)
-    return ChatResponse(answer=f"You said: {req.message}")
+        return ChatResponse(answer=context_text, citations=citations, usage={})
+    return ChatResponse(answer=f"You said: {req.message}", citations=[], usage={})

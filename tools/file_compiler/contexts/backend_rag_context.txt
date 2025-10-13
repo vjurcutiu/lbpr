@@ -43,24 +43,26 @@ from pydantic import BaseModel
 try:
     from features.auth.deps import get_current_user  # type: ignore
     from features.auth.models import SessionOut  # type: ignore
-except Exception:
+except Exception:  # fallback for local dev without auth wired
     def get_current_user():
-        return None
-    class SessionOut(BaseModel):  # type: ignore
+        class _U:
+            uid = "dev"
+        return _U()
+    class SessionOut:  # type: ignore
         uid: str = "dev"
 
-# LLM adapter (optional)
+# Usage limits
+from core.rate_limit import add_message
+
+# RAG orchestrator & schemas
+from .orchestrator import query_request
+from .schemas import QueryRequest, QueryResponse, Source
+
+# Optional LLM adapter
 try:
     from .adapters.openai_chat import OpenAIChat  # type: ignore
 except Exception:
     OpenAIChat = None  # type: ignore
-
-# ✅ RAG orchestrator + schemas
-from . import orchestrator
-from .schemas import QueryRequest  # type: ignore
-
-# NEW: usage counters
-from core.rate_limit import add_message
 
 router = APIRouter(prefix="/v1", tags=["RAG (Contracts)"])
 log = logging.getLogger("rag.contracts")
@@ -72,7 +74,6 @@ class ChatTurn(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     history: Optional[List[ChatTurn]] = None
-    # allow the client to pick a logical dataset (defaults to "default")
     dataset: str = "default"
     k: int = 5
     with_sources: bool = True
@@ -80,13 +81,33 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(get_current_user)):
+def _build_context_from_sources(sources: List[Source]) -> str:
+    """Compose the model context with inline citations that include filenames.
+    Format:
+        [1] filename.ext (chars a-b)
+        <snippet text>
     """
-    RAG-first chat. We query the user's namespace, then (if available)
-    ask the LLM to answer grounded in those sources. If LLM fails,
-    we return the concatenated sources as an answer.
-    Also counts a **message** against the user's monthly quota and logs the result.
+    blocks: List[str] = []
+    for i, s in enumerate(sources or []):
+        meta: Dict[str, Any] = s.metadata or {}
+        label = meta.get("filename") or meta.get("title") or s.doc_id
+        span_start = meta.get("span_start")
+        span_end = meta.get("span_end")
+        span = ""
+        if isinstance(span_start, int) and isinstance(span_end, int):
+            span = f" (chars {span_start}-{span_end})"
+        head = f"[{i+1}] {label}{span}"
+        text = (s.text or "").strip()
+        blocks.append(f"{head}\n{text}" if text else head)
+    return "\n\n".join(blocks).strip()
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(get_current_user)) -> ChatResponse:
+    """
+    RAG-first chat: retrieve per-user sources, build a filename-aware context,
+    then let the LLM answer grounded in that context.
+    Falls back to returning the concatenated sources if the LLM fails.
+    Also counts a **message** against the user's monthly quota.
     """
     uid = getattr(user, "uid", "dev")
 
@@ -96,42 +117,48 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
         log.info(
             "usage_message_add",
             uid=uid, allowed=ok, used_messages=used, cap_messages=cap,
-            path=str(request.url.path)
+            path=str(request.url.path),
         )
     except Exception:
         log.exception("usage_message_add_error", uid=uid)
 
-    # 1) Retrieval (per-user namespace happens inside orchestrator)
+    # 1) Retrieval
     try:
-        rag_resp = orchestrator.query_request(
+        rag_resp: QueryResponse = query_request(
             QueryRequest(dataset=req.dataset, query=req.message, k=req.k, with_sources=req.with_sources),
             uid=uid,
         )
-        context_text = rag_resp.answer or ""
+        # Build filename-aware context for the model.
+        context_text = ""
+        if (req.with_sources and rag_resp.sources):
+            context_text = _build_context_from_sources(rag_resp.sources)
+        else:
+            # fallback to plain concatenated answer text from retrieval
+            context_text = rag_resp.answer or ""
     except Exception:
         log.exception("chat_rag_error")
-        context_text = ""  # continue with LLM/echo below
+        context_text = ""
 
-    # 2) LLM answer grounded in retrieved context (if possible)
+    # 2) LLM answer grounded in retrieved context
     if OpenAIChat is not None:
         try:
             llm = OpenAIChat()
             history = [t.model_dump() for t in (req.history or [])]
             system = (
                 "You are a concise, helpful assistant. Use the provided context. "
+                "Cite with the bracketed numbers if helpful. "
                 "If the context is empty or irrelevant, say you couldn't find anything relevant."
             )
             user_msg = f"Question:\n{req.message}\n\nContext:\n{context_text}"
-            # ✅ FIX: use 'message=' per adapter signature
+            # adapter expects keyword
             answer = await llm.simple_answer(message=user_msg, history=history, system=system)
             if answer and answer.strip():
                 return ChatResponse(answer=answer)
         except Exception:
             log.exception("chat_llm_error")
 
-    # 3) Fallbacks:
+    # 3) Fallbacks
     if context_text:
-        # return retrieved snippets if LLM failed
         return ChatResponse(answer=context_text)
     return ChatResponse(answer=f"You said: {req.message}")
 
@@ -1630,7 +1657,7 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
                         pages.append(p.extract_text() or "")
                     except Exception:
                         pages.append("")
-                text = "\n".join(pages).strip()
+                text = "\\n".join(pages).strip()
                 if text:
                     return text
             except Exception as e:
@@ -1643,7 +1670,7 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
                 f = io.BytesIO(data)
                 d = docx.Document(f)  # type: ignore
                 paragraphs = [para.text for para in d.paragraphs if para.text]
-                return "\n".join(paragraphs) or None
+                return "\\n".join(paragraphs) or None
             except Exception as e:
                 log.debug("docx_extract_fail", error=str(e))
                 return None
@@ -1658,7 +1685,7 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
 async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> UploadResponse:
     # We stream-read into memory to report progress precisely; then upload to Firebase once.
     filename = file.filename or "file"
-    object_name = _object_path(uid, filename)
+    object_name = _object_path(uid, filename)  # storage object path, used as stable doc_id
     bkt = _bucket()
     blob = bkt.blob(object_name)
 
@@ -1753,11 +1780,22 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
             log.info("upload_extract_ok", object=object_name, chars=len(text))
             await uptrack.set_phase(object_name, "embed", pct=60)
             try:
+                # ✅ Include filename & storage path as metadata, and use storage object path as doc_id
                 orchestrator.ingest_request(
                     IngestRequest(
                         dataset=dataset,
                         text=text,
-                        metadata={"owner_uid": uid, "source": "upload", "title": filename},
+                        doc_id=object_name,  # stable per file; includes upload UUID + filename
+                        metadata={
+                            "owner_uid": uid,
+                            "source": "upload",
+                            "title": filename,       # keep for backward-compat
+                            "filename": filename,    # <— explicit filename for retrieval UIs
+                            "file_id": object_name,  # storage object path (also equals doc_id)
+                            "dataset": dataset,
+                            "checksum": sha256,
+                            "content_type": file.content_type or "",
+                        },
                     ),
                     uid=uid,
                 )
