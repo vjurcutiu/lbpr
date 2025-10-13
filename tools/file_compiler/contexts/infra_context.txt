@@ -466,6 +466,7 @@ http {
     text/css css;
   }
 
+  # WebSocket upgrade helper
   map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;
@@ -476,29 +477,10 @@ http {
     keepalive 64;
   }
 
-  # --- example.com → use plain localhost for marketing ---
+  # === DEFAULT HOST: lexbot.pro serves the SPA and proxies /api ===
   server {
-    listen 80;
-    server_name localhost;
-
-    root /srv/marketing;
-    index index.html;
-
-    location ~* \.(?:css|js|mjs|png|jpg|jpeg|gif|webp|svg|ico|woff2?)$ {
-      add_header Cache-Control "public, max-age=31536000, immutable";
-      try_files $uri =404;
-    }
-
-    location / {
-      add_header Cache-Control "no-cache";
-      try_files $uri $uri/ =404;
-    }
-  }
-
-  # --- app.example.com → app.localhost (React SPA, PROXY /api → FastAPI) ---
-  server {
-    listen 80;
-    server_name app.localhost;
+    listen 80 default_server;
+    server_name lexbot.pro www.lexbot.pro _;
 
     root /srv/spa/dist;
     index index.html;
@@ -508,8 +490,6 @@ http {
       add_header Cache-Control "public, max-age=31536000, immutable";
       try_files $uri =404;
     }
-
-    # --- Same-origin API proxy (no CORS needed) ---
 
     # WebSocket under /api/ws/*
     location /api/ws/ {
@@ -555,7 +535,26 @@ http {
     }
   }
 
-  # --- api.example.com → api.localhost (optional public API host)
+  # === Optional: localhost marketing (kept as a separate host) ===
+  server {
+    listen 80;
+    server_name localhost;
+
+    root /srv/marketing;
+    index index.html;
+
+    location ~* \.(?:css|js|mjs|png|jpg|jpeg|gif|webp|svg|ico|woff2?)$ {
+      add_header Cache-Control "public, max-age=31536000, immutable";
+      try_files $uri =404;
+    }
+
+    location / {
+      add_header Cache-Control "no-cache";
+      try_files $uri $uri/ =404;
+    }
+  }
+
+  # === Optional: api.localhost direct API host (unchanged) ===
   server {
     listen 80;
     server_name api.localhost;
