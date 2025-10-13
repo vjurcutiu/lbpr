@@ -72,17 +72,33 @@ ps:
 # ===== SPA build (runs in container; no Node on host) =====
 spa-build:
 	# Build the SPA into $(SPA_DIR)/dist so Nginx can serve /srv/spa/dist
-	# Run pnpm in CI mode to avoid TTY prompts
+	# Run in a Node container (no Node on host); be verbose and resilient
 	docker run --rm \
 	  -e CI=true \
 	  -e NPM_CONFIG_FUND=false \
 	  -e NPM_CONFIG_AUDIT=false \
 	  -v "$$(pwd)/$(SPA_DIR):/app" \
-	  -w /app $(NODE_IMAGE) \
 	  -v "$$HOME/.pnpm-store:/root/.local/share/pnpm/store" \
-	  sh -lc 'corepack enable && corepack prepare pnpm@latest --activate && pnpm install $(PNPM_FLAGS) --prefer-offline && pnpm build'
-	# Sanity check: index.html must exist
+	  -w /app $(NODE_IMAGE) \
+	  sh -lc '\
+	    set -euo pipefail; \
+	    echo "== node & pnpm versions ==" && node -v || true; \
+	    corepack enable; \
+	    corepack prepare pnpm@10.18.2 --activate; \
+	    pnpm -v || true; \
+	    echo "== pnpm install (frozen) =="; \
+	    if ! pnpm install $(PNPM_FLAGS) --prefer-offline; then \
+	      echo "!! frozen install failed — retrying without --frozen-lockfile"; \
+	      pnpm install; \
+	    fi; \
+	    echo "== pnpm build =="; \
+	    pnpm run build || { echo "!! build failed"; exit 2; }; \
+	    echo "== build outputs =="; \
+	    ls -lah dist || true; \
+	  '
+	# Sanity check: index.html must exist in the expected place
 	test -f "$(SPA_DIR)/dist/index.html" || (echo "ERROR: $(SPA_DIR)/dist/index.html not found"; exit 1)
+
 
 
 # ===== Convenience aliases =====
