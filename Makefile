@@ -72,13 +72,18 @@ ps:
 # ===== SPA build (runs in container; no Node on host) =====
 spa-build:
 	# Build the SPA into $(SPA_DIR)/dist so Nginx can serve /srv/spa/dist
-	# (docker-compose mounts ./static/spa -> /srv/spa :ro)
+	# Run pnpm in CI mode to avoid TTY prompts
 	docker run --rm \
+	  -e CI=true \
+	  -e NPM_CONFIG_FUND=false \
+	  -e NPM_CONFIG_AUDIT=false \
 	  -v "$$(pwd)/$(SPA_DIR):/app" \
 	  -w /app $(NODE_IMAGE) \
-	  sh -lc 'corepack enable && pnpm install $(PNPM_FLAGS) && pnpm build'
+	  -v "$$HOME/.pnpm-store:/root/.local/share/pnpm/store" \
+	  sh -lc 'corepack enable && corepack prepare pnpm@latest --activate && pnpm install $(PNPM_FLAGS) --prefer-offline && pnpm build'
 	# Sanity check: index.html must exist
 	test -f "$(SPA_DIR)/dist/index.html" || (echo "ERROR: $(SPA_DIR)/dist/index.html not found"; exit 1)
+
 
 # ===== Convenience aliases =====
 dev:
