@@ -1,92 +1,125 @@
 # --- Makefile (root) ---
-# Use docker compose v2 syntax
-COMPOSE := docker compose
-BASE := -f docker-compose.yml
-DEV := -f docker-compose.dev.yml
-STACK := $(BASE) $(DEV)
+# Nice, explicit variables
+COMPOSE        ?= docker compose
+BASE_YML       := -f docker-compose.yml
+DEV_YML        := -f docker-compose.dev.yml
+TEST_YML       := -f backend/docker-compose.test.yml
 
-# Test stack file (lives in backend/)
-TEST := -f backend/docker-compose.test.yml
+# MODE can be "prod" (default) or "dev"
+MODE           ?= prod
+ifeq ($(MODE),dev)
+STACK          := $(BASE_YML) $(DEV_YML)
+else
+STACK          := $(BASE_YML)
+endif
 
-export DOCKER_DEV=1
+# Frontend build config (no Node needed on host)
+SPA_DIR        := static/spa
+NODE_IMAGE     ?= node:20-alpine
+PNPM_FLAGS     ?= --frozen-lockfile
 
-.PHONY: dev up down stop logs rebuild nuke sh-api sh-nginx ps \
-        test test-build test-run test-down test-sh test-clean-build
+# Misc
+.SILENT:
+.PHONY: help up down stop logs rebuild nuke ps \
+        dev prod-up prod-logs prod-down spa-build \
+        sh-api sh-nginx test test-build test-run test-down test-clean-build test-e2e
 
-## Start dev stack (Nginx → Vite HMR, FastAPI --reload)
-dev: ## same as `up` (alias)
-	$(MAKE) up
+help:
+	echo ""
+	echo "Targets:"
+	echo "  up             Build SPA + bring stack up (default MODE=$(MODE))"
+	echo "  down           Stop & remove stack (keeps volumes/images)"
+	echo "  logs           Follow logs"
+	echo "  rebuild        Rebuild images (no cache) and restart"
+	echo "  nuke           HARD reset: down -v --remove-orphans"
+	echo "  ps             Show status"
+	echo "  dev            Alias for 'make up MODE=dev'"
+	echo "  spa-build      Build SPA using $(NODE_IMAGE)"
+	echo "  sh-api         Shell into API container"
+	echo "  sh-nginx       Shell into Nginx container"
+	echo ""
+	echo "Environment:"
+	echo "  MODE=prod|dev  (default prod)"
+	echo ""
 
-up:
-	$(COMPOSE) $(STACK) up --build
+# ===== Core flows =====
 
-## Stop and remove dev containers (keep volumes & images)
+# On servers: `make up` (MODE defaults to prod)
+up: spa-build
+	$(COMPOSE) $(STACK) up -d --build
+	$(COMPOSE) $(STACK) ps
+
 down:
 	$(COMPOSE) $(STACK) down
 
-## Stop containers without removing
 stop:
 	$(COMPOSE) $(STACK) stop
 
-## Follow logs for all services
 logs:
 	$(COMPOSE) $(STACK) logs -f
 
-## Rebuild images without using cache and restart
 rebuild:
-	$(COMPOSE) $(STACK) build --no-cache
+	$(COMPOSE) $(STACK) build --no-cache --pull
 	$(COMPOSE) $(STACK) up -d
 	$(COMPOSE) $(STACK) logs -f
 
-## HARD RESET: stop and remove everything incl. volumes
 nuke:
 	$(COMPOSE) $(STACK) down -v --remove-orphans
 
-## Shells inside containers
-sh-api:
-	$(COMPOSE) $(STACK) exec api sh
-
-sh-nginx:
-	$(COMPOSE) $(STACK) exec nginx sh
-
-## Quick status
 ps:
 	$(COMPOSE) $(STACK) ps
 
+# ===== SPA build (runs in container; no Node on host) =====
+spa-build:
+	# Build the SPA into $(SPA_DIR)/dist so Nginx can serve /srv/spa/dist
+	# (docker-compose mounts ./static/spa -> /srv/spa :ro)
+	docker run --rm \
+	  -v "$$(pwd)/$(SPA_DIR):/app" \
+	  -w /app $(NODE_IMAGE) \
+	  sh -lc 'corepack enable && pnpm install $(PNPM_FLAGS) && pnpm build'
+	# Sanity check: index.html must exist
+	test -f "$(SPA_DIR)/dist/index.html" || (echo "ERROR: $(SPA_DIR)/dist/index.html not found"; exit 1)
 
-# ===== Tests via docker compose =====
-# backend/docker-compose.test.yml defines service: api-test
+# ===== Convenience aliases =====
+dev:
+	$(MAKE) up MODE=dev
 
-## Build the api-test image (builds Dockerfile --target test)
+prod-up:
+	$(MAKE) up MODE=prod
+
+prod-logs:
+	$(MAKE) logs MODE=prod
+
+prod-down:
+	$(MAKE) down MODE=prod
+
+# ===== Shells =====
+sh-api:
+	$(COMPOSE) $(STACK) exec api sh || true
+
+sh-nginx:
+	$(COMPOSE) $(STACK) exec nginx sh || true
+
+# ===== Tests via compose (kept from your original workflow) =====
 test-build:
-	$(COMPOSE) $(TEST) build api-test
+	$(COMPOSE) $(TEST_YML) build api-test
 
-## Force a fresh rebuild of the test image (useful after Dockerfile/req changes)
 test-clean-build:
-	$(COMPOSE) $(TEST) build --no-cache --pull api-test
+	$(COMPOSE) $(TEST_YML) build --no-cache --pull api-test
 
-## Run tests (build first so we always have the test stage image)
-## Add extra pytest args with ARGS="..."
-## Example: make test ARGS="tests/api/test_sessions.py -k login -q"
-test: test-build
-	@if [ -z "$(ARGS)" ]; then \
-	  $(COMPOSE) $(TEST) run --rm api-test ; \
+test:
+	$(MAKE) test-build
+	if [ -z "$(ARGS)" ]; then \
+	  $(COMPOSE) $(TEST_YML) run --rm api-test ; \
 	else \
-	  $(COMPOSE) $(TEST) run --rm api-test sh -lc "pytest $(ARGS)"; \
+	  $(COMPOSE) $(TEST_YML) run --rm api-test sh -lc "pytest $(ARGS)"; \
 	fi
 
-## Run tests with a fully custom pytest invocation (always overrides CMD)
-## Example: make test-run ARGS="-x -q tests/"
 test-run: test-build
-	$(COMPOSE) $(TEST) run --rm api-test sh -lc "pytest $(ARGS)"
+	$(COMPOSE) $(TEST_YML) run --rm api-test sh -lc "pytest $(ARGS)"
 
-## Open a shell in the test container (handy for debugging env/issues)
-test-sh: test-build
-	$(COMPOSE) $(TEST) run --rm api-test sh
-
-## Clean up any test containers/networks/volumes created by the test stack
 test-down:
-	$(COMPOSE) $(TEST) down -v --remove-orphans
+	$(COMPOSE) $(TEST_YML) down -v --remove-orphans
 
 test-e2e:
 	docker compose -f docker-compose.playwright.yml run --rm playwright
