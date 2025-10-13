@@ -79,7 +79,7 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
                         pages.append(p.extract_text() or "")
                     except Exception:
                         pages.append("")
-                text = "\n".join(pages).strip()
+                text = "\\n".join(pages).strip()
                 if text:
                     return text
             except Exception as e:
@@ -92,7 +92,7 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
                 f = io.BytesIO(data)
                 d = docx.Document(f)  # type: ignore
                 paragraphs = [para.text for para in d.paragraphs if para.text]
-                return "\n".join(paragraphs) or None
+                return "\\n".join(paragraphs) or None
             except Exception as e:
                 log.debug("docx_extract_fail", error=str(e))
                 return None
@@ -107,7 +107,7 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
 async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> UploadResponse:
     # We stream-read into memory to report progress precisely; then upload to Firebase once.
     filename = file.filename or "file"
-    object_name = _object_path(uid, filename)
+    object_name = _object_path(uid, filename)  # storage object path, used as stable doc_id
     bkt = _bucket()
     blob = bkt.blob(object_name)
 
@@ -202,11 +202,22 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
             log.info("upload_extract_ok", object=object_name, chars=len(text))
             await uptrack.set_phase(object_name, "embed", pct=60)
             try:
+                # ✅ Include filename & storage path as metadata, and use storage object path as doc_id
                 orchestrator.ingest_request(
                     IngestRequest(
                         dataset=dataset,
                         text=text,
-                        metadata={"owner_uid": uid, "source": "upload", "title": filename},
+                        doc_id=object_name,  # stable per file; includes upload UUID + filename
+                        metadata={
+                            "owner_uid": uid,
+                            "source": "upload",
+                            "title": filename,       # keep for backward-compat
+                            "filename": filename,    # <— explicit filename for retrieval UIs
+                            "file_id": object_name,  # storage object path (also equals doc_id)
+                            "dataset": dataset,
+                            "checksum": sha256,
+                            "content_type": file.content_type or "",
+                        },
                     ),
                     uid=uid,
                 )

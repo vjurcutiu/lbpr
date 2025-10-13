@@ -18,4 +18,5 @@ add lazy loading to files and chats
 add loading spinners to billing and filessidebar so we don't see empty components while waiting for the backend to respond
 proper file deletion across indices  and firebase
 in chat, only scroll to the start of the last message (really annoying when it scrolls to the bottom and you have to scroll up)
-extensive chat testing. 
+extensive chat testing
+add real stripe webhook for prod billing
