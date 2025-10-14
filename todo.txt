@@ -1,3 +1,9 @@
+test usage limits at the limit and if they reset
+fix profile page
+test password change
+remove titles from under chat message
+improve prompt structure
+
 add env vars in prod (secrets)
 make sure pdfs and docx are rate limited
 change url on confirmation email to prod confirmation page
