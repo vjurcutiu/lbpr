@@ -22,7 +22,7 @@ PNPM_FLAGS     ?= --frozen-lockfile
 # Misc
 .SILENT:
 .PHONY: help up down stop logs rebuild nuke ps \
-        dev prod-up prod-logs prod-down spa-build \
+        dev dev-logs dev-down prod-up prod-logs prod-down spa-build \
         sh-api sh-nginx test test-build test-run test-down test-clean-build test-e2e
 
 help:
@@ -34,7 +34,9 @@ help:
 	echo "  rebuild        Rebuild images (no cache) and restart"
 	echo "  nuke           HARD reset: down -v --remove-orphans"
 	echo "  ps             Show status"
-	echo "  dev            Alias for 'make up MODE=dev'"
+	echo "  dev            Start development stack (docker-compose.dev.yml, no SPA build)"
+	echo "  dev-logs       Tail dev logs (nginx, spa, api)"
+	echo "  dev-down       Stop development stack (remove orphans)"
 	echo "  spa-build      Build SPA using $(NODE_IMAGE)"
 	echo "  sh-api         Shell into API container"
 	echo "  sh-nginx       Shell into Nginx container"
@@ -95,7 +97,7 @@ spa-build:
 	    pnpm install $(PNPM_FLAGS) --prefer-offline || pnpm install; \
 	    echo "== build =="; \
 	    if [ "$(TS_CHECK)" = "1" ]; then \
-	      echo "(TS_CHECK=1) running tsc -b..."; \
+	      echo "(TS_CHECK=1) running tsc -b."; \
 	      pnpm exec tsc -b; \
 	    else \
 	      echo "(TS_CHECK=0) skipping tsc -b"; \
@@ -107,13 +109,21 @@ spa-build:
 	# Sanity check: index.html must exist
 	test -f "$(SPA_DIR)/dist/index.html" || (echo "ERROR: $(SPA_DIR)/dist/index.html not found"; exit 1)
 
+# ===== Development (Windows-friendly, standalone) =====
+# These targets directly compose docker-compose.yml + docker-compose.dev.yml
+# and DO NOT call spa-build or prod stacks.
 
-
-
-# ===== Convenience aliases =====
 dev:
-	$(MAKE) up MODE=dev
+	$(COMPOSE) $(BASE_YML) $(DEV_YML) up -d --build
+	$(COMPOSE) $(BASE_YML) $(DEV_YML) ps
 
+dev-logs:
+	$(COMPOSE) $(BASE_YML) $(DEV_YML) logs -f nginx spa api
+
+dev-down:
+	$(COMPOSE) $(BASE_YML) $(DEV_YML) down --remove-orphans
+
+# ===== Convenience (prod) =====
 prod-up:
 	$(MAKE) up MODE=prod
 

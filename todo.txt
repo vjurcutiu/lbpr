@@ -1,5 +1,8 @@
+fix make dev
+loading on usasge display
+
 test usage limits at the limit and if they reset
-solidify billing
+solidify billing 
 
 fix profile page
 test password change
