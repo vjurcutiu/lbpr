@@ -1,10 +1,11 @@
+
 # backend/features/rag/contracts_router.py
 from __future__ import annotations
 
 import logging
 from typing import List, Optional, Dict, Any, Tuple
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 # Auth
@@ -57,13 +58,6 @@ class ChatResponse(BaseModel):
     usage: Dict[str, Any] = Field(default_factory=dict)
 
 def _build_context_from_sources(sources: List[Source]) -> Tuple[str, List[Citation]]:
-    """Compose the model context with inline citations that include filenames.
-    Format:
-        [1] filename.ext (chars a-b)
-        <snippet text>
-    Returns:
-        (context_text, citations)
-    """
     blocks: List[str] = []
     cites: List[Citation] = []
     for i, s in enumerate(sources or []):
@@ -77,8 +71,6 @@ def _build_context_from_sources(sources: List[Source]) -> Tuple[str, List[Citati
         head = f"[{i+1}] {label}{span}"
         text = (s.text or "").strip()
         blocks.append(f"{head}\n{text}" if text else head)
-
-        # Collect citations for the UI
         cites.append(Citation(
             doc_id=s.doc_id,
             title=str(label),
@@ -89,7 +81,6 @@ def _build_context_from_sources(sources: List[Source]) -> Tuple[str, List[Citati
 def _history_hint(history: Optional[List[ChatTurn]], max_turns: int = 8, max_chars: int = 1200) -> str:
     if not history:
         return ""
-    # Last N turns, compact "U:"/"A:" prefixes
     turns = history[-max_turns:]
     parts: List[str] = []
     for t in turns:
@@ -98,13 +89,11 @@ def _history_hint(history: Optional[List[ChatTurn]], max_turns: int = 8, max_cha
         parts.append(f"{prefix} {t.content.strip()}".strip())
     hint = "\n".join(parts).strip()
     if len(hint) > max_chars:
-        hint = hint[-max_chars:]  # keep the tail (most recent)
+        hint = hint[-max_chars:]
     return hint
 
 async def _rewrite_query(question: str, hint: str) -> str:
-    """Use the LLM (if available) to turn a contextual question into a standalone search query."""
     if not OpenAIChat:
-        # cheap fallback – include hint inline so embeddings see recent entities
         if hint:
             return f"{question}\n\n(History: {hint})"
         return question
@@ -123,7 +112,6 @@ async def _rewrite_query(question: str, hint: str) -> str:
         )
         rewritten = await llm.simple_answer(message=user, history=None, system=system)
         rewritten = (rewritten or "").strip()
-        # guardrails: single line, trim
         return " ".join(rewritten.split())[:600] or question
     except Exception:
         log.exception("query_rewrite_error")
@@ -131,21 +119,13 @@ async def _rewrite_query(question: str, hint: str) -> str:
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(get_current_user)) -> ChatResponse:
-    """History-aware RAG chat.
-    Steps:
-      0) count usage
-      1) build a history-aware search query
-      2) retrieve per-user sources and construct filename-aware context
-      3) ask LLM to answer grounded in that context (fallback: return context)
-    """
     uid = getattr(user, "uid", "dev")
 
-    # 0) Count a message against usage
-    try:
-        ok, used, cap = await add_message(uid)
-        log.info("usage_message_add", uid=uid, allowed=ok, used_messages=used, cap_messages=cap, path=str(request.url.path))
-    except Exception:
-        log.exception("usage_message_add_error", uid=uid)
+    # 0) Enforce a message against usage
+    ok, used, cap = await add_message(uid)
+    log.info("usage_message_add", uid=uid, allowed=ok, used_messages=used, cap_messages=cap, path=str(request.url.path))
+    if not ok:
+        raise HTTPException(status_code=429, detail=f"Message limit reached ({used}/{cap}). Upgrade to continue.")
 
     # 1) Build history-aware retrieval query
     hint = _history_hint(req.history)
@@ -160,7 +140,6 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
             QueryRequest(dataset=req.dataset, query=search_query, k=req.k, with_sources=req.with_sources),
             uid=uid,
         )
-        # Build filename-aware context for the model and collect citations
         if req.with_sources and rag_resp.sources:
             context_text, citations = _build_context_from_sources(rag_resp.sources)
         else:
@@ -170,23 +149,22 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
         context_text, citations = ("", [])
 
     # 3) LLM answer grounded in retrieved context
-    if OpenAIChat is not None:
-        try:
-            llm = OpenAIChat()
-            history = [t.model_dump() for t in (req.history or [])]
-            system = (
-                "You are a concise, helpful assistant. Use the provided context. "
-                "Cite with the bracketed numbers if helpful. "
-                "If the context is empty or irrelevant, say you couldn't find anything relevant."
-            )
-            user_msg = f"Question:\n{req.message}\n\nContext:\n{context_text}"
-            answer = await llm.simple_answer(message=user_msg, history=history, system=system)
-            if answer and answer.strip():
-                return ChatResponse(answer=answer, citations=citations, usage={})
-        except Exception:
-            log.exception("chat_llm_error")
+    try:
+        from .adapters.openai_chat import OpenAIChat as _LLM  # re-import to avoid import cycles during tests
+        llm = _LLM()
+        history = [t.model_dump() for t in (req.history or [])]
+        system = (
+            "You are a concise, helpful assistant. Use the provided context. "
+            "Cite with the bracketed numbers if helpful. "
+            "If the context is empty or irrelevant, say you couldn't find anything relevant."
+        )
+        user_msg = f"Question:\n{req.message}\n\nContext:\n{context_text}"
+        answer = await llm.simple_answer(message=user_msg, history=history, system=system)
+        if answer and answer.strip():
+            return ChatResponse(answer=answer, citations=citations, usage={})
+    except Exception:
+        log.exception("chat_llm_error")
 
-    # 4) Fallbacks
     if context_text:
         return ChatResponse(answer=context_text, citations=citations, usage={})
     return ChatResponse(answer=f"You said: {req.message}", citations=[], usage={})

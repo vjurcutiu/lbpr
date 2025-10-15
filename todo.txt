@@ -1,11 +1,12 @@
 test usage limits at the limit and if they reset
+solidify billing
+
 fix profile page
 test password change
 remove titles from under chat message
 improve prompt structure
 
-add env vars in prod (secrets)
-make sure pdfs and docx are rate limited
+move  usage limits before firebase storage
 change url on confirmation email to prod confirmation page
 check email confirmation page
 add md to chat
