@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { RiRobotLine } from "react-icons/ri";
 
 type AuthLayoutProps = {
@@ -36,6 +36,10 @@ function LogoMark(props: React.SVGProps<SVGSVGElement>) {
 }
 
 export default function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
+  const location = useLocation();
+  // If user is already on /signup, keep the flag so re-clicking still re-triggers focus.
+  const signupHref = "/signup?highlight=email";
+
   return (
     <main className="relative min-h-dvh grid grid-cols-1 md:grid-cols-5 bg-white">
       {/* Left: hero (hidden on small screens) */}
@@ -74,11 +78,15 @@ export default function AuthLayout({ title, subtitle, children }: AuthLayoutProp
 
             <div className="pt-2">
               <Link
-                to="/signup"
-                className="inline-flex items-center justify-center rounded-xl bg-white/95 text-gray-900 px-4 py-2 font-medium shadow hover:bg-white"
+                to={signupHref}
+                className="inline-flex items-center justify-center rounded-xl bg-white/95 text-gray-900 px-4 py-2 font-medium shadow hover:bg-white focus:outline-none focus:ring-4 focus:ring-white/40"
+                aria-describedby="cta-helper"
               >
                 Create free account
               </Link>
+              <span id="cta-helper" className="sr-only">
+                Navigates to signup. The email field will be highlighted so you can start there.
+              </span>
             </div>
           </div>
         </div>

@@ -118,9 +118,9 @@ export default function AuthLayout({ title, subtitle, children }: AuthLayoutProp
           </div>
           <p className="mt-6 text-center text-xs text-gray-500">
             By continuing you agree to our{" "}
-            <a href="/legal/terms" className="underline underline-offset-2">Terms</a>{" "}
+            <a href="/terms" className="underline underline-offset-2">Terms</a>{" "}
             and{" "}
-            <a href="/legal/privacy" className="underline underline-offset-2">Privacy Policy</a>.
+            <a href="/privacy" className="underline underline-offset-2">Privacy Policy</a>.
           </p>
           <div className="mt-4 text-center text-xs text-gray-500">
             No credit card required • Cancel anytime

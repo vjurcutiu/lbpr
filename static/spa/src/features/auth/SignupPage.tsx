@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import AuthLayout from "./AuthLayout";
 import { useAuthContext } from "./AuthProvider";
@@ -29,6 +29,25 @@ export default function SignupPage() {
   const [resendMsg, setResendMsg] = useState<string | null>(null);
   const [resendErr, setResendErr] = useState<string | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  // NEW: guided hint for email field
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const [showHint, setShowHint] = useState(false);
+
+  useEffect(() => {
+    // Trigger when arriving with ?highlight=email
+    const shouldHighlight = (params.get("highlight") || "").toLowerCase() === "email";
+    if (shouldHighlight) {
+      // Focus and show a short-lived hint
+      setTimeout(() => {
+        emailRef.current?.focus();
+        setShowHint(true);
+      }, 0);
+
+      const t = setTimeout(() => setShowHint(false), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [params]);
 
   if (user) return <Navigate to={returnTo} replace />;
 
@@ -118,20 +137,36 @@ export default function SignupPage() {
         </div>
       ) : (
         <div className="space-y-4 max-w-sm mx-auto">
-          
-
           <form className="space-y-4" onSubmit={onSubmit}>
-            <label className="block space-y-1">
+            <label className="block space-y-1 relative">
               <span className="text-sm text-gray-700">Email</span>
               <input
+                ref={emailRef}
                 autoFocus
                 required
                 type="email"
                 autoComplete="email"
-                className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+                aria-describedby={showHint ? "email-hint" : undefined}
+                className={[
+                  "w-full rounded-xl border px-3 py-2 outline-none focus:ring-2 transition",
+                  showHint
+                    ? "border-emerald-500 ring-2 ring-emerald-400 shadow-[0_0_0_6px_rgba(16,185,129,0.15)]"
+                    : "border-gray-300 focus:ring-black"
+                ].join(" ")}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onFocus={() => setShowHint(false)}
               />
+              {showHint && (
+                <div
+                  id="email-hint"
+                  role="tooltip"
+                  className="absolute -top-2 right-0 translate-y-[-100%] max-w-[240px] rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs text-gray-700 shadow-md"
+                >
+                  Start here — enter your email to create your account.
+                  <span className="absolute -bottom-2 right-6 inline-block h-0 w-0 border-x-8 border-x-transparent border-t-8 border-t-white drop-shadow" />
+                </div>
+              )}
             </label>
 
             <label className="block space-y-1">
