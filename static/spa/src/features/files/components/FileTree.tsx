@@ -6,6 +6,7 @@ import { fileDownloadUrl } from "../api";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { FileIconByName } from "./FileIconByName";
+import { fmtSize } from "../utils/formatters";
 
 export function FileTree({
   node,
@@ -52,6 +53,9 @@ function FolderRow({
         <ChevronRight className={caretClass} />
         <Folder className="h-4 w-4" />
         <span className="font-medium">{node.name || "root"}</span>
+        {node.children && node.children.length > 0 && (
+          <span className="ml-2 text-[11px] text-muted-foreground">({node.children.length})</span>
+        )}
       </button>
       {open && (
         <div className="ml-5">
@@ -88,6 +92,7 @@ function FileRow({
       >
         <FileIconByName name={node.name} className="h-4 w-4" />
         <span className="truncate">{node.name}</span>
+        <span className="ml-auto mr-2 hidden md:inline text-xs text-muted-foreground">{fmtSize(f.size)}</span>
       </button>
       <div className="opacity-0 group-hover:opacity-100 transition flex items-center gap-0.5 pr-1">
         <a

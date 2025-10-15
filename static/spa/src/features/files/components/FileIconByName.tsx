@@ -25,7 +25,7 @@ export function FileIconByName({ name, className }: { name: string; className?: 
       ? FileSpreadsheet
       : ["ts","tsx","js","jsx","py","go","rs","java","json","yml","yaml","toml","md"].includes(ext)
       ? FileCode
-      : ext === "txt"
+      : ext === "txt" || ext === "pdf"
       ? FileText
       : ext
       ? FileType

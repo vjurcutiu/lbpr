@@ -54,7 +54,7 @@ export default function FilesPage() {
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [filter, setFilter] = useState("");
-  const [sidebarWidth, setSidebarWidth] = useState(280);
+  const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
@@ -85,12 +85,17 @@ export default function FilesPage() {
   // NEW: seed the tracker with existing history so it shows immediately
   const [seedFetched, setSeedFetched] = useState<UploadJob[]>([]);
 
+  // UI niceties
+  const [lastRefreshed, setLastRefreshed] = useState<number | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
       const data = await listFiles();
       setFiles(data);
       setTree(buildTree(data));
+      setLastRefreshed(Date.now());
     } catch (err) {
       console.error("[files] listFiles error", err);
       toast.error("Failed to load files", { description: parseErr(err) });
@@ -101,11 +106,12 @@ export default function FilesPage() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Resize logic
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       if (!isResizing) return;
-      const min = 200;
-      const max = 520;
+      const min = 220;
+      const max = 560;
       setSidebarWidth(() => Math.min(max, Math.max(min, e.clientX)));
     };
     const onUp = () => setIsResizing(false);
@@ -138,10 +144,9 @@ export default function FilesPage() {
     };
   }
 
-  const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fs = Array.from(e.target.files || []);
+  // Shared handler for traditional file input and drag&drop
+  const handleFiles = async (fs: File[]) => {
     if (fs.length === 0) return;
-
     setUploading(true);
     try {
       // 1) Pre-fetch existing jobs so the tracker opens already populated
@@ -181,7 +186,7 @@ export default function FilesPage() {
         );
       }
 
-      // 5) Force an immediate panel refresh
+      // 5) Force an immediate panel refresh + file refresh
       setTrackerRefreshKey(Date.now());
       await refresh();
     } catch (err) {
@@ -197,6 +202,53 @@ export default function FilesPage() {
       if (inputRef.current) inputRef.current.value = "";
     }
   };
+
+  const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fs = Array.from(e.target.files || []);
+    await handleFiles(fs);
+  };
+
+  // Global drag & drop overlay
+  useEffect(() => {
+    const onDragOver = (e: DragEvent) => {
+      if (!e.dataTransfer) return;
+      if (Array.from(e.dataTransfer.types).includes("Files")) {
+        e.preventDefault();
+        setDragActive(true);
+        e.dataTransfer.dropEffect = "copy";
+      }
+    };
+    const onDragEnter = (e: DragEvent) => {
+      if (!e.dataTransfer) return;
+      if (Array.from(e.dataTransfer.types).includes("Files")) {
+        e.preventDefault();
+        setDragActive(true);
+      }
+    };
+    const onDragLeave = (e: DragEvent) => {
+      // Only hide if leaving the window entirely
+      if ((e as any).relatedTarget === null) setDragActive(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!e.dataTransfer) return;
+      if (Array.from(e.dataTransfer.types).includes("Files")) {
+        e.preventDefault();
+        const fs = Array.from(e.dataTransfer.files || []);
+        setDragActive(false);
+        handleFiles(fs);
+      }
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragenter", onDragEnter);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragenter", onDragEnter);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [handleFiles]);
 
   const openFile = async (file: FileItem) => {
     setTabs((prev) => {
@@ -273,8 +325,14 @@ export default function FilesPage() {
     await refresh();
   };
 
+  const totalSize = useMemo(() => files.reduce((acc, f) => acc + (f.size || 0), 0), [files]);
+  const runningUploads = useMemo(
+    () => optimisticJobs.some(j => j.status === "running"),
+    [optimisticJobs]
+  );
+
   return (
-    <div className="h-full min-h-0 flex flex-col">
+    <div className="h-full min-h-0 flex flex-col relative">
       {/* Top bar */}
       <div className="sticky top-0 z-10 flex items-center gap-3 px-3 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <Button onClick={onPick} disabled={uploading} size="sm">
@@ -284,16 +342,41 @@ export default function FilesPage() {
         <Input ref={inputRef} type="file" className="hidden" onChange={onChange} multiple />
         <div className="relative max-w-sm w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Filter files…" value={filter} onChange={(e) => setFilter(e.target.value)} className="pl-8" />
+          <Input
+            placeholder="Filter files…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="pl-8 pr-7"
+          />
+          {filter && (
+            <button
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              onClick={() => setFilter("")}
+              aria-label="Clear filter"
+              title="Clear"
+            >
+              ×
+            </button>
+          )}
         </div>
         <div className="flex-1" />
+        <div className="hidden md:flex items-center text-xs text-muted-foreground mr-2">
+          <span className="mr-3">{files.length} file{files.length === 1 ? "" : "s"}</span>
+          <span>• {fmtSize(totalSize)}</span>
+        </div>
         <Button variant="outline" onClick={refresh} disabled={busy} size="sm">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1.5" />}
           Refresh
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => setTrackerOpen(v => !v)} title="Show transfers">
+        <Button variant="ghost" size="sm" onClick={() => setTrackerOpen(v => !v)} title="Show transfers" className="relative">
           <Activity className="h-4 w-4" />
           <span className="ml-1 hidden sm:inline">Transfers</span>
+          {(uploading || runningUploads) && (
+            <span className="absolute -top-1 -right-1 inline-flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-60" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary" />
+            </span>
+          )}
         </Button>
       </div>
 
@@ -369,19 +452,39 @@ export default function FilesPage() {
           </div>
 
           {/* Viewer */}
-          <div className="flex-1 min-h-0 overflow-auto p-4 font-mono text-sm">
-            {activeId ? <FileViewer payload={content[activeId]} file={files.find((f) => f.id === activeId) || null} searchTerm={infileQuery} /> : <EmptyState />}
+          <div className="flex-1 min-h-0 overflow-auto p-4">
+            <div className="h-full rounded-lg border bg-background shadow-sm p-4">
+              {activeId ? (
+                <FileViewer payload={content[activeId]} file={files.find((f) => f.id === activeId) || null} searchTerm={infileQuery} />
+              ) : (
+                <EmptyState onUploadClick={onPick} />
+              )}
+            </div>
           </div>
 
           {/* Status bar */}
           <div className="h-8 border-t text-xs px-3 flex items-center justify-between text-muted-foreground bg-muted/10">
             <div className="flex items-center gap-3">
-              <span>{files.length} file{files.length === 1 ? "" : "s"}</span>
+              <span>{files.length} file{files.length === 1 ? "" : "s"} • {fmtSize(totalSize)}</span>
             </div>
-            <div>LexBot PRO • File Explorer</div>
+            <div>
+              {lastRefreshed ? `Updated ${new Date(lastRefreshed).toLocaleTimeString()}` : "—"}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Global drag & drop overlay */}
+      {dragActive && (
+        <div
+          className="pointer-events-none fixed inset-0 z-20 grid place-items-center bg-background/80 backdrop-blur border-2 border-dashed border-primary"
+        >
+          <div className="pointer-events-auto rounded-xl border bg-background shadow-lg px-6 py-4 text-center">
+            <div className="text-sm font-medium">Drop files to upload</div>
+            <div className="text-xs text-muted-foreground mt-1">We&apos;ll start the upload immediately</div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation modal */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -415,6 +518,16 @@ export default function FilesPage() {
               <div className="col-span-2 break-all">{files.find((f) => f.id === activeId)?.name}</div>
               <div className="text-muted-foreground">ID</div>
               <div className="col-span-2 break-all">{activeId}</div>
+              <div className="text-muted-foreground">Size</div>
+              <div className="col-span-2">{fmtSize(files.find((f) => f.id === activeId)?.size || 0)}</div>
+              {files.find((f) => f.id === activeId)?.created_at && (
+                <>
+                  <div className="text-muted-foreground">Created</div>
+                  <div className="col-span-2">
+                    {new Date(files.find((f) => f.id === activeId)!.created_at!).toLocaleString()}
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">No file selected.</div>
