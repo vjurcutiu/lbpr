@@ -71,22 +71,7 @@ export default function LoginPage() {
   return (
     <AuthLayout title="Welcome back" subtitle="Sign in to continue">
       <div className="space-y-4 max-w-sm mx-auto">
-        <button
-          type="button"
-          onClick={onGoogle}
-          disabled={googleLoading}
-          className="w-full rounded-xl border border-gray-300 bg-white py-2 flex items-center justify-center gap-2 hover:bg-gray-50 disabled:opacity-60"
-        >
-          <GoogleIcon className="h-5 w-5" />
-          {googleLoading ? "Signing in…" : "Continue with Google"}
-        </button>
-
-        <div className="flex items-center gap-3">
-          <span className="h-px bg-gray-200 flex-1" />
-          <span className="text-xs text-gray-400 uppercase">or</span>
-          <span className="h-px bg-gray-200 flex-1" />
-        </div>
-
+        
         <form className="space-y-4" onSubmit={onSubmit}>
           <label className="block space-y-1">
             <span className="text-sm text-gray-700">Email</span>
@@ -134,7 +119,7 @@ export default function LoginPage() {
             <Link to={`/signup?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">
               Start free
             </Link>{" "}
-            — 50 messages & ~75&nbsp;MB uploads.
+            — 50 messages & ~75&nbsp;pages of uploads.
           </div>
         </form>
 

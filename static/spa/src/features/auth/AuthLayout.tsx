@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { RiRobotLine } from "react-icons/ri";
 
 type AuthLayoutProps = {
   title: string;
@@ -44,8 +45,8 @@ export default function AuthLayout({ title, subtitle, children }: AuthLayoutProp
 
         {/* Header */}
         <div className="relative z-10 flex items-center gap-3 p-6">
-          <LogoMark className="h-7 w-7 rounded-lg shadow-sm" />
-          <span className="text-white font-semibold tracking-tight">LBP • AI</span>
+          <RiRobotLine className="h-7 w-7 rounded-lg shadow-sm text-white" />
+          <span className="text-white font-semibold tracking-tight">LexBot PRO • AI Search Engine</span>
         </div>
 
         {/* Value prop */}
@@ -61,7 +62,7 @@ export default function AuthLayout({ title, subtitle, children }: AuthLayoutProp
             <ul className="mt-2 space-y-2 text-sm text-white/90">
               <li className="flex items-start gap-2">
                 <CheckIcon className="h-5 w-5 mt-0.5" />
-                Free tier: <strong>50 messages</strong> &nbsp;•&nbsp; <strong>~75&nbsp;MB</strong> of uploads
+                Free tier: <strong>50 messages</strong> &nbsp;•&nbsp; <strong>~75&nbsp;pages</strong> of uploads
               </li>
               <li className="flex items-start gap-2">
                 <CheckIcon className="h-5 w-5 mt-0.5" /> Works with PDF & Word files

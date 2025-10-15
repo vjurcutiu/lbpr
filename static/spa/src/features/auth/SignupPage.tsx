@@ -67,7 +67,7 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthLayout title="Create account" subtitle="Free forever: 50 messages & ~75 MB uploads. Verify your email to continue.">
+    <AuthLayout title="Create account" subtitle="Free forever: 50 messages & ~75 page uploads. Verify your email to continue.">
       {sent ? (
         <div className="space-y-4 max-w-sm mx-auto">
           <div className="rounded-xl border p-4 bg-accent/40">
@@ -118,21 +118,7 @@ export default function SignupPage() {
         </div>
       ) : (
         <div className="space-y-4 max-w-sm mx-auto">
-          <button
-            type="button"
-            onClick={onGoogle}
-            disabled={googleLoading}
-            className="w-full rounded-xl border border-gray-300 bg-white py-2 flex items-center justify-center gap-2 hover:bg-gray-50 disabled:opacity-60"
-          >
-            <GoogleIcon className="h-5 w-5" />
-            {googleLoading ? "Creating your account…" : "Continue with Google"}
-          </button>
-
-          <div className="flex items-center gap-3">
-            <span className="h-px bg-gray-200 flex-1" />
-            <span className="text-xs text-gray-400 uppercase">or</span>
-            <span className="h-px bg-gray-200 flex-1" />
-          </div>
+          
 
           <form className="space-y-4" onSubmit={onSubmit}>
             <label className="block space-y-1">
@@ -191,7 +177,7 @@ export default function SignupPage() {
           </form>
 
           <div className="text-xs text-gray-500 text-center">
-            Free forever plan • 50 messages • ~75&nbsp;MB uploads • No credit card required
+            Free forever plan • 50 messages • ~75&nbsp;pages of uploads • No credit card required
           </div>
         </div>
       )}
