@@ -1,7 +1,3 @@
-// src/pages/Privacy.tsx
-import MarkdownPage from "./MarkdownPage";
-
-const MD = `
 # Privacy Policy
 
 **Effective Date:** July 29, 2025  
@@ -105,9 +101,3 @@ If you have any questions about this Privacy Policy or your data, please contact
 Jud. Timiş, Sat Giroc, Comuna Giroc, Strada BEGA, Nr. 56/3  
 📧 [contact@lexbot.pro](mailto:contact@lexbot.pro)  
 🌐 [www.lexbot.pro](https://www.lexbot.pro)
-
-`;
-
-export default function Privacy() {
-  return <MarkdownPage title="Privacy Policy" updated="2025-07-29" md={MD} />;
-}

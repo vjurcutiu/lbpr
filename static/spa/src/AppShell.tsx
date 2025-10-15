@@ -235,7 +235,7 @@ function SiteFooter({ appName }: { appName: string }) {
         <div className="flex items-center gap-4">
           <Link to="/privacy" className="hover:text-foreground">Privacy</Link>
           <Link to="/terms" className="hover:text-foreground">Terms</Link>
-          <Link to="/changelog" className="hover:text-foreground">Changelog</Link>
+          <Link to="/dpa" className="hover:text-foreground">DPA</Link>
         </div>
       </div>
     </footer>

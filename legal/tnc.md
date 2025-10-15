@@ -1,7 +1,3 @@
-// src/pages/Terms.tsx
-import MarkdownPage from "./MarkdownPage";
-
-const MD = `
 # Terms and Conditions
 
 **Effective Date:** July 29, 2025  
@@ -90,7 +86,7 @@ You agree to indemnify, defend, and hold harmless Scipio Systems and its affilia
 
 ## 12. Data Privacy
 
-We process your data in accordance with our [Privacy Policy](./privacy).  
+We process your data in accordance with our [Privacy Policy](./privacy.md).  
 You are responsible for ensuring that your use of the Service complies with all applicable data protection laws, including the GDPR.
 
 ---
@@ -137,9 +133,3 @@ For any questions regarding these Terms, please contact us at **[contact@lexbot.
 Jud. Timiş, Sat Giroc, Comuna Giroc, Strada BEGA, Nr. 56/3  
 📧 [contact@lexbot.pro](mailto:contact@lexbot.pro)  
 🌐 [www.lexbot.pro](https://www.lexbot.pro)
-
-`;
-
-export default function Terms() {
-  return <MarkdownPage title="Terms and Conditions" updated="2025-07-29" md={MD} />;
-}
