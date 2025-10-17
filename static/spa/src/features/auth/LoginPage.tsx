@@ -124,7 +124,7 @@ export default function LoginPage() {
         </form>
 
         <div className="text-xs text-gray-500 text-center">
-          Private by default • Source-cited answers • Works with PDFs & Word
+          Private by default • Source-cited answers • Multi-lingual, Multi-domain
         </div>
       </div>
     </AuthLayout>

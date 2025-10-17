@@ -69,10 +69,10 @@ export default function AuthLayout({ title, subtitle, children }: AuthLayoutProp
                 Free tier: <strong>50 messages</strong> &nbsp;•&nbsp; <strong>~75&nbsp;pages</strong> of uploads
               </li>
               <li className="flex items-start gap-2">
-                <CheckIcon className="h-5 w-5 mt-0.5" /> Works with PDF & Word files
+                <CheckIcon className="h-5 w-5 mt-0.5" /> Strong multi-lingual, multi-domain capabilities.
               </li>
               <li className="flex items-start gap-2">
-                <CheckIcon className="h-5 w-5 mt-0.5" /> Easy to set up. Private by default.
+                <CheckIcon className="h-5 w-5 mt-0.5" /> Easy to use. Private by default.
               </li>
             </ul>
 

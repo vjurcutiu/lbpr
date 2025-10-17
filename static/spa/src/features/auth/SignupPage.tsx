@@ -86,7 +86,7 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthLayout title="Create account" subtitle="Free forever: 50 messages & ~75 page uploads. Verify your email to continue.">
+    <AuthLayout title="Create account" subtitle="Free forever: 50 messages & ~75 page uploads.">
       {sent ? (
         <div className="space-y-4 max-w-sm mx-auto">
           <div className="rounded-xl border p-4 bg-accent/40">
