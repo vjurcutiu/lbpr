@@ -89,10 +89,10 @@ export default function AuthLayout({ title, subtitle, children }: AuthLayoutProp
                 Free tier: <strong>50 messages</strong> &nbsp;•&nbsp; <strong>~75&nbsp;pages</strong> of uploads
               </li>
               <li className="flex items-start gap-2">
-                <CheckIcon className="h-5 w-5 mt-0.5" /> Works with PDF & Word files
+                <CheckIcon className="h-5 w-5 mt-0.5" /> Strong multi-lingual, multi-domain capabilities.
               </li>
               <li className="flex items-start gap-2">
-                <CheckIcon className="h-5 w-5 mt-0.5" /> Easy to set up. Private by default.
+                <CheckIcon className="h-5 w-5 mt-0.5" /> Easy to use. Private by default.
               </li>
             </ul>
 
@@ -539,7 +539,7 @@ export default function LoginPage() {
         </form>
 
         <div className="text-xs text-gray-500 text-center">
-          Private by default • Source-cited answers • Works with PDFs & Word
+          Private by default • Source-cited answers • Multi-lingual, Multi-domain
         </div>
       </div>
     </AuthLayout>
@@ -658,7 +658,7 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthLayout title="Create account" subtitle="Free forever: 50 messages & ~75 page uploads. Verify your email to continue.">
+    <AuthLayout title="Create account" subtitle="Free forever: 50 messages & ~75 page uploads.">
       {sent ? (
         <div className="space-y-4 max-w-sm mx-auto">
           <div className="rounded-xl border p-4 bg-accent/40">

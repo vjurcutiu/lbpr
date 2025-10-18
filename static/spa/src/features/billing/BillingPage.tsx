@@ -5,6 +5,7 @@ import {
   startCheckout,
   openBillingPortal,
   observeSubscriptions,
+  getBillingTraceId,
   type Product,
   type Subscription,
   type Price,
@@ -24,11 +25,8 @@ type LimitsResp = {
 
 /**
  * Plans & Usage page
- * - Cleaner layout + visuals
- * - Shows usage snapshot
- * - Upgrade via Stripe Checkout
- * - If on Pro, show a dedicated **Cancel subscription** button (opens Stripe Portal)
- * - Removed the old "Manage billing" link section
+ * - Adds **targeted logs** to trace issues with the Stripe Customer Portal button
+ * - If on Pro, shows a dedicated **Cancel subscription** button (opens Stripe Portal)
  */
 export default function BillingPage() {
   const { user, loading: authLoading } = useAuthContext();
@@ -38,6 +36,17 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  // helpful banner in console so logs are grouped by one trace id per page load
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.info(`[billing][${getBillingTraceId()}] BillingPage:mounted`, {
+      uid: user?.uid || null,
+      portalTestUrl: (import.meta as any).env?.VITE_STRIPE_PORTAL_TEST_URL || null,
+    });
+  // we only want this once on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Load products once (public)
   useEffect(() => {
     let cancel = false;
@@ -46,6 +55,8 @@ export default function BillingPage() {
         const prods = await loadActiveProducts();
         if (!cancel) setProducts(prods);
       } catch (e: any) {
+        // eslint-disable-next-line no-console
+        console.error("[billing] loadActiveProducts failed", e);
         if (!cancel) setErr(e.message || String(e));
       }
     })();
@@ -66,11 +77,16 @@ export default function BillingPage() {
     }
 
     setLoading(true);
+    const started = Date.now();
     (async () => {
       try {
         const lim = await getJSON<LimitsResp>("/limits/me");
+        // eslint-disable-next-line no-console
+        console.debug("[billing] limits:ok", { ms: Date.now() - started, lim });
         if (!cancel) setLimits(lim);
       } catch (_e) {
+        // eslint-disable-next-line no-console
+        console.warn("[billing] limits:error", _e);
         if (!cancel) setLimits(null);
       } finally {
         if (!cancel) setLoading(false);
@@ -89,7 +105,10 @@ export default function BillingPage() {
       .then((fn) => {
         unsub = fn;
       })
-      .catch(console.error);
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn("[billing] observeSubscriptions failed to start", e);
+      });
     return () => {
       if (unsub) unsub();
     };
@@ -175,23 +194,6 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Usage snapshot 
-      {limits && (
-        <section className="mb-10 grid gap-5 md:grid-cols-2">
-          <UsageCard
-            title="Messages"
-            used={limits.usage.messages || 0}
-            cap={limits.caps.messages}
-          />
-          <UsageCard
-            title="Upload tokens"
-            used={limits.usage.upload_tokens || 0}
-            cap={limits.caps.upload_tokens}
-          />
-        </section>
-      )}
-      */}
-
       {/* Plans */}
       <section className="grid gap-6 md:grid-cols-2">
         {/* Free */}
@@ -249,6 +251,8 @@ export default function BillingPage() {
               className="w-full"
               onClick={() => {
                 if (!proPrice) return;
+                // eslint-disable-next-line no-console
+                console.info("[billing] CTA:GetPro click", { priceId: proPrice.id });
                 startCheckout(proPrice.id, { mode: "subscription" }).catch((e) => alert(e.message));
               }}
               disabled={!proPrice}
@@ -269,9 +273,19 @@ export default function BillingPage() {
                     "Are you sure you want to cancel your subscription? You'll keep Pro until the end of the current period."
                   );
                   if (!ok) return;
+                  // eslint-disable-next-line no-console
+                  console.info("[billing] CancelSubscription click", {
+                    uid: user?.uid || null,
+                    trace: getBillingTraceId(),
+                    portalTestUrl: (import.meta as any).env?.VITE_STRIPE_PORTAL_TEST_URL || null,
+                  });
                   // We open the Stripe Customer Portal where the user can finalize cancellation.
                   openBillingPortal()
-                    .catch((e) => alert(e.message));
+                    .catch((e) => {
+                      // eslint-disable-next-line no-console
+                      console.error("[billing] openBillingPortal error", e);
+                      alert(e.message);
+                    });
                 }}
               >
                 Cancel subscription
