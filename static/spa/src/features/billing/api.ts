@@ -14,17 +14,19 @@ import {
   type Firestore,
   type DocumentData,
 } from "firebase/firestore";
+
+// Narrow import of Auth type to avoid coupling here
 import type { User } from "firebase/auth";
 
-const db   = getFirestore(firebaseApp);
-const auth = firebaseAuth;
+const db = getFirestore(firebaseApp);
 
-type LogLevel = "debug" | "info" | "warn" | "error";
-const BILLING_TRACE = Math.random().toString(16).slice(2) + "-" + Date.now().toString(36);
+// ---------- helper logging ----------
+const BILLING_TRACE = Math.random().toString(36).slice(2, 10);
 export function getBillingTraceId() { return BILLING_TRACE; }
-function log(level: LogLevel, msg: string, extra?: Record<string, unknown>) {
+function logBilling(level: "debug" | "info" | "warn" | "error", msg: string, extra?: Record<string, unknown>) {
   const line = `[billing][${BILLING_TRACE}] ${msg}`;
   const payload = { level, msg, trace: BILLING_TRACE, ...extra };
+  // eslint-disable-next-line no-console
   (console as any)[level === "debug" ? "debug" : level](line, payload);
 }
 
@@ -38,38 +40,24 @@ export type Price = {
   interval_count?: number;
   product?: string;
   active?: boolean;
-  trial_period_days?: number | null;
-  nickname?: string | null;
-  type?: "one_time" | "recurring";
+  type?: "recurring" | "one_time";
 };
 
 export type Product = {
   id: string;
-  name: string;
+  name?: string;
   description?: string;
-  active?: boolean;
-  default_price?: string | null;
-  images?: string[];
-  metadata?: Record<string, string>;
   prices?: Price[];
 };
 
 export type Subscription = {
   id: string;
-  status:
-    | "trialing"
-    | "active"
-    | "past_due"
-    | "canceled"
-    | "unpaid"
-    | "incomplete"
-    | "incomplete_expired"
-    | "paused";
-  cancel_at_period_end?: boolean;
-  cancel_at?: number | string | { seconds: number };
-  canceled_at?: number | string | { seconds: number } | null;
+  status: "active" | "trialing" | "past_due" | "canceled" | string;
+  current_period_start?: number | string | { seconds: number };
   current_period_end?: number | string | { seconds: number };
-  role?: string | null;
+  cancel_at?: number | string | { seconds: number } | null;
+  cancel_at_period_end?: boolean;
+  canceled_at?: number | string | { seconds: number } | null;
   items?: { price: Price }[];
 };
 
@@ -83,13 +71,20 @@ export function requireUser(timeoutMs = 8000): Promise<User> {
       reject(new Error("You need to be signed in to manage billing."));
     }, timeoutMs);
 
+    const { auth } = firebaseAuth as any ? { auth: (firebaseAuth as any) } : { auth: firebaseAuth };
     const unsub = (auth as any).onAuthStateChanged(
       (u: User | null) => {
-        if (!done && u) {
+        if (done) return;
+        if (u && (u as any).emailVerified) {
           done = true;
           clearTimeout(to);
           unsub();
           resolve(u);
+        } else if (u && !(u as any).emailVerified) {
+          done = true;
+          clearTimeout(to);
+          unsub();
+          reject(new Error("Please verify your email before managing billing."));
         }
       },
       (err: any) => {
@@ -117,8 +112,7 @@ export async function loadActiveProducts(dbArg: Firestore = db): Promise<Product
   const q = query(productsCol, where("active", "==", true));
   const snaps = await getDocs(q);
 
-  const allowlist = (import.meta.env.VITE_STRIPE_PRICE_ALLOWLIST || "")
-    .split(",").map(s => s.trim()).filter(Boolean);
+  const allowlist = (import.meta.env.VITE_STRIPE_PRICE_ALLOWLIST || "").split(",").map(s => s.trim()).filter(Boolean);
   const allowSet = new Set(allowlist);
 
   const results: Product[] = [];
@@ -128,22 +122,26 @@ export async function loadActiveProducts(dbArg: Firestore = db): Promise<Product
       id: pDoc.id,
       name: data.name,
       description: data.description,
-      active: data.active,
-      default_price: data.default_price || null,
-      images: data.images || [],
-      metadata: data.metadata || {},
       prices: [],
     };
 
-    const pricesSnap = await getDocs(
-      query(collection(pDoc.ref, "prices"), where("active", "==", true))
-    );
-    product.prices = pricesSnap.docs
-      .map((d) => ({ id: d.id, ...(d.data() as any) } as Price))
-      .filter(pr => allowSet.size ? allowSet.has(pr.id) : true)
-      .sort((a, b) => (a.unit_amount || 0) - (b.unit_amount || 0));
-
-    if ((product.prices?.length || 0) > 0) results.push(product);
+    // Prices are mirrored by the extension in a subcollection
+    const pricesSnap = await getDocs(collection(dbArg, "products", pDoc.id, "prices"));
+    for (const pr of pricesSnap.docs) {
+      const prData = pr.data() as DocumentData;
+      if (allowSet.size && !allowSet.has(pr.id)) continue;
+      product.prices!.push({
+        id: pr.id,
+        unit_amount: prData.unit_amount,
+        currency: prData.currency,
+        interval: prData.interval,
+        interval_count: prData.interval_count,
+        product: prData.product,
+        active: prData.active,
+        type: prData.type,
+      });
+    }
+    results.push(product);
   }
   return results;
 }
@@ -175,7 +173,7 @@ export async function startCheckout(priceId: string, opts?: {
       if (!data) return;
       if ((data as any).error) {
         unsub();
-        const msg = (data as any).error?.message || "Checkout failed.";
+        const msg = (data as any).error?.message || "Checkout failed to start.";
         reject(new Error(msg));
       }
       if ((data as any).url) {

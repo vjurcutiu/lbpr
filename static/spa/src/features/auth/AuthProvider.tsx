@@ -1,7 +1,7 @@
 /* eslint react-refresh/only-export-components: ["error", { "allowConstantExport": true }] */
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { getJSON, postJSON } from "@/shared/api";
-import { onAuth, auth } from "./firebase";
+import { onAuth, auth, logoutFirebase } from "./firebase";
 
 type User = {
   uid: string;
@@ -52,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!fbUser.emailVerified) {
         // Don't attempt cookie exchange; keep as logged-out in app context
         setUser(null);
+        try { await logoutFirebase(); } catch {}
         return;
       }
       try {

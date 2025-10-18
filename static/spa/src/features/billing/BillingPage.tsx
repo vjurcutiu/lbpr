@@ -20,28 +20,19 @@ type LimitsResp = {
   window: string; // YYYYMM
   caps: { messages: number; upload_tokens: number };
   usage: { messages: number; upload_tokens: number };
-  remaining: { messages: number; upload_tokens: number };
 };
 
-function parseStripeTs(ts: unknown): number | null {
-  if (ts == null) return null;
-  if (typeof ts === "number") return ts;
-  if (typeof ts === "string") { const n = Number(ts); return Number.isFinite(n) ? n : null; }
-  if (typeof ts === "object" && (ts as any)?.seconds != null) {
-    const s = Number((ts as any).seconds);
-    return Number.isFinite(s) ? s : null;
-  }
-  return null;
+function fmtInt(n?: number) {
+  try { return new Intl.NumberFormat().format(n ?? 0); } catch { return String(n ?? 0); }
 }
 
 function formatMoney(amount?: number, currency?: string) {
   if (amount == null) return "—";
-  const c = (currency || "eur").toUpperCase();
-  return (amount / 100).toLocaleString(undefined, { style: "currency", currency: c });
-}
-
-function fmtInt(n: number) {
-  try { return n.toLocaleString(); } catch { return String(n ?? 0); }
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: currency || "EUR", maximumFractionDigits: 0 }).format(amount / 100);
+  } catch {
+    return `€${(amount / 100).toFixed(0)}`;
+  }
 }
 
 export default function BillingPage() {
@@ -100,11 +91,12 @@ export default function BillingPage() {
 
   useEffect(() => {
     let unsub: undefined | (() => void);
+    if (!user) { setSubs([]); return; }
     observeSubscriptions((list) => setSubs(list))
       .then((fn) => { unsub = fn; })
       .catch((e) => console.warn("[billing] observeSubscriptions failed", e));
     return () => { if (unsub) unsub(); };
-  }, []);
+  }, [user]);
 
   const pollRef = useRef<number | null>(null);
   const inflightRef = useRef(false);
@@ -113,32 +105,24 @@ export default function BillingPage() {
   useEffect(() => {
     if (!user) return;
     async function tick() {
-      if (document.visibilityState !== "visible") return;
       if (inflightRef.current) return;
       inflightRef.current = true;
       try {
         const lim = await getJSON<LimitsResp>("/limits/me");
         setLimits(lim);
-      } catch {} finally { inflightRef.current = false; }
+      } catch {
+        // ignore
+      } finally {
+        inflightRef.current = false;
+      }
     }
-    tick();
-    pollRef.current = window.setInterval(tick, POLL_MS);
-    const onVis = () => document.visibilityState === "visible" && tick();
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
-      document.removeEventListener("visibilitychange", onVis);
-    };
+    pollRef.current = window.setInterval(tick, POLL_MS) as unknown as number;
+    return () => { if (pollRef.current != null) window.clearInterval(pollRef.current); };
   }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    getJSON<LimitsResp>("/limits/me").then(setLimits).catch(() => {});
-  }, [subs?.[0]?.status, (subs?.[0] as any)?.cancel_at, subs?.[0]?.cancel_at_period_end, user]);
 
   const activeSub = subs.find((s) => ["active", "trialing", "past_due"].includes(s.status));
   const latestSub = subs[0];
-  const onPro = !!activeSub || limits?.plan === "PRO";
+  const onPro = user ? (!!activeSub || limits?.plan === "PRO") : false;
 
   const proPrice: Price | undefined = useMemo(() => {
     const envId = (import.meta.env.VITE_STRIPE_PRO_PRICE_ID || "").trim();
@@ -157,6 +141,14 @@ export default function BillingPage() {
     if (!all.length) return undefined;
     return all.sort((a, b) => (a.unit_amount ?? 0) - (b.unit_amount ?? 0))[0];
   }, [products]);
+
+  const parseStripeTs = (t: any): number | null => {
+    if (!t && t !== 0) return null;
+    if (typeof t === "number") return t;
+    if (typeof t === "string") { const n = Number(t); return Number.isFinite(n) ? n : null; }
+    if (typeof t === "object" && typeof t.seconds === "number") return t.seconds;
+    return null;
+  };
 
   const renewalTs = parseStripeTs(activeSub?.current_period_end);
   const renewal = renewalTs ? new Date(renewalTs * 1000) : null;
@@ -179,9 +171,16 @@ export default function BillingPage() {
     : (isCanceled ? "Pro canceled" : "Free");
 
   return (
-    <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8">
-      <header className="mb-10">
-        <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-background p-6 md:p-8">
+    <div className="max-w-5xl mx-auto px-4 py-8">
+      {err && (
+        <div className="mb-4 text-sm inline-flex items-center gap-2 rounded-md bg-rose-100/60 dark:bg-rose-900/20 text-rose-900 dark:text-rose-200 px-3 py-2">
+          <AlertTriangle className="h-4 w-4" />
+          {err}
+        </div>
+      )}
+
+      <header className="mb-6">
+        <div className="mb-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Plans &amp; Usage</h1>
@@ -212,19 +211,9 @@ export default function BillingPage() {
         </div>
       </header>
 
-      {err && (
-        <div className="mb-6 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4" />
-          <span>{err}</span>
-        </div>
-      )}
-
-      <section className="grid gap-6 md:grid-cols-2">
-        <div className="rounded-2xl border p-6 md:p-7 shadow-sm bg-background">
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="relative rounded-2xl border p-5 md:p-7 shadow-sm">
           <div className="mb-6">
-            <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs">
-              <Check className="h-3.5 w-3.5" /> Included
-            </div>
             <h3 className="mt-3 text-xl font-semibold">Free</h3>
             <div className="mt-1 text-3xl font-semibold">€0</div>
             <div className="text-sm text-muted-foreground">per month</div>
@@ -245,7 +234,7 @@ export default function BillingPage() {
           )}
         </div>
 
-        <div className="relative rounded-2xl border border-primary/30 p-6 md:p-7 shadow-sm bg-gradient-to-b from-primary/5 to-background">
+        <div className="relative rounded-2xl border md:p-7 shadow-sm bg-gradient-to-b from-primary/5 to-background">
           <div className="mb-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 text-primary px-3 py-1 text-xs">
               <Crown className="h-3.5 w-3.5" /> Most popular
@@ -254,107 +243,53 @@ export default function BillingPage() {
             <div className="mt-1 text-3xl font-semibold">
               {formatMoney(proPrice?.unit_amount, proPrice?.currency)}
             </div>
-            <div className="text-sm text-muted-foreground">per {proPrice?.interval ?? "month"}</div>
-            {renewal && onPro && !cancelsOn && (
-              <div className="mt-2 text-xs text-muted-foreground">
-                Renews on <span className="font-medium">{renewal.toLocaleDateString()}</span>
-              </div>
-            )}
-            {cancelsOn && onPro && (
-              <div className="mt-2 inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Cancels on {cancelsOn.toLocaleDateString()}
-              </div>
-            )}
-            {isCanceled && !onPro && (
-              <div className="mt-2 inline-flex items-center gap-2 rounded-md bg-rose-100/60 dark:bg-rose-900/20 text-rose-900 dark:text-rose-200 px-2.5 py-1 text-xs">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Your Pro subscription is canceled.
-              </div>
-            )}
-            {(activeSub?.status === "past_due") && (
-              <div className="mt-2 inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Payment issue — update card in the portal.
-              </div>
-            )}
+            <div className="text-sm text-muted-foreground">per month</div>
           </div>
-
           <ul className="text-sm space-y-2 mb-6">
-            <li>• Priority RAG + longer context</li>
-            <li>• Faster image creation</li>
-            <li>• Team-ready features &amp; support</li>
+            <li>• Bigger limits and faster queue</li>
+            <li>• Priority file processing</li>
+            <li>• Support that actually responds</li>
           </ul>
-
-          {!onPro ? (
-            <Button
-              className="w-full"
-              onClick={() => {
-                if (!proPrice) return;
-                console.info("[billing] CTA:GetPro click", { priceId: proPrice.id });
-                startCheckout(proPrice.id, { mode: "subscription" }).catch((e) => alert(e.message));
-              }}
-              disabled={!proPrice}
-            >
-              {proPrice ? "Get Pro" : "Loading price…"}
+          {onPro ? (
+            <Button className="w-full" variant="secondary" onClick={() => openBillingPortal()}>
+              Manage subscription
             </Button>
           ) : (
-            <div className="flex flex-col gap-3">
-              <Button
-                className="w-full"
-                variant="secondary"
-                onClick={() => {
-                  console.info("[billing] ManageSubscription click", {
-                    uid: user?.uid || null,
-                    trace: getBillingTraceId(),
-                    portalTestUrl: (import.meta as any).env?.VITE_STRIPE_PORTAL_TEST_URL || null,
-                  });
-                  openBillingPortal().catch((e) => {
-                    console.error("[billing] openBillingPortal error", e);
-                    alert(e.message);
-                  });
-                }}
-              >
-                Manage subscription
-              </Button>
+            <Button className="w-full" onClick={() => proPrice?.id && startCheckout(proPrice.id)} disabled={!proPrice}>
+              Upgrade to Pro
+            </Button>
+          )}
+          {onPro && cancelsOn && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs">
+              <Info className="h-3.5 w-3.5" />
+              Cancels on <strong className="ml-1">{cancelsOn.toLocaleDateString()}</strong>
             </div>
           )}
         </div>
       </section>
-
-      {loading && (
-        <div className="fixed inset-x-0 bottom-6 flex justify-center pointer-events-none">
-          <div className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 text-xs shadow-sm">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Updating usage…
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PlanBadge({ onPro }: { onPro: boolean }) {
-  return onPro ? (
-    <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 text-primary px-3 py-1 text-xs bg-primary/5">
-      <Crown className="h-3.5 w-3.5" />
-      Pro plan
-    </div>
-  ) : (
-    <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs">
-      Free plan
     </div>
   );
 }
 
 function QuickStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string; }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border bg-background px-3 py-2 shadow-sm">
-      <div className="rounded-md border p-2">{icon}</div>
-      <div className="text-sm">
-        <div className="text-muted-foreground">{label}</div>
-        <div className="font-medium">{value}</div>
+    <div className="rounded-xl border p-4 flex items-center gap-3">
+      <div className="shrink-0">{icon}</div>
+      <div>
+        <div className="text-sm text-muted-foreground">{label}</div>
+        <div className="text-lg font-medium">{value}</div>
       </div>
+    </div>
+  );
+}
+
+function PlanBadge({ onPro }: { onPro: boolean }) {
+  return (
+    <div className={"inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs " + (onPro ? "border-primary/40 text-primary" : "border-muted-foreground/40 text-muted-foreground")}>
+      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full border">
+        {onPro ? <Check className="h-3 w-3" /> : <Loader2 className="h-3 w-3 animate-spin" />}
+      </span>
+      {onPro ? "You're on Pro" : "Free plan"}
     </div>
   );
 }

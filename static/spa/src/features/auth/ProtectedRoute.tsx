@@ -1,7 +1,5 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuthContext } from "./AuthProvider";
-import { auth } from "./firebase";
-
 export default function ProtectedRoute() {
   const { user, loading } = useAuthContext();
   const location = useLocation();
@@ -10,7 +8,7 @@ export default function ProtectedRoute() {
     return <div className="p-6">Loading…</div>;
   }
 
-  if (!user && !auth.currentUser) {
+  if (!user) {
     const returnTo = encodeURIComponent(location.pathname + location.search + location.hash);
     return <Navigate to={`/login?returnTo=${returnTo}`} replace />;
   }
