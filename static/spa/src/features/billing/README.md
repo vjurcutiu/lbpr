@@ -1,27 +1,10 @@
-# Billing Feature (Firestore Stripe Payments)
+# Billing Feature (Stripe + Firestore) — v3
 
-This patch adds **targeted console logs** so we can diagnose Stripe Customer Portal issues quickly.
+**Fix:** “Renews on” now reliably flips to **“Cancels on”** right after scheduling a cancellation.
 
-## New diagnostics
-- Per-session **trace id** shown in every log line.
-- `openBillingPortal` logs:
-  - write attempt (uid + return_url)
-  - created doc path `customers/{uid}/portal_sessions/{id}`
-  - each snapshot tick (existence)
-  - extension error details
-  - redirect URL (and redirect failure, if any)
-- `startCheckout` mirrors the same visibility.
-- `BillingPage` logs button clicks and limits/subscription fetches.
+Rules implemented per Stripe docs:
+- `cancel_at_period_end` means cancel at end of the current period → show `current_period_end`.
+- `cancel_at` is an explicit future timestamp → show that date.
+- When actually canceled, `status` becomes `canceled` and `canceled_at` records that moment.
 
-## Optional: fixed test portal URL
-If you pasted a static test link from Stripe Dashboard, set:
-```
-VITE_STRIPE_PORTAL_TEST_URL=https://billing.stripe.com/p/login/test_XXXX
-```
-When present, the **Cancel subscription** button will redirect directly to this URL, bypassing Firestore.
-
-## Files
-- `features/billing/api.ts`
-- `features/billing/BillingPage.tsx`
-- `features/billing/index.ts`
-- `features/billing/README.md`
+Timestamps are parsed defensively (`number` | `string` | `{seconds: number}`).

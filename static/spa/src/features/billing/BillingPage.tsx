@@ -1,5 +1,5 @@
 // features/billing/BillingPage.tsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   loadActiveProducts,
   startCheckout,
@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { getJSON } from "@/shared/api";
 import { useAuthContext } from "@/features/auth/AuthProvider";
-import { Check, Crown, MessageSquare, UploadCloud, AlertTriangle, Loader2 } from "lucide-react";
+import { Check, Crown, MessageSquare, UploadCloud, AlertTriangle, Loader2, Info } from "lucide-react";
 
 type LimitsResp = {
   plan: "FREE" | "PRO";
@@ -23,11 +23,27 @@ type LimitsResp = {
   remaining: { messages: number; upload_tokens: number };
 };
 
-/**
- * Plans & Usage page
- * - Adds **targeted logs** to trace issues with the Stripe Customer Portal button
- * - If on Pro, shows a dedicated **Cancel subscription** button (opens Stripe Portal)
- */
+function parseStripeTs(ts: unknown): number | null {
+  if (ts == null) return null;
+  if (typeof ts === "number") return ts;
+  if (typeof ts === "string") { const n = Number(ts); return Number.isFinite(n) ? n : null; }
+  if (typeof ts === "object" && (ts as any)?.seconds != null) {
+    const s = Number((ts as any).seconds);
+    return Number.isFinite(s) ? s : null;
+  }
+  return null;
+}
+
+function formatMoney(amount?: number, currency?: string) {
+  if (amount == null) return "—";
+  const c = (currency || "eur").toUpperCase();
+  return (amount / 100).toLocaleString(undefined, { style: "currency", currency: c });
+}
+
+function fmtInt(n: number) {
+  try { return n.toLocaleString(); } catch { return String(n ?? 0); }
+}
+
 export default function BillingPage() {
   const { user, loading: authLoading } = useAuthContext();
   const [products, setProducts] = useState<Product[]>([]);
@@ -36,18 +52,13 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // helpful banner in console so logs are grouped by one trace id per page load
   useEffect(() => {
-    // eslint-disable-next-line no-console
     console.info(`[billing][${getBillingTraceId()}] BillingPage:mounted`, {
       uid: user?.uid || null,
       portalTestUrl: (import.meta as any).env?.VITE_STRIPE_PORTAL_TEST_URL || null,
     });
-  // we only want this once on mount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load products once (public)
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -55,17 +66,13 @@ export default function BillingPage() {
         const prods = await loadActiveProducts();
         if (!cancel) setProducts(prods);
       } catch (e: any) {
-        // eslint-disable-next-line no-console
         console.error("[billing] loadActiveProducts failed", e);
         if (!cancel) setErr(e.message || String(e));
       }
     })();
-    return () => {
-      cancel = true;
-    };
+    return () => { cancel = true; };
   }, []);
 
-  // Load limits when auth is ready (ensures cookie for /limits/me)
   useEffect(() => {
     let cancel = false;
 
@@ -77,58 +84,62 @@ export default function BillingPage() {
     }
 
     setLoading(true);
-    const started = Date.now();
     (async () => {
       try {
         const lim = await getJSON<LimitsResp>("/limits/me");
-        // eslint-disable-next-line no-console
-        console.debug("[billing] limits:ok", { ms: Date.now() - started, lim });
         if (!cancel) setLimits(lim);
       } catch (_e) {
-        // eslint-disable-next-line no-console
-        console.warn("[billing] limits:error", _e);
         if (!cancel) setLimits(null);
       } finally {
         if (!cancel) setLoading(false);
       }
     })();
 
-    return () => {
-      cancel = true;
-    };
+    return () => { cancel = true; };
   }, [user, authLoading]);
 
-  // Observe subscription state
   useEffect(() => {
     let unsub: undefined | (() => void);
     observeSubscriptions((list) => setSubs(list))
-      .then((fn) => {
-        unsub = fn;
-      })
-      .catch((e) => {
-        // eslint-disable-next-line no-console
-        console.warn("[billing] observeSubscriptions failed to start", e);
-      });
-    return () => {
-      if (unsub) unsub();
-    };
+      .then((fn) => { unsub = fn; })
+      .catch((e) => console.warn("[billing] observeSubscriptions failed", e));
+    return () => { if (unsub) unsub(); };
   }, []);
 
-  // Refresh limits when window regains focus
+  const pollRef = useRef<number | null>(null);
+  const inflightRef = useRef(false);
+  const POLL_MS = 5000;
+
   useEffect(() => {
-    function onFocus() {
-      if (!user) return;
-      getJSON<LimitsResp>("/limits/me").then(setLimits).catch(() => {});
+    if (!user) return;
+    async function tick() {
+      if (document.visibilityState !== "visible") return;
+      if (inflightRef.current) return;
+      inflightRef.current = true;
+      try {
+        const lim = await getJSON<LimitsResp>("/limits/me");
+        setLimits(lim);
+      } catch {} finally { inflightRef.current = false; }
     }
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    tick();
+    pollRef.current = window.setInterval(tick, POLL_MS);
+    const onVis = () => document.visibilityState === "visible" && tick();
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [user]);
 
-  // Determine plan
+  useEffect(() => {
+    if (!user) return;
+    getJSON<LimitsResp>("/limits/me").then(setLimits).catch(() => {});
+  }, [subs?.[0]?.status, (subs?.[0] as any)?.cancel_at, subs?.[0]?.cancel_at_period_end, user]);
+
   const activeSub = subs.find((s) => ["active", "trialing", "past_due"].includes(s.status));
+  const latestSub = subs[0];
   const onPro = !!activeSub || limits?.plan === "PRO";
 
-  // Pick a Pro price (env override -> lowest recurring)
   const proPrice: Price | undefined = useMemo(() => {
     const envId = (import.meta.env.VITE_STRIPE_PRO_PRICE_ID || "").trim();
     if (envId) {
@@ -147,26 +158,40 @@ export default function BillingPage() {
     return all.sort((a, b) => (a.unit_amount ?? 0) - (b.unit_amount ?? 0))[0];
   }, [products]);
 
-  const renewal = activeSub?.current_period_end
-    ? new Date((activeSub.current_period_end as number) * 1000)
+  const renewalTs = parseStripeTs(activeSub?.current_period_end);
+  const renewal = renewalTs ? new Date(renewalTs * 1000) : null;
+
+  const cancelAtTs = parseStripeTs((activeSub as any)?.cancel_at);
+  const cancelsOn = cancelAtTs
+    ? new Date(cancelAtTs * 1000)
+    : (activeSub?.cancel_at_period_end && renewalTs)
+    ? new Date(renewalTs * 1000)
     : null;
+
+  const isCanceled = latestSub?.status === "canceled";
+
+  const statusLabel = onPro
+    ? (activeSub?.status === "past_due"
+        ? "Pro (payment issue)"
+        : cancelsOn
+        ? `Pro (cancels on ${cancelsOn.toLocaleDateString()})`
+        : "Pro")
+    : (isCanceled ? "Pro canceled" : "Free");
 
   return (
     <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8">
-      {/* Page header */}
       <header className="mb-10">
         <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-primary/10 via-background to-background p-6 md:p-8">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Plans &amp; Usage</h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Pick what fits. Upgrade anytime — cancel with one click.
+                Pick what fits. Upgrade anytime — manage with one click.
               </p>
             </div>
             <PlanBadge onPro={onPro} />
           </div>
 
-          {/* Current plan quick stats */}
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <QuickStat
               icon={<MessageSquare className="h-4 w-4" />}
@@ -181,7 +206,7 @@ export default function BillingPage() {
             <QuickStat
               icon={<Crown className="h-4 w-4" />}
               label="Status"
-              value={onPro ? (activeSub?.status === "past_due" ? "Pro (payment issue)" : "Pro") : "Free"}
+              value={statusLabel}
             />
           </div>
         </div>
@@ -194,9 +219,7 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Plans */}
       <section className="grid gap-6 md:grid-cols-2">
-        {/* Free */}
         <div className="rounded-2xl border p-6 md:p-7 shadow-sm bg-background">
           <div className="mb-6">
             <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs">
@@ -214,9 +237,14 @@ export default function BillingPage() {
           <Button className="w-full" variant="outline" disabled={onPro}>
             {onPro ? "You're on Pro" : "Your current plan"}
           </Button>
+          {!onPro && isCanceled && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-md bg-rose-100/60 dark:bg-rose-900/20 text-rose-900 dark:text-rose-200 px-2.5 py-1 text-xs">
+              <Info className="h-3.5 w-3.5" />
+              Your previous Pro plan is canceled.
+            </div>
+          )}
         </div>
 
-        {/* Pro */}
         <div className="relative rounded-2xl border border-primary/30 p-6 md:p-7 shadow-sm bg-gradient-to-b from-primary/5 to-background">
           <div className="mb-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 text-primary px-3 py-1 text-xs">
@@ -227,12 +255,24 @@ export default function BillingPage() {
               {formatMoney(proPrice?.unit_amount, proPrice?.currency)}
             </div>
             <div className="text-sm text-muted-foreground">per {proPrice?.interval ?? "month"}</div>
-            {renewal && onPro && (
+            {renewal && onPro && !cancelsOn && (
               <div className="mt-2 text-xs text-muted-foreground">
                 Renews on <span className="font-medium">{renewal.toLocaleDateString()}</span>
               </div>
             )}
-            {activeSub?.status === "past_due" && (
+            {cancelsOn && onPro && (
+              <div className="mt-2 inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Cancels on {cancelsOn.toLocaleDateString()}
+              </div>
+            )}
+            {isCanceled && !onPro && (
+              <div className="mt-2 inline-flex items-center gap-2 rounded-md bg-rose-100/60 dark:bg-rose-900/20 text-rose-900 dark:text-rose-200 px-2.5 py-1 text-xs">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Your Pro subscription is canceled.
+              </div>
+            )}
+            {(activeSub?.status === "past_due") && (
               <div className="mt-2 inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs">
                 <AlertTriangle className="h-3.5 w-3.5" />
                 Payment issue — update card in the portal.
@@ -251,7 +291,6 @@ export default function BillingPage() {
               className="w-full"
               onClick={() => {
                 if (!proPrice) return;
-                // eslint-disable-next-line no-console
                 console.info("[billing] CTA:GetPro click", { priceId: proPrice.id });
                 startCheckout(proPrice.id, { mode: "subscription" }).catch((e) => alert(e.message));
               }}
@@ -261,41 +300,28 @@ export default function BillingPage() {
             </Button>
           ) : (
             <div className="flex flex-col gap-3">
-              <Button className="w-full" variant="secondary" disabled>
-                You're on Pro
-              </Button>
-              {/* CANCEL SUBSCRIPTION: replaces "Manage billing" link */}
               <Button
                 className="w-full"
-                variant="destructive"
+                variant="secondary"
                 onClick={() => {
-                  const ok = window.confirm(
-                    "Are you sure you want to cancel your subscription? You'll keep Pro until the end of the current period."
-                  );
-                  if (!ok) return;
-                  // eslint-disable-next-line no-console
-                  console.info("[billing] CancelSubscription click", {
+                  console.info("[billing] ManageSubscription click", {
                     uid: user?.uid || null,
                     trace: getBillingTraceId(),
                     portalTestUrl: (import.meta as any).env?.VITE_STRIPE_PORTAL_TEST_URL || null,
                   });
-                  // We open the Stripe Customer Portal where the user can finalize cancellation.
-                  openBillingPortal()
-                    .catch((e) => {
-                      // eslint-disable-next-line no-console
-                      console.error("[billing] openBillingPortal error", e);
-                      alert(e.message);
-                    });
+                  openBillingPortal().catch((e) => {
+                    console.error("[billing] openBillingPortal error", e);
+                    alert(e.message);
+                  });
                 }}
               >
-                Cancel subscription
+                Manage subscription
               </Button>
             </div>
           )}
         </div>
       </section>
 
-      {/* Loading veil (auth handshake or first limits fetch) */}
       {loading && (
         <div className="fixed inset-x-0 bottom-6 flex justify-center pointer-events-none">
           <div className="inline-flex items-center gap-2 rounded-full border bg-background px-3 py-1 text-xs shadow-sm">
@@ -307,8 +333,6 @@ export default function BillingPage() {
     </div>
   );
 }
-
-/* ------------------------------ components ------------------------------ */
 
 function PlanBadge({ onPro }: { onPro: boolean }) {
   return onPro ? (
@@ -323,15 +347,7 @@ function PlanBadge({ onPro }: { onPro: boolean }) {
   );
 }
 
-function QuickStat({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
+function QuickStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string; }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border bg-background px-3 py-2 shadow-sm">
       <div className="rounded-md border p-2">{icon}</div>
@@ -341,47 +357,4 @@ function QuickStat({
       </div>
     </div>
   );
-}
-
-function UsageCard({ title, used, cap }: { title: string; used: number; cap: number }) {
-  const pct = Math.min(100, Math.round((used / Math.max(1, cap)) * 100));
-  const remaining = Math.max(0, cap - used);
-  return (
-    <div className="rounded-2xl border p-5 shadow-sm bg-background">
-      <div className="flex items-baseline justify-between mb-2">
-        <h4 className="font-medium">{title}</h4>
-        <div className="text-sm text-muted-foreground">
-          {fmtInt(used)} / {fmtInt(cap)}
-        </div>
-      </div>
-      <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
-        <div
-          className="h-2 bg-primary transition-[width] duration-500 ease-out"
-          style={{ width: `${pct}%` }}
-          aria-valuemin={0}
-          aria-valuemax={cap}
-          aria-valuenow={used}
-        />
-      </div>
-      <div className="mt-2 text-xs text-muted-foreground">
-        {fmtInt(remaining)} remaining this month
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------ utilities ------------------------------ */
-
-function formatMoney(amount?: number, currency?: string) {
-  if (amount == null) return "—";
-  const c = (currency || "eur").toUpperCase();
-  return (amount / 100).toLocaleString(undefined, { style: "currency", currency: c });
-}
-
-function fmtInt(n: number) {
-  try {
-    return n.toLocaleString();
-  } catch {
-    return String(n ?? 0);
-  }
 }
