@@ -175,15 +175,10 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      # Nginx config + site assets
       - ./ops/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./static/marketing:/srv/marketing:ro
       - ./static/spa:/srv/spa:ro
-
-      # SSL certs issued on the host by certbot (read-only in container)
       - /etc/letsencrypt:/etc/letsencrypt:ro
-
-      # Webroot for HTTP-01 challenges so renewals work without stopping nginx
       - ./ops/certbot-www:/var/www/certbot:ro
     depends_on:
       api:
@@ -192,11 +187,12 @@ services:
 
   redis:
     image: redis:7.2-alpine
-    command: ["redis-server","--save",""]
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     volumes:
       - redis-data:/data
+      - ./ops/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     ports:
-      - "6379:6379"   # optional for debugging
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -217,7 +213,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "8000:8000"  # optional direct access
+      - "8000:8000"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/healthz"]
       interval: 5s
@@ -273,9 +269,10 @@ services:
   # Redis for dev
   redis:
     image: redis:7.2-alpine
-    command: ["redis-server","--save",""]
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     volumes:
       - redis-data:/data
+      - ./ops/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -285,7 +282,6 @@ services:
 
   api:
     build: ./backend
-    # Limit watch scope to /app, but EXCLUDE heavy dirs like venv, node_modules, site-packages, .git
     command: >
       sh -lc "uvicorn main:app --host 0.0.0.0 --port 8000
       --reload --reload-dir /app
@@ -354,10 +350,13 @@ services:
         condition: service_healthy
     networks: [appnet]
 
-  # New: test Redis
+  # Test Redis with persistence enabled, backed by ephemeral test volume
   redis:
     image: redis:7.2-alpine
-    command: ["redis-server","--save",""]
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - test-redis-data:/data
+      - ./ops/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -368,6 +367,9 @@ services:
 networks:
   appnet:
     driver: bridge
+
+volumes:
+  test-redis-data:
 
 
 C:/code2/lbpr/backend/Dockerfile

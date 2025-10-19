@@ -1,3 +1,4 @@
+# backend/features/rag/router.py
 from fastapi import APIRouter, HTTPException, Request, Depends
 from .schemas import IngestRequest, IngestResponse, QueryRequest, QueryResponse
 from . import orchestrator
@@ -16,7 +17,7 @@ log = logging.getLogger("rag.router")
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(req: IngestRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
-        # Ensure caps reflect the real plan (FREE/PRO)
+        # Make sure RL meta reflects latest billing (caps + anchor)
         await sync_caps_and_plan(user.uid)
 
         text = req.text or ""
@@ -37,7 +38,7 @@ async def ingest(req: IngestRequest, request: Request, user: SessionOut = Depend
 @router.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
-        # Ensure caps reflect the real plan (FREE/PRO)
+        # Make sure RL meta reflects latest billing (caps + anchor)
         await sync_caps_and_plan(user.uid)
 
         ok, used, cap = await add_message(user.uid)
