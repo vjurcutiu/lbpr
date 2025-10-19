@@ -1,11 +1,12 @@
 // src/features/chat/ChatPage.tsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Send, Loader2, PlusCircle, MessageSquare, MoreVertical, Pencil, Trash2, Info } from "lucide-react";
+import { Send, Loader2, PlusCircle, MessageSquare, MoreVertical, Pencil, Trash2, Info, AlertCircle, Crown, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import * as chatApi from "./api";
+import { ApiError } from "./api";
 import { getAuth } from "firebase/auth";
 import {
   appendMessage,
@@ -36,6 +37,25 @@ function useNamespace() {
 }
 
 type RenderMessage = ChatTurn & { id: string };
+
+type LimitsMe = {
+  plan: "FREE" | "PRO";
+  window: string;
+  period: { start_ts: number; end_ts: number };
+  caps: { messages: number; upload_tokens: number };
+  usage: { messages: number; upload_tokens: number };
+  remaining: { messages: number; upload_tokens: number };
+};
+
+async function fetchLimits(): Promise<LimitsMe | null> {
+  try {
+    const res = await fetch("/api/limits/me", { credentials: "include" });
+    if (!res.ok) return null;
+    return (await res.json()) as LimitsMe;
+  } catch {
+    return null;
+  }
+}
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<RenderMessage[]>([]);
@@ -172,13 +192,30 @@ export default function ChatPage() {
         await refreshConversations();
       }
     } catch (err: any) {
-      if (sessionId) {
+      // Friendly UX for rate limits (HTTP 429)
+      if (err instanceof ApiError && err.status === 429 && sessionId) {
+        const lim = await fetchLimits();
+        const payload = {
+          __kind: "limit",
+          reason: "messages",
+          limits: lim,
+        };
         const sysMsg: ChatTurn = {
           role: "system",
-          content: err?.message || "Failed to send message",
+          content: JSON.stringify(payload),
           created_at: new Date().toISOString(),
         } as any;
         await appendMessage(effectiveNs, sessionId, sysMsg);
+      } else {
+        // Fallback: raw error as a small system bubble
+        if (sessionId) {
+          const sysMsg: ChatTurn = {
+            role: "system",
+            content: err?.message || "Failed to send message",
+            created_at: new Date().toISOString(),
+          } as any;
+          await appendMessage(effectiveNs, sessionId, sysMsg);
+        }
       }
       console.error("[chat.ui] error", err);
     } finally {
@@ -445,12 +482,19 @@ function MessageRow({
 }: {
   role: "user" | "assistant" | "system";
   content: string;
-  citations?: chatApi.Citation[];
+  citations?: any;
 }) {
   const isUser = role === "user";
   const isSystem = role === "system";
 
+  // Pretty system notice for limits
   if (isSystem) {
+    try {
+      const data = JSON.parse(content);
+      if (data && data.__kind === "limit") {
+        return <LimitReachedCard payload={data} />;
+      }
+    } catch {}
     return (
       <div className="mx-auto max-w-2xl text-center text-xs text-muted-foreground bg-muted rounded-xl px-3 py-2">
         {content}
@@ -500,7 +544,7 @@ function AssistantThinkingRow() {
   );
 }
 
-function CitationList({ citations }: { citations: chatApi.Citation[] }) {
+function CitationList({ citations }: { citations: any[] }) {
   return (
     <div className="text-xs text-muted-foreground">
       <ul className="mt-1 ml-5 list-disc space-y-1">
@@ -594,6 +638,66 @@ function EmptyState({
             <kbd className="px-1 py-0.5 bg-muted rounded">Shift</kbd>+
             <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> for a new line.
           </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Friendly card shown when monthly chat/message limit is hit (HTTP 429). */
+function LimitReachedCard({ payload }: { payload: any }) {
+  const lim: LimitsMe | null = payload?.limits || null;
+  const plan = lim?.plan || "FREE";
+  const cap = lim?.caps?.messages ?? null;
+  const used = lim?.usage?.messages ?? null;
+  const remaining = lim?.remaining?.messages ?? null;
+  const periodEnd = lim?.period?.end_ts ? new Date(lim.period.end_ts * 1000) : null;
+  const resetsText = lim?.window === "infinite"
+    ? "Free plan quotas don't auto‑reset monthly."
+    : periodEnd
+      ? `Resets on ${periodEnd.toLocaleString()}`
+      : "";
+
+  return (
+    <div className="mx-auto max-w-2xl w-full">
+      <div className="rounded-2xl border bg-card shadow-sm p-4 md:p-5">
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5">
+            <AlertCircle className="h-5 w-5 text-red-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold">You've reached your monthly chat limit</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Your current plan: <span className="inline-flex items-center gap-1 font-medium">{plan === "PRO" ? <Crown className="h-3.5 w-3.5" /> : null}{plan}</span>.
+              {resetsText ? <> {resetsText}</> : null}
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="rounded-xl border bg-background p-3">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                  <Gauge className="h-3.5 w-3.5" /> Messages used
+                </div>
+                <div className="text-sm font-medium mt-1">{used ?? "—"} {cap != null ? <>/ {cap}</> : null}</div>
+              </div>
+              <div className="rounded-xl border bg-background p-3">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Remaining</div>
+                <div className="text-sm font-medium mt-1">{remaining ?? "0"}</div>
+              </div>
+              <div className="rounded-xl border bg-background p-3">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Uploads this month</div>
+                <div className="text-sm font-medium mt-1">{lim?.usage?.upload_tokens ?? "—"} / {lim?.caps?.upload_tokens ?? "—"}</div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <a href="/billing">
+                <Button>Upgrade to Pro</Button>
+              </a>
+              <a href="/billing">
+                <Button variant="outline">View usage</Button>
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>

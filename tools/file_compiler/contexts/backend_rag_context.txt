@@ -30,7 +30,6 @@ def simple_word_chunker(text: str, chunk_size: int = 1500, overlap: int = 150) -
 
 
 C:/code2/lbpr/backend/features/rag/contracts_router.py
-
 from __future__ import annotations
 import logging
 from typing import List, Optional, Dict, Any, Tuple
@@ -49,6 +48,7 @@ except Exception:
         uid: str = "dev"
 
 from core.rate_limit import add_message
+from core.plan import sync_caps_and_plan
 from .orchestrator import query_request
 from .schemas import QueryRequest, QueryResponse, Source
 
@@ -137,13 +137,28 @@ async def _rewrite_query(question: str, hint: str) -> str:
         log.exception("query_rewrite_error")
         return question if not hint else f"{question} ({hint})"
 
+class Citation(BaseModel):
+    doc_id: str
+    title: Optional[str] = None
+    span: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    answer: str
+    citations: List[Citation] = Field(default_factory=list)
+    usage: Dict[str, Any] = Field(default_factory=dict)
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(get_current_user)) -> ChatResponse:
     uid = getattr(user, "uid", "dev")
+
+    # Enforce real caps before counting this message
+    await sync_caps_and_plan(uid)
+
     ok, used, cap = await add_message(uid)
     log.info("usage_message_add", uid=uid, allowed=ok, used_messages=used, cap_messages=cap, path=str(request.url.path))
     if not ok:
         raise HTTPException(status_code=429, detail=f"Message limit reached ({used}/{cap}). Upgrade to continue.")
+
     hint = _history_hint(req.history)
     search_query = await _rewrite_query(req.message, hint)
     from .schemas import QueryRequest as _QR
@@ -412,7 +427,6 @@ No API changes are required. The existing `/features/rag/ingest` and `/features/
 
 
 C:/code2/lbpr/backend/features/rag/router.py
-
 from fastapi import APIRouter, HTTPException, Request, Depends
 from .schemas import IngestRequest, IngestResponse, QueryRequest, QueryResponse
 from . import orchestrator
@@ -423,6 +437,7 @@ from features.auth.models import SessionOut
 
 from core.tokenizer import count_tokens
 from core.rate_limit import add_upload_tokens, add_message
+from core.plan import sync_caps_and_plan
 
 router = APIRouter(prefix="/features/rag", tags=["RAG"]) 
 log = logging.getLogger("rag.router")
@@ -430,6 +445,9 @@ log = logging.getLogger("rag.router")
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(req: IngestRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
+        # Ensure caps reflect the real plan (FREE/PRO)
+        await sync_caps_and_plan(user.uid)
+
         text = req.text or ""
         tokens = count_tokens(text)
         ok, used, cap = await add_upload_tokens(user.uid, tokens)
@@ -448,6 +466,9 @@ async def ingest(req: IngestRequest, request: Request, user: SessionOut = Depend
 @router.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
+        # Ensure caps reflect the real plan (FREE/PRO)
+        await sync_caps_and_plan(user.uid)
+
         ok, used, cap = await add_message(user.uid)
         log.info("usage_message_add", uid=user.uid, allowed=ok, used_messages=used, cap_messages=cap, path=str(request.url.path))
         if not ok:
@@ -1589,11 +1610,11 @@ from .schemas import FileItem, UploadResponse
 from features.rag import orchestrator
 from features.rag.schemas import IngestRequest
 
-# NEW: tracker + optional OCR
+# Tracker + tokenizer + usage + plan sync
 from core import tracker as uptrack
-# NEW: usage + tokenizer
 from core.tokenizer import count_tokens
 from core.rate_limit import add_upload_tokens
+from core.plan import sync_caps_and_plan
 
 log = logging.getLogger("files.service")
 
@@ -1679,7 +1700,7 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
     return None
 
 async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> UploadResponse:
-    # We stream-read into memory to report progress precisely; then upload to Firebase once.
+    # We stream-read into memory to report progress precisely.
     filename = file.filename or "file"
     object_name = _object_path(uid, filename)  # storage object path, used as stable doc_id
     bkt = _bucket()
@@ -1694,14 +1715,11 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
         _ = await file.read(0)
     except Exception as e:
         log.debug("upload_file_read0_fail", error=str(e))
-    # We'll compute total along the way.
     await uptrack.create_job(job_id=object_name, uid=uid, filename=filename, dataset=dataset, total_bytes=int(total_guess))
 
-    # Read in chunks to compute checksum, bytes, and optional text
-    sha256 = None
+    # Read in chunks to compute checksum and bytes
     import hashlib as _hashlib
     h = _hashlib.sha256()
-
     chunks: List[bytes] = []
     total = 0
     CHUNK = 1024 * 1024  # 1 MB
@@ -1719,9 +1737,9 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
             log.debug("upload_progress", object=object_name, bytes=total)
 
     sha256 = h.hexdigest()
-    # Update the total_bytes now that we know it
     data = b"".join(chunks)
-    # Update the 'total_bytes' field explicitly and recompute pct=100 for receive
+
+    # Update the 'total_bytes' now that we know it
     try:
         from core.redis_utils import get_client as _get_client  # type: ignore
         rds = await _get_client()
@@ -1730,9 +1748,30 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
     except Exception as e:
         log.warning("upload_set_total_bytes_failed", object=object_name, error=str(e))
 
-    # Upload to Firebase
+    # -------- NEW: ENFORCE LIMITS BEFORE STORING --------
+    # Extract text *first*, sync real plan caps, and charge tokens; if over, fail the job.
+    await uptrack.set_phase(object_name, "extract", pct=30)
+    text = _extract_text(filename, file.content_type, data)
+
+    if text:
+        tokens = count_tokens(text or "")
+        # Make sure the user's RL meta matches their billing plan
+        await sync_caps_and_plan(uid)
+        try:
+            ok, used, cap = await add_upload_tokens(uid, tokens)
+            log.info("usage_upload_tokens_add", uid=uid, object=object_name, filename=filename, dataset=dataset, tokens=tokens, allowed=ok, used_upload_tokens=used, cap_upload_tokens=cap)
+            if not ok:
+                # HARD ENFORCEMENT: do not store or ingest; surface error via tracker
+                msg = f"Upload budget exceeded ({used}/{cap} tokens). Upgrade to continue."
+                await uptrack.mark_error(object_name, msg)
+                log.warning("upload_tokens_exhausted_abort", uid=uid, object=object_name)
+                return UploadResponse(job_id=object_name)
+        except Exception:
+            log.exception("usage_upload_tokens_error", uid=uid, object=object_name)
+
+    # Store in Firebase (only if we didn't exceed budget)
     try:
-        await uptrack.set_phase(object_name, "upload", pct=10)
+        await uptrack.set_phase(object_name, "upload", pct=60)
         blob.metadata = {
             "checksum": sha256,
             "original_name": filename,
@@ -1741,42 +1780,20 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
             "content_type": file.content_type or "",
         }
         blob.upload_from_string(data, content_type=file.content_type or "application/octet-stream")
-        await uptrack.set_phase(object_name, "upload", pct=25)
+        await uptrack.set_phase(object_name, "upload", pct=75)
         log.info("upload_storage_ok", object=object_name, size=total)
     except Exception as e:
         await uptrack.mark_error(object_name, f"Storage error: {e}")
         log.exception("upload_storage_error", object=object_name)
         raise
 
-    # Text extraction (with OCR fallback for images)
+    # If we have text, embed & ingest (we already charged tokens above).
     try:
-        await uptrack.set_phase(object_name, "extract", pct=40)
-        text = _extract_text(filename, file.content_type, data)
-        # NEW: count upload tokens *only if* we have extractable text
-        # (images with no OCR will not be charged)
         if text:
-            tokens = count_tokens(text or "")
-            try:
-                ok, used, cap = await add_upload_tokens(uid, tokens)
-                log.info(
-                    "usage_upload_tokens_add",
-                    uid=uid, object=object_name, filename=filename, dataset=dataset,
-                    tokens=tokens, allowed=ok, used_upload_tokens=used, cap_upload_tokens=cap
-                )
-                if not ok:
-                    # We still keep the physical file, but skip RAG ingest
-                    log.warning("upload_tokens_exhausted_skip_ingest", uid=uid, object=object_name)
-                    await uptrack.set_phase(object_name, "upsert", pct=85)
-                    await uptrack.mark_done(object_name)
-                    log.info("upload_done_no_ingest", object=object_name)
-                    return UploadResponse(job_id=object_name)
-            except Exception:
-                log.exception("usage_upload_tokens_error", uid=uid, object=object_name)
-
             log.info("upload_extract_ok", object=object_name, chars=len(text))
-            await uptrack.set_phase(object_name, "embed", pct=60)
+            await uptrack.set_phase(object_name, "embed", pct=85)
             try:
-                # ✅ Include filename & storage path as metadata, and use storage object path as doc_id
+                # Include filename & storage path as metadata, and use storage object path as doc_id
                 orchestrator.ingest_request(
                     IngestRequest(
                         dataset=dataset,
@@ -1786,7 +1803,7 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
                             "owner_uid": uid,
                             "source": "upload",
                             "title": filename,       # keep for backward-compat
-                            "filename": filename,    # <— explicit filename for retrieval UIs
+                            "filename": filename,    # explicit filename for retrieval UIs
                             "file_id": object_name,  # storage object path (also equals doc_id)
                             "dataset": dataset,
                             "checksum": sha256,
@@ -1795,15 +1812,15 @@ async def upload_file(uid: str, file: UploadFile, dataset: str = "default") -> U
                     ),
                     uid=uid,
                 )
-                await uptrack.set_phase(object_name, "upsert", pct=85)
+                await uptrack.set_phase(object_name, "upsert", pct=95)
                 log.info("upload_ingest_ok", object=object_name)
             except Exception as e:
                 log.warning("upload_ingest_error", object=object_name, error=str(e))
         else:
             log.info("upload_text_skipped", object=object_name, reason="no extractable text", ctype=file.content_type or "", size=total)
-            await uptrack.set_phase(object_name, "upsert", pct=85)
+            await uptrack.set_phase(object_name, "upsert", pct=95)
     except Exception as e:
-        await uptrack.mark_error(object_name, f"Extract error: {e}")
+        await uptrack.mark_error(object_name, f"Extract/ingest error: {e}")
         log.exception("upload_extract_error", object=object_name)
         raise
 

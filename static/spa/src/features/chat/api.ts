@@ -2,6 +2,7 @@
  * Chat API client with per-request trace IDs for backend correlation.
  * (User-based namespaces: no tenant header/body anymore.)
  */
+
 export type ChatTurn = {
   role: "user" | "assistant" | "system";
   content: string;
@@ -30,6 +31,22 @@ export type ChatResponse = {
   __dur_ms?: number;
 };
 
+/** Rich error with HTTP status + trace metadata so the UI can react nicely. */
+export class ApiError extends Error {
+  status: number;
+  traceId?: string | null;
+  requestId?: string | null;
+  bodyText?: string;
+  constructor(message: string, opts: { status: number; traceId?: string | null; requestId?: string | null; bodyText?: string }) {
+    super(message);
+    this.name = "ApiError";
+    this.status = opts.status;
+    this.traceId = opts.traceId;
+    this.requestId = opts.requestId;
+    this.bodyText = opts.bodyText;
+  }
+}
+
 export async function sendChat(req: ChatRequest, traceId?: string) {
   const tid = traceId || cryptoRandomId();
   const t0 = performance.now();
@@ -49,9 +66,21 @@ export async function sendChat(req: ChatRequest, traceId?: string) {
   console.debug("[chat.api] fetch_end", { status: res.status, traceId: rtid || tid, requestId: rid, dur_ms: dur });
 
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Chat failed (${res.status}). trace=${rtid || tid} ${text}`);
-    }
+    let bodyText = "";
+    try {
+      // Try to preserve backend message (could be JSON or plain text)
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        const j = await res.json();
+        bodyText = typeof j?.detail === "string" ? j.detail : JSON.stringify(j);
+      } else {
+        bodyText = await res.text();
+      }
+    } catch {}
+    const msg = `Chat failed (${res.status}).` + (bodyText ? ` ${bodyText}` : "");
+    throw new ApiError(msg, { status: res.status, traceId: rtid || tid, requestId: rid, bodyText });
+  }
+
   const data = (await res.json()) as ChatResponse;
   (data as any).__trace_id = rtid || tid;
   (data as any).__request_id = rid;
