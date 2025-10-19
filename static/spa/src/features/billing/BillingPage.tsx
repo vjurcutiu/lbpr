@@ -223,7 +223,7 @@ export default function BillingPage() {
         : "Pro")
     : (isCanceled ? "Pro canceled" : "Free");
 
-  // View diag (derived state, so we can debug mismatches without noise)
+  // View diag
   useEffect(() => {
     console.debug(`[billing][${getBillingTraceId()}] diag:view`, {
       user: user?.uid || null,
@@ -280,12 +280,16 @@ export default function BillingPage() {
         </div>
       </header>
 
-      {/* ALIGN: make both cards equal height with matched header/list/button positions */}
+      {/* ALIGN: equal height with matched header/list/chip/button positions */}
       <section className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
         {/* Free card */}
         <div className="relative rounded-2xl border shadow-sm p-5 md:p-7 h-full flex flex-col">
           {/* header */}
-          <div className="mb-6 min-h-[110px]">
+          <div className="mb-6">
+            {/* Invisible 'Most popular' chip to reserve space for alignment */}
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 text-primary px-3 py-1 text-xs invisible pointer-events-none select-none">
+              <Crown className="h-3.5 w-3.5" /> Most popular
+            </div>
             <h3 className="mt-3 text-xl font-semibold">Free</h3>
             <div className="mt-1 text-3xl font-semibold">€0</div>
             <div className="text-sm text-muted-foreground">per month</div>
@@ -296,22 +300,32 @@ export default function BillingPage() {
             <li>• 100,000 upload tokens (≈75 pages) / month</li>
             <li>• Get started — no credit card</li>
           </ul>
-          {/* CTA */}
-          <Button className="w-full mt-auto" variant="outline" disabled={onPro}>
-            {onPro ? "You're on Pro" : "Your current plan"}
-          </Button>
-          {!onPro && isCanceled && (
-            <div className="mt-3 inline-flex items-center gap-2 rounded-md bg-rose-100/60 dark:bg-rose-900/20 text-rose-900 dark:text-rose-200 px-2.5 py-1 text-xs">
+
+          {/* footer: chip row then button (keeps alignment) */}
+          <div className="mt-auto flex flex-col gap-3">
+            {/* Invisible cancel chip placeholder so buttons align */}
+            <div className="inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs invisible pointer-events-none select-none">
               <Info className="h-3.5 w-3.5" />
-              Your previous Pro plan is canceled.
+              Cancels on <strong className="ml-1">—</strong>
             </div>
-          )}
+
+            <Button className="w-full" variant="outline" disabled={onPro}>
+              {onPro ? "You're on Pro" : "Your current plan"}
+            </Button>
+
+            {!onPro && isCanceled && (
+              <div className="inline-flex items-center gap-2 rounded-md bg-rose-100/60 dark:bg-rose-900/20 text-rose-900 dark:text-rose-200 px-2.5 py-1 text-xs">
+                <Info className="h-3.5 w-3.5" />
+                Your previous Pro plan is canceled.
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Pro card */}
         <div className="relative rounded-2xl border shadow-sm bg-gradient-to-b from-primary/5 to-background p-5 md:p-7 h-full flex flex-col">
           {/* header */}
-          <div className="mb-6 min-h-[110px]">
+          <div className="mb-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 text-primary px-3 py-1 text-xs">
               <Crown className="h-3.5 w-3.5" /> Most popular
             </div>
@@ -330,28 +344,36 @@ export default function BillingPage() {
             <li>• Phone & email support (≤24h SLA)</li>
             <li>• Priority feature requests & roadmap voting</li>
           </ul>
-          {/* CTA */}
-          {onPro ? (
-            <Button
-              className="w-full mt-auto bg-primary/90 text-primary-foreground hover:bg-primary"
-              variant="default"
-              onClick={() => openBillingPortal()}
-            >
-              Manage subscription
-            </Button>
-          ) : (
-            <Button className="w-full mt-auto" onClick={() => proPrice?.id && startCheckout(proPrice.id)} disabled={!proPrice}>
-              Upgrade to Pro
-            </Button>
-          )}
 
-          {/* Only show the cancel chip (no renews/ends line) */}
-          {onPro && cancelsOn && (
-            <div className="mt-3 inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs">
-              <Info className="h-3.5 w-3.5" />
-              Cancels on <strong className="ml-1">{fmtDate(cancelsOn)}</strong>
-            </div>
-          )}
+          {/* footer: chip above button */}
+          <div className="mt-auto flex flex-col gap-3">
+            {onPro && cancelsOn ? (
+              <div className="inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs">
+                <Info className="h-3.5 w-3.5" />
+                Cancels on <strong className="ml-1">{fmtDate(cancelsOn)}</strong>
+              </div>
+            ) : (
+              // placeholder to keep height so buttons align
+              <div className="inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs invisible pointer-events-none select-none">
+                <Info className="h-3.5 w-3.5" />
+                Cancels on <strong className="ml-1">—</strong>
+              </div>
+            )}
+
+            {onPro ? (
+              <Button
+                className="w-full bg-primary/90 text-primary-foreground hover:bg-primary"
+                variant="default"
+                onClick={() => openBillingPortal()}
+              >
+                Manage subscription
+              </Button>
+            ) : (
+              <Button className="w-full" onClick={() => proPrice?.id && startCheckout(proPrice.id)} disabled={!proPrice}>
+                Upgrade to Pro
+              </Button>
+            )}
+          </div>
         </div>
       </section>
     </div>
