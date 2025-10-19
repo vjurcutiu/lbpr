@@ -15,6 +15,7 @@ import {
   type Firestore,
   type DocumentData,
 } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 // Narrow import of Auth type to avoid coupling here
 import type { User } from "firebase/auth";
@@ -62,6 +63,15 @@ export type Subscription = {
   items?: { price: Price }[];
 };
 
+export type CheckoutOptions = {
+  mode?: "subscription" | "payment",
+  successUrl?: string,
+  cancelUrl?: string,
+  quantity?: number,
+  allowPromotionCodes?: boolean,
+  trialFromPlan?: boolean,
+};
+
 /** Wait for a signed-in user (with timeout) */
 export function requireUser(timeoutMs = 8000): Promise<User> {
   return new Promise((resolve, reject) => {
@@ -72,7 +82,7 @@ export function requireUser(timeoutMs = 8000): Promise<User> {
       reject(new Error("You need to be signed in to manage billing."));
     }, timeoutMs);
 
-    const { auth } = firebaseAuth as any ? { auth: (firebaseAuth as any) } : { auth: firebaseAuth };
+    const { auth } = (firebaseAuth as any) ? { auth: (firebaseAuth as any) } : { auth: firebaseAuth };
     const unsub = (auth as any).onAuthStateChanged(
       (u: User | null) => {
         if (done) return;
@@ -88,19 +98,20 @@ export function requireUser(timeoutMs = 8000): Promise<User> {
           reject(new Error("Please verify your email before managing billing."));
         }
       },
-      (err: any) => {
+      (err: unknown) => {
         if (done) return;
         done = true;
         clearTimeout(to);
         unsub();
-        reject(err);
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
     );
   });
 }
 
-function explainFirestoreError(err: any): Error {
-  const code = err?.code || err?.name;
+function explainFirestoreError(err: unknown): Error {
+  const anyErr = err as any;
+  const code = anyErr?.code || anyErr?.name;
   if (code === "permission-denied") {
     return new Error("Missing or insufficient permissions for Firestore billing collections.");
   }
@@ -113,8 +124,13 @@ export async function loadActiveProducts(dbArg: Firestore = db): Promise<Product
   const q = query(productsCol, where("active", "==", true));
   const snaps = await getDocs(q);
 
-  const allowlist = (import.meta.env.VITE_STRIPE_PRICE_ALLOWLIST || "").split(",").map(s => s.trim()).filter(Boolean);
-  const allowSet = new Set(allowlist);
+  const allowlist: string[] = (import.meta as any).env?.VITE_STRIPE_PRICE_ALLOWLIST
+    ? String((import.meta as any).env.VITE_STRIPE_PRICE_ALLOWLIST)
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter((s: string) => !!s)
+    : [];
+  const allowSet = new Set<string>(allowlist);
 
   const results: Product[] = [];
   for (const pDoc of snaps.docs) {
@@ -148,37 +164,30 @@ export async function loadActiveProducts(dbArg: Firestore = db): Promise<Product
 }
 
 /** Start a Checkout Session via extension (subscription by default) */
-export async function startCheckout(priceId: string, opts?: {
-  mode?: "subscription" | "payment",
-  successUrl?: string,
-  cancelUrl?: string,
-  quantity?: number,
-  allowPromotionCodes?: boolean,
-  trialFromPlan?: boolean,
-}): Promise<void> {
+export async function startCheckout(priceId: string, opts?: CheckoutOptions): Promise<void> {
   const user = await requireUser();
   const customerSessions = collection(db, "customers", user.uid, "checkout_sessions");
-  const payload: any = {
+  const payload: Record<string, unknown> = {
     price: priceId,
     mode: opts?.mode || "subscription",
     success_url: opts?.successUrl || window.location.origin + "/billing",
     cancel_url:  opts?.cancelUrl  || window.location.origin + "/billing",
-    quantity: opts?.quantity || 1,
+    quantity: opts?.quantity ?? 1,
     allow_promotion_codes: !!opts?.allowPromotionCodes,
     trial_from_plan: !!opts?.trialFromPlan,
   };
   const ref = await addDoc(customerSessions, payload);
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const unsub = onSnapshot(doc(customerSessions, ref.id), (snap) => {
-      const data = snap.data();
+      const data = snap.data() as any;
       if (!data) return;
-      if ((data as any).error) {
+      if (data.error) {
         unsub();
-        const msg = (data as any).error?.message || "Checkout failed to start.";
+        const msg = data.error?.message || "Checkout failed to start.";
         reject(new Error(msg));
       }
-      if ((data as any).url) {
-        const url = (data as any).url as string;
+      if (data.url) {
+        const url = data.url as string;
         unsub();
         try { window.location.assign(url); } finally { resolve(); }
       }
@@ -186,33 +195,58 @@ export async function startCheckout(priceId: string, opts?: {
   });
 }
 
-/** Open the Billing Portal via extension (or fixed test URL via env) */
+/** Open the Billing Portal using the official callable function (preferred).
+ *  Falls back to Firestore `portal_sessions` for older extension versions.
+ */
 export async function openBillingPortal(returnUrl?: string): Promise<void> {
-  const portalTestUrl = (import.meta.env.VITE_STRIPE_PORTAL_TEST_URL || "").trim();
-  if (portalTestUrl) {
-    window.location.assign(portalTestUrl);
+  const env: any = (import.meta as any).env || {};
+  const e2e = env.VITE_E2E === "1" || env.MODE === "e2e";
+  const hardcoded = e2e ? String(env.VITE_STRIPE_PORTAL_TEST_URL || "").trim() : "";
+  if (hardcoded) {
+    logBilling("warn", "Using hardcoded VITE_STRIPE_PORTAL_TEST_URL (E2E mode). This bypasses the extension.");
+    window.location.assign(hardcoded);
     return;
   }
 
-  const user = await requireUser();
-  const portalCol = collection(db, "customers", user.uid, "portal_sessions");
-  const ref = await addDoc(portalCol, { return_url: returnUrl || window.location.origin + "/billing" });
-  return new Promise((resolve, reject) => {
-    const unsub = onSnapshot(doc(portalCol, ref.id), (snap) => {
-      const data = snap.data();
-      if (!data) return;
-      if ((data as any).error) {
-        unsub();
-        const msg = (data as any).error?.message || "Failed to open billing portal.";
-        reject(new Error(msg));
-      }
-      if ((data as any).url) {
-        const url = (data as any).url as string;
-        unsub();
-        try { window.location.assign(url); } finally { resolve(); }
-      }
-    }, (e) => reject(explainFirestoreError(e)));
-  });
+  const region = String(env.VITE_FIREBASE_FUNCTIONS_REGION || "us-central1").trim();
+  try {
+    const functions = getFunctions(firebaseApp, region);
+    // Callable provided by the Firestore Stripe Payments extension.
+    const createPortalLink = httpsCallable(functions, "ext-firestore-stripe-payments-createPortalLink");
+    const res = await createPortalLink({
+      returnUrl: returnUrl || window.location.origin + "/billing",
+      locale: "auto",
+    } as any);
+    const data: any = res?.data;
+    const url = data?.url as string | undefined;
+    if (typeof url === "string" && url.startsWith("http")) {
+      window.location.assign(url);
+      return;
+    }
+    throw new Error("Callable returned no URL");
+  } catch (err: unknown) {
+    logBilling("warn", "createPortalLink failed, attempting Firestore fallback", { err: (err as any)?.message || String(err), region });
+    // ----- Firestore fallback for older extension versions -----
+    const user = await requireUser();
+    const portalCol = collection(db, "customers", user.uid, "portal_sessions");
+    const ref = await addDoc(portalCol, { return_url: returnUrl || window.location.origin + "/billing" });
+    await new Promise<void>((resolve, reject) => {
+      const unsub = onSnapshot(doc(portalCol, ref.id), (snap) => {
+        const data = snap.data() as any;
+        if (!data) return;
+        if (data.error) {
+          unsub();
+          const msg = data.error?.message || "Failed to open billing portal.";
+          reject(new Error(msg));
+        }
+        if (data.url) {
+          const url = data.url as string;
+          unsub();
+          try { window.location.assign(url); } finally { resolve(); }
+        }
+      }, (e) => reject(explainFirestoreError(e)));
+    });
+  }
 }
 
 /** Observe current subscriptions (latest first) */
@@ -226,6 +260,18 @@ export function observeSubscriptions(cb: (subs: Subscription[]) => void) {
     return onSnapshot(subsQ, (snap) => {
       const subs: Subscription[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
       cb(subs);
+      // lightweight debug line to help verify sync after portal actions
+      try {
+        const top = subs[0] as any;
+        console.debug(`[billing][${getBillingTraceId()}] diag:subscriptions:snapshot`, {
+          count: subs.length,
+          topStatus: top?.status || null,
+          topCancelAt: top?.cancel_at || null,
+          topCPend: top?.current_period_end || null
+        });
+      } catch {
+        /* ignore logging errors */
+      }
     }, (_e) => { cb([]); });
   });
 }
@@ -249,6 +295,7 @@ import { getJSON } from "@/shared/api";
 import { useAuthContext } from "@/features/auth/AuthProvider";
 import { Check, Crown, MessageSquare, UploadCloud, AlertTriangle, Loader2, Info } from "lucide-react";
 
+/* ------------------------------- Types ------------------------------- */
 type LimitsResp = {
   plan: "FREE" | "PRO";
   window: string; // YYYYMM
@@ -256,6 +303,7 @@ type LimitsResp = {
   usage: { messages: number; upload_tokens: number };
 };
 
+/* ------------------------------ Helpers ----------------------------- */
 function fmtInt(n?: number) {
   try { return new Intl.NumberFormat().format(n ?? 0); } catch { return String(n ?? 0); }
 }
@@ -269,6 +317,46 @@ function formatMoney(amount?: number, currency?: string) {
   }
 }
 
+/** Robust conversion of Stripe/Firestore timestamp-ish values → millis. */
+function toMillis(t: any): number | null {
+  if (t == null) return null;
+  // Firestore Timestamp
+  if (typeof t === "object") {
+    // Has toDate(): Firestore Timestamp
+    if (typeof (t as any).toDate === "function") {
+      try { return (t as any).toDate().getTime(); } catch { /* noop */ }
+    }
+    // { seconds: number } (Firebase extension occasionally sets this shape)
+    if (typeof (t as any).seconds === "number") {
+      return Math.round((t as any).seconds * 1000);
+    }
+  }
+  if (typeof t === "number") {
+    // Heuristic: seconds vs ms
+    return t < 4e10 ? Math.round(t * 1000) : Math.round(t);
+  }
+  if (typeof t === "string") {
+    const n = Number(t);
+    if (Number.isFinite(n)) return n < 4e10 ? Math.round(n * 1000) : Math.round(n);
+  }
+  return null;
+}
+
+function asDate(t: any): Date | null {
+  const ms = toMillis(t);
+  return ms ? new Date(ms) : null;
+}
+
+function fmtDate(d: Date | null): string {
+  if (!d) return "—";
+  try {
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  } catch {
+    return d.toLocaleDateString();
+  }
+}
+
+/* ------------------------------ Component ------------------------------ */
 export default function BillingPage() {
   const { user, loading: authLoading } = useAuthContext();
   const [products, setProducts] = useState<Product[]>([]);
@@ -277,6 +365,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  // Mount diag
   useEffect(() => {
     console.info(`[billing][${getBillingTraceId()}] BillingPage:mounted`, {
       uid: user?.uid || null,
@@ -284,6 +373,7 @@ export default function BillingPage() {
     });
   }, []);
 
+  // Load products
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -298,6 +388,7 @@ export default function BillingPage() {
     return () => { cancel = true; };
   }, []);
 
+  // Load limits (and poll periodically while signed in)
   useEffect(() => {
     let cancel = false;
 
@@ -323,19 +414,36 @@ export default function BillingPage() {
     return () => { cancel = true; };
   }, [user, authLoading]);
 
+  // Observe subscriptions in real-time
   useEffect(() => {
     let unsub: undefined | (() => void);
     if (!user) { setSubs([]); return; }
-    observeSubscriptions((list) => setSubs(list))
+    observeSubscriptions((list) => {
+      setSubs(list);
+      // concise diagnostics to verify Stripe→Firestore sync after portal actions
+      const top = list[0];
+      console.debug(`[billing][${getBillingTraceId()}] diag:subscriptions`, {
+        count: list.length,
+        top: top ? {
+          id: top.id,
+          status: (top as any).status,
+          cancel_at: (top as any).cancel_at,
+          cancel_at_period_end: (top as any).cancel_at_period_end,
+          canceled_at: (top as any).canceled_at,
+          current_period_end: (top as any).current_period_end,
+          current_period_start: (top as any).current_period_start,
+        } : null
+      });
+    })
       .then((fn) => { unsub = fn; })
       .catch((e) => console.warn("[billing] observeSubscriptions failed", e));
     return () => { if (unsub) unsub(); };
   }, [user]);
 
+  // Extra: also poll limits every 5s while authenticated so usage updates in real time
   const pollRef = useRef<number | null>(null);
   const inflightRef = useRef(false);
   const POLL_MS = 5000;
-
   useEffect(() => {
     if (!user) return;
     async function tick() {
@@ -354,8 +462,10 @@ export default function BillingPage() {
     return () => { if (pollRef.current != null) window.clearInterval(pollRef.current); };
   }, [user]);
 
-  const activeSub = subs.find((s) => ["active", "trialing", "past_due"].includes(s.status));
+  // Derive view model
+  const activeSub = subs.find((s) => ["active", "trialing", "past_due"].includes((s as any).status));
   const latestSub = subs[0];
+
   const onPro = user ? (!!activeSub || limits?.plan === "PRO") : false;
 
   const proPrice: Price | undefined = useMemo(() => {
@@ -376,33 +486,37 @@ export default function BillingPage() {
     return all.sort((a, b) => (a.unit_amount ?? 0) - (b.unit_amount ?? 0))[0];
   }, [products]);
 
-  const parseStripeTs = (t: any): number | null => {
-    if (!t && t !== 0) return null;
-    if (typeof t === "number") return t;
-    if (typeof t === "string") { const n = Number(t); return Number.isFinite(n) ? n : null; }
-    if (typeof t === "object" && typeof t.seconds === "number") return t.seconds;
-    return null;
-  };
+  const renewal = asDate(activeSub && (activeSub as any).current_period_end);
+  const cancelsOn =
+    asDate(activeSub && (activeSub as any).cancel_at) ||
+    ((activeSub as any)?.cancel_at_period_end && renewal) ||
+    null;
 
-  const renewalTs = parseStripeTs(activeSub?.current_period_end);
-  const renewal = renewalTs ? new Date(renewalTs * 1000) : null;
-
-  const cancelAtTs = parseStripeTs((activeSub as any)?.cancel_at);
-  const cancelsOn = cancelAtTs
-    ? new Date(cancelAtTs * 1000)
-    : (activeSub?.cancel_at_period_end && renewalTs)
-    ? new Date(renewalTs * 1000)
-    : null;
-
-  const isCanceled = latestSub?.status === "canceled";
+  const isCanceled = (latestSub as any)?.status === "canceled";
 
   const statusLabel = onPro
-    ? (activeSub?.status === "past_due"
+    ? ((activeSub as any)?.status === "past_due"
         ? "Pro (payment issue)"
         : cancelsOn
-        ? `Pro (cancels on ${cancelsOn.toLocaleDateString()})`
+        ? `Pro (cancels on ${fmtDate(cancelsOn)})`
         : "Pro")
     : (isCanceled ? "Pro canceled" : "Free");
+
+  // View diag (derived state, so we can debug mismatches without noise)
+  useEffect(() => {
+    console.debug(`[billing][${getBillingTraceId()}] diag:view`, {
+      user: user?.uid || null,
+      onPro,
+      latestStatus: (latestSub as any)?.status || null,
+      activeStatus: (activeSub as any)?.status || null,
+      current_period_end: (activeSub as any)?.current_period_end || null,
+      cancel_at: (activeSub as any)?.cancel_at || null,
+      cancel_at_period_end: (activeSub as any)?.cancel_at_period_end || null,
+      renewalISO: renewal ? renewal.toISOString() : null,
+      cancelsOnISO: cancelsOn ? cancelsOn.toISOString() : null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, onPro, (latestSub as any)?.status, (activeSub as any)?.status, renewal?.getTime(), cancelsOn?.getTime()]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -425,7 +539,7 @@ export default function BillingPage() {
             <PlanBadge onPro={onPro} />
           </div>
 
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="mt-6 grid grid-cols-1 sm-grid-cols-3 sm:grid-cols-3 gap-3">
             <QuickStat
               icon={<MessageSquare className="h-4 w-4" />}
               label="Messages used"
@@ -493,10 +607,29 @@ export default function BillingPage() {
               Upgrade to Pro
             </Button>
           )}
+
+          {/* NEW: Explicit renews on / cancels on line */}
+          {onPro && (
+            <div className="mt-3 text-xs text-muted-foreground">
+              {cancelsOn ? (
+                <>
+                  Ends on <strong className="ml-1">{fmtDate(cancelsOn)}</strong>
+                </>
+              ) : renewal ? (
+                <>
+                  Renews on <strong className="ml-1">{fmtDate(renewal)}</strong>
+                </>
+              ) : (
+                <span>—</span>
+              )}
+            </div>
+          )}
+
+          {/* Keep the amber chip for extra clarity when canceled */}
           {onPro && cancelsOn && (
             <div className="mt-3 inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs">
               <Info className="h-3.5 w-3.5" />
-              Cancels on <strong className="ml-1">{cancelsOn.toLocaleDateString()}</strong>
+              Cancels at period end (<strong className="ml-1">{fmtDate(cancelsOn)}</strong>)
             </div>
           )}
         </div>
@@ -535,18 +668,20 @@ export { default as BillingPage } from "./BillingPage";
 
 
 C:/code2/lbpr/static/spa/src/features/billing/README.md
-# Billing Feature (Stripe + Firestore) — v3.1
+# Billing Feature (Stripe + Firestore) — v3.2
 
-**Fixes**
-- **Renews on → Ends on**: when a cancellation is scheduled (`cancel_at` or `cancel_at_period_end`), the Pro card now shows **Ends on** with the correct date. 
-- **Robust timestamp parsing**: handles Firestore `Timestamp` objects via `toDate()` in addition to `number|string|{seconds}`.
-- **Targeted diagnostics only**: removed noisy console logs and added two concise debug points:
-  - `diag:subscriptions` — emitted when the subscriptions snapshot updates (status + key fields).
-  - `diag:view` — emitted when the derived view state changes (onPro, ends/renews date, etc.).
+**What changed**
+- **Fix: Firestore Timestamp parsing.** Some Stripe Firebase Extension mirrors store time fields (e.g. `cancel_at`, `current_period_end`) as **Firestore `Timestamp`** objects. We now normalize **all** timestamp-like values (`number` seconds, `string`, `{seconds}`, or `Timestamp`) via a single `toMillis()` helper. This immediately fixes the case where the UI didn't flip to *"Ends on"* after cancelling in the customer portal.
+- **New: Explicit renewal/end line on the Pro card.** Under the Pro button you'll now always see either **“Renews on …”** or **“Ends on …”** when a cancellation is scheduled.
+- **Diagnostics.** Two small, targeted debug lines:
+  - `diag:subscriptions` — emitted on snapshot with key fields (`status`, `cancel_at`, `current_period_end`).
+  - `diag:view` — derived view state (computed `onPro`, renewal/ends dates).
 
-**Rules per Stripe docs**
+**Rules (per Stripe)**
 - `cancel_at_period_end = true` → show `current_period_end` as the end date.
-- `cancel_at` is a specific UNIX timestamp → use that as the end date.
-- After the period, the subscription `status` becomes `canceled` and `canceled_at` is set; Pro UI downgrades accordingly.
+- `cancel_at` populated (a specific timestamp) → that exact time is the end date.
+- After that time passes, subscription `status` becomes `canceled`; UI downgrades to Free automatically when the snapshot updates.
+
+Noisy or unrelated logs have been left untouched elsewhere.
 
 

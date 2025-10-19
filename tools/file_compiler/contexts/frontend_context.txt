@@ -1056,7 +1056,6 @@ VITE_FIREBASE_AUTH_DOMAIN=lexbot-pro.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=lexbot-pro
 VITE_FIREBASE_APP_ID=...
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
-VITE_STRIPE_PORTAL_TEST_URL=https://billing.stripe.com/p/login/test_4gM00j5CL5xd6ahe0G73G00
 
 
 C:/code2/lbpr/static/spa/playwright.config.ts
