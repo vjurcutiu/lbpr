@@ -30,3 +30,6 @@ proper file deletion across indices  and firebase
 in chat, only scroll to the start of the last message (really annoying when it scrolls to the bottom and you have to scroll up)
 extensive chat testing
 add real stripe webhook for prod billing
+
+remove filesize from files sidebar
+make sure text never overflows the editing button

@@ -598,79 +598,95 @@ def firebase_folder(uid: str) -> str:
 
 
 C:/code2/lbpr/backend/core/plan.py
+# backend/core/plan.py
 from __future__ import annotations
+
 import logging
-from typing import Literal
+from typing import Literal, Optional, Dict, Any
+
 from core.redis_utils import get_client
 from core.config import settings
-from core.rate_limit import reset_usage_current_window, set_caps, set_plan
+from core.rate_limit import (
+    reset_usage_current_window,
+    set_caps,
+    set_plan,
+    set_billing_anchor,
+)
 
 log = logging.getLogger("plan")
 
 Plan = Literal["FREE", "PRO"]
 
-async def _fetch_plan_from_firestore(uid: str) -> Plan:
-    """Ask Firestore: if there's any active/trialing/past_due subscription => PRO else FREE."""
+ACTIVE_STATUSES = {"active", "trialing", "past_due"}
+SUB_COLLECTION = "subscriptions"
+
+
+def _as_unix_ts(v: Any) -> int:
     try:
-        # Use Firebase Admin SDK
+        if v is None:
+            return 0
+        if isinstance(v, (int, float)):
+            return int(v)
+        if hasattr(v, "timestamp"):
+            return int(v.timestamp())  # type: ignore
+        if hasattr(v, "seconds"):
+            return int(getattr(v, "seconds"))  # type: ignore
+        if isinstance(v, str):
+            from datetime import datetime
+            try:
+                return int(datetime.fromisoformat(v.replace("Z","+00:00")).timestamp())
+            except Exception:
+                return 0
+    except Exception:
+        return 0
+    return 0
+
+
+async def _fetch_sub_snapshot(uid: str) -> Dict[str, Any]:
+    out: Dict[str, Any] = {
+        "plan": "FREE",
+        "status": "none",
+        "current_period_start": 0,
+        "current_period_end": 0,
+        "cancel_at_period_end": False,
+        "cancel_at": 0,
+    }
+    try:
         from firebase_admin import firestore  # type: ignore
         db = firestore.client()
         subs = (
             db.collection("customers")
               .document(uid)
-              .collection("subscriptions")
+              .collection(SUB_COLLECTION)
               .order_by("created", direction=firestore.Query.DESCENDING)
               .limit(5)
               .stream()
         )
-        active_like = {"active", "trialing", "past_due"}
         for s in subs:
             data = s.to_dict() or {}
-            st = (data.get("status") or "").lower()
-            if st in active_like:
-                return "PRO"
+            status = (data.get("status") or "").lower()
+            if out["status"] == "none":
+                out["status"] = status or "unknown"
+                out["cancel_at_period_end"] = bool(data.get("cancel_at_period_end") or False)
+                out["cancel_at"] = _as_unix_ts(data.get("cancel_at"))
+                out["current_period_start"] = _as_unix_ts(data.get("current_period_start"))
+                out["current_period_end"] = _as_unix_ts(data.get("current_period_end"))
+
+            if status in ACTIVE_STATUSES:
+                out["plan"] = "PRO"
+                cps = _as_unix_ts(data.get("current_period_start"))
+                if cps:
+                    out["current_period_start"] = cps
+                cpe = _as_unix_ts(data.get("current_period_end"))
+                if cpe:
+                    out["current_period_end"] = cpe
+                break
     except Exception:
         log.exception("plan_firestore_error", uid=uid)
-    return "FREE"
+    return out
 
-async def _refresh_and_handle_transition(uid: str, cache_ttl_sec: int = 300) -> Plan:
-    """Fetch latest plan, compare with previous, handle FREE->PRO transition, then cache."""
-    r = await get_client()
-    new_plan: Plan = await _fetch_plan_from_firestore(uid)
 
-    last_key = f"plan:{uid}:last"
-    cached_last = await r.get(last_key)
-    last_plan: Plan | None = cached_last if cached_last in ("FREE","PRO") else None  # type: ignore
-
-    # Transition handling: reset usage when moving from FREE to PRO
-    if last_plan == "FREE" and new_plan == "PRO":
-        try:
-            await reset_usage_current_window(uid)
-            log.info("plan_transition_reset", uid=uid, from_plan=last_plan, to_plan=new_plan)
-        except Exception:
-            log.exception("plan_transition_reset_failed", uid=uid)
-
-    # Persist "last" (no expiry) and the normal short-lived cache
-    try:
-        await r.set(last_key, new_plan)
-        await r.set(f"plan:{uid}", new_plan, ex=cache_ttl_sec)
-    except Exception:
-        # Non-fatal
-        pass
-
-    return new_plan
-
-async def get_user_plan(uid: str, cache_ttl_sec: int = 300) -> Plan:
-    """Return the cached plan quickly; refresh if needed (and handle transitions)."""
-    r = await get_client()
-    key = f"plan:{uid}"
-    plan = await r.get(key)
-    if plan in ("FREE","PRO"):
-        return plan  # type: ignore
-    # No cache → fetch fresh and handle transitions
-    return await _refresh_and_handle_transition(uid, cache_ttl_sec)
-
-def plan_limits(plan: Plan) -> dict[str,int]:
+def _plan_limits(plan: Plan) -> Dict[str, int]:
     if plan == "PRO":
         return {
             "messages": settings.LIMITS_PRO_MESSAGES,
@@ -681,23 +697,97 @@ def plan_limits(plan: Plan) -> dict[str,int]:
         "upload_tokens": settings.LIMITS_FREE_UPLOAD_TOKENS,
     }
 
-# -------- NEW: hard sync of caps into the rate limiter meta -----------------
 
-async def sync_caps_and_plan(uid: str) -> dict:
-    """
-    Force the rate limiter metadata (caps + plan) to match the user's billing plan.
-    This makes /features/rag routes *enforce* the real per-plan limits instead of
-    the permissive defaults.
-    """
-    plan = await get_user_plan(uid)
-    caps = plan_limits(plan)
+async def _refresh_and_handle_transition(uid: str, cache_ttl_sec: int = 300) -> Plan:
+    r = await get_client()
+    snap = await _fetch_sub_snapshot(uid)
+    new_plan: Plan = snap.get("plan", "FREE")  # type: ignore
+    new_anchor = int(snap.get("current_period_start") or 0)
+
+    last_plan_key = f"plan:{uid}:last"
+    last_anchor_key = f"plan:{uid}:anchor_last"
+
+    cached_last_plan = await r.get(last_plan_key)
+    last_plan: Optional[Plan] = cached_last_plan if cached_last_plan in ("FREE","PRO") else None  # type: ignore
+
+    cached_last_anchor = await r.get(last_anchor_key)
     try:
-        await set_caps(uid, cap_messages=int(caps["messages"]), cap_upload_tokens=int(caps["upload_tokens"]))
-        await set_plan(uid, plan)
-        log.debug("limits_synced", uid=uid, plan=plan, caps=caps)
+        last_anchor = int(cached_last_anchor) if cached_last_anchor is not None else 0
     except Exception:
-        log.exception("limits_sync_error", uid=uid, caps=caps)
-    return {"plan": plan, "caps": caps}
+        last_anchor = 0
+
+    # Transition: FREE -> PRO => reset immediately
+    if last_plan == "FREE" and new_plan == "PRO":
+        try:
+            # Ensure paid windows behave as rolling windows (clear stale flag from FREE)
+            await r.hset(f"rl:{uid}:meta", mapping={"free_no_refresh": "0"})
+            await reset_usage_current_window(uid)
+            log.info("plan_transition_reset", uid=uid, from_plan=last_plan, to_plan=new_plan)
+        except Exception:
+            log.exception("plan_transition_reset_failed", uid=uid)
+
+    # Renewal detection: anchor changed for PRO
+    renewal_detected = new_plan == "PRO" and new_anchor > 0 and new_anchor != last_anchor
+    if renewal_detected:
+        # Move anchor and wipe usage to 0 (explicit reset requested)
+        try:
+            await set_billing_anchor(uid, new_anchor)
+            await r.hset(f"rl:{uid}:meta", mapping={"free_no_refresh": "0"})
+            await reset_usage_current_window(uid)
+            log.info("plan_renewal_reset", uid=uid, new_anchor_ts=new_anchor, old_anchor_ts=last_anchor)
+        except Exception:
+            log.exception("plan_renewal_reset_failed", uid=uid)
+
+    # Update plan + caps (always)
+    try:
+        caps = _plan_limits(new_plan)
+        await set_caps(uid, cap_messages=int(caps["messages"]), cap_upload_tokens=int(caps["upload_tokens"]))
+        await set_plan(uid, new_plan)
+        # Force-clear free_no_refresh for paid plans in case older meta left it behind
+        if new_plan == "PRO":
+            await r.hset(f"rl:{uid}:meta", mapping={"free_no_refresh": "0"})
+        # If we didn't hit the renewal branch above, still set anchor for PRO
+        if new_plan == "PRO" and new_anchor > 0 and not renewal_detected:
+            try:
+                await set_billing_anchor(uid, new_anchor)
+            except Exception:
+                log.exception("plan_anchor_set_error", uid=uid, anchor_ts=new_anchor)
+        log.debug("limits_synced", uid=uid, plan=new_plan, caps=caps, anchor_ts=new_anchor)
+    except Exception:
+        log.exception("limits_sync_error", uid=uid)
+
+    # Persist caches
+    try:
+        await r.set(last_plan_key, new_plan, ex=cache_ttl_sec)
+        if new_anchor > 0:
+            await r.set(last_anchor_key, str(new_anchor), ex=cache_ttl_sec)
+    except Exception:
+        pass
+
+    return new_plan
+
+
+async def get_user_plan(uid: str, cache_ttl_sec: int = 300) -> Plan:
+    r = await get_client()
+    key = f"plan:{uid}"
+    plan = await r.get(key)
+    if plan in ("FREE","PRO"):
+        return plan  # type: ignore
+    return await _refresh_and_handle_transition(uid, cache_ttl_sec)
+
+
+def plan_limits(plan: Plan) -> Dict[str,int]:
+    return _plan_limits(plan)
+
+
+async def sync_caps_and_plan(uid: str) -> Dict[str, Any]:
+    plan = await _refresh_and_handle_transition(uid, cache_ttl_sec=300)
+    try:
+        snap = await _fetch_sub_snapshot(uid)
+        caps = _plan_limits(plan)
+        return {"plan": plan, "caps": caps, "snapshot": snap}
+    except Exception:
+        return {"plan": plan, "caps": _plan_limits(plan)}
 
 
 C:/code2/lbpr/backend/core/rate_limit.py
@@ -1155,37 +1245,35 @@ async def healthz():
 
 
 C:/code2/lbpr/backend/routers/limits.py
+# backend/routers/limits.py
+from __future__ import annotations
+
 from fastapi import APIRouter, Depends
 from features.auth.deps import get_current_user
 from features.auth.models import SessionOut
-from core.plan import get_user_plan, plan_limits
-# Updated: use the new snapshot API; the old read_usage/month_key no longer exist
+from core.plan import get_user_plan, plan_limits, sync_caps_and_plan
 from core.rate_limit import usage_snapshot
 
 router = APIRouter(prefix="/limits", tags=["limits"])
 
 @router.get("/me")
 async def get_limits_me(user: SessionOut = Depends(get_current_user)):
-    # Resolve the user's plan (FREE/PRO) and static caps for that plan
+    # Ensure caps/anchor in Redis match latest billing state
+    await sync_caps_and_plan(user.uid)
+
     plan = await get_user_plan(user.uid)
     caps = plan_limits(plan)
-
-    # Get current rolling-window usage snapshot (aligned to billing anchor for paid plans,
-    # or infinite window for free if configured)
     snap = await usage_snapshot(user.uid)
 
     usage = {
         "messages": int(snap.get("messages_used", 0)),
         "upload_tokens": int(snap.get("upload_tokens_used", 0)),
     }
-
     remaining = {
         "messages": max(0, int(caps["messages"]) - usage["messages"]),
         "upload_tokens": max(0, int(caps["upload_tokens"]) - usage["upload_tokens"]),
     }
 
-    # Keep the historic 'window' field for compatibility, mapped to the period_id string.
-    # Also expose precise start/end timestamps.
     return {
         "plan": plan,
         "window": str(snap.get("period_id")),
@@ -1197,5 +1285,15 @@ async def get_limits_me(user: SessionOut = Depends(get_current_user)):
         "usage": usage,
         "remaining": remaining,
     }
+
+@router.post("/sync")
+async def sync_limits_now(user: SessionOut = Depends(get_current_user)):
+    """
+    Manually force a Firestore → Redis sync for the current user
+    and return the fresh limits snapshot (useful for debugging UI).
+    """
+    info = await sync_caps_and_plan(user.uid)
+    snap = await usage_snapshot(user.uid)
+    return {"info": info, "snapshot": snap}
 
 
