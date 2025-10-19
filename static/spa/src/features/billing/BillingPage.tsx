@@ -213,12 +213,13 @@ export default function BillingPage() {
     null;
 
   const isCanceled = (latestSub as any)?.status === "canceled";
+  const scheduledCancel = !!cancelsOn;
 
   const statusLabel = onPro
     ? ((activeSub as any)?.status === "past_due"
         ? "Pro (payment issue)"
-        : cancelsOn
-        ? `Pro (cancels on ${fmtDate(cancelsOn)})`
+        : scheduledCancel
+        ? "Pro (Cancelled)"
         : "Pro")
     : (isCanceled ? "Pro canceled" : "Free");
 
@@ -279,19 +280,24 @@ export default function BillingPage() {
         </div>
       </header>
 
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="relative rounded-2xl border p-5 md:p-7 shadow-sm">
-          <div className="mb-6">
+      {/* ALIGN: make both cards equal height with matched header/list/button positions */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
+        {/* Free card */}
+        <div className="relative rounded-2xl border shadow-sm p-5 md:p-7 h-full flex flex-col">
+          {/* header */}
+          <div className="mb-6 min-h-[110px]">
             <h3 className="mt-3 text-xl font-semibold">Free</h3>
             <div className="mt-1 text-3xl font-semibold">€0</div>
             <div className="text-sm text-muted-foreground">per month</div>
           </div>
-          <ul className="text-sm space-y-2 mb-6">
+          {/* features */}
+          <ul className="text-sm space-y-2 mb-6 flex-1">
             <li>• 50 messages / month</li>
             <li>• 100,000 upload tokens (≈75 pages) / month</li>
             <li>• Get started — no credit card</li>
           </ul>
-          <Button className="w-full" variant="outline" disabled={onPro}>
+          {/* CTA */}
+          <Button className="w-full mt-auto" variant="outline" disabled={onPro}>
             {onPro ? "You're on Pro" : "Your current plan"}
           </Button>
           {!onPro && isCanceled && (
@@ -302,8 +308,10 @@ export default function BillingPage() {
           )}
         </div>
 
-        <div className="relative rounded-2xl border md:p-7 shadow-sm bg-gradient-to-b from-primary/5 to-background">
-          <div className="mb-6">
+        {/* Pro card */}
+        <div className="relative rounded-2xl border shadow-sm bg-gradient-to-b from-primary/5 to-background p-5 md:p-7 h-full flex flex-col">
+          {/* header */}
+          <div className="mb-6 min-h-[110px]">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/40 text-primary px-3 py-1 text-xs">
               <Crown className="h-3.5 w-3.5" /> Most popular
             </div>
@@ -313,48 +321,35 @@ export default function BillingPage() {
             </div>
             <div className="text-sm text-muted-foreground">per month</div>
           </div>
-          <ul className="text-sm space-y-2 mb-6">
+          {/* features */}
+          <ul className="text-sm space-y-2 mb-6 flex-1">
             <li>• 10,000 messages / month</li>
             <li>• 20,000,000 upload tokens (≈15,000 pages) / month</li>
             <li>• Priority file processing & faster queue</li>
             <li>• Cross-document keyword search</li>
             <li>• Phone & email support (≤24h SLA)</li>
             <li>• Priority feature requests & roadmap voting</li>
-            {/* Optional, safer framing: */}
-            {/* <li>• OCR & transcription included when released</li> */}
           </ul>
+          {/* CTA */}
           {onPro ? (
-            <Button className="w-full" variant="secondary" onClick={() => openBillingPortal()}>
+            <Button
+              className="w-full mt-auto bg-primary/90 text-primary-foreground hover:bg-primary"
+              variant="default"
+              onClick={() => openBillingPortal()}
+            >
               Manage subscription
             </Button>
           ) : (
-            <Button className="w-full" onClick={() => proPrice?.id && startCheckout(proPrice.id)} disabled={!proPrice}>
+            <Button className="w-full mt-auto" onClick={() => proPrice?.id && startCheckout(proPrice.id)} disabled={!proPrice}>
               Upgrade to Pro
             </Button>
           )}
 
-          {/* NEW: Explicit renews on / cancels on line */}
-          {onPro && (
-            <div className="mt-3 text-xs text-muted-foreground">
-              {cancelsOn ? (
-                <>
-                  Ends on <strong className="ml-1">{fmtDate(cancelsOn)}</strong>
-                </>
-              ) : renewal ? (
-                <>
-                  Renews on <strong className="ml-1">{fmtDate(renewal)}</strong>
-                </>
-              ) : (
-                <span>—</span>
-              )}
-            </div>
-          )}
-
-          {/* Keep the amber chip for extra clarity when canceled */}
+          {/* Only show the cancel chip (no renews/ends line) */}
           {onPro && cancelsOn && (
             <div className="mt-3 inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs">
               <Info className="h-3.5 w-3.5" />
-              Cancels at period end (<strong className="ml-1">{fmtDate(cancelsOn)}</strong>)
+              Cancels on <strong className="ml-1">{fmtDate(cancelsOn)}</strong>
             </div>
           )}
         </div>
