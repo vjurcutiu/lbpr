@@ -287,9 +287,9 @@ export default function BillingPage() {
             <div className="text-sm text-muted-foreground">per month</div>
           </div>
           <ul className="text-sm space-y-2 mb-6">
-            <li>• Core chat and basic usage</li>
-            <li>• Community support</li>
-            <li>• Limited uploads</li>
+            <li>• 50 messages / month</li>
+            <li>• 100,000 upload tokens (≈75 pages) / month</li>
+            <li>• Get started — no credit card</li>
           </ul>
           <Button className="w-full" variant="outline" disabled={onPro}>
             {onPro ? "You're on Pro" : "Your current plan"}
@@ -314,9 +314,14 @@ export default function BillingPage() {
             <div className="text-sm text-muted-foreground">per month</div>
           </div>
           <ul className="text-sm space-y-2 mb-6">
-            <li>• Bigger limits and faster queue</li>
-            <li>• Priority file processing</li>
-            <li>• Support that actually responds</li>
+            <li>• 10,000 messages / month</li>
+            <li>• 20,000,000 upload tokens (≈15,000 pages) / month</li>
+            <li>• Priority file processing & faster queue</li>
+            <li>• Cross-document keyword search</li>
+            <li>• Phone & email support (≤24h SLA)</li>
+            <li>• Priority feature requests & roadmap voting</li>
+            {/* Optional, safer framing: */}
+            {/* <li>• OCR & transcription included when released</li> */}
           </ul>
           {onPro ? (
             <Button className="w-full" variant="secondary" onClick={() => openBillingPortal()}>
