@@ -3,7 +3,7 @@ import logging
 from typing import Literal
 from core.redis_utils import get_client
 from core.config import settings
-from core.rate_limit import reset_usage_current_window
+from core.rate_limit import reset_usage_current_window, set_caps, set_plan
 
 log = logging.getLogger("plan")
 
@@ -80,3 +80,21 @@ def plan_limits(plan: Plan) -> dict[str,int]:
         "messages": settings.LIMITS_FREE_MESSAGES,
         "upload_tokens": settings.LIMITS_FREE_UPLOAD_TOKENS,
     }
+
+# -------- NEW: hard sync of caps into the rate limiter meta -----------------
+
+async def sync_caps_and_plan(uid: str) -> dict:
+    """
+    Force the rate limiter metadata (caps + plan) to match the user's billing plan.
+    This makes /features/rag routes *enforce* the real per-plan limits instead of
+    the permissive defaults.
+    """
+    plan = await get_user_plan(uid)
+    caps = plan_limits(plan)
+    try:
+        await set_caps(uid, cap_messages=int(caps["messages"]), cap_upload_tokens=int(caps["upload_tokens"]))
+        await set_plan(uid, plan)
+        log.debug("limits_synced", uid=uid, plan=plan, caps=caps)
+    except Exception:
+        log.exception("limits_sync_error", uid=uid, caps=caps)
+    return {"plan": plan, "caps": caps}

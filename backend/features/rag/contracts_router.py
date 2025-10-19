@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 import logging
 from typing import List, Optional, Dict, Any, Tuple
@@ -17,6 +16,7 @@ except Exception:
         uid: str = "dev"
 
 from core.rate_limit import add_message
+from core.plan import sync_caps_and_plan
 from .orchestrator import query_request
 from .schemas import QueryRequest, QueryResponse, Source
 
@@ -105,13 +105,28 @@ async def _rewrite_query(question: str, hint: str) -> str:
         log.exception("query_rewrite_error")
         return question if not hint else f"{question} ({hint})"
 
+class Citation(BaseModel):
+    doc_id: str
+    title: Optional[str] = None
+    span: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    answer: str
+    citations: List[Citation] = Field(default_factory=list)
+    usage: Dict[str, Any] = Field(default_factory=dict)
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(get_current_user)) -> ChatResponse:
     uid = getattr(user, "uid", "dev")
+
+    # Enforce real caps before counting this message
+    await sync_caps_and_plan(uid)
+
     ok, used, cap = await add_message(uid)
     log.info("usage_message_add", uid=uid, allowed=ok, used_messages=used, cap_messages=cap, path=str(request.url.path))
     if not ok:
         raise HTTPException(status_code=429, detail=f"Message limit reached ({used}/{cap}). Upgrade to continue.")
+
     hint = _history_hint(req.history)
     search_query = await _rewrite_query(req.message, hint)
     from .schemas import QueryRequest as _QR

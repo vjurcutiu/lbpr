@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, HTTPException, Request, Depends
 from .schemas import IngestRequest, IngestResponse, QueryRequest, QueryResponse
 from . import orchestrator
@@ -9,6 +8,7 @@ from features.auth.models import SessionOut
 
 from core.tokenizer import count_tokens
 from core.rate_limit import add_upload_tokens, add_message
+from core.plan import sync_caps_and_plan
 
 router = APIRouter(prefix="/features/rag", tags=["RAG"]) 
 log = logging.getLogger("rag.router")
@@ -16,6 +16,9 @@ log = logging.getLogger("rag.router")
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(req: IngestRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
+        # Ensure caps reflect the real plan (FREE/PRO)
+        await sync_caps_and_plan(user.uid)
+
         text = req.text or ""
         tokens = count_tokens(text)
         ok, used, cap = await add_upload_tokens(user.uid, tokens)
@@ -34,6 +37,9 @@ async def ingest(req: IngestRequest, request: Request, user: SessionOut = Depend
 @router.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
+        # Ensure caps reflect the real plan (FREE/PRO)
+        await sync_caps_and_plan(user.uid)
+
         ok, used, cap = await add_message(user.uid)
         log.info("usage_message_add", uid=user.uid, allowed=ok, used_messages=used, cap_messages=cap, path=str(request.url.path))
         if not ok:

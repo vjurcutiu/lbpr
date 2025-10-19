@@ -365,6 +365,9 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  // NEW: show spinner on Pro card actions (subscribe/manage)
+  const [btnLoading, setBtnLoading] = useState<null | "subscribe" | "manage">(null);
+
   // Mount diag
   useEffect(() => {
     console.info(`[billing][${getBillingTraceId()}] BillingPage:mounted`, {
@@ -644,13 +647,43 @@ export default function BillingPage() {
               <Button
                 className="w-full bg-primary/90 text-primary-foreground hover:bg-primary"
                 variant="default"
-                onClick={() => openBillingPortal()}
+                disabled={!!btnLoading}
+                onClick={async () => {
+                  if (btnLoading) return;
+                  setErr(null);
+                  setBtnLoading("manage");
+                  try {
+                    await openBillingPortal();
+                  } catch (e: any) {
+                    setErr(e?.message || String(e));
+                  } finally {
+                    // if navigation fails, re-enable; otherwise page unloads
+                    setBtnLoading(null);
+                  }
+                }}
               >
-                Manage subscription
+                {btnLoading === "manage" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {btnLoading === "manage" ? "Opening portal..." : "Manage subscription"}
               </Button>
             ) : (
-              <Button className="w-full" onClick={() => proPrice?.id && startCheckout(proPrice.id)} disabled={!proPrice}>
-                Upgrade to Pro
+              <Button
+                className="w-full"
+                onClick={async () => {
+                  if (!proPrice?.id) return;
+                  if (btnLoading) return;
+                  setErr(null);
+                  setBtnLoading("subscribe");
+                  try {
+                    await startCheckout(proPrice.id);
+                  } catch (e: any) {
+                    setErr(e?.message || String(e));
+                    setBtnLoading(null);
+                  }
+                }}
+                disabled={!proPrice || !!btnLoading}
+              >
+                {btnLoading === "subscribe" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {btnLoading === "subscribe" ? "Redirecting..." : "Upgrade to Pro"}
               </Button>
             )}
           </div>
