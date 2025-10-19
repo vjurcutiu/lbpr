@@ -16,10 +16,13 @@ services:
         condition: service_healthy
     networks: [appnet]
 
-  # New: test Redis
+  # Test Redis with persistence enabled, backed by ephemeral test volume
   redis:
     image: redis:7.2-alpine
-    command: ["redis-server","--save",""]
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - test-redis-data:/data
+      - ./ops/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -30,3 +33,6 @@ services:
 networks:
   appnet:
     driver: bridge
+
+volumes:
+  test-redis-data:
