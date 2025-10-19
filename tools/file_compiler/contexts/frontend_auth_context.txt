@@ -154,7 +154,7 @@ C:/code2/lbpr/static/spa/src/features/auth/AuthProvider.tsx
 /* eslint react-refresh/only-export-components: ["error", { "allowConstantExport": true }] */
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { getJSON, postJSON } from "@/shared/api";
-import { onAuth, auth } from "./firebase";
+import { onAuth, auth, logoutFirebase } from "./firebase";
 
 type User = {
   uid: string;
@@ -205,6 +205,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!fbUser.emailVerified) {
         // Don't attempt cookie exchange; keep as logged-out in app context
         setUser(null);
+        try { await logoutFirebase(); } catch {}
         return;
       }
       try {
@@ -550,8 +551,6 @@ export default function LoginPage() {
 C:/code2/lbpr/static/spa/src/features/auth/ProtectedRoute.tsx
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuthContext } from "./AuthProvider";
-import { auth } from "./firebase";
-
 export default function ProtectedRoute() {
   const { user, loading } = useAuthContext();
   const location = useLocation();
@@ -560,7 +559,7 @@ export default function ProtectedRoute() {
     return <div className="p-6">Loading…</div>;
   }
 
-  if (!user && !auth.currentUser) {
+  if (!user) {
     const returnTo = encodeURIComponent(location.pathname + location.search + location.hash);
     return <Navigate to={`/login?returnTo=${returnTo}`} replace />;
   }

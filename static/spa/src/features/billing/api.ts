@@ -14,6 +14,7 @@ import {
   type Firestore,
   type DocumentData,
 } from "firebase/firestore";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
 // Narrow import of Auth type to avoid coupling here
 import type { User } from "firebase/auth";
@@ -61,6 +62,15 @@ export type Subscription = {
   items?: { price: Price }[];
 };
 
+export type CheckoutOptions = {
+  mode?: "subscription" | "payment",
+  successUrl?: string,
+  cancelUrl?: string,
+  quantity?: number,
+  allowPromotionCodes?: boolean,
+  trialFromPlan?: boolean,
+};
+
 /** Wait for a signed-in user (with timeout) */
 export function requireUser(timeoutMs = 8000): Promise<User> {
   return new Promise((resolve, reject) => {
@@ -71,7 +81,7 @@ export function requireUser(timeoutMs = 8000): Promise<User> {
       reject(new Error("You need to be signed in to manage billing."));
     }, timeoutMs);
 
-    const { auth } = firebaseAuth as any ? { auth: (firebaseAuth as any) } : { auth: firebaseAuth };
+    const { auth } = (firebaseAuth as any) ? { auth: (firebaseAuth as any) } : { auth: firebaseAuth };
     const unsub = (auth as any).onAuthStateChanged(
       (u: User | null) => {
         if (done) return;
@@ -87,19 +97,20 @@ export function requireUser(timeoutMs = 8000): Promise<User> {
           reject(new Error("Please verify your email before managing billing."));
         }
       },
-      (err: any) => {
+      (err: unknown) => {
         if (done) return;
         done = true;
         clearTimeout(to);
         unsub();
-        reject(err);
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
     );
   });
 }
 
-function explainFirestoreError(err: any): Error {
-  const code = err?.code || err?.name;
+function explainFirestoreError(err: unknown): Error {
+  const anyErr = err as any;
+  const code = anyErr?.code || anyErr?.name;
   if (code === "permission-denied") {
     return new Error("Missing or insufficient permissions for Firestore billing collections.");
   }
@@ -112,8 +123,13 @@ export async function loadActiveProducts(dbArg: Firestore = db): Promise<Product
   const q = query(productsCol, where("active", "==", true));
   const snaps = await getDocs(q);
 
-  const allowlist = (import.meta.env.VITE_STRIPE_PRICE_ALLOWLIST || "").split(",").map(s => s.trim()).filter(Boolean);
-  const allowSet = new Set(allowlist);
+  const allowlist: string[] = (import.meta as any).env?.VITE_STRIPE_PRICE_ALLOWLIST
+    ? String((import.meta as any).env.VITE_STRIPE_PRICE_ALLOWLIST)
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter((s: string) => !!s)
+    : [];
+  const allowSet = new Set<string>(allowlist);
 
   const results: Product[] = [];
   for (const pDoc of snaps.docs) {
@@ -147,37 +163,30 @@ export async function loadActiveProducts(dbArg: Firestore = db): Promise<Product
 }
 
 /** Start a Checkout Session via extension (subscription by default) */
-export async function startCheckout(priceId: string, opts?: {
-  mode?: "subscription" | "payment",
-  successUrl?: string,
-  cancelUrl?: string,
-  quantity?: number,
-  allowPromotionCodes?: boolean,
-  trialFromPlan?: boolean,
-}): Promise<void> {
+export async function startCheckout(priceId: string, opts?: CheckoutOptions): Promise<void> {
   const user = await requireUser();
   const customerSessions = collection(db, "customers", user.uid, "checkout_sessions");
-  const payload: any = {
+  const payload: Record<string, unknown> = {
     price: priceId,
     mode: opts?.mode || "subscription",
     success_url: opts?.successUrl || window.location.origin + "/billing",
     cancel_url:  opts?.cancelUrl  || window.location.origin + "/billing",
-    quantity: opts?.quantity || 1,
+    quantity: opts?.quantity ?? 1,
     allow_promotion_codes: !!opts?.allowPromotionCodes,
     trial_from_plan: !!opts?.trialFromPlan,
   };
   const ref = await addDoc(customerSessions, payload);
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const unsub = onSnapshot(doc(customerSessions, ref.id), (snap) => {
-      const data = snap.data();
+      const data = snap.data() as any;
       if (!data) return;
-      if ((data as any).error) {
+      if (data.error) {
         unsub();
-        const msg = (data as any).error?.message || "Checkout failed to start.";
+        const msg = data.error?.message || "Checkout failed to start.";
         reject(new Error(msg));
       }
-      if ((data as any).url) {
-        const url = (data as any).url as string;
+      if (data.url) {
+        const url = data.url as string;
         unsub();
         try { window.location.assign(url); } finally { resolve(); }
       }
@@ -185,33 +194,58 @@ export async function startCheckout(priceId: string, opts?: {
   });
 }
 
-/** Open the Billing Portal via extension (or fixed test URL via env) */
+/** Open the Billing Portal using the official callable function (preferred).
+ *  Falls back to Firestore `portal_sessions` for older extension versions.
+ */
 export async function openBillingPortal(returnUrl?: string): Promise<void> {
-  const portalTestUrl = (import.meta.env.VITE_STRIPE_PORTAL_TEST_URL || "").trim();
-  if (portalTestUrl) {
-    window.location.assign(portalTestUrl);
+  const env: any = (import.meta as any).env || {};
+  const e2e = env.VITE_E2E === "1" || env.MODE === "e2e";
+  const hardcoded = e2e ? String(env.VITE_STRIPE_PORTAL_TEST_URL || "").trim() : "";
+  if (hardcoded) {
+    logBilling("warn", "Using hardcoded VITE_STRIPE_PORTAL_TEST_URL (E2E mode). This bypasses the extension.");
+    window.location.assign(hardcoded);
     return;
   }
 
-  const user = await requireUser();
-  const portalCol = collection(db, "customers", user.uid, "portal_sessions");
-  const ref = await addDoc(portalCol, { return_url: returnUrl || window.location.origin + "/billing" });
-  return new Promise((resolve, reject) => {
-    const unsub = onSnapshot(doc(portalCol, ref.id), (snap) => {
-      const data = snap.data();
-      if (!data) return;
-      if ((data as any).error) {
-        unsub();
-        const msg = (data as any).error?.message || "Failed to open billing portal.";
-        reject(new Error(msg));
-      }
-      if ((data as any).url) {
-        const url = (data as any).url as string;
-        unsub();
-        try { window.location.assign(url); } finally { resolve(); }
-      }
-    }, (e) => reject(explainFirestoreError(e)));
-  });
+  const region = String(env.VITE_FIREBASE_FUNCTIONS_REGION || "us-central1").trim();
+  try {
+    const functions = getFunctions(firebaseApp, region);
+    // Callable provided by the Firestore Stripe Payments extension.
+    const createPortalLink = httpsCallable(functions, "ext-firestore-stripe-payments-createPortalLink");
+    const res = await createPortalLink({
+      returnUrl: returnUrl || window.location.origin + "/billing",
+      locale: "auto",
+    } as any);
+    const data: any = res?.data;
+    const url = data?.url as string | undefined;
+    if (typeof url === "string" && url.startsWith("http")) {
+      window.location.assign(url);
+      return;
+    }
+    throw new Error("Callable returned no URL");
+  } catch (err: unknown) {
+    logBilling("warn", "createPortalLink failed, attempting Firestore fallback", { err: (err as any)?.message || String(err), region });
+    // ----- Firestore fallback for older extension versions -----
+    const user = await requireUser();
+    const portalCol = collection(db, "customers", user.uid, "portal_sessions");
+    const ref = await addDoc(portalCol, { return_url: returnUrl || window.location.origin + "/billing" });
+    await new Promise<void>((resolve, reject) => {
+      const unsub = onSnapshot(doc(portalCol, ref.id), (snap) => {
+        const data = snap.data() as any;
+        if (!data) return;
+        if (data.error) {
+          unsub();
+          const msg = data.error?.message || "Failed to open billing portal.";
+          reject(new Error(msg));
+        }
+        if (data.url) {
+          const url = data.url as string;
+          unsub();
+          try { window.location.assign(url); } finally { resolve(); }
+        }
+      }, (e) => reject(explainFirestoreError(e)));
+    });
+  }
 }
 
 /** Observe current subscriptions (latest first) */
@@ -225,6 +259,18 @@ export function observeSubscriptions(cb: (subs: Subscription[]) => void) {
     return onSnapshot(subsQ, (snap) => {
       const subs: Subscription[] = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
       cb(subs);
+      // lightweight debug line to help verify sync after portal actions
+      try {
+        const top = subs[0] as any;
+        console.debug(`[billing][${getBillingTraceId()}] diag:subscriptions:snapshot`, {
+          count: subs.length,
+          topStatus: top?.status || null,
+          topCancelAt: top?.cancel_at || null,
+          topCPend: top?.current_period_end || null
+        });
+      } catch {
+        /* ignore logging errors */
+      }
     }, (_e) => { cb([]); });
   });
 }

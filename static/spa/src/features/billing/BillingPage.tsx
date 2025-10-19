@@ -15,6 +15,7 @@ import { getJSON } from "@/shared/api";
 import { useAuthContext } from "@/features/auth/AuthProvider";
 import { Check, Crown, MessageSquare, UploadCloud, AlertTriangle, Loader2, Info } from "lucide-react";
 
+/* ------------------------------- Types ------------------------------- */
 type LimitsResp = {
   plan: "FREE" | "PRO";
   window: string; // YYYYMM
@@ -22,6 +23,7 @@ type LimitsResp = {
   usage: { messages: number; upload_tokens: number };
 };
 
+/* ------------------------------ Helpers ----------------------------- */
 function fmtInt(n?: number) {
   try { return new Intl.NumberFormat().format(n ?? 0); } catch { return String(n ?? 0); }
 }
@@ -35,6 +37,46 @@ function formatMoney(amount?: number, currency?: string) {
   }
 }
 
+/** Robust conversion of Stripe/Firestore timestamp-ish values → millis. */
+function toMillis(t: any): number | null {
+  if (t == null) return null;
+  // Firestore Timestamp
+  if (typeof t === "object") {
+    // Has toDate(): Firestore Timestamp
+    if (typeof (t as any).toDate === "function") {
+      try { return (t as any).toDate().getTime(); } catch { /* noop */ }
+    }
+    // { seconds: number } (Firebase extension occasionally sets this shape)
+    if (typeof (t as any).seconds === "number") {
+      return Math.round((t as any).seconds * 1000);
+    }
+  }
+  if (typeof t === "number") {
+    // Heuristic: seconds vs ms
+    return t < 4e10 ? Math.round(t * 1000) : Math.round(t);
+  }
+  if (typeof t === "string") {
+    const n = Number(t);
+    if (Number.isFinite(n)) return n < 4e10 ? Math.round(n * 1000) : Math.round(n);
+  }
+  return null;
+}
+
+function asDate(t: any): Date | null {
+  const ms = toMillis(t);
+  return ms ? new Date(ms) : null;
+}
+
+function fmtDate(d: Date | null): string {
+  if (!d) return "—";
+  try {
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  } catch {
+    return d.toLocaleDateString();
+  }
+}
+
+/* ------------------------------ Component ------------------------------ */
 export default function BillingPage() {
   const { user, loading: authLoading } = useAuthContext();
   const [products, setProducts] = useState<Product[]>([]);
@@ -43,6 +85,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
+  // Mount diag
   useEffect(() => {
     console.info(`[billing][${getBillingTraceId()}] BillingPage:mounted`, {
       uid: user?.uid || null,
@@ -50,6 +93,7 @@ export default function BillingPage() {
     });
   }, []);
 
+  // Load products
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -64,6 +108,7 @@ export default function BillingPage() {
     return () => { cancel = true; };
   }, []);
 
+  // Load limits (and poll periodically while signed in)
   useEffect(() => {
     let cancel = false;
 
@@ -89,19 +134,36 @@ export default function BillingPage() {
     return () => { cancel = true; };
   }, [user, authLoading]);
 
+  // Observe subscriptions in real-time
   useEffect(() => {
     let unsub: undefined | (() => void);
     if (!user) { setSubs([]); return; }
-    observeSubscriptions((list) => setSubs(list))
+    observeSubscriptions((list) => {
+      setSubs(list);
+      // concise diagnostics to verify Stripe→Firestore sync after portal actions
+      const top = list[0];
+      console.debug(`[billing][${getBillingTraceId()}] diag:subscriptions`, {
+        count: list.length,
+        top: top ? {
+          id: top.id,
+          status: (top as any).status,
+          cancel_at: (top as any).cancel_at,
+          cancel_at_period_end: (top as any).cancel_at_period_end,
+          canceled_at: (top as any).canceled_at,
+          current_period_end: (top as any).current_period_end,
+          current_period_start: (top as any).current_period_start,
+        } : null
+      });
+    })
       .then((fn) => { unsub = fn; })
       .catch((e) => console.warn("[billing] observeSubscriptions failed", e));
     return () => { if (unsub) unsub(); };
   }, [user]);
 
+  // Extra: also poll limits every 5s while authenticated so usage updates in real time
   const pollRef = useRef<number | null>(null);
   const inflightRef = useRef(false);
   const POLL_MS = 5000;
-
   useEffect(() => {
     if (!user) return;
     async function tick() {
@@ -120,8 +182,10 @@ export default function BillingPage() {
     return () => { if (pollRef.current != null) window.clearInterval(pollRef.current); };
   }, [user]);
 
-  const activeSub = subs.find((s) => ["active", "trialing", "past_due"].includes(s.status));
+  // Derive view model
+  const activeSub = subs.find((s) => ["active", "trialing", "past_due"].includes((s as any).status));
   const latestSub = subs[0];
+
   const onPro = user ? (!!activeSub || limits?.plan === "PRO") : false;
 
   const proPrice: Price | undefined = useMemo(() => {
@@ -142,33 +206,37 @@ export default function BillingPage() {
     return all.sort((a, b) => (a.unit_amount ?? 0) - (b.unit_amount ?? 0))[0];
   }, [products]);
 
-  const parseStripeTs = (t: any): number | null => {
-    if (!t && t !== 0) return null;
-    if (typeof t === "number") return t;
-    if (typeof t === "string") { const n = Number(t); return Number.isFinite(n) ? n : null; }
-    if (typeof t === "object" && typeof t.seconds === "number") return t.seconds;
-    return null;
-  };
+  const renewal = asDate(activeSub && (activeSub as any).current_period_end);
+  const cancelsOn =
+    asDate(activeSub && (activeSub as any).cancel_at) ||
+    ((activeSub as any)?.cancel_at_period_end && renewal) ||
+    null;
 
-  const renewalTs = parseStripeTs(activeSub?.current_period_end);
-  const renewal = renewalTs ? new Date(renewalTs * 1000) : null;
-
-  const cancelAtTs = parseStripeTs((activeSub as any)?.cancel_at);
-  const cancelsOn = cancelAtTs
-    ? new Date(cancelAtTs * 1000)
-    : (activeSub?.cancel_at_period_end && renewalTs)
-    ? new Date(renewalTs * 1000)
-    : null;
-
-  const isCanceled = latestSub?.status === "canceled";
+  const isCanceled = (latestSub as any)?.status === "canceled";
 
   const statusLabel = onPro
-    ? (activeSub?.status === "past_due"
+    ? ((activeSub as any)?.status === "past_due"
         ? "Pro (payment issue)"
         : cancelsOn
-        ? `Pro (cancels on ${cancelsOn.toLocaleDateString()})`
+        ? `Pro (cancels on ${fmtDate(cancelsOn)})`
         : "Pro")
     : (isCanceled ? "Pro canceled" : "Free");
+
+  // View diag (derived state, so we can debug mismatches without noise)
+  useEffect(() => {
+    console.debug(`[billing][${getBillingTraceId()}] diag:view`, {
+      user: user?.uid || null,
+      onPro,
+      latestStatus: (latestSub as any)?.status || null,
+      activeStatus: (activeSub as any)?.status || null,
+      current_period_end: (activeSub as any)?.current_period_end || null,
+      cancel_at: (activeSub as any)?.cancel_at || null,
+      cancel_at_period_end: (activeSub as any)?.cancel_at_period_end || null,
+      renewalISO: renewal ? renewal.toISOString() : null,
+      cancelsOnISO: cancelsOn ? cancelsOn.toISOString() : null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, onPro, (latestSub as any)?.status, (activeSub as any)?.status, renewal?.getTime(), cancelsOn?.getTime()]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -191,7 +259,7 @@ export default function BillingPage() {
             <PlanBadge onPro={onPro} />
           </div>
 
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="mt-6 grid grid-cols-1 sm-grid-cols-3 sm:grid-cols-3 gap-3">
             <QuickStat
               icon={<MessageSquare className="h-4 w-4" />}
               label="Messages used"
@@ -259,10 +327,29 @@ export default function BillingPage() {
               Upgrade to Pro
             </Button>
           )}
+
+          {/* NEW: Explicit renews on / cancels on line */}
+          {onPro && (
+            <div className="mt-3 text-xs text-muted-foreground">
+              {cancelsOn ? (
+                <>
+                  Ends on <strong className="ml-1">{fmtDate(cancelsOn)}</strong>
+                </>
+              ) : renewal ? (
+                <>
+                  Renews on <strong className="ml-1">{fmtDate(renewal)}</strong>
+                </>
+              ) : (
+                <span>—</span>
+              )}
+            </div>
+          )}
+
+          {/* Keep the amber chip for extra clarity when canceled */}
           {onPro && cancelsOn && (
             <div className="mt-3 inline-flex items-center gap-2 rounded-md bg-amber-100/60 dark:bg-amber-900/20 text-amber-900 dark:text-amber-200 px-2.5 py-1 text-xs">
               <Info className="h-3.5 w-3.5" />
-              Cancels on <strong className="ml-1">{cancelsOn.toLocaleDateString()}</strong>
+              Cancels at period end (<strong className="ml-1">{fmtDate(cancelsOn)}</strong>)
             </div>
           )}
         </div>
