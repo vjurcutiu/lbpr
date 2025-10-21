@@ -10,7 +10,7 @@ try:
 except Exception:  # pragma: no cover
     OpenAI = None  # type: ignore
 
-DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
 
 def _normalize_history(history: Optional[List[Dict[str, str]]]) -> List[Dict[str, str]]:
     if not history:

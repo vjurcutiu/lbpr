@@ -1058,6 +1058,9 @@ VITE_FIREBASE_APP_ID=...
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_FUNCTIONS_REGION=europe-central2
 
+VITE_STRIPE_PRO_PRICE_ID=price_1SKIKrEOpDS9PYbX6jBSwgzn
+VITE_STRIPE_PRICE_ALLOWLIST=price_1SKIKrEOpDS9PYbX6jBSwgzn
+
 C:/code2/lbpr/static/spa/playwright.config.ts
 import { defineConfig, devices } from "@playwright/test";
 

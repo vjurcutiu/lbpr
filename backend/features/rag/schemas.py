@@ -2,8 +2,8 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 class IngestRequest(BaseModel):
-    dataset: str = Field(..., description="Logical dataset/collection name")
-    text: Optional[str] = Field(None, description="Raw text to ingest")
+    dataset: str
+    text: Optional[str] = None
     doc_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -17,6 +17,10 @@ class QueryRequest(BaseModel):
     query: str
     k: int = 5
     with_sources: bool = True
+    # Kept for compatibility, but chat flow will not auto-populate this anymore.
+    exclude_doc_ids: List[str] = Field(default_factory=list)
+    # Diversify by document (one top chunk per doc) to avoid repetitive chunks.
+    per_doc: bool = Field(default=True)
 
 class Source(BaseModel):
     doc_id: str

@@ -15,6 +15,12 @@ except Exception:
     class SessionOut:  # type: ignore
         uid: str = "dev"
 
+# Optional Redis memory is retained but not used for exclusion anymore.
+try:
+    from core.redis_utils import get_client as _get_redis  # type: ignore
+except Exception:  # pragma: no cover
+    _get_redis = None  # type: ignore
+
 from core.rate_limit import add_message
 from core.plan import sync_caps_and_plan
 from .orchestrator import query_request
@@ -50,10 +56,6 @@ class ChatResponse(BaseModel):
     usage: Dict[str, Any] = Field(default_factory=dict)
 
 def _build_context_from_sources(sources: List[Source]) -> Tuple[str, List[Citation]]:
-    """
-    Build a numbered context block that the model can cite with [n].
-    Each block begins with a header like: [1] filename (chars a-b)
-    """
     blocks: List[str] = []
     cites: List[Citation] = []
     for i, s in enumerate(sources or []):
@@ -111,8 +113,6 @@ async def _rewrite_query(question: str, hint: str) -> str:
         log.exception("query_rewrite_error")
         return question if not hint else f"{question} ({hint})"
 
-# ---- Prompt helpers ---------------------------------------------------------
-
 _PROMPT_RULES = """\
 Decision policy:
 - Prefer the CONTEXT when it contains facts directly relevant to the QUESTION.
@@ -125,9 +125,6 @@ Decision policy:
 """
 
 def _compose_user_message(question: str, context_block: str) -> str:
-    """
-    Create a clearly delimited message so the LLM distinguishes QUESTION vs CONTEXT.
-    """
     return (
         "### TASK\n"
         "Answer the QUESTION. Use CONTEXT only if it is relevant.\n"
@@ -147,7 +144,7 @@ def _compose_user_message(question: str, context_block: str) -> str:
 async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(get_current_user)) -> ChatResponse:
     uid = getattr(user, "uid", "dev")
 
-    # Enforce real caps before counting this message
+    # Enforce plan/caps before counting
     await sync_caps_and_plan(uid)
 
     ok, used, cap = await add_message(uid)
@@ -156,11 +153,24 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
         raise HTTPException(status_code=429, detail=f"Message limit reached ({used}/{cap}). Upgrade to continue.")
 
     hint = _history_hint(req.history)
+
+    # No automatic exclusion of previously cited documents.
+    exclude_doc_ids: List[str] = []
+
+    # Standalone query rewrite
     search_query = await _rewrite_query(req.message, hint)
+
     from .schemas import QueryRequest as _QR
     context_text, citations = ("", [])
     try:
-        rag_resp: QueryResponse = query_request(_QR(dataset=req.dataset, query=search_query, k=req.k, with_sources=req.with_sources), uid=uid)
+        rag_resp: QueryResponse = query_request(_QR(
+            dataset=req.dataset,
+            query=search_query,
+            k=req.k,
+            with_sources=req.with_sources,
+            exclude_doc_ids=exclude_doc_ids,  # empty
+            per_doc=True,  # keep per-doc diversification
+        ), uid=uid)
         if req.with_sources and rag_resp.sources:
             context_text, citations = _build_context_from_sources(rag_resp.sources)
         else:
@@ -185,5 +195,4 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
     except Exception:
         log.exception("chat_llm_error")
 
-    # Ultimate fallback if the LLM fails entirely: just echo the message (no strict 'not found' text).
     return ChatResponse(answer=f"You said: {req.message}", citations=[], usage={})

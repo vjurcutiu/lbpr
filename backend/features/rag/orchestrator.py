@@ -16,27 +16,17 @@ log = logging.getLogger("rag.orchestrator")
 _store = get_store()
 _sparse = SparseEncoder()
 
-# Read toggle from env:
 FUSION = (os.getenv("RAG_HYBRID_FUSION") or "rrf").lower()
 ALPHA = float(os.getenv("RAG_HYBRID_ALPHA") or "0.5")
 
-
 def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
-    """Low-level ingest: takes prepared chunks with 'text' and precomputed vectors."""
     texts = [c["text"] for c in chunks]
-
-
     vectors = embed_texts(texts)
-    dim = len(vectors[0]) if vectors else 0
-
-
     sparse_list = []
     try:
         sparse_list = [_sparse.encode_doc(t) for t in texts]
-
     except Exception as e:
-        log.warning("ingest_sparse_failed", dataset=dataset, doc_id=doc_id, error=str(e))
-
+        log.warning("ingest_sparse_failed", extra={"dataset": dataset, "doc_id": doc_id, "error": str(e)})
     entries = []
     for c, v, sv in zip(chunks, vectors, sparse_list or [{} for _ in range(len(vectors))]):
         span = c.get("span") or {"start": 0, "end": 0}
@@ -54,47 +44,46 @@ def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict)
                 "sparse": sv,
             }
         )
-
-
     _store.upsert_chunks(dataset, entries)
 
-
 def ingest_request(req: IngestRequest, uid: str) -> IngestResponse:
-    """High-level ingest that applies per-user namespace and chunking."""
     dataset_ns = pinecone_namespace(uid, req.dataset)
     doc_id = (req.doc_id or f"doc_{uuid.uuid4().hex[:12]}").strip()
     text = req.text or ""
     meta = dict(req.metadata or {})
     meta.setdefault("owner_uid", uid)
-
-
-
     chunks = simple_word_chunker(text) if text else []
-
-
     _ingest_impl(dataset_ns, doc_id, chunks, meta)
-
     return IngestResponse(dataset=dataset_ns, doc_id=doc_id, chunk_ids=[c["chunk_id"] for c in chunks])
 
+def _dedupe_and_filter(results: List[Tuple[float, Dict]], *, k: int, exclude_doc_ids: List[str], per_doc: bool):
+    excl = set(exclude_doc_ids or [])
+    out: List[Tuple[float, Dict]] = []
+    seen_docs = set()
+    for score, e in results:
+        did = e.get("doc_id", "")
+        if did in excl:
+            continue
+        if per_doc and did in seen_docs:
+            continue
+        seen_docs.add(did)
+        out.append((score, e))
+        if len(out) >= k:
+            break
+    return out
 
 def query_request(req: QueryRequest, uid: str) -> QueryResponse:
-    """High-level query that applies per-user namespace and hybrid search."""
     dataset_ns = pinecone_namespace(uid, req.dataset)
-
     qvec = embed_one(req.query)
     qsparse = {}
     try:
         qsparse = _sparse.encode_query(req.query)
     except Exception as e:
-        log.warning("query_sparse_failed", dataset=dataset_ns, error=str(e))
-
-
+        log.warning("query_sparse_failed", extra={"dataset": dataset_ns, "error": str(e)})
     results: List[Tuple[float, Dict]] = _store.query_hybrid(
-        dataset_ns, qvec, qsparse, k=req.k, fusion=FUSION, alpha=ALPHA
+        dataset_ns, qvec, qsparse, k=max(req.k, 20), fusion=FUSION, alpha=ALPHA
     )
-
-
-
+    results = _dedupe_and_filter(results, k=req.k, exclude_doc_ids=req.exclude_doc_ids, per_doc=req.per_doc)
     sources: List[Source] = []
     if req.with_sources:
         for score, e in results:
@@ -107,8 +96,5 @@ def query_request(req: QueryRequest, uid: str) -> QueryResponse:
                     metadata=e.get("metadata", {}) or {},
                 )
             )
-
-    # NOTE: answer generation left simple (you can wire LLM here if desired)
     answer = "\n\n".join([s.text for s in sources]) or "(no results)"
-
     return QueryResponse(dataset=dataset_ns, query=req.query, answer=answer, sources=sources)
