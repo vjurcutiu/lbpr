@@ -37,3 +37,8 @@ fix file tracking when switching active tab (persistence issue)
 persis assistant is thinking when switching out of the active chat
 lil spinner while the files are loading
 landing page bottom overflow
+
+password recovery
+2fa
+provide proper error message when email is already in use
+same password rules on password change as auth

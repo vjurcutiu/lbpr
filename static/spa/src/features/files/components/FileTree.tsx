@@ -1,4 +1,4 @@
-import { Download, MoreVertical, Trash2, ChevronRight, Folder } from "lucide-react";
+import { Download, MoreVertical, Trash2, ChevronRight, Folder, Loader2 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { TreeNode } from "../utils/fileTree";
 import type { FileItem } from "../api";
@@ -6,17 +6,27 @@ import { fileDownloadUrl } from "../api";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { FileIconByName } from "./FileIconByName";
-import { fmtSize } from "../utils/formatters";
 
 export function FileTree({
   node,
   onOpen,
   onDelete,
+  loading = false,
 }: {
   node: TreeNode | null | undefined;
   onOpen: (f: FileItem) => void;
   onDelete: (f: FileItem) => void;
+  /** When true and no data yet, show a friendly loading state */
+  loading?: boolean;
 }) {
+  if (loading) {
+    return (
+      <div className="text-sm text-muted-foreground p-3 flex items-center gap-2">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        <span>Loading files…</span>
+      </div>
+    );
+  }
   if (!node) return <div className="text-sm text-muted-foreground p-2">No files.</div>;
   return (
     <div className="text-sm">
@@ -85,16 +95,18 @@ function FileRow({
   const href = fileDownloadUrl(f.id);
   return (
     <div className="group flex items-center justify-between rounded hover:bg-muted/40">
+      {/* LEFT: clickable filename - ensure truncation */}
       <button
-        className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-left"
+        className="min-w-0 flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-left"
         title={`${f.name}`}
         onClick={() => onOpen(f)}
       >
-        <FileIconByName name={node.name} className="h-4 w-4" />
+        <FileIconByName name={node.name} className="h-4 w-4 shrink-0" />
         <span className="truncate">{node.name}</span>
-        <span className="ml-auto mr-2 hidden md:inline text-xs text-muted-foreground">{fmtSize(f.size)}</span>
       </button>
-      <div className="opacity-0 group-hover:opacity-100 transition flex items-center gap-0.5 pr-1">
+
+      {/* RIGHT: actions - always visible and fixed-area so text never overlaps */}
+      <div className="shrink-0 w-[3.75rem] flex items-center justify-end gap-0.5 pr-1">
         <a
           href={href}
           title="Download"
@@ -103,7 +115,6 @@ function FileRow({
             console.debug("[files] click sidebar download", { id: f.id, href })
           }
         >
-          <Download className="h-4 w-4" />
         </a>
 
         <DropdownMenu>

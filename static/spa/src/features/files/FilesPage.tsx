@@ -386,7 +386,12 @@ export default function FilesPage() {
         <aside className="shrink-0 overflow-hidden border-r bg-muted/20" style={{ width: sidebarWidth }}>
           <div className="h-9 flex items-center px-3 text-xs uppercase tracking-wide text-muted-foreground border-b">Explorer</div>
           <div className="h-full overflow-auto px-1 py-2">
-            <FileTree node={filteredTree} onOpen={(f) => openFile(f)} onDelete={(f) => requestDelete(f)} />
+            <FileTree
+              loading={busy && (!tree || files.length === 0)}
+              node={filteredTree}
+              onOpen={(f) => openFile(f)}
+              onDelete={(f) => requestDelete(f)}
+            />
           </div>
         </aside>
 
