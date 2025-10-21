@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
+import { friendlyAuthMessage } from "@/features/auth/errorMessages";
 
 type Profile = { uid: string; email?: string };
 
@@ -66,7 +67,9 @@ export default function ProfilePage() {
         toast.message("Please quickly re‑authenticate to continue.");
         return;
       }
-      toast.error(e?.message || "Operation failed.");
+      // Friendlier messages for account updates
+      const ctx = intent === "email" ? "profile-email" : "profile-password";
+      toast.error(friendlyAuthMessage(e, ctx as any));
     }
   }
 
@@ -227,7 +230,7 @@ export default function ProfilePage() {
       </form>
 
       <Separator />
-      <ReauthDialog open={reauthOpen} onClose={() => setReauthOpen(false)} onSuccess={onReauthSuccess} intent={reauthIntent} />
+      <ReauthDialog open={reauthOpen} onOpenChange={() => setReauthOpen(false)} onSuccess={onReauthSuccess} intent={reauthIntent} />
     </div>
   );
 }

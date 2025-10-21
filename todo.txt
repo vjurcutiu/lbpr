@@ -36,3 +36,4 @@ make sure text never overflows the editing button
 fix file tracking when switching active tab (persistence issue)
 persis assistant is thinking when switching out of the active chat
 lil spinner while the files are loading
+landing page bottom overflow

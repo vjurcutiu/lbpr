@@ -2,7 +2,16 @@
  * Map Firebase Auth errors to friendly, actionable messages.
  * We keep the raw code in the dev console for easier debugging.
  */
-export function friendlyAuthMessage(error: unknown, context: "login" | "signup" | "verify" | "generic" = "generic"): string {
+export function friendlyAuthMessage(
+  error: unknown,
+  context:
+    | "login"
+    | "signup"
+    | "verify"
+    | "generic"
+    | "profile-email"
+    | "profile-password" = "generic"
+): string {
   // Extract best-effort code/message
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const e: any = error ?? {};
@@ -67,6 +76,35 @@ export function friendlyAuthMessage(error: unknown, context: "login" | "signup" 
       return "We couldn't find your email. Please sign in again and retry.";
     }
     return "Couldn't send the verification email. Please try again.";
+  }
+
+  // Profile (account settings) flows
+  if (context === "profile-email") {
+    if (c.includes("email-already-in-use") || msg.toLowerCase().includes("already in use")) {
+      return "That email is already in use. Try a different address.";
+    }
+    if (c.includes("invalid-email")) {
+      return "Please enter a valid email address.";
+    }
+    if (c.includes("requires-recent-login")) {
+      return "Please re‑authenticate to continue.";
+    }
+    // Some projects with Email Enumeration Protection enabled may surface "operation-not-allowed"
+    // when verifyBeforeUpdateEmail can't disclose the email's existence.
+    if (c.includes("operation-not-allowed")) {
+      return "We couldn't start the change using that address. Try a different email or contact support.";
+    }
+    return "Couldn't update your email. Please try again.";
+  }
+
+  if (context === "profile-password") {
+    if (c.includes("weak-password")) {
+      return "Password is too weak. Use at least 8 characters with letters and numbers.";
+    }
+    if (c.includes("requires-recent-login")) {
+      return "Please re‑authenticate to continue.";
+    }
+    return "Couldn't update your password. Please try again.";
   }
 
   // Fallback
