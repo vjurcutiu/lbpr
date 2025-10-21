@@ -2,8 +2,6 @@
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
-  GoogleAuthProvider,
-  signInWithPopup,
   onAuthStateChanged,
   signOut,
   createUserWithEmailAndPassword,
@@ -14,8 +12,10 @@ import {
   EmailAuthProvider,
   reauthenticateWithCredential,
   reload,
-  applyActionCode as fbApplyActionCode,
   type User,
+  GoogleAuthProvider,
+  signInWithPopup,
+  reauthenticateWithPopup,
 } from "firebase/auth";
 
 const firebaseConfig = {
@@ -29,11 +29,12 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Keep Google provider exported (even if unused) to avoid breaking imports elsewhere
+// Keep Google provider exported (other parts of the app import it)
 export const provider = new GoogleAuthProvider();
 
 export type FbUser = User | null;
 
+/** Core auth state */
 export function onAuth(cb: (user: FbUser) => void) {
   return onAuthStateChanged(auth, cb);
 }
@@ -59,28 +60,32 @@ export async function sendVerificationEmail(user: User) {
   await sendEmailVerification(user);
 }
 
+/**
+ * Sends a verification link to the NEW email; upon clicking, Firebase applies the change.
+ * May throw auth/requires-recent-login.
+ */
 export async function startEmailChangeVerification(user: User, newEmail: string) {
-  // Sends verification link to the NEW email; upon clicking, Firebase will apply the change
   await verifyBeforeUpdateEmail(user, newEmail);
 }
 
+/** Change password for the currently signed-in user. May throw auth/requires-recent-login. */
 export async function changePassword(user: User, newPassword: string) {
   await updatePassword(user, newPassword);
 }
 
-export async function reauthWithPassword(email: string, password: string) {
-  const cred = EmailAuthProvider.credential(email, password);
-  await reauthenticateWithCredential(auth.currentUser!, cred);
-}
-
-export async function reloadUser(user: User) {
+/** Re-auth with current password (password provider). */
+export async function reauthWithPassword(currentEmail: string, currentPassword: string) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("No signed-in user");
+  const cred = EmailAuthProvider.credential(currentEmail, currentPassword);
+  await reauthenticateWithCredential(user, cred);
   await reload(user);
 }
 
-/**
- * Wrapper so tests can mock from our module rather than firebase/auth directly.
- * In app code we only need the oobCode; the auth instance is captured here.
- */
-export async function applyActionCode(oobCode: string) {
-  await fbApplyActionCode(auth, oobCode);
+/** Re-auth with Google popup (oauth provider). */
+export async function reauthWithGoogle() {
+  const user = auth.currentUser;
+  if (!user) throw new Error("No signed-in user");
+  await reauthenticateWithPopup(user, new GoogleAuthProvider());
+  await reload(user);
 }

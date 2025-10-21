@@ -1,71 +1,102 @@
+# features/profile/routes.py
 from __future__ import annotations
+
+import logging
+from typing import Any, Dict, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request
+from core.config import settings
 from features.auth.deps import get_current_user
 from features.auth.models import SessionOut
 from features.auth.sessions import sessions
-from .models import ProfileOut, ProfilePatchIn
+from .models import ProfileOut, ProfileUpdateIn
+
+log = logging.getLogger("profile")
 
 router = APIRouter(tags=["profile"])
 
-def _to_out(auth_user) -> ProfileOut:
-    # auth_user is firebase_admin.auth.UserRecord
-    return ProfileOut(
-        uid=auth_user.uid,
-        email=getattr(auth_user, "email", None),
-        name=getattr(auth_user, "display_name", None),
-        picture=getattr(auth_user, "photo_url", None),
-    )
+
+def _safe_str(s: Optional[str]) -> Optional[str]:
+    if s is None:
+        return None
+    s = (s or "").strip()
+    return s or None
+
+
+def _get_firestore_client():
+    try:
+        from firebase_admin import firestore  # type: ignore
+        return firestore
+    except Exception:
+        return None
+
+
+def _load_profile_overrides(uid: str) -> Dict[str, Any]:
+    """Return {name, picture} overrides from Firestore if present."""
+    fs = _get_firestore_client()
+    if not fs:
+        return {}
+    try:
+        db = fs.client()
+        snap = db.collection("profiles").document(uid).get()
+        data = snap.to_dict() or {}
+        out: Dict[str, Any] = {}
+        if data.get("name"):
+            out["name"] = str(data.get("name")).strip()
+        if data.get("picture"):
+            out["picture"] = str(data.get("picture")).strip()
+        return out
+    except Exception:
+        log.exception("profile_load_error", uid=uid)
+        return {}
+
+
+def _save_profile_overrides(uid: str, *, name: Optional[str], picture: Optional[str]) -> None:
+    fs = _get_firestore_client()
+    if not fs:
+        return
+    try:
+        db = fs.client()
+        payload: Dict[str, Any] = {"updated_at": fs.SERVER_TIMESTAMP}
+        if name is not None:
+            payload["name"] = name
+        if picture is not None:
+            payload["picture"] = picture
+        db.collection("profiles").document(uid).set(payload, merge=True)
+    except Exception:
+        log.exception("profile_save_error", uid=uid)
+
 
 @router.get("/me", response_model=ProfileOut)
-def get_me(user: SessionOut = Depends(get_current_user)) -> ProfileOut:
-    # Load fresh data from Firebase to reflect any changes
-    try:
-        from firebase_admin import auth  # type: ignore
-        rec = auth.get_user(user.uid)
-        return _to_out(rec)
-    except Exception as e:
-        # Fallback to session info if Firebase hiccups
-        return ProfileOut(uid=user.uid, email=user.email, name=user.name, picture=user.picture)
+def read_me(user: SessionOut = Depends(get_current_user)) -> ProfileOut:
+    """Return the current user's profile (uid/email from session; name/picture with Firestore overrides)."""
+    overrides = _load_profile_overrides(user.uid)
+    return ProfileOut(
+        uid=user.uid,
+        email=user.email,
+        name=overrides.get("name") or user.name,
+        picture=overrides.get("picture") or user.picture,
+    )
+
 
 @router.patch("/me", response_model=ProfileOut)
-def patch_me(
-    req: Request,
-    payload: ProfilePatchIn,
-    user: SessionOut = Depends(get_current_user),
-) -> ProfileOut:
-    # Build update kwargs only for provided fields
-    kwargs = {}
-    if payload.email is not None:
-        kwargs["email"] = payload.email
-    if payload.name is not None:
-        kwargs["display_name"] = payload.name
-    if payload.password is not None:
-        if len(payload.password) < 6:
-            raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
-        kwargs["password"] = payload.password
-    if payload.picture is not None:
-        kwargs["photo_url"] = payload.picture
+def update_me(req: Request, payload: ProfileUpdateIn, user: SessionOut = Depends(get_current_user)) -> ProfileOut:
+    """Update display name / picture. Email changes are NOT accepted here."""
+    name = _safe_str(payload.name)
+    picture = _safe_str(payload.picture)
 
-    if not kwargs:
-        # No-op; return current
-        from firebase_admin import auth  # type: ignore
-        rec = auth.get_user(user.uid)
-        return _to_out(rec)
+    # Persist in Firestore (best-effort)
+    _save_profile_overrides(user.uid, name=name, picture=picture)
 
+    # Update the in-memory/redis session so UI reflects immediately
     try:
-        from firebase_admin import auth  # type: ignore
-        rec = auth.update_user(user.uid, **kwargs)
-    except Exception as e:
-        # Expose a concise error
-        raise HTTPException(status_code=400, detail=str(e))
+        sid = req.cookies.get(settings.COOKIE_NAME)
+        if sid:
+            sessions.update_user(sid, name=name, picture=picture)
+    except Exception:
+        log.exception("session_update_failed", uid=user.uid)
 
-    # Update the server-side session snapshot so /session reflects new values
-    sid = req.cookies.get("fb_session")  # settings.COOKIE_NAME default is fb_session
-    if sid:
-        sessions.update_user(sid,
-            email=rec.email or None,
-            name=rec.display_name or None,
-            picture=rec.photo_url or None,
-        )
-
-    return _to_out(rec)
+    # Compose response merging updated fields with current session
+    new_name = name if name is not None else user.name
+    new_picture = picture if picture is not None else user.picture
+    return ProfileOut(uid=user.uid, email=user.email, name=new_name, picture=new_picture)

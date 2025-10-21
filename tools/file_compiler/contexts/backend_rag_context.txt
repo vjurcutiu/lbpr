@@ -1,6 +1,22 @@
 C:/code2/lbpr/backend/features/rag/__init__.py
 
 
+C:/code2/lbpr/backend/features/rag/CHANGELOG_RAG_HISTORY.md
+# RAG conversation-aware retrieval
+
+## 2025-10-20 – Update: remove auto-exclusion
+- Removed automatic exclusion of the most recently surfaced document from the `/v1/chat` flow.
+- Kept **per-document diversification** (one chunk per doc) so users still get varied sources without suppressing any specific doc.
+- Kept `exclude_doc_ids` field on `QueryRequest` for API compatibility; client code may set it explicitly if desired.
+- Kept query rewrite and prompt hardening.
+
+## 2025-10-20 – Initial
+- Added `exclude_doc_ids` and `per_doc` to `QueryRequest`.
+- Orchestrator post-processing to drop excluded docs and enforce one-chunk-per-doc.
+- Optional Redis memory to record recently returned doc IDs (not used for exclusion anymore).
+- Clear QUESTION vs CONTEXT prompting and inline [n] citations only when context is used.
+
+
 C:/code2/lbpr/backend/features/rag/chunker.py
 from typing import List, Dict
 from math import floor
@@ -47,6 +63,12 @@ except Exception:
     class SessionOut:  # type: ignore
         uid: str = "dev"
 
+# Optional Redis memory is retained but not used for exclusion anymore.
+try:
+    from core.redis_utils import get_client as _get_redis  # type: ignore
+except Exception:  # pragma: no cover
+    _get_redis = None  # type: ignore
+
 from core.rate_limit import add_message
 from core.plan import sync_caps_and_plan
 from .orchestrator import query_request
@@ -82,10 +104,6 @@ class ChatResponse(BaseModel):
     usage: Dict[str, Any] = Field(default_factory=dict)
 
 def _build_context_from_sources(sources: List[Source]) -> Tuple[str, List[Citation]]:
-    """
-    Build a numbered context block that the model can cite with [n].
-    Each block begins with a header like: [1] filename (chars a-b)
-    """
     blocks: List[str] = []
     cites: List[Citation] = []
     for i, s in enumerate(sources or []):
@@ -143,8 +161,6 @@ async def _rewrite_query(question: str, hint: str) -> str:
         log.exception("query_rewrite_error")
         return question if not hint else f"{question} ({hint})"
 
-# ---- Prompt helpers ---------------------------------------------------------
-
 _PROMPT_RULES = """\
 Decision policy:
 - Prefer the CONTEXT when it contains facts directly relevant to the QUESTION.
@@ -157,9 +173,6 @@ Decision policy:
 """
 
 def _compose_user_message(question: str, context_block: str) -> str:
-    """
-    Create a clearly delimited message so the LLM distinguishes QUESTION vs CONTEXT.
-    """
     return (
         "### TASK\n"
         "Answer the QUESTION. Use CONTEXT only if it is relevant.\n"
@@ -179,7 +192,7 @@ def _compose_user_message(question: str, context_block: str) -> str:
 async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(get_current_user)) -> ChatResponse:
     uid = getattr(user, "uid", "dev")
 
-    # Enforce real caps before counting this message
+    # Enforce plan/caps before counting
     await sync_caps_and_plan(uid)
 
     ok, used, cap = await add_message(uid)
@@ -188,11 +201,24 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
         raise HTTPException(status_code=429, detail=f"Message limit reached ({used}/{cap}). Upgrade to continue.")
 
     hint = _history_hint(req.history)
+
+    # No automatic exclusion of previously cited documents.
+    exclude_doc_ids: List[str] = []
+
+    # Standalone query rewrite
     search_query = await _rewrite_query(req.message, hint)
+
     from .schemas import QueryRequest as _QR
     context_text, citations = ("", [])
     try:
-        rag_resp: QueryResponse = query_request(_QR(dataset=req.dataset, query=search_query, k=req.k, with_sources=req.with_sources), uid=uid)
+        rag_resp: QueryResponse = query_request(_QR(
+            dataset=req.dataset,
+            query=search_query,
+            k=req.k,
+            with_sources=req.with_sources,
+            exclude_doc_ids=exclude_doc_ids,  # empty
+            per_doc=True,  # keep per-doc diversification
+        ), uid=uid)
         if req.with_sources and rag_resp.sources:
             context_text, citations = _build_context_from_sources(rag_resp.sources)
         else:
@@ -217,7 +243,6 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
     except Exception:
         log.exception("chat_llm_error")
 
-    # Ultimate fallback if the LLM fails entirely: just echo the message (no strict 'not found' text).
     return ChatResponse(answer=f"You said: {req.message}", citations=[], usage={})
 
 
@@ -307,27 +332,17 @@ log = logging.getLogger("rag.orchestrator")
 _store = get_store()
 _sparse = SparseEncoder()
 
-# Read toggle from env:
 FUSION = (os.getenv("RAG_HYBRID_FUSION") or "rrf").lower()
 ALPHA = float(os.getenv("RAG_HYBRID_ALPHA") or "0.5")
 
-
 def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
-    """Low-level ingest: takes prepared chunks with 'text' and precomputed vectors."""
     texts = [c["text"] for c in chunks]
-
-
     vectors = embed_texts(texts)
-    dim = len(vectors[0]) if vectors else 0
-
-
     sparse_list = []
     try:
         sparse_list = [_sparse.encode_doc(t) for t in texts]
-
     except Exception as e:
-        log.warning("ingest_sparse_failed", dataset=dataset, doc_id=doc_id, error=str(e))
-
+        log.warning("ingest_sparse_failed", extra={"dataset": dataset, "doc_id": doc_id, "error": str(e)})
     entries = []
     for c, v, sv in zip(chunks, vectors, sparse_list or [{} for _ in range(len(vectors))]):
         span = c.get("span") or {"start": 0, "end": 0}
@@ -345,47 +360,46 @@ def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict)
                 "sparse": sv,
             }
         )
-
-
     _store.upsert_chunks(dataset, entries)
 
-
 def ingest_request(req: IngestRequest, uid: str) -> IngestResponse:
-    """High-level ingest that applies per-user namespace and chunking."""
     dataset_ns = pinecone_namespace(uid, req.dataset)
     doc_id = (req.doc_id or f"doc_{uuid.uuid4().hex[:12]}").strip()
     text = req.text or ""
     meta = dict(req.metadata or {})
     meta.setdefault("owner_uid", uid)
-
-
-
     chunks = simple_word_chunker(text) if text else []
-
-
     _ingest_impl(dataset_ns, doc_id, chunks, meta)
-
     return IngestResponse(dataset=dataset_ns, doc_id=doc_id, chunk_ids=[c["chunk_id"] for c in chunks])
 
+def _dedupe_and_filter(results: List[Tuple[float, Dict]], *, k: int, exclude_doc_ids: List[str], per_doc: bool):
+    excl = set(exclude_doc_ids or [])
+    out: List[Tuple[float, Dict]] = []
+    seen_docs = set()
+    for score, e in results:
+        did = e.get("doc_id", "")
+        if did in excl:
+            continue
+        if per_doc and did in seen_docs:
+            continue
+        seen_docs.add(did)
+        out.append((score, e))
+        if len(out) >= k:
+            break
+    return out
 
 def query_request(req: QueryRequest, uid: str) -> QueryResponse:
-    """High-level query that applies per-user namespace and hybrid search."""
     dataset_ns = pinecone_namespace(uid, req.dataset)
-
     qvec = embed_one(req.query)
     qsparse = {}
     try:
         qsparse = _sparse.encode_query(req.query)
     except Exception as e:
-        log.warning("query_sparse_failed", dataset=dataset_ns, error=str(e))
-
-
+        log.warning("query_sparse_failed", extra={"dataset": dataset_ns, "error": str(e)})
     results: List[Tuple[float, Dict]] = _store.query_hybrid(
-        dataset_ns, qvec, qsparse, k=req.k, fusion=FUSION, alpha=ALPHA
+        dataset_ns, qvec, qsparse, k=max(req.k, 20), fusion=FUSION, alpha=ALPHA
     )
-
-
-
+    results = _dedupe_and_filter(results, k=req.k, exclude_doc_ids=req.exclude_doc_ids, per_doc=req.per_doc)
     sources: List[Source] = []
     if req.with_sources:
         for score, e in results:
@@ -398,10 +412,7 @@ def query_request(req: QueryRequest, uid: str) -> QueryResponse:
                     metadata=e.get("metadata", {}) or {},
                 )
             )
-
-    # NOTE: answer generation left simple (you can wire LLM here if desired)
     answer = "\n\n".join([s.text for s in sources]) or "(no results)"
-
     return QueryResponse(dataset=dataset_ns, query=req.query, answer=answer, sources=sources)
 
 
@@ -457,7 +468,6 @@ No API changes are required. The existing `/features/rag/ingest` and `/features/
 
 
 C:/code2/lbpr/backend/features/rag/router.py
-# backend/features/rag/router.py
 from fastapi import APIRouter, HTTPException, Request, Depends
 from .schemas import IngestRequest, IngestResponse, QueryRequest, QueryResponse
 from . import orchestrator
@@ -476,41 +486,37 @@ log = logging.getLogger("rag.router")
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest(req: IngestRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
-        # Make sure RL meta reflects latest billing (caps + anchor)
         await sync_caps_and_plan(user.uid)
-
         text = req.text or ""
         tokens = count_tokens(text)
         ok, used, cap = await add_upload_tokens(user.uid, tokens)
-        log.info("usage_upload_tokens_add", uid=user.uid, dataset=req.dataset, tokens=tokens, allowed=ok, used_upload_tokens=used, cap_upload_tokens=cap, client=str(request.client))
+        log.info("usage_upload_tokens_add", extra={"uid": user.uid, "dataset": req.dataset, "tokens": tokens, "allowed": ok, "used_upload_tokens": used, "cap_upload_tokens": cap, "client": str(request.client)})
         if not ok:
             raise HTTPException(status_code=429, detail=f"Upload budget exceeded ({used}/{cap} tokens). Upgrade to continue.")
         resp = orchestrator.ingest_request(req, user.uid)
-        log.info("rag_ingest_ok", uid=user.uid, dataset=req.dataset, doc_id=resp.doc_id, chunks=len(resp.chunk_ids))
+        log.info("rag_ingest_ok", extra={"uid": user.uid, "dataset": req.dataset, "doc_id": resp.doc_id, "chunks": len(resp.chunk_ids)})
         return resp
     except HTTPException:
         raise
     except Exception as e:
-        log.exception("rag_ingest_error", uid=user.uid, dataset=getattr(req, "dataset", None))
+        log.exception("rag_ingest_error", extra={"uid": user.uid, "dataset": getattr(req, "dataset", None)})
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/query", response_model=QueryResponse)
 async def query(req: QueryRequest, request: Request, user: SessionOut = Depends(get_current_user)):
     try:
-        # Make sure RL meta reflects latest billing (caps + anchor)
         await sync_caps_and_plan(user.uid)
-
         ok, used, cap = await add_message(user.uid)
-        log.info("usage_message_add", uid=user.uid, allowed=ok, used_messages=used, cap_messages=cap, path=str(request.url.path))
+        log.info("usage_message_add", extra={"uid": user.uid, "allowed": ok, "used_messages": used, "cap_messages": cap, "path": str(request.url.path)})
         if not ok:
             raise HTTPException(status_code=429, detail=f"Message limit reached ({used}/{cap}). Upgrade to continue.")
         resp = orchestrator.query_request(req, user.uid)
-        log.info("rag_query_ok", uid=user.uid, dataset=req.dataset, k=req.k, with_sources=req.with_sources)
+        log.info("rag_query_ok", extra={"uid": user.uid, "dataset": req.dataset, "k": req.k, "with_sources": req.with_sources})
         return resp
     except HTTPException:
         raise
     except Exception as e:
-        log.exception("rag_query_error", uid=user.uid, dataset=getattr(req, "dataset", None))
+        log.exception("rag_query_error", extra={"uid": user.uid, "dataset": getattr(req, "dataset", None)})
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -519,8 +525,8 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 class IngestRequest(BaseModel):
-    dataset: str = Field(..., description="Logical dataset/collection name")
-    text: Optional[str] = Field(None, description="Raw text to ingest")
+    dataset: str
+    text: Optional[str] = None
     doc_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -534,6 +540,10 @@ class QueryRequest(BaseModel):
     query: str
     k: int = 5
     with_sources: bool = True
+    # Kept for compatibility, but chat flow will not auto-populate this anymore.
+    exclude_doc_ids: List[str] = Field(default_factory=list)
+    # Diversify by document (one top chunk per doc) to avoid repetitive chunks.
+    per_doc: bool = Field(default=True)
 
 class Source(BaseModel):
     doc_id: str
@@ -729,7 +739,7 @@ try:
 except Exception:  # pragma: no cover
     OpenAI = None  # type: ignore
 
-DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
 
 def _normalize_history(history: Optional[List[Dict[str, str]]]) -> List[Dict[str, str]]:
     if not history:
