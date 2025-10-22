@@ -485,7 +485,7 @@ export default function FilesPage() {
 
           {/* Viewer */}
           <div className="flex-1 min-h-0 overflow-auto p-4">
-            <div className="h-full rounded-lg border bg-background shadow-sm p-4">
+            <div className="rounded-lg border bg-background shadow-sm p-4">
               {activeId ? (
                 <FileViewer payload={content[activeId]} file={files.find((f) => f.id === activeId) || null} searchTerm={infileQuery} />
               ) : (
@@ -524,7 +524,7 @@ export default function FilesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete file?</AlertDialogTitle>
             <AlertDialogDescription>
-              {fileToDelete ? `This will permanently delete "${fileToDelete.name}". You can't undo this action.` : "This will permanently delete the file."}
+              {fileToDelete ? `This will permanently delete \"${fileToDelete.name}\". You can't undo this action.` : "This will permanently delete the file."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -196,16 +196,20 @@ export function UploadTrackerPanel({
     try {
       const { removed } = await clearUploadJobs(scope);
       if (removed > 0) {
-        toast.success(scope === "all" ? "Tracker cleared" : "Completed cleared", {
-          description: `${removed} entr${removed === 1 ? "y" : "ies"} removed.`
+        const plural = removed === 1 ? "entry" : "entries";
+        // @ts-ignore - sonner accepts description in message()
+        ;(toast as any).success(scope === "all" ? "Tracker cleared" : "Completed cleared", {
+          description: `${removed} ${plural} removed.`
         });
       } else {
-        toast.message("Nothing to clear", { description: "No matching entries." });
+        // @ts-ignore
+        (toast as any).message("Nothing to clear", { description: "No matching entries." });
       }
       await refresh();
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      toast.error("Failed to clear", { description: e instanceof Error ? e.message : String(e) });
+      // @ts-ignore
+      (toast as any).error("Failed to clear", { description: e?.message ?? String(e) });
     }
   };
 

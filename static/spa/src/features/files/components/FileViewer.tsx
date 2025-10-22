@@ -60,7 +60,7 @@ export function FileViewer({
     const raw = payload.text ?? "";
     const html = highlightHtml(raw, searchTerm ?? "");
     return (
-      <div ref={containerRef} className="w-full h-full">
+      <div ref={containerRef} className="w-full">
         <div
           className="font-mono text-sm"
           dangerouslySetInnerHTML={{ __html: html }}
