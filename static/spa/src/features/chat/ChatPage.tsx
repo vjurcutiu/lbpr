@@ -22,7 +22,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import { loadBool, saveBool } from "@/shared/persist";
 
-// NEW: Markdown rendering for assistant messages
+// Markdown rendering for assistant messages
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -73,7 +73,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [streamEnabled] = useState(false);
 
-  // NEW: persisted "assistant is typing" flag (survives route changes)
+  // Persisted "assistant is typing" flag (survives route changes)
   const [persistedTyping, setPersistedTyping] = useState(false);
 
   const [sessions, setSessions] = useState<ConversationMeta[]>([]);
@@ -86,7 +86,7 @@ export default function ChatPage() {
   // Current Firebase user
   const uid = getAuth().currentUser?.uid || null;
 
-  // ----- NEW: derive a per-user effective namespace -----
+  // Derive a per-user effective namespace
   const effectiveNs = useMemo(() => {
     return uid ? `u:${uid}:${namespace}` : `anon:${namespace}`;
   }, [uid, namespace]);
@@ -264,7 +264,8 @@ export default function ChatPage() {
   };
 
   const hasThread = messages.length > 0;
-  const composerTextClass = "text-left placeholder:text-left leading-[1.4] h-12 py-3";
+  // Smaller composer font + height (chat window only)
+  const composerTextClass = "text-left placeholder:text-left text-[14px] leading-[1.35] h-11 py-2.5";
   const isAssistantTyping = sending || persistedTyping;
 
   return (
@@ -299,7 +300,7 @@ export default function ChatPage() {
               onHeroSubmit={() => onSubmit()}
             />
           ) : (
-            <div className="px-4 sm:px-6 py-6 space-y-6">
+            <div className="px-3.5 sm:px-5 py-5 space-y-5">
               {messages.map((m, idx) => (
                 <MessageRow
                   key={m.id || String(idx)}
@@ -331,7 +332,7 @@ export default function ChatPage() {
                     placeholder="Ask anything…"
                     className={`max-h-44 resize-y border-0 focus-visible:ring-0 focus-visible:border-0 px-4 py-2 ${composerTextClass}`}
                   />
-                  <Button type="submit" disabled={!canSend} className="min-w-[92px]">
+                  <Button type="submit" disabled={!canSend} className="min-w-[88px]">
                     {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     <span className="ml-2">{sending ? "Sending" : "Send"}</span>
                   </Button>
@@ -540,9 +541,9 @@ function MessageRow({
     );
   }
 
-  // Bubble shared styles — relaxed line-height + comfy padding
+  // Bubble shared styles — slightly smaller type and paddings
   const bubbleBase =
-    "rounded-2xl px-5 py-4 text-[15px] leading-7";
+    "rounded-2xl px-4 py-3 text-[14px] leading-6";
   const bubbleUser = "bg-primary text-primary-foreground whitespace-pre-wrap";
   const bubbleAssistant = "bg-card border border-border";
 
@@ -551,7 +552,7 @@ function MessageRow({
       <div
         className={`flex items-start gap-3 max-w-[min(80%,780px)] ${isUser ? "flex-row-reverse" : ""}`}
       >
-        <Avatar className="size-8">
+        <Avatar className="size-7">
           <AvatarFallback>{isUser ? "U" : "A"}</AvatarFallback>
         </Avatar>
         <div className="space-y-2">
@@ -587,10 +588,10 @@ function MessageRow({
                   ),
                   code: ({inline, className, children, ...props}) => {
                     if (inline) {
-                      return <code className="rounded bg-muted px-1 py-0.5">{children}</code>;
+                      return <code className="rounded bg-muted px-1 py-0.5 text-[13px]">{children}</code>;
                     }
                     return (
-                      <pre className="rounded-xl bg-muted p-3 overflow-auto text-sm leading-7">
+                      <pre className="rounded-xl bg-muted p-3 overflow-auto text-[13px] leading-6">
                         <code className={className} {...props}>
                           {children}
                         </code>
@@ -604,9 +605,9 @@ function MessageRow({
                   ),
                   th: ({node, className, ...props}) => <th {...props} className={["border px-2 py-1 text-left font-semibold", className].filter(Boolean).join(" ")} />,
                   td: ({node, className, ...props}) => <td {...props} className={["border px-2 py-1 align-top", className].filter(Boolean).join(" ")} />,
-                  h1: ({node, className, ...props}) => <h1 {...props} className={["text-xl font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
-                  h2: ({node, className, ...props}) => <h2 {...props} className={["text-lg font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
-                  h3: ({node, className, ...props}) => <h3 {...props} className={["text-base font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
+                  h1: ({node, className, ...props}) => <h1 {...props} className={["text-lg font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
+                  h2: ({node, className, ...props}) => <h2 {...props} className={["text-base font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
+                  h3: ({node, className, ...props}) => <h3 {...props} className={["text-sm font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
                   hr: ({node, className, ...props}) => <hr {...props} className={["my-4 border-muted", className].filter(Boolean).join(" ")} />,
                 }}
               >
@@ -623,11 +624,11 @@ function AssistantThinkingRow() {
   return (
     <div className="w-full flex justify-start">
       <div className="flex items-start gap-3 max-w-[min(80%,720px)]">
-        <Avatar className="size-8">
+        <Avatar className="size-7">
           <AvatarFallback>A</AvatarFallback>
         </Avatar>
         <div className="space-y-2">
-          <div className="rounded-2xl px-4 py-3 text-sm leading-relaxed bg-card border border-border text-muted-foreground flex items-center gap-2">
+          <div className="rounded-2xl px-3.5 py-2.5 text-[13px] leading-6 bg-card border border-border text-muted-foreground flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span>Assistant is thinking…</span>
           </div>
