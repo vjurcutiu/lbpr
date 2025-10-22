@@ -1,0 +1,4 @@
+
+/* Hide scrollbars cross-browser on tab scroller */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

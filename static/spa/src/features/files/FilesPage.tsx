@@ -53,6 +53,7 @@ import { FileIconByName } from "./components/FileIconByName";
 import { UploadTrackerPanel } from "./components/UploadTracker";
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
 import { loadBool, saveBool, loadJSON, saveJSON } from "@/shared/persist";
+import "./styles.css";
 
 const LS_TRACKER_OPEN = "files:trackerOpen";
 const LS_OPTIMISTIC = "files:optimisticJobs";
@@ -537,8 +538,9 @@ export default function FilesPage() {
 
         {/* RIGHT: Tabs + viewer */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Tabs with overflow arrows */}
-          <div className="relative border-b bg-muted/10">
+          
+          {/* Tabs with overflow arrows (no visible scrollbars) */}
+          <div className="relative border-b bg-muted/10 h-9">
             {/* Left arrow */}
             {canScrollLeft && (
               <button
@@ -561,45 +563,49 @@ export default function FilesPage() {
                 <ChevronRight className="h-4 w-4" />
               </button>
             )}
-            <div
-              ref={tabsRef}
-              className="flex items-center gap-1 px-2 h-9 overflow-x-auto scrollbar-none"
-            >
-              {tabs.map((t) => (
-                <button
-                  key={t.id}
-                  data-tab-id={t.id}
-                  onClick={() => setActiveId(t.id)}
-                  className={cn(
-                    "h-8 px-3 rounded-t-md border-b-0 border text-sm transition whitespace-nowrap",
-                    activeId === t.id ? "bg-background" : "bg-muted/40 text-muted-foreground hover:bg-muted"
-                  )}
-                  title={t.title}
-                >
-                  <span className="truncate inline-flex max-w-[18rem] items-center gap-2">
-                    <FileIconByName name={t.title} className="h-4 w-4" />
-                    {t.title.split("/").slice(-1)[0]}
-                  </span>
-                  <span
-                    className="ml-2 inline-flex"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(t.id);
-                    }}
+            {/* Clip the scroller so scrollbars never show */}
+            <div className="absolute inset-0 overflow-hidden">
+              <div
+                ref={tabsRef}
+                className="flex items-center gap-1 px-2 h-9 overflow-x-auto no-scrollbar"
+              >
+                {tabs.map((t) => (
+                  <button
+                    key={t.id}
+                    data-tab-id={t.id}
+                    onClick={() => setActiveId(t.id)}
+                    className={cn(
+                      "h-8 px-3 rounded-t-md border-b-0 border text-sm transition whitespace-nowrap",
+                      activeId === t.id ? "bg-background" : "bg-muted/40 text-muted-foreground hover:bg-muted"
+                    )}
+                    title={t.title}
                   >
-                    <svg className="h-4 w-4 opacity-70 hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M18 6 6 18M6 6l12 12" />
-                    </svg>
-                  </span>
-                </button>
-              ))}
-              {tabs.length === 0 && (
-                <div className="text-xs text-muted-foreground px-2">← Open a file from the sidebar</div>
-              )}
+                    <span className="truncate inline-flex max-w-[18rem] items-center gap-2">
+                      <FileIconByName name={t.title} className="h-4 w-4" />
+                      {t.title.split("/").slice(-1)[0]}
+                    </span>
+                    <span
+                      className="ml-2 inline-flex"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeTab(t.id);
+                      }}
+                    >
+                      <svg className="h-4 w-4 opacity-70 hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M18 6 6 18M6 6l12 12" />
+                      </svg>
+                    </span>
+                  </button>
+                ))}
+                {tabs.length === 0 && (
+                  <div className="text-xs text-muted-foreground px-2">← Open a file from the sidebar</div>
+                )}
+              </div>
             </div>
           </div>
 
           {/* Title + in-file search controls */}
+{/* Title + in-file search controls */}
           <div className="flex items-center gap-2 px-3 py-2 border-b bg-background">
             <div className="flex-1 min-w-0">
               <div className="text-xs text-muted-foreground truncate">
