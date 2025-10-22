@@ -22,6 +22,10 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import { loadBool, saveBool } from "@/shared/persist";
 
+// NEW: Markdown rendering for assistant messages
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 /**
  * Namespacing model:
  * - Keep the app-level "namespace" UX (stored in localStorage).
@@ -207,7 +211,7 @@ export default function ChatPage() {
       const assistantMsg: ChatTurn = {
         role: "assistant",
         content: res.answer,
-        citations: res.citations ?? [],
+        citations: res.citations ?? [], // kept in payload for debugging/telemetry, not rendered
         created_at: new Date().toISOString(),
         trace_id: (res as any).__trace_id,
         request_id: (res as any).__request_id ?? null,
@@ -301,7 +305,7 @@ export default function ChatPage() {
                   key={m.id || String(idx)}
                   role={m.role}
                   content={m.content}
-                  citations={(m as any).citations as any}
+                  // citations removed from UI
                 />
               ))}
               {isAssistantTyping && <AssistantThinkingRow />}
@@ -510,14 +514,13 @@ function LeftSidebar({
   );
 }
 
+
 function MessageRow({
   role,
   content,
-  citations,
 }: {
   role: "user" | "assistant" | "system";
   content: string;
-  citations?: any;
 }) {
   const isUser = role === "user";
   const isSystem = role === "system";
@@ -537,10 +540,16 @@ function MessageRow({
     );
   }
 
+  // Bubble shared styles — relaxed line-height + comfy padding
+  const bubbleBase =
+    "rounded-2xl px-5 py-4 text-[15px] leading-7";
+  const bubbleUser = "bg-primary text-primary-foreground whitespace-pre-wrap";
+  const bubbleAssistant = "bg-card border border-border";
+
   return (
     <div className={`w-full flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`flex items-start gap-3 max-w-[min(80%,720px)] ${isUser ? "flex-row-reverse" : ""}`}
+        className={`flex items-start gap-3 max-w-[min(80%,780px)] ${isUser ? "flex-row-reverse" : ""}`}
       >
         <Avatar className="size-8">
           <AvatarFallback>{isUser ? "U" : "A"}</AvatarFallback>
@@ -548,19 +557,68 @@ function MessageRow({
         <div className="space-y-2">
           <div
             className={[
-              "rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed",
-              isUser ? "bg-primary text-primary-foreground" : "bg-card border border-border",
+              bubbleBase,
+              isUser ? bubbleUser : bubbleAssistant,
             ].join(" ")}
           >
-            {content}
+            {isUser ? (
+              content
+            ) : (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  a: ({node, className, ...props}) => (
+                    <a {...props} className={["underline", className].filter(Boolean).join(" ")} target="_blank" rel="noopener noreferrer" />
+                  ),
+                  p: ({node, className, ...props}) => (
+                    <p {...props} className={["my-3", className].filter(Boolean).join(" ")} />
+                  ),
+                  ul: ({node, className, ...props}) => (
+                    <ul {...props} className={["my-3 ml-5 list-disc space-y-1", className].filter(Boolean).join(" ")} />
+                  ),
+                  ol: ({node, className, ...props}) => (
+                    <ol {...props} className={["my-3 ml-5 list-decimal space-y-1", className].filter(Boolean).join(" ")} />
+                  ),
+                  li: ({node, className, ...props}) => (
+                    <li {...props} className={["pl-1", className].filter(Boolean).join(" ")} />
+                  ),
+                  blockquote: ({node, className, ...props}) => (
+                    <blockquote {...props} className={["border-l-2 pl-3 italic opacity-90 my-3", className].filter(Boolean).join(" ")} />
+                  ),
+                  code: ({inline, className, children, ...props}) => {
+                    if (inline) {
+                      return <code className="rounded bg-muted px-1 py-0.5">{children}</code>;
+                    }
+                    return (
+                      <pre className="rounded-xl bg-muted p-3 overflow-auto text-sm leading-7">
+                        <code className={className} {...props}>
+                          {children}
+                        </code>
+                      </pre>
+                    );
+                  },
+                  table: ({node, className, ...props}) => (
+                    <div className="overflow-x-auto my-3">
+                      <table {...props} className={["min-w-full text-sm border-collapse", className].filter(Boolean).join(" ")} />
+                    </div>
+                  ),
+                  th: ({node, className, ...props}) => <th {...props} className={["border px-2 py-1 text-left font-semibold", className].filter(Boolean).join(" ")} />,
+                  td: ({node, className, ...props}) => <td {...props} className={["border px-2 py-1 align-top", className].filter(Boolean).join(" ")} />,
+                  h1: ({node, className, ...props}) => <h1 {...props} className={["text-xl font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
+                  h2: ({node, className, ...props}) => <h2 {...props} className={["text-lg font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
+                  h3: ({node, className, ...props}) => <h3 {...props} className={["text-base font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
+                  hr: ({node, className, ...props}) => <hr {...props} className={["my-4 border-muted", className].filter(Boolean).join(" ")} />,
+                }}
+              >
+                {content}
+              </ReactMarkdown>
+            )}
           </div>
-          {!isUser && !!citations?.length && <CitationList citations={citations as any} />}
         </div>
       </div>
     </div>
   );
 }
-
 function AssistantThinkingRow() {
   return (
     <div className="w-full flex justify-start">
@@ -575,21 +633,6 @@ function AssistantThinkingRow() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function CitationList({ citations }: { citations: any[] }) {
-  return (
-    <div className="text-xs text-muted-foreground">
-      <ul className="mt-1 ml-5 list-disc space-y-1">
-        {citations.map((c, idx) => (
-          <li key={idx}>
-            <span className="font-medium">{c.title ?? c.doc_id}</span>
-            {c.span ? <span className="opacity-80"> — {c.span}</span> : null}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }

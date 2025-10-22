@@ -858,6 +858,11 @@ import { EmptyState } from "./components/EmptyState";
 import { FileIconByName } from "./components/FileIconByName";
 import { UploadTrackerPanel } from "./components/UploadTracker";
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
+import { loadBool, saveBool, loadJSON, saveJSON } from "@/shared/persist";
+
+const LS_TRACKER_OPEN = "files:trackerOpen";
+const LS_OPTIMISTIC = "files:optimisticJobs";
+const LS_BATCH = "files:batchFilenames";
 
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -893,7 +898,7 @@ export default function FilesPage() {
   const [optimisticJobs, setOptimisticJobs] = useState<UploadJob[]>([]);
   // This-batch filter by filename
   const [batchFilenames, setBatchFilenames] = useState<string[]>([]);
-  // NEW: seed the tracker with existing history so it shows immediately
+  // Seed the tracker with existing history so it shows immediately
   const [seedFetched, setSeedFetched] = useState<UploadJob[]>([]);
 
   // UI niceties
@@ -916,6 +921,28 @@ export default function FilesPage() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // --- NEW: Rehydrate tracker state across route changes ---
+  useEffect(() => {
+    // restore toggled-open state
+    const open = loadBool(LS_TRACKER_OPEN, false);
+    setTrackerOpen(open);
+    // restore optimistic batch + filenames (these will be de-duped against fetched jobs by the panel)
+    const opt = loadJSON<UploadJob[]>(LS_OPTIMISTIC, []);
+    if (opt.length) setOptimisticJobs(opt);
+    const bf = loadJSON<string[]>(LS_BATCH, []);
+    if (bf.length) setBatchFilenames(bf);
+    // if it was open, prefetch existing server-side jobs to show immediately
+    if (open) {
+      listUploadJobs().then(setSeedFetched).catch(() => {});
+      setTrackerRefreshKey(Date.now());
+    }
+  }, []);
+
+  // persist tracker UI as it changes
+  useEffect(() => { saveBool(LS_TRACKER_OPEN, trackerOpen); }, [trackerOpen]);
+  useEffect(() => { saveJSON(LS_OPTIMISTIC, optimisticJobs); }, [optimisticJobs]);
+  useEffect(() => { saveJSON(LS_BATCH, batchFilenames); }, [batchFilenames]);
 
   // Resize logic
   useEffect(() => {
@@ -1368,7 +1395,6 @@ export default function FilesPage() {
     </div>
   );
 }
-
 
 C:/code2/lbpr/static/spa/src/features/files/uploadTrackerApi.ts
 import { API_BASE } from "@/shared/api";

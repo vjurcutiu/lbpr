@@ -579,8 +579,8 @@ export default function BillingPage() {
           </div>
           {/* features */}
           <ul className="text-sm space-y-2 mb-6 flex-1">
-            <li>• 50 messages / month</li>
-            <li>• 100,000 upload tokens (≈75 pages) / month</li>
+            <li>• 50 messages</li>
+            <li>• 100,000 upload tokens (≈75 pages)</li>
             <li>• Get started — no credit card</li>
           </ul>
 
