@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import AuthLayout from "./AuthLayout";
-import { applyActionCode } from "./firebase";
+//import { applyActionCode } from "./firebase";
 
 export default function VerifyEmailPage() {
   const [params] = useSearchParams();
@@ -20,7 +20,7 @@ export default function VerifyEmailPage() {
 
     (async () => {
       try {
-        await applyActionCode(oobCode);
+        //await applyActionCode(oobCode);
         setStatus("ok");
       } catch (e: any) {
         // keep a generic but helpful error for UX
