@@ -20,6 +20,7 @@ import {
 import type { ChatTurn, ConversationMeta } from "./types";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
+import { loadBool, saveBool } from "@/shared/persist";
 
 /**
  * Namespacing model:
@@ -57,11 +58,19 @@ async function fetchLimits(): Promise<LimitsMe | null> {
   }
 }
 
+// Build a storage key for the "assistant is typing" persisted flag
+function typingKey(ns: string, id: string) {
+  return `chat:pending:${ns}:${id}`;
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<RenderMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [streamEnabled] = useState(false);
+
+  // NEW: persisted "assistant is typing" flag (survives route changes)
+  const [persistedTyping, setPersistedTyping] = useState(false);
 
   const [sessions, setSessions] = useState<ConversationMeta[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -96,6 +105,7 @@ export default function ChatPage() {
       setSessions([]);
       setSessionId(null);
       setMessages([]);
+      setPersistedTyping(false);
       return;
     }
     refreshConversations();
@@ -105,14 +115,26 @@ export default function ChatPage() {
   useEffect(() => {
     if (!sessionId) {
       setMessages([]);
+      setPersistedTyping(false);
       return;
     }
     const unsub = subscribeMessages(effectiveNs, sessionId, (msgs) => {
       setMessages(msgs.map((m, i) => ({ ...m, id: `${i}` })));
+      // If any non-user message arrives while we thought the assistant was typing, clear the persisted flag.
+      const last = msgs[msgs.length - 1];
+      if (last && last.role !== "user") {
+        const k = typingKey(effectiveNs, sessionId);
+        if (loadBool(k, false)) {
+          saveBool(k, false);
+          setPersistedTyping(false);
+        }
+      }
       queueMicrotask(() => {
         listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
       });
     });
+    // restore "assistant is typing" flag for this thread
+    setPersistedTyping(loadBool(typingKey(effectiveNs, sessionId), false));
     return () => unsub();
   }, [effectiveNs, sessionId]);
 
@@ -132,6 +154,7 @@ export default function ChatPage() {
       setSessionId(id);
       setMessages([]);
       setInput("");
+      setPersistedTyping(false);
     } catch (e) {
       console.error("[chat] createConversation error", e);
     }
@@ -142,8 +165,10 @@ export default function ChatPage() {
       if (id === sessionId) return;
       setSessionId(id);
       setInput("");
+      // refresh persisted flag for the selected session
+      setPersistedTyping(loadBool(typingKey(effectiveNs, id), false));
     },
-    [sessionId]
+    [sessionId, effectiveNs]
   );
 
   const onSubmit = async (e?: React.FormEvent) => {
@@ -166,6 +191,10 @@ export default function ChatPage() {
       const convId = await ensureConversation(effectiveNs, sessionId);
       if (!sessionId) setSessionId(convId);
 
+      // Mark assistant-typing as *persisted* so it survives route changes
+      saveBool(typingKey(effectiveNs, convId), true);
+      setPersistedTyping(true);
+
       await appendMessage(effectiveNs, convId, userMsg);
 
       const req: chatApi.ChatRequest = {
@@ -185,6 +214,10 @@ export default function ChatPage() {
       } as any;
 
       await appendMessage(effectiveNs, convId, assistantMsg);
+
+      // Clear persisted typing flag now that a reply arrived
+      saveBool(typingKey(effectiveNs, convId), false);
+      setPersistedTyping(false);
 
       if (messages.length === 0) {
         const title = trimForTitle(userMsg.content);
@@ -228,6 +261,7 @@ export default function ChatPage() {
 
   const hasThread = messages.length > 0;
   const composerTextClass = "text-left placeholder:text-left leading-[1.4] h-12 py-3";
+  const isAssistantTyping = sending || persistedTyping;
 
   return (
     <div className="h-full w-full overflow-hidden flex">
@@ -247,6 +281,7 @@ export default function ChatPage() {
             const next = (await listConversations(effectiveNs))[0]?.id || null;
             setSessionId(next);
             setMessages([]);
+            setPersistedTyping(false);
           }
         }}
       />
@@ -269,7 +304,7 @@ export default function ChatPage() {
                   citations={(m as any).citations as any}
                 />
               ))}
-              {sending && <AssistantThinkingRow />}
+              {isAssistantTyping && <AssistantThinkingRow />}
             </div>
           )}
         </div>
