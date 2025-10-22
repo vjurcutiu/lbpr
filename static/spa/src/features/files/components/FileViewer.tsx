@@ -13,39 +13,54 @@ function escapeHtml(s: string) {
     .replaceAll("'", "&#039;");
 }
 
-/** Build highlighted HTML for a raw text + query, no hooks needed */
-function highlightHtml(raw: string, q: string) {
+/** Build highlighted HTML for a raw text + query and mark the active match */
+function highlightHtml(raw: string, q: string, selectedIndex: number) {
   const safe = (v: string) => escapeHtml(v);
   const trimmed = (q ?? "").trim();
   if (!trimmed) return `<pre class="whitespace-pre-wrap leading-6">${safe(raw)}</pre>`;
   const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(`(${escaped})`, "gi");
-  const parts = raw.split(pattern).map((part) => {
-    if (pattern.test(part)) return `<mark class="rounded px-0.5">${safe(part)}</mark>`;
-    return safe(part);
-  });
-  return `<pre class="whitespace-pre-wrap leading-6">${parts.join("")}</pre>`;
+  const parts = raw.split(pattern);
+  let matchIdx = -1;
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (i % 2 === 1) {
+      matchIdx += 1;
+      const isActive = matchIdx === selectedIndex;
+      out.push(
+        `<mark data-idx="${matchIdx}" class="rounded px-0.5 ${isActive ? "ring-2 ring-primary bg-primary/20" : ""}">${safe(part)}</mark>`
+      );
+    } else {
+      out.push(safe(part));
+    }
+  }
+  return `<pre class="whitespace-pre-wrap leading-6">${out.join("")}</pre>`;
 }
 
 export function FileViewer({
   payload,
   file,
   searchTerm,
+  selectedIndex = -1,
 }: {
   payload: Awaited<ReturnType<typeof getFileContent>> | undefined;
   file: FileItem | null;
   searchTerm?: string;
+  /** index of the active in-file search match (0-based). -1 disables focus */
+  selectedIndex?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
-    // Scroll to the first highlighted match when searchTerm changes
-    const first = containerRef.current.querySelector("mark");
-    if (first && first instanceof HTMLElement) {
-      first.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (selectedIndex == null || selectedIndex < 0) return;
+    // Scroll to the selected highlighted match
+    const el = containerRef.current.querySelector(`mark[data-idx="${selectedIndex}"]`);
+    if (el && el instanceof HTMLElement) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
     }
-  }, [searchTerm]);
+  }, [searchTerm, selectedIndex]);
 
   if (!file) return null;
   if (!payload) {
@@ -58,7 +73,7 @@ export function FileViewer({
 
   if (payload.kind === "text") {
     const raw = payload.text ?? "";
-    const html = highlightHtml(raw, searchTerm ?? "");
+    const html = highlightHtml(raw, searchTerm ?? "", selectedIndex);
     return (
       <div ref={containerRef} className="w-full">
         <div

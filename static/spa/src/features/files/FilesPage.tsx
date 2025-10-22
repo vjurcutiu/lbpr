@@ -7,6 +7,11 @@ import {
   Search,
   Info,
   Activity,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,6 +82,7 @@ export default function FilesPage() {
 
   // in-file search + metadata modal
   const [infileQuery, setInfileQuery] = useState("");
+  const [infileIdx, setInfileIdx] = useState(0);
   const [metaOpen, setMetaOpen] = useState(false);
 
   // Upload tracker panel
@@ -93,6 +99,11 @@ export default function FilesPage() {
   // UI niceties
   const [lastRefreshed, setLastRefreshed] = useState<number | null>(null);
   const [dragActive, setDragActive] = useState(false);
+
+  // Tabs scroll state
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -346,6 +357,100 @@ export default function FilesPage() {
   }, [tree, filter]);
 
   const activeFile = activeId ? files.find((f) => f.id === activeId) || null : null;
+  const activePayload = activeId ? content[activeId] : undefined;
+  const canSearchInFile = activePayload?.kind === "text";
+  const matchCount = useMemo(() => {
+    if (!canSearchInFile) return 0;
+    const q = (infileQuery || "").trim();
+    if (!q) return 0;
+    const text = (activePayload as any)?.text || "";
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(escaped, "gi");
+    let cnt = 0;
+    while (re.exec(text)) cnt++;
+    return cnt;
+  }, [canSearchInFile, infileQuery, activePayload]);
+
+  // keep selection in range when query, file, or count changes
+  useEffect(() => {
+    setInfileIdx(0);
+  }, [infileQuery, activeId]);
+
+  useEffect(() => {
+    if (infileIdx >= matchCount) setInfileIdx(matchCount > 0 ? matchCount - 1 : 0);
+  }, [matchCount]);
+
+  const gotoPrev = () => {
+    if (matchCount <= 0) return;
+    setInfileIdx((i) => (i - 1 + matchCount) % matchCount);
+  };
+  const gotoNext = () => {
+    if (matchCount <= 0) return;
+    setInfileIdx((i) => (i + 1) % matchCount);
+  };
+  const clearInfile = () => {
+    setInfileQuery("");
+    setInfileIdx(0);
+  };
+
+  // Tabs scroll helpers
+  const recalcTabsOverflow = useCallback(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const left = el.scrollLeft;
+    const maxLeft = el.scrollWidth - el.clientWidth;
+    setCanScrollLeft(left > 0);
+    setCanScrollRight(left < maxLeft - 1);
+  }, []);
+
+  const scrollTabsBy = (delta: number) => {
+    const el = tabsRef.current;
+    if (!el) return;
+    el.scrollBy({ left: delta, behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    recalcTabsOverflow();
+    const onScroll = () => recalcTabsOverflow();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    // Horizontal scroll via wheel
+    const onWheel = (e: WheelEvent) => {
+      // Convert vertical wheel to horizontal scroll
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        el.scrollLeft += e.deltaY;
+        e.preventDefault();
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+
+    // Recalc on resize/content changes
+    let ro: ResizeObserver | null = null;
+    if ("ResizeObserver" in window) {
+      ro = new ResizeObserver(() => recalcTabsOverflow());
+      ro.observe(el);
+    }
+    const onWinResize = () => recalcTabsOverflow();
+    window.addEventListener("resize", onWinResize);
+
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("wheel", onWheel as any);
+      window.removeEventListener("resize", onWinResize);
+      if (ro) ro.disconnect();
+    };
+  }, [tabs.length, recalcTabsOverflow]);
+
+  // When active tab changes, ensure it's scrolled into view
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el || !activeId) return;
+    const btn = el.querySelector<HTMLButtonElement>(`button[data-tab-id="${activeId}"]`);
+    if (btn) {
+      btn.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
+    }
+  }, [activeId]);
 
   // When jobs finish, auto-refresh files so new items appear without manual reload
   const handleAnyComplete = async () => {
@@ -432,41 +537,69 @@ export default function FilesPage() {
 
         {/* RIGHT: Tabs + viewer */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Tabs */}
-          <div className="flex items-center gap-1 px-2 border-b h-9 overflow-x-auto bg-muted/10">
-            {tabs.map((t) => (
+          {/* Tabs with overflow arrows */}
+          <div className="relative border-b bg-muted/10">
+            {/* Left arrow */}
+            {canScrollLeft && (
               <button
-                key={t.id}
-                onClick={() => setActiveId(t.id)}
-                className={cn(
-                  "h-8 px-3 rounded-t-md border-b-0 border text-sm transition",
-                  activeId === t.id ? "bg-background" : "bg-muted/40 text-muted-foreground hover:bg-muted"
-                )}
-                title={t.title}
+                className="absolute left-0 top-0 bottom-0 z-10 pl-1 pr-2 bg-gradient-to-r from-background to-transparent flex items-center"
+                onClick={() => scrollTabsBy(-240)}
+                title="Scroll left"
+                aria-label="Scroll tabs left"
               >
-                <span className="truncate inline-flex max-w-[18rem] items-center gap-2">
-                  <FileIconByName name={t.title} className="h-4 w-4" />
-                  {t.title.split("/").slice(-1)[0]}
-                </span>
-                <span
-                  className="ml-2 inline-flex"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeTab(t.id);
-                  }}
-                >
-                  <svg className="h-4 w-4 opacity-70 hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M18 6 6 18M6 6l12 12" />
-                  </svg>
-                </span>
+                <ChevronLeft className="h-4 w-4" />
               </button>
-            ))}
-            {tabs.length === 0 && (
-              <div className="text-xs text-muted-foreground px-2">← Open a file from the sidebar</div>
             )}
+            {/* Right arrow */}
+            {canScrollRight && (
+              <button
+                className="absolute right-0 top-0 bottom-0 z-10 pr-1 pl-2 bg-gradient-to-l from-background to-transparent flex items-center"
+                onClick={() => scrollTabsBy(240)}
+                title="Scroll right"
+                aria-label="Scroll tabs right"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            )}
+            <div
+              ref={tabsRef}
+              className="flex items-center gap-1 px-2 h-9 overflow-x-auto scrollbar-none"
+            >
+              {tabs.map((t) => (
+                <button
+                  key={t.id}
+                  data-tab-id={t.id}
+                  onClick={() => setActiveId(t.id)}
+                  className={cn(
+                    "h-8 px-3 rounded-t-md border-b-0 border text-sm transition whitespace-nowrap",
+                    activeId === t.id ? "bg-background" : "bg-muted/40 text-muted-foreground hover:bg-muted"
+                  )}
+                  title={t.title}
+                >
+                  <span className="truncate inline-flex max-w-[18rem] items-center gap-2">
+                    <FileIconByName name={t.title} className="h-4 w-4" />
+                    {t.title.split("/").slice(-1)[0]}
+                  </span>
+                  <span
+                    className="ml-2 inline-flex"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeTab(t.id);
+                    }}
+                  >
+                    <svg className="h-4 w-4 opacity-70 hover:opacity-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 6 6 18M6 6l12 12" />
+                    </svg>
+                  </span>
+                </button>
+              ))}
+              {tabs.length === 0 && (
+                <div className="text-xs text-muted-foreground px-2">← Open a file from the sidebar</div>
+              )}
+            </div>
           </div>
 
-          {/* Title section */}
+          {/* Title + in-file search controls */}
           <div className="flex items-center gap-2 px-3 py-2 border-b bg-background">
             <div className="flex-1 min-w-0">
               <div className="text-xs text-muted-foreground truncate">
@@ -475,7 +608,52 @@ export default function FilesPage() {
             </div>
             <div className="relative w-[26rem] max-w-[60vw]">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input placeholder={activeId ? "Search in this file…" : "Open a file to search…"} value={infileQuery} onChange={(e) => setInfileQuery(e.target.value)} className="pl-8" disabled={!activeId} />
+              <Input
+                placeholder={activeId ? "Search in this file…" : "Open a file to search…"}
+                value={infileQuery}
+                onChange={(e) => setInfileQuery(e.target.value)}
+                className="pl-8 pr-28"
+                disabled={!activeId || !canSearchInFile}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    if ((e as any).shiftKey) gotoPrev();
+                    else gotoNext();
+                  }
+                }}
+              />
+              {/* Match counter */}
+              <div className="absolute right-24 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground select-none">
+                {infileQuery.trim() && canSearchInFile ? (
+                  matchCount > 0 ? `${infileIdx + 1}/${matchCount}` : "0/0"
+                ) : ""}
+              </div>
+              {/* Controls */}
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <button
+                  className="p-1 rounded hover:bg-muted disabled:opacity-50"
+                  title="Previous match (Shift+Enter)"
+                  onClick={gotoPrev}
+                  disabled={!canSearchInFile || matchCount === 0}
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </button>
+                <button
+                  className="p-1 rounded hover:bg-muted disabled:opacity-50"
+                  title="Next match (Enter)"
+                  onClick={gotoNext}
+                  disabled={!canSearchInFile || matchCount === 0}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+                <button
+                  className="p-1 rounded hover:bg-muted"
+                  title="Clear search"
+                  onClick={clearInfile}
+                  disabled={!infileQuery}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <Button variant="outline" size="sm" onClick={() => setMetaOpen(true)} disabled={!activeId} title="View file metadata">
               <Info className="h-4 w-4" />
@@ -487,7 +665,7 @@ export default function FilesPage() {
           <div className="flex-1 min-h-0 overflow-auto p-4">
             <div className="rounded-lg border bg-background shadow-sm p-4">
               {activeId ? (
-                <FileViewer payload={content[activeId]} file={files.find((f) => f.id === activeId) || null} searchTerm={infileQuery} />
+                <FileViewer payload={content[activeId]} file={files.find((f) => f.id === activeId) || null} searchTerm={infileQuery} selectedIndex={matchCount > 0 ? infileIdx : -1} />
               ) : (
                 <EmptyState onUploadClick={onPick} />
               )}
