@@ -669,7 +669,7 @@ function EmptyState({
     <div className="flex h-[60vh] items-center justify-center">
       <div className="text-center px-6 max-w-3xl w-full">
         <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mb-4">
-          Welcome to RAG Chat
+          Welcome to LexBot PRO
         </h1>
 
         <div className="mx-auto max-w-2xl">

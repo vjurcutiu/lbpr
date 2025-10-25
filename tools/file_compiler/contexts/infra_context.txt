@@ -8267,3 +8267,197 @@ export default defineConfig({
 });
 
 
+C:/code2/lbpr/.gitignore
+# Default .gitignore file
+venv/
+.gitignore
+
+# Dependency directories
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local environment files
+.env
+.env.local
+.env.*.local
+
+# Build output
+/build/
+
+# Logs
+logs/
+*.log
+logs/*.log
+
+# Testing
+coverage/
+*.lcov
+
+# Miscellaneous
+.DS_Store
+.vscode/
+*.swp
+*.swo
+*.idea/
+*.iml
+
+# React-specific files
+/front/README.md
+/.eslintcache
+
+# Editor directories and files
+/.vs/
+zips/
+lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
+\.pnpm-store
+secrets/
+in/
+stripe_prod_key.txt
+
+C:/code2/lbpr/makefile-readme.txt
+How to use
+
+Start dev (build + run + logs):
+make dev
+(or make up, make logs in another terminal)
+
+Stop: make stop
+
+Tear down: make down
+
+Hard reset (also drops volumes): make nuke
+
+Rebuild from scratch: make rebuild
+
+Shells: make sh-api, make sh-nginx
+
+Status: make ps
+
+C:/code2/lbpr/package.json
+{
+	"dependencies": {
+		"postcss": "^8.5.6"
+	}
+}
+
+
+C:/code2/lbpr/pnpm-lock.yaml
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      postcss:
+        specifier: ^8.5.6
+        version: 8.5.6
+
+packages:
+
+  nanoid@3.3.11:
+    resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
+    engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
+    hasBin: true
+
+  picocolors@1.1.1:
+    resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
+
+  postcss@8.5.6:
+    resolution: {integrity: sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==}
+    engines: {node: ^10 || ^12 || >=14}
+
+  source-map-js@1.2.1:
+    resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
+    engines: {node: '>=0.10.0'}
+
+snapshots:
+
+  nanoid@3.3.11: {}
+
+  picocolors@1.1.1: {}
+
+  postcss@8.5.6:
+    dependencies:
+      nanoid: 3.3.11
+      picocolors: 1.1.1
+      source-map-js: 1.2.1
+
+  source-map-js@1.2.1: {}
+
+
+C:/code2/lbpr/stripe_prod_key.txt
+REDACTED_STRIPE_RESTRICTED_KEY
+
+C:/code2/lbpr/todo.txt
+fix make dev
+loading on usasge display
+
+test usage limits at the limit and if they reset
+solidify billing 
+
+fix profile page
+test password change
+remove titles from under chat message
+improve prompt structure
+
+move  usage limits before firebase storage
+change url on confirmation email to prod confirmation page
+check email confirmation page
+add md to chat
+fix scrollbars in darkmode
+test upload tracker with errors
+improve context awareness - the ai doesn't know right now that the retrieved files are context and considers them as part of the message
+dedup file uploads
+improve infile viewer formatting
+add terms and privacy
+add loading to file explorer
+fix upload tracker again
+limit context window to ~10 messages
+improve file viewer  gfx
+fix file and chat page on mobile
+add lazy loading to files and chats
+add loading spinners to billing and filessidebar so we don't see empty components while waiting for the backend to respond
+proper file deletion across indices  and firebase
+in chat, only scroll to the start of the last message (really annoying when it scrolls to the bottom and you have to scroll up)
+extensive chat testing
+add real stripe webhook for prod billing
+
+remove filesize from files sidebar
+make sure text never overflows the editing button
+fix file tracking when switching active tab (persistence issue)
+persis assistant is thinking when switching out of the active chat
+lil spinner while the files are loading
+landing page bottom overflow
+
+password recovery
+2fa
+provide proper error message when email is already in use
+same password rules on password change as auth
+
+C:/code2/lbpr/ops/redis/redis.conf
+# --- Redis persistence for usage limits ---
+# Keep both AOF (append-only) and periodic RDB snapshots, so data survives container restarts.
+# Data directory is /data, which is backed by a Docker volume in compose.
+
+dir /data
+
+# Append Only File: durable and safe. "everysec" is a good durability/latency trade-off.
+appendonly yes
+appendfsync everysec
+
+# Also keep a few RDB snapshots for faster restarts (optional but recommended).
+save 900 1
+save 300 10
+save 60 10000
+
+# Avoid huge rewrites too often; defaults are fine, but keep here for clarity.
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+
+

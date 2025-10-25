@@ -23,5 +23,11 @@
             "C:\\code2\\lbpr\\backend\\core\\config.py",
             "C:\\code2\\lbpr\\docker-compose.playwright.yml",
             "C:\\code2\\lbpr\\static\\spa\\playwright.config.ts"
-        ]
+        ],
+    "folders": ["C:\\code2\\lbpr\\",
+                "C:\\code2\\lbpr\\ops",
+                "C:\\code2\\lbpr\\ops\\redis",
+                "C:\\code2\\lbpr\\ops\\certbot-www",
+                "C:\\code2\\lbpr\\ops\\nginx"
+            ]
 }
