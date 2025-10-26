@@ -41,10 +41,7 @@ async def get_limits_me(user: SessionOut = Depends(get_current_user)):
 
 @router.post("/sync")
 async def sync_limits_now(user: SessionOut = Depends(get_current_user)):
-    """
-    Manually force a Firestore → Redis sync for the current user
-    and return the fresh limits snapshot (useful for debugging UI).
-    """
+    """Manual Firestore → Redis sync + snapshot (debugging helper)."""
     info = await sync_caps_and_plan(user.uid)
     snap = await usage_snapshot(user.uid)
     return {"info": info, "snapshot": snap}
