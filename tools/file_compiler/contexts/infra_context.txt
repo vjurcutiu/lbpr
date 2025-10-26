@@ -192,7 +192,7 @@ services:
     command: ["sh","-lc","exec redis-server /usr/local/etc/redis/redis.conf --requirepass \"$REDIS_PASSWORD\""]
     volumes:
       - redis-data:/data
-      - ./ops/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./ops/redis/redis.prod.conf:/usr/local/etc/redis/redis.conf:ro
     # NOTE: no host port published for Redis. It is reachable only on the internal network.
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
@@ -276,7 +276,7 @@ services:
     command: ["sh","-lc","exec redis-server /usr/local/etc/redis/redis.conf --requirepass \"$REDIS_PASSWORD\""]
     volumes:
       - redis-data:/data
-      - ./ops/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./ops/redis/redis.dev.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 5s
@@ -508,7 +508,7 @@ RAG_HYBRID_DUAL_INDEX=1
 PINECONE_INDEX_DENSE=lbpr-dense
 PINECONE_INDEX_SPARSE=lbpr-sparse
 
-REDIS_PASSWORD="4OUJ8@,£4x9~"
+
 
 # Authenticated Redis URL (note the colon before password)
 REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
@@ -8274,6 +8274,9 @@ export default defineConfig({
 });
 
 
+C:/code2/lbpr/.env
+REDIS_PASSWORD="4OUJ8@,£4x9~"
+
 C:/code2/lbpr/.gitignore
 # Default .gitignore file
 venv/
@@ -8447,6 +8450,76 @@ password recovery
 provide proper error message when email is already in use
 same password rules on password change as auth
 
+C:/code2/lbpr/ops/redis/README.md
+# Redis start error: `Unknown command 'flushall' ... incr.aof` — Fix
+
+**Why it happens**
+- Your `ops/redis/redis.conf` disables `FLUSHALL/FLUSHDB` (good for prod).  
+- An *older* AOF file recorded a `FLUSHALL`. During startup, Redis replays the AOF and now treats `FLUSHALL` as an *unknown* command → startup fails.
+
+We fix this in two parts:
+
+1) **Split configs**
+   - `ops/redis/redis.dev.conf`: allows `FLUSH*` (dev-only) so old AOFs that contain it can still load.
+   - `ops/redis/redis.prod.conf`: keeps `FLUSH*` disabled (safer for prod).
+
+2) **Reset any bad AOF once**
+   - If a volume already contains an AOF with `FLUSHALL`, wipe the Redis data volume once (dev or prod) and restart.
+
+---
+
+## Apply
+
+### 1) Replace compose mounts
+Use the updated `docker-compose.dev.yml` and `docker-compose.yml` in this zip.  
+They mount the correct config for each env:
+
+- Dev: `./ops/redis/redis.dev.conf -> /usr/local/etc/redis/redis.conf`
+- Prod: `./ops/redis/redis.prod.conf -> /usr/local/etc/redis/redis.conf`
+
+### 2) Reset the Redis volume **once** (only if startup still fails)
+> This drops Redis data for the stack. Your app uses Redis for ephemeral usage/limits, so this is safe.
+
+**Dev on your laptop**:
+```bash
+make nuke MODE=dev
+make dev
+```
+**Prod on the server**:
+```bash
+make nuke MODE=prod
+make up
+```
+
+(Your Makefile already defines `nuke` as `docker compose ... down -v --remove-orphans` per stack.)
+
+### 3) Host kernel tune (warning you saw)
+Redis warns:
+```
+WARNING Memory overcommit must be enabled! ...
+To fix: add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and reboot
+or run: sysctl vm.overcommit_memory=1
+```
+Run on the **host** (not inside the container):
+
+```bash
+sudo sysctl -w vm.overcommit_memory=1
+# optional quality-of-life for Redis
+sudo sysctl -w net.core.somaxconn=1024
+# ensure persistence
+echo 'vm.overcommit_memory = 1' | sudo tee -a /etc/sysctl.conf
+```
+
+---
+
+## Notes
+
+- We also set `aof-load-truncated yes` in both configs for resilience.
+- The app code does **not** call `FLUSHALL`/`FLUSHDB`; if you manually ran it in the past,
+  that’s likely how it ended up in the AOF.
+- Keep `FLUSH*` disabled in production. In dev, it’s allowed to avoid this exact AOF‑replay issue and for easier local resets.
+
+
 C:/code2/lbpr/ops/redis/redis.conf
 # --- Redis hardened config (LBPR) ---
 # Network
@@ -8479,5 +8552,67 @@ rename-command SHUTDOWN ""
 
 # NOTE: DO NOT disable EVAL/EVALSHA — the app uses Lua scripts for rate-limits.
 # If you want to go further, configure ACLs instead of 'requirepass' and grant a minimal command set.
+
+
+C:/code2/lbpr/ops/redis/redis.dev.conf
+# --- Redis config (LBPR • DEV) ---
+# Safer defaults, but allow FLUSH* in dev so old AOFs that contain it can load.
+# Do NOT expose dev Redis publicly.
+
+port 6379
+bind 0.0.0.0
+protected-mode yes
+
+# ----- Persistence (AOF + some RDB for faster restarts) -----
+dir /data
+appendonly yes
+appendfsync everysec
+aof-load-truncated yes
+
+save 900 1
+save 300 10
+save 60 10000
+
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+
+# ---- Hardening: keep risky reconfig & shutdown disabled (but allow FLUSH* here) ----
+rename-command REPLICAOF ""
+rename-command SLAVEOF ""
+rename-command CONFIG ""
+rename-command SHUTDOWN ""
+
+
+C:/code2/lbpr/ops/redis/redis.prod.conf
+# --- Redis hardened config (LBPR • PROD) ---
+# Safer defaults. We disable FLUSH* so no one can wipe the DB at runtime.
+
+port 6379
+bind 0.0.0.0
+protected-mode yes
+
+# ----- Persistence (AOF + some RDB for faster restarts) -----
+dir /data
+appendonly yes
+appendfsync everysec
+aof-load-truncated yes
+
+save 900 1
+save 300 10
+save 60 10000
+
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+
+# ---- Hardening: disable high‑risk commands ----
+# Prevent malicious reconfiguration into replica / exfiltration
+rename-command REPLICAOF ""
+rename-command SLAVEOF ""
+# Prevent runtime config tampering / rewrite
+rename-command CONFIG ""
+# Prevent destructive wipes & accidental shutdowns
+rename-command FLUSHALL ""
+rename-command FLUSHDB ""
+rename-command SHUTDOWN ""
 
 

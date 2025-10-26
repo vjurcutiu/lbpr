@@ -330,7 +330,7 @@ RAG_HYBRID_DUAL_INDEX=1
 PINECONE_INDEX_DENSE=lbpr-dense
 PINECONE_INDEX_SPARSE=lbpr-sparse
 
-REDIS_PASSWORD="4OUJ8@,£4x9~"
+
 
 # Authenticated Redis URL (note the colon before password)
 REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
