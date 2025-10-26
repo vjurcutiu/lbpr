@@ -24,7 +24,7 @@ services:
     command: ["sh","-lc","exec redis-server /usr/local/etc/redis/redis.conf --requirepass \"$REDIS_PASSWORD\""]
     volumes:
       - redis-data:/data
-      - ./ops/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./ops/redis/redis.prod.conf:/usr/local/etc/redis/redis.conf:ro
     # NOTE: no host port published for Redis. It is reachable only on the internal network.
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
