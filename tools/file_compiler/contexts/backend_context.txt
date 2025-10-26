@@ -316,8 +316,6 @@ FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
 RAG_HYBRID_FUSION=rrf
 RAG_HYBRID_ALPHA=0.5  
 
-REDIS_URL=redis://redis:6379/0
-
 LIMITS_FREE_MESSAGES=50
 LIMITS_FREE_UPLOAD_TOKENS=100000
 LIMITS_PRO_MESSAGES=10000
@@ -331,6 +329,11 @@ RAG_HYBRID_DUAL_INDEX=1
 # Use a base name or explicit names
 PINECONE_INDEX_DENSE=lbpr-dense
 PINECONE_INDEX_SPARSE=lbpr-sparse
+
+REDIS_PASSWORD="4OUJ8@,£4x9~"
+
+# Authenticated Redis URL (note the colon before password)
+REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
 
 C:/code2/lbpr/backend/core/config.py.PATCH.txt
 

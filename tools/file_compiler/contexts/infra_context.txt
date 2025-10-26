@@ -187,14 +187,15 @@ services:
 
   redis:
     image: redis:7.2-alpine
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?set in .env}
+    command: ["sh","-lc","exec redis-server /usr/local/etc/redis/redis.conf --requirepass \"$REDIS_PASSWORD\""]
     volumes:
       - redis-data:/data
       - ./ops/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
-    ports:
-      - "6379:6379"
+    # NOTE: no host port published for Redis. It is reachable only on the internal network.
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -208,7 +209,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
-      - REDIS_URL=redis://redis:6379/0
+      # Authenticated Redis URL (password comes from the same .env)
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       redis:
         condition: service_healthy
@@ -266,15 +268,17 @@ services:
       retries: 50
     networks: [appnet]
 
-  # Redis for dev
+  # Redis (dev) — not exposed, password required
   redis:
     image: redis:7.2-alpine
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?set in .env}
+    command: ["sh","-lc","exec redis-server /usr/local/etc/redis/redis.conf --requirepass \"$REDIS_PASSWORD\""]
     volumes:
       - redis-data:/data
       - ./ops/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -296,7 +300,7 @@ services:
       - PYTHONUNBUFFERED=1
       - DOCKER_DEV=1
       - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     volumes:
       - ./backend:/app
       - ./backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json:/run/secrets/firebase_sa.json:ro
@@ -490,8 +494,6 @@ FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
 RAG_HYBRID_FUSION=rrf
 RAG_HYBRID_ALPHA=0.5  
 
-REDIS_URL=redis://redis:6379/0
-
 LIMITS_FREE_MESSAGES=50
 LIMITS_FREE_UPLOAD_TOKENS=100000
 LIMITS_PRO_MESSAGES=10000
@@ -505,6 +507,11 @@ RAG_HYBRID_DUAL_INDEX=1
 # Use a base name or explicit names
 PINECONE_INDEX_DENSE=lbpr-dense
 PINECONE_INDEX_SPARSE=lbpr-sparse
+
+REDIS_PASSWORD="4OUJ8@,£4x9~"
+
+# Authenticated Redis URL (note the colon before password)
+REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
 
 C:/code2/lbpr/backend/.dockerignore
 # python
@@ -8441,23 +8448,36 @@ provide proper error message when email is already in use
 same password rules on password change as auth
 
 C:/code2/lbpr/ops/redis/redis.conf
-# --- Redis persistence for usage limits ---
-# Keep both AOF (append-only) and periodic RDB snapshots, so data survives container restarts.
-# Data directory is /data, which is backed by a Docker volume in compose.
+# --- Redis hardened config (LBPR) ---
+# Network
+port 6379
+bind 0.0.0.0
+protected-mode yes
 
+# Persistence (AOF + some RDB for faster restarts)
 dir /data
-
-# Append Only File: durable and safe. "everysec" is a good durability/latency trade-off.
 appendonly yes
 appendfsync everysec
 
-# Also keep a few RDB snapshots for faster restarts (optional but recommended).
 save 900 1
 save 300 10
 save 60 10000
 
-# Avoid huge rewrites too often; defaults are fine, but keep here for clarity.
 auto-aof-rewrite-percentage 100
 auto-aof-rewrite-min-size 64mb
+
+# ---- Hardening: disable high-risk commands ----
+# Prevent malicious reconfiguration into replica / exfiltration
+rename-command REPLICAOF ""
+rename-command SLAVEOF ""
+# Prevent runtime config tampering / rewrite
+rename-command CONFIG ""
+# Prevent destructive wipes & accidental shutdowns
+rename-command FLUSHALL ""
+rename-command FLUSHDB ""
+rename-command SHUTDOWN ""
+
+# NOTE: DO NOT disable EVAL/EVALSHA — the app uses Lua scripts for rate-limits.
+# If you want to go further, configure ACLs instead of 'requirepass' and grant a minimal command set.
 
 
