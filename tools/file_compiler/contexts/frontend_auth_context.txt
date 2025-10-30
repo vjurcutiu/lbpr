@@ -745,6 +745,7 @@ import AuthLayout from "./AuthLayout";
 import { useAuthContext } from "./AuthProvider";
 import { auth, signUpWithEmailPassword, sendVerificationEmail, loginWithGoogle } from "./firebase";
 import { friendlyAuthMessage } from "./errorMessages";
+import { trackSignupConversion } from "@/lib/gtag";
 
 function GoogleIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -801,6 +802,8 @@ export default function SignupPage() {
     setLoading(true);
     try {
       const cred = await signUpWithEmailPassword(email.trim(), pw);
+      // Track conversion at account creation time
+      try { trackSignupConversion({ user_id: cred.user?.uid }); } catch {}
       await sendVerificationEmail(cred.user);
       setSent(true);
     } catch (e: any) {
@@ -815,7 +818,11 @@ export default function SignupPage() {
     setErr(null);
     setGoogleLoading(true);
     try {
-      await loginWithGoogle();
+      const cred = await loginWithGoogle();
+      const isNew = Boolean((cred as any)?.additionalUserInfo?.isNewUser);
+      if (isNew) {
+        try { trackSignupConversion({ user_id: cred?.user?.uid }); } catch {}
+      }
       // For Google, email is verified; user will be signed in immediately
     } catch (e: any) {
       console.warn("[auth:signup:google] Firebase error:", e);
@@ -941,6 +948,15 @@ export default function SignupPage() {
 
             <button type="submit" disabled={loading} className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60">
               {loading ? "Creating…" : "Create account"}
+            </button>
+
+            <button
+              type="button"
+              onClick={onGoogle}
+              disabled={googleLoading}
+              className="w-full rounded-xl border border-gray-300 py-2 disabled:opacity-60"
+            >
+              {googleLoading ? "Working…" : "Continue with Google"}
             </button>
 
             <div className="text-sm text-center text-gray-600">

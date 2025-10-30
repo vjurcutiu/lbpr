@@ -6,9 +6,11 @@ import { AuthProvider } from "@/features/auth/AuthProvider";
 import "./index.legal.css";
 import { Toaster } from "sonner";
 import { initGtag } from "@/lib/gtag";
+import { initCookiebotConsentBridge } from "@/lib/consent";
 
-// Initialize Google Ads (gtag) if configured
+// Initialize Google Ads (gtag) + Cookiebot bridge
 initGtag();
+initCookiebotConsentBridge();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

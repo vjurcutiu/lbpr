@@ -19,5 +19,6 @@
             "C:\\code2\\lbpr\\static\\spa\\playwright.config.ts",
             "C:\\code2\\lbpr\\static\\spa\\vitest.config.ts",
             "C:\\code2\\lbpr\\static\\spa\\index.html"
-        ]
+        ],
+  "folders": ["C:\\code2\\lbpr\\static\\spa\\src\\lib"]
 }
