@@ -400,9 +400,11 @@ import { AuthProvider } from "@/features/auth/AuthProvider";
 import "./index.legal.css";
 import { Toaster } from "sonner";
 import { initGtag } from "@/lib/gtag";
+import { initCookiebotConsentBridge } from "@/lib/consent";
 
-// Initialize Google Ads (gtag) if configured
+// Initialize Google Ads (gtag) + Cookiebot bridge
 initGtag();
+initCookiebotConsentBridge();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -1065,9 +1067,11 @@ VITE_FIREBASE_FUNCTIONS_REGION=europe-central2
 VITE_STRIPE_PRO_PRICE_ID=price_1SL6zFEOpDS9PYbXi5bxxzCd
 VITE_STRIPE_PRICE_ALLOWLIST=price_1SL6zFEOpDS9PYbXi5bxxzCd
 
-VITE_GADS_ID=AW-XXXXXXXXX           
-VITE_GADS_SIGNUP_LABEL=AbCdEfGhIjkLmNoPq
+VITE_GADS_ID=AW-17689294456         
+# VITE_GADS_SIGNUP_LABEL=AbCdEfGhIjkLmNoPq
 VITE_GADS_DEFAULT_DENY=1   
+VITE_COOKIEBOT_ID=0c08c9b3-a651-49eb-8871-bd878b83965a
+
 
 C:/code2/lbpr/static/spa/playwright.config.ts
 import { defineConfig, devices } from "@playwright/test";
@@ -1125,12 +1129,87 @@ C:/code2/lbpr/static/spa/index.html
     <link rel="icon" type="image/svg+xml" href="/icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LexBot PRO</title>
+
+    <!-- Cookiebot by Usercentrics: place as high in <head> as possible -->
+    <!-- Set VITE_COOKIEBOT_ID in your environment; Vite will replace the %...% token below at build -->
+    <script id="Cookiebot"
+            src="https://consent.cookiebot.com/uc.js"
+            data-cbid="%VITE_COOKIEBOT_ID%"
+            data-blockingmode="auto"
+            type="text/javascript"
+            async></script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+
+
+C:/code2/lbpr/static/spa/src/lib/consent.ts
+// src/lib/consent.ts
+// Cookiebot → Google Consent Mode bridge.
+// Maps Cookiebot categories to Consent Mode signals for Google Ads/Analytics.
+// - marketing   → ad_storage, ad_user_data, ad_personalization
+// - statistics  → analytics_storage
+//
+// Requires Cookiebot script tag in index.html and gtag bootstrap (src/lib/gtag.ts).
+
+declare global {
+  interface Window {
+    Cookiebot?: {
+      consent?: {
+        necessary?: boolean;
+        preferences?: boolean;
+        statistics?: boolean;
+        marketing?: boolean;
+      };
+    };
+    dataLayer: any[];
+    gtag?: (...args: any[]) => void;
+  }
+}
+
+function updateFromCookiebot() {
+  const c = window.Cookiebot?.consent;
+  if (!c) return;
+
+  const marketing = !!c.marketing;
+  const statistics = !!c.statistics;
+
+  const payload: Record<string, string> = {
+    ad_storage: marketing ? "granted" : "denied",
+    ad_user_data: marketing ? "granted" : "denied",
+    ad_personalization: marketing ? "granted" : "denied",
+    analytics_storage: statistics ? "granted" : "denied",
+  };
+
+  if (typeof window.gtag === "function") {
+    window.gtag("consent", "update", payload);
+  } else {
+    // Ensure dataLayer exists; gtag bootstrap will consume this later.
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push(["consent", "update", payload]);
+  }
+}
+
+export function initCookiebotConsentBridge() {
+  if (typeof window === "undefined") return;
+
+  // Run once now if Cookiebot has already initialized
+  try {
+    if (window.Cookiebot?.consent) updateFromCookiebot();
+  } catch {}
+
+  // Listen for Cookiebot lifecycle events
+  try {
+    document.addEventListener("CookiebotOnConsentReady", updateFromCookiebot);
+    document.addEventListener("CookiebotOnAccept", updateFromCookiebot);
+    document.addEventListener("CookiebotOnDecline", updateFromCookiebot);
+  } catch {
+    // Non-fatal
+  }
+}
 
 
 C:/code2/lbpr/static/spa/src/lib/firebase.ts
