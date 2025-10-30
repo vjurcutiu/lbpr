@@ -5,6 +5,10 @@ import "./index.css";
 import { AuthProvider } from "@/features/auth/AuthProvider";
 import "./index.legal.css";
 import { Toaster } from "sonner";
+import { initGtag } from "@/lib/gtag";
+
+// Initialize Google Ads (gtag) if configured
+initGtag();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
