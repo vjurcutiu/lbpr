@@ -8277,6 +8277,9 @@ export default defineConfig({
 C:/code2/lbpr/.env
 REDIS_PASSWORD="4OUJ8@,£4x9~"
 
+C:/code2/lbpr/.env.example
+REDIS_PASSWORD=
+
 C:/code2/lbpr/.gitignore
 # Default .gitignore file
 venv/
