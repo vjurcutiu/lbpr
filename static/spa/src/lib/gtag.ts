@@ -1,90 +1,145 @@
 // src/lib/gtag.ts
-// Lightweight Google Ads (gtag.js) bootstrap + helpers for conversion tracking.
-// Works with the "Install manually" flow in Google Ads (AW-XXXX).
-// Environment variables (set in static/spa/.env or your deployment env):
-//   VITE_GADS_ID            -> Your Google Ads ID, e.g. AW-123456789
-//   VITE_GADS_SIGNUP_LABEL  -> Conversion label from the "Sign up" conversion (e.g. AbCdEfGhijkLmNoP)
-// Optional (advanced):
-//   VITE_GADS_DEFAULT_DENY  -> "1" to start in consent-denied mode (recommended for EEA).
-//
-// Use trackSignupConversion() at the moment the account is created (not on normal logins).
+// Unified loader for gtag.js, GA4 (G-XXXX) and Google Ads (AW-XXXX).
+// - Manual page_view for SPA with history listeners
+// - Respects Cookiebot consent if present (statistics/marketing)
+// - Adds UTM/click IDs from first-touch attribution on subsequent navigations
+
+import { parseAttributionFromURL, persistFirstTouchAttribution, getStoredAttribution } from "@/lib/utm";
 
 declare global {
   interface Window {
-    dataLayer: any[];
+    dataLayer?: any[];
     gtag?: (...args: any[]) => void;
+    Cookiebot?: any;
   }
 }
 
-function ensureGtag() {
-  if (typeof window === "undefined") return;
+const GA4_ID = import.meta.env.VITE_GA4_MEASUREMENT_ID as string | undefined;
+const GADS_ID = import.meta.env.VITE_GTAG_AW_ID as string | undefined; // optional
+const AW_SIGNUP_LABEL = import.meta.env.VITE_AW_SIGNUP_CONVERSION_LABEL as string | undefined;
+const GA4_DEBUG = String(import.meta.env.VITE_GA4_DEBUG || "0") === "1";
+
+let loaded = false;
+let historyPatched = false;
+
+function hasConsent(): boolean {
+  // If Cookiebot is present, require at least "statistics" consent.
+  try {
+    const cb = (window as any).Cookiebot;
+    if (cb && typeof cb.consented === "object") {
+      const c = cb.consented;
+      return !!(c.statistics || c.marketing);
+    }
+  } catch {}
+  // If no consent manager, assume allowed.
+  return true;
+}
+
+export function initGtag(): void {
+  if (loaded) return;
+
+  // Capture first-touch attribution on initial load
+  try {
+    persistFirstTouchAttribution(parseAttributionFromURL());
+  } catch {}
+
+  // Create dataLayer + gtag proxy ASAP
   window.dataLayer = window.dataLayer || [];
-  // Define (or reuse) the global gtag function
-  if (!window.gtag) {
-    window.gtag = function gtag(){ window.dataLayer.push(arguments as any); };
-  }
-}
+  window.gtag = window.gtag || function(){ window.dataLayer!.push(arguments as any); };
+  window.gtag("js", new Date());
 
-export function initGtag() {
-  if (typeof window === "undefined") return;
-  const id = import.meta.env.VITE_GADS_ID as string | undefined;
-  if (!id) {
-    // Not configured; skip silently.
+  // Load gtag.js only once. Prefer GA4 ID, fallback to Ads ID if GA4 not provided.
+  const idForScript = GA4_ID || GADS_ID;
+  if (!idForScript) {
+    console.warn("[gtag] No GA4 or Ads ID provided. Set VITE_GA4_MEASUREMENT_ID or VITE_GTAG_AW_ID.");
     return;
   }
 
-  ensureGtag();
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(idForScript)}`;
+  document.head.appendChild(script);
 
-  // Optional: start with denied storage (Consent Mode) unless explicitly disabled
-  const defaultDeny = (import.meta.env.VITE_GADS_DEFAULT_DENY || "1") === "1";
-  if (defaultDeny) {
-    window.gtag!("consent", "default", {
-      ad_storage: "denied",
-      analytics_storage: "denied",
-      ad_user_data: "denied",
-      ad_personalization: "denied",
+  // Configure GA4 (manual page_view) and Ads if present
+  if (GA4_ID) {
+    window.gtag("config", GA4_ID, {
+      send_page_view: false,           // SPA: we send our own
+      debug_mode: GA4_DEBUG,
     });
   }
+  if (GADS_ID) {
+    window.gtag("config", GADS_ID);
+  }
 
-  // Load the gtag.js script for your Ads ID
-  const url = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(id)}`;
-  const s = document.createElement("script");
-  s.async = true;
-  s.src = url;
-  document.head.appendChild(s);
+  loaded = true;
 
-  // Basic init + config
-  window.gtag!("js", new Date());
-  window.gtag!("config", id);
+  // Immediately track the first view (after a short tick to let the app render the title)
+  setTimeout(() => trackPageView(), 0);
+
+  // Wire SPA navigation listeners
+  patchHistoryForSPA();
 }
 
-/** Update consent to "granted" (call this after the user accepts marketing cookies). */
-export function grantAdsConsent() {
-  if (!window.gtag) return;
-  window.gtag("consent", "update", {
-    ad_storage: "granted",
-    analytics_storage: "granted",
-    ad_user_data: "granted",
-    ad_personalization: "granted",
+export function trackPageView(): void {
+  if (!loaded || !GA4_ID || !hasConsent()) return;
+
+  const page_location = window.location.href;
+  const page_referrer = document.referrer || undefined;
+  const page_title = document.title || undefined;
+
+  const attrib = getStoredAttribution() || {};
+  // GA4 will keep original UTMs from the landing URL. We also attach them to manual hits in SPA flows.
+  const campaignParams: Record<string, any> = {};
+  if (attrib.utm_source) campaignParams.source = attrib.utm_source;
+  if (attrib.utm_medium) campaignParams.medium = attrib.utm_medium;
+  if (attrib.utm_campaign) campaignParams.campaign = attrib.utm_campaign;
+  if (attrib.utm_term) campaignParams.term = attrib.utm_term;
+  if (attrib.utm_content) campaignParams.content = attrib.utm_content;
+  if (attrib.gclid) campaignParams.gclid = attrib.gclid;
+  if (attrib.wbraid) campaignParams.wbraid = attrib.wbraid;
+  if (attrib.gbraid) campaignParams.gbraid = attrib.gbraid;
+
+  window.gtag!("event", "page_view", {
+    page_location,
+    page_referrer,
+    page_title,
+    ...campaignParams,
   });
 }
 
-/**
- * Fire the Google Ads conversion for successful signups.
- * This uses the "conversion" event with a send_to of "AW-XXXX/<label>".
- * See: https://support.google.com/google-ads/answer/6095821
- */
-export function trackSignupConversion(opts?: { value?: number; currency?: string; user_id?: string }) {
-  const id = (import.meta.env.VITE_GADS_ID as string | undefined) || "";
-  const label = (import.meta.env.VITE_GADS_SIGNUP_LABEL as string | undefined) || "";
-  if (!id || !label || !window.gtag) return;
+// Monkey-patch History API to detect SPA navigations.
+function patchHistoryForSPA() {
+  if (historyPatched) return;
+  historyPatched = true;
 
-  const payload: Record<string, any> = {
-    send_to: `${id}/${label}`,
-  };
-  if (typeof opts?.value === "number") payload.value = opts.value;
-  if (opts?.currency) payload.currency = opts.currency;
-  if (opts?.user_id) payload.user_id = opts.user_id;
+  const origPush = history.pushState;
+  const origReplace = history.replaceState;
 
-  window.gtag("event", "conversion", payload);
+  function onChange() {
+    // Give React Router a tick to update title
+    setTimeout(() => trackPageView(), 0);
+  }
+
+  history.pushState = function (...args: any[]) {
+    const ret = origPush.apply(this, args as any);
+    onChange();
+    return ret;
+  } as any;
+
+  history.replaceState = function (...args: any[]) {
+    const ret = origReplace.apply(this, args as any);
+    onChange();
+    return ret;
+  } as any;
+
+  window.addEventListener("popstate", onChange);
+  window.addEventListener("hashchange", onChange);
+}
+
+// Optional: helper for Ads signup conversion (called after successful signup)
+export function trackSignupConversion() {
+  if (!GADS_ID || !AW_SIGNUP_LABEL || !hasConsent()) return;
+  window.gtag!("event", "conversion", {
+    send_to: `${GADS_ID}/${AW_SIGNUP_LABEL}`,
+  });
 }
