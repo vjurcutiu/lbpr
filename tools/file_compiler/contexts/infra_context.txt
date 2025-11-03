@@ -711,10 +711,9 @@ http {
   keepalive_timeout 65;
   server_tokens off;
 
-  # WebSocket upgrade helper
   map $http_upgrade $connection_upgrade { default upgrade; '' close; }
 
-  # Block a few noisy scanners in dev logs
+  # (Optional) quiet some scanners from dev logs
   map $http_user_agent $blocked_agent {
     default 0;
     ~*CensysInspect 1;
@@ -723,7 +722,7 @@ http {
   }
 
   upstream fastapi_upstream { server api:8000; keepalive 32; }
-  upstream vite_upstream    { server spa:5173; keepalive 32; }
+  upstream vite_upstream    { server spa:5173;  keepalive 32; }
 
   server {
     listen 80;
@@ -731,12 +730,16 @@ http {
 
     if ($blocked_agent) { return 403; }
 
-    # Deny access to secrets & dotfiles even in dev
-    location ~ /\.(?!well-known)(.*)$ { deny all; }
-    location = /.env               { deny all; }
-    location ~* \.(env|ini|log|bak|old|sql|sqlite|yml|yaml|toml|pem|key|crt)$ { deny all; }
+    # ---------------- Security hardening (scoped) ----------------
+    # Only block *top-level* dotfiles (/.env, /.git, etc.).
+    # Do NOT block nested dot-dirs used by Vite: /node_modules/.vite, /.pnpm
+    location ~ ^/\.(?!well-known)(.*)$ { deny all; }
 
-    # ---------- API → FastAPI ----------
+    # Block common sensitive extensions (top-level paths only)
+    location = /.env               { deny all; }
+    location ~* ^/[^/]+\.(env|ini|log|bak|old|sql|sqlite|yml|yaml|toml|pem|key|crt)$ { deny all; }
+
+    # ---------------- API → FastAPI ----------------
     location /api/ {
       proxy_pass http://fastapi_upstream/;
       proxy_set_header Host              $host;
@@ -747,18 +750,27 @@ http {
       proxy_redirect off;
       proxy_read_timeout 1h;
       proxy_send_timeout 1h;
-      proxy_buffering off;   # keep API responses streaming in dev
+      proxy_buffering off;
       proxy_cache off;
     }
 
-    # ---------- App → Vite dev server (HMR) ----------
+    # ---------------- App → Vite dev server (HMR + assets) ----------------
+    # Everything else goes to Vite. We must preserve $host and upgrade WS.
     location / {
       proxy_pass http://vite_upstream;
       proxy_http_version 1.1;
 
+      # Preserve original host so Vite allowedHosts logic passes
+      proxy_set_header Host              $host;
+      proxy_set_header X-Real-IP         $remote_addr;
+      proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+
       # HMR websocket upgrade
-      proxy_set_header Upgrade    $http_upgrade;
-      proxy_set_header Connection $connection_upgrade;
+      proxy_set_header Upgrade           $http_upgrade;
+      proxy_set_header Connection        $connection_upgrade;
+
+      proxy_redirect off;
     }
   }
 }

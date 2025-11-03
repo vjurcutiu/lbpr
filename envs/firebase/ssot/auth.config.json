@@ -1,0 +1,93 @@
+{
+  "name": "projects/117603882984/config",
+  "signIn": {
+    "email": {
+      "enabled": true,
+      "passwordRequired": true
+    },
+    "hashConfig": {
+      "algorithm": "SCRYPT",
+      "signerKey": "TAJTO+F5WQJSWZrRYqrC13arJBxygxhciQALGkOnreLYrvfJ244EVLUls0ylTWnZPTLLEPGQW0FE16MEzcZdeA==",
+      "saltSeparator": "Bw==",
+      "rounds": 8,
+      "memoryCost": 14
+    }
+  },
+  "notification": {
+    "sendEmail": {
+      "method": "DEFAULT",
+      "resetPasswordTemplate": {
+        "senderLocalPart": "noreply",
+        "subject": "Reset your password for %APP_NAME%",
+        "senderDisplayName": "LexBot Team",
+        "body": "<p>Hello,</p>\n<p>Follow this link to reset your %APP_NAME% password for your %EMAIL% account.</p>\n<p><a href='%LINK%'>%LINK%</a></p>\n<p>If you didn’t ask to reset your password, you can ignore this email.</p>\n<p>Thanks,</p>\n<p>Your %APP_NAME% team</p>",
+        "bodyFormat": "HTML",
+        "replyTo": "noreply"
+      },
+      "verifyEmailTemplate": {
+        "senderLocalPart": "noreply",
+        "subject": "Verify your email for %APP_NAME%",
+        "senderDisplayName": "LexBot Team",
+        "body": "<p>Hello %DISPLAY_NAME%,</p>\n<p>Follow this link to verify your email address.</p>\n<p><a href='%LINK%'>%LINK%</a></p>\n<p>If you didn’t ask to verify this address, you can ignore this email.</p>\n<p>Thanks,</p>\n<p>Your %APP_NAME% team</p>",
+        "bodyFormat": "HTML",
+        "replyTo": "noreply"
+      },
+      "changeEmailTemplate": {
+        "senderLocalPart": "noreply",
+        "subject": "Your sign-in email was changed for %APP_NAME%",
+        "senderDisplayName": "LexBot Team",
+        "body": "<p>Hello %DISPLAY_NAME%,</p>\n<p>Your sign-in email for %APP_NAME% was changed to %NEW_EMAIL%.</p>\n<p>If you didn’t ask to change your email, follow this link to reset your sign-in email.</p>\n<p><a href='%LINK%'>%LINK%</a></p>\n<p>Thanks,</p>\n<p>Your %APP_NAME% team</p>",
+        "bodyFormat": "HTML",
+        "replyTo": "noreply"
+      },
+      "callbackUri": "https://lexbot-pro.firebaseapp.com/__/auth/action",
+      "dnsInfo": {
+        "customDomainState": "NOT_STARTED",
+        "domainVerificationRequestTime": "1970-01-01T00:00:00Z"
+      },
+      "revertSecondFactorAdditionTemplate": {
+        "senderLocalPart": "noreply",
+        "subject": "You've added 2 step verification to your %APP_NAME% account.",
+        "senderDisplayName": "LexBot Team",
+        "body": "<p>Hello %DISPLAY_NAME%,</p>\n<p>Your account in %APP_NAME% has been updated with %SECOND_FACTOR% for 2-step verification.</p>\n<p>If you didn't add this 2-step verification, click the link below to remove it.</p>\n<p><a href='%LINK%'>%LINK%</a></p>\n<p>Thanks,</p>\n<p>Your %APP_NAME% team</p>",
+        "bodyFormat": "HTML",
+        "replyTo": "noreply"
+      }
+    },
+    "sendSms": {
+      "smsTemplate": {
+        "content": "%LOGIN_CODE% is your verification code for %APP_NAME%."
+      }
+    },
+    "defaultLocale": "en"
+  },
+  "quota": {},
+  "monitoring": {
+    "requestLogging": {}
+  },
+  "multiTenant": {},
+  "authorizedDomains": [
+    "localhost",
+    "lexbot-pro.firebaseapp.com",
+    "lexbot-pro.web.app",
+    "app.localhost"
+  ],
+  "subtype": "FIREBASE_AUTH",
+  "client": {
+    "apiKey": "REDACTED_FIREBASE_WEB_API_KEY",
+    "permissions": {},
+    "firebaseSubdomain": "lexbot-pro"
+  },
+  "mfa": {
+    "state": "DISABLED"
+  },
+  "blockingFunctions": {},
+  "smsRegionConfig": {},
+  "emailPrivacyConfig": {
+    "enableImprovedEmailPrivacy": true
+  },
+  "mobileLinksConfig": {
+    "domain": "HOSTING_DOMAIN"
+  },
+  "defaultHostingSite": "lexbot-pro"
+}

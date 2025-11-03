@@ -1,0 +1,21 @@
+{
+  "name": "@lbp-react/envs-stripe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SSOT-driven Stripe env SDK (pull/diff/apply).",
+  "scripts": {
+    "pull": "node index.js pull",
+    "apply": "node index.js apply",
+    "diff": "node index.js diff",
+    "validate": "node index.js validate"
+  },
+  "dependencies": {
+    "stripe": "^19.1.0",
+    "fast-json-stable-stringify": "^2.1.0",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

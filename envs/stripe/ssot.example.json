@@ -1,0 +1,110 @@
+{
+  "products": [
+    {
+      "code": "basic",
+      "name": "Basic Plan",
+      "description": "Starter tier",
+      "active": true,
+      "metadata": {
+        "tier": "starter"
+      },
+      "prices": [
+        {
+          "lookup_key": "basic_monthly",
+          "currency": "usd",
+          "unit_amount": 900,
+          "recurring": {
+            "interval": "month",
+            "interval_count": 1
+          },
+          "tax_behavior": "exclusive"
+        }
+      ]
+    }
+  ],
+  "webhooks": [
+    {
+      "url": "https://api.example.com/stripe/webhook",
+      "connect": false,
+      "enabled_events": [
+        "checkout.session.completed",
+        "invoice.paid",
+        "customer.subscription.updated"
+      ],
+      "description": "Primary webhook"
+    }
+  ],
+  "portal": {
+    "configurations": [
+      {
+        "is_default": true,
+        "business_profile": {
+          "headline": "LexBot PRO",
+          "privacy_policy_url": "https://lexbot.pro/privacy",
+          "terms_of_service_url": "https://lexbot.pro/terms"
+        },
+        "features": {
+          "customer_update": {
+            "enabled": true,
+            "allowed_updates": [
+              "email",
+              "address",
+              "name",
+              "phone",
+              "shipping",
+              "tax_id"
+            ]
+          },
+          "invoice_history": {
+            "enabled": true
+          },
+          "payment_method_update": {
+            "enabled": true
+          },
+          "subscription_cancel": {
+            "enabled": true,
+            "cancellation_reason": {
+              "enabled": true
+            }
+          },
+          "subscription_pause": {
+            "enabled": false
+          },
+          "subscription_update": {
+            "enabled": true
+          }
+        }
+      }
+    ]
+  },
+  "tax_settings": {
+    "head_office": {
+      "line1": "Strada Exemplu 123",
+      "city": "Bucure\u0219ti",
+      "country": "RO",
+      "postal_code": "010101"
+    },
+    "automatic_tax": {
+      "enabled": true
+    }
+  },
+  "coupons": [
+    {
+      "id_or_code": "WELCOME10",
+      "percent_off": 10,
+      "duration": "once",
+      "name": "Welcome 10%"
+    }
+  ],
+  "shipping_rates": [
+    {
+      "display_name": "Standard Shipping",
+      "fixed_amount": {
+        "amount": 500,
+        "currency": "usd"
+      },
+      "tax_behavior": "exclusive",
+      "type": "fixed_amount"
+    }
+  ]
+}
