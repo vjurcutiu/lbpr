@@ -43,4 +43,7 @@ reload-nginx:
 	$(DC) -p $(PROJECT) $(BASE) $(SSL) exec nginx nginx -t && $(DC) -p $(PROJECT) $(BASE) $(SSL) exec nginx nginx -s reload
 
 cert-perms:
-	chmod 600 ops/certs/cf-origin/*.key || true
+	chown root:root ops/certs/cf-origin/*.pem || true
+	chmod 644      ops/certs/cf-origin/*.pem || true
+	chown root:101 ops/certs/cf-origin/*.key || true
+	chmod 640      ops/certs/cf-origin/*.key || true
