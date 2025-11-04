@@ -190,12 +190,17 @@ services:
     image: redis:7.2-alpine
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:?set in .env}
-    command: ["sh","-lc","exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$REDIS_PASSWORD""]
+    command:   
+      - sh
+      - -lc
+      - exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$REDIS_PASSWORD"
     volumes:
       - redis-data:/data
       - ./ops/redis/redis.prod.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG"]
+      test:     
+        - CMD-SHELL
+        - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
       interval: 5s
       timeout: 3s
       retries: 20
