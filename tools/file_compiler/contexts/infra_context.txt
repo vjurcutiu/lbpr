@@ -1,168 +1,41 @@
 C:/code2/lbpr/Makefile
-# --- Makefile (root) ---
-# Nice, explicit variables
-COMPOSE        ?= docker compose
-BASE_YML       := -f docker-compose.yml
-DEV_YML        := -f docker-compose.dev.yml
-TEST_YML       := -f backend/docker-compose.test.yml
+\
+SHELL := /bin/bash
+DC ?= docker compose
+BASE := -f docker-compose.yml
+SSL  := -f docker-compose.ssl.yml
 
-# MODE can be "prod" (default) or "dev"
-MODE           ?= prod
-ifeq ($(MODE),dev)
-STACK          := $(BASE_YML) $(DEV_YML)
-else
-STACK          := $(BASE_YML)
-endif
-
-# Frontend build config (no Node needed on host)
-SPA_DIR        := static/spa
-NODE_IMAGE     ?= node:20-alpine
-PNPM_FLAGS     ?= --frozen-lockfile
-
-# Misc
-.SILENT:
-.PHONY: help up down stop logs rebuild nuke ps \
-        dev dev-logs dev-down prod-up prod-logs prod-down spa-build \
-        sh-api sh-nginx test test-build test-run test-down test-clean-build test-e2e
+.PHONY: help dev up-dev staging up-staging prod up-prod down logs reload-nginx cert-perms
 
 help:
-	echo ""
-	echo "Targets:"
-	echo "  up             Build SPA + bring stack up (default MODE=$(MODE))"
-	echo "  down           Stop & remove stack (keeps volumes/images)"
-	echo "  logs           Follow logs"
-	echo "  rebuild        Rebuild images (no cache) and restart"
-	echo "  nuke           HARD reset: down -v --remove-orphans"
-	echo "  ps             Show status"
-	echo "  dev            Start development stack (docker-compose.dev.yml, no SPA build)"
-	echo "  dev-logs       Tail dev logs (nginx, spa, api)"
-	echo "  dev-down       Stop development stack (remove orphans)"
-	echo "  spa-build      Build SPA using $(NODE_IMAGE)"
-	echo "  sh-api         Shell into API container"
-	echo "  sh-nginx       Shell into Nginx container"
-	echo ""
-	echo "Environment:"
-	echo "  MODE=prod|dev  (default prod)"
-	echo ""
+\t@echo "Targets:"
+\t@echo "  dev / up-dev        - bring up stack (no SSL override)"
+\t@echo "  staging / up-staging- bring up stack with Cloudflare SSL override"
+\t@echo "  prod / up-prod      - bring up stack with Cloudflare SSL override"
+\t@echo "  reload-nginx        - test & reload nginx with SSL override"
+\t@echo "  logs                - follow logs (nginx, api)"
+\t@echo "  down                - stop all containers"
 
-# ===== Core flows =====
+dev up-dev:
+\t$(DC) $(BASE) up -d --build
 
-# On servers: `make up` (MODE defaults to prod)
-up: spa-build
-	$(COMPOSE) $(STACK) up -d --build
-	$(COMPOSE) $(STACK) ps
+staging up-staging:
+\t$(DC) $(BASE) $(SSL) up -d --build
+
+prod up-prod:
+\t$(DC) $(BASE) $(SSL) up -d --build
 
 down:
-	$(COMPOSE) $(STACK) down
-
-stop:
-	$(COMPOSE) $(STACK) stop
+\t$(DC) $(BASE) $(SSL) down
 
 logs:
-	$(COMPOSE) $(STACK) logs -f
+\t$(DC) $(BASE) $(SSL) logs -f nginx api || $(DC) $(BASE) logs -f nginx api
 
-rebuild:
-	$(COMPOSE) $(STACK) build --no-cache --pull
-	$(COMPOSE) $(STACK) up -d
-	$(COMPOSE) $(STACK) logs -f
+reload-nginx:
+\t$(DC) $(BASE) $(SSL) exec nginx nginx -t && $(DC) $(BASE) $(SSL) exec nginx nginx -s reload
 
-nuke:
-	$(COMPOSE) $(STACK) down -v --remove-orphans
-
-ps:
-	$(COMPOSE) $(STACK) ps
-
-# TypeScript checking toggle for SPA builds:
-#   make up TS_CHECK=1   -> runs tsc before vite (strict)
-#   make up              -> skips TS type-checks (default) to ensure prod build
-TS_CHECK ?= 0
-
-spa-build:
-	# Build the SPA into $(SPA_DIR)/dist so Nginx can serve /srv/spa/dist
-	# Run in a Node container; skip TS checks by default to avoid blocking prod
-	docker run --rm \
-	  -e CI=true \
-	  -e NPM_CONFIG_FUND=false \
-	  -e NPM_CONFIG_AUDIT=false \
-	  -v "$$(pwd)/$(SPA_DIR):/app" \
-	  -v "$$HOME/.pnpm-store:/root/.local/share/pnpm/store" \
-	  -w /app $(NODE_IMAGE) \
-	  sh -lc '\
-	    set -euo pipefail; \
-	    echo "== node & pnpm versions ==" && node -v || true; \
-	    corepack enable; \
-	    corepack prepare pnpm@10.18.2 --activate; \
-	    pnpm -v || true; \
-	    echo "== pnpm install =="; \
-	    pnpm install $(PNPM_FLAGS) --prefer-offline || pnpm install; \
-	    echo "== build =="; \
-	    if [ "$(TS_CHECK)" = "1" ]; then \
-	      echo "(TS_CHECK=1) running tsc -b."; \
-	      pnpm exec tsc -b; \
-	    else \
-	      echo "(TS_CHECK=0) skipping tsc -b"; \
-	    fi; \
-	    pnpm exec vite build; \
-	    echo "== outputs =="; \
-	    ls -lah dist || true; \
-	  '
-	# Sanity check: index.html must exist
-	test -f "$(SPA_DIR)/dist/index.html" || (echo "ERROR: $(SPA_DIR)/dist/index.html not found"; exit 1)
-
-# ===== Development (Windows-friendly, standalone) =====
-# These targets directly compose docker-compose.yml + docker-compose.dev.yml
-# and DO NOT call spa-build or prod stacks.
-
-dev:
-	$(COMPOSE) $(BASE_YML) $(DEV_YML) up -d --build
-	$(COMPOSE) $(BASE_YML) $(DEV_YML) ps
-
-dev-logs:
-	$(COMPOSE) $(BASE_YML) $(DEV_YML) logs -f nginx spa api
-
-dev-down:
-	$(COMPOSE) $(BASE_YML) $(DEV_YML) down --remove-orphans
-
-# ===== Convenience (prod) =====
-prod-up:
-	$(MAKE) up MODE=prod
-
-prod-logs:
-	$(MAKE) logs MODE=prod
-
-prod-down:
-	$(MAKE) down MODE=prod
-
-# ===== Shells =====
-sh-api:
-	$(COMPOSE) $(STACK) exec api sh || true
-
-sh-nginx:
-	$(COMPOSE) $(STACK) exec nginx sh || true
-
-# ===== Tests via compose (kept from your original workflow) =====
-test-build:
-	$(COMPOSE) $(TEST_YML) build api-test
-
-test-clean-build:
-	$(COMPOSE) $(TEST_YML) build --no-cache --pull api-test
-
-test:
-	$(MAKE) test-build
-	if [ -z "$(ARGS)" ]; then \
-	  $(COMPOSE) $(TEST_YML) run --rm api-test ; \
-	else \
-	  $(COMPOSE) $(TEST_YML) run --rm api-test sh -lc "pytest $(ARGS)"; \
-	fi
-
-test-run: test-build
-	$(COMPOSE) $(TEST_YML) run --rm api-test sh -lc "pytest $(ARGS)"
-
-test-down:
-	$(COMPOSE) $(TEST_YML) down -v --remove-orphans
-
-test-e2e:
-	docker compose -f docker-compose.playwright.yml run --rm playwright
+cert-perms:
+\tchmod 600 ops/certs/cf-origin/*.key || true
 
 
 C:/code2/lbpr/docker-compose.yml
@@ -592,30 +465,27 @@ http {
     return 444;
   }
 
-  # ---------------- HTTP (80): ACME + redirect ----------------
+  # ---------------- HTTP (80): redirect only ----------------
   server {
     listen 80;
-    server_name lexbot.pro www.lexbot.pro staging.lexbot.pro;
-
-    # ACME challenges (only needed if you use Let's Encrypt HTTP-01)
-    location ^~ /.well-known/acme-challenge/ {
-      root /var/www/certbot;
-      default_type "text/plain";
-      allow all;
-    }
-
-    # Everything else -> HTTPS
+    server_name lexbot.pro *.lexbot.pro;
     location / { return 301 https://$host$request_uri; }
   }
 
-  # ---------------- HTTPS: PRODUCTION (lexbot.pro) ----------------
+  # Common TLS (single Cloudflare Origin certificate for all hosts)
+  # Put the wildcard/apex cert & key at /etc/ssl/cf-origin/
+  map $host $tls_cert { default /etc/ssl/cf-origin/lexbot.pro-origin.pem; }
+  map $host $tls_key  { default /etc/ssl/cf-origin/lexbot.pro-origin.key; }
+
+  # ---------------- HTTPS: PROD ----------------
   server {
-    listen 443 ssl http2;
+    listen 443 ssl;
+    http2 on;
     server_name lexbot.pro www.lexbot.pro;
 
-    # TLS certs (Let's Encrypt). Ensure certs exist for these names.
-    ssl_certificate     /etc/letsencrypt/live/lexbot.pro/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/lexbot.pro/privkey.pem;
+    ssl_certificate     $tls_cert;
+    ssl_certificate_key $tls_key;
+
     ssl_session_timeout 1d;
     ssl_session_cache shared:SSL:10m;
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -628,10 +498,6 @@ http {
     add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
 
-    # (Optional) Start CSP in Report-Only
-    add_header Content-Security-Policy-Report-Only "default-src 'self'; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; connect-src 'self' https:;" always;
-
-    # Global request guards
     if ($blocked_agent) { return 403; }
     limit_req zone=perip burst=20 nodelay;
 
@@ -659,7 +525,7 @@ http {
       proxy_buffering off;
     }
 
-    # Optional: versioned API mirror
+    # Optional versioned API
     location /v1/ {
       proxy_pass http://fastapi_upstream;
       proxy_set_header Host              $host;
@@ -680,38 +546,22 @@ http {
       proxy_read_timeout 3600s;
     }
 
-    # Streaming endpoints (if any)
-    location /stream/ {
-      proxy_pass http://fastapi_upstream;
-      proxy_buffering off;
-      proxy_read_timeout 3600s;
-    }
-
-    # Static: marketing (optional)
-    location /mkt/ {
-      alias /srv/marketing/;
-      try_files $uri $uri/ =404;
-      autoindex off;
-    }
-
     # SPA
     root /srv/spa/dist;
     index index.html;
     autoindex off;
-    location / {
-      try_files $uri $uri/ /index.html;
-    }
+    location / { try_files $uri $uri/ /index.html; }
   }
 
-  # ---------------- HTTPS: STAGING (staging.lexbot.pro) ----------------
+  # ---------------- HTTPS: STAGING ----------------
   server {
-    listen 443 ssl http2;
+    listen 443 ssl;
+    http2 on;
     server_name staging.lexbot.pro;
 
-    # TLS certs for staging subdomain (Let's Encrypt).
-    # Obtain via certbot (or use a Cloudflare Origin cert and update the paths).
-    ssl_certificate     /etc/letsencrypt/live/staging.lexbot.pro/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/staging.lexbot.pro/privkey.pem;
+    ssl_certificate     $tls_cert;
+    ssl_certificate_key $tls_key;
+
     ssl_session_timeout 1d;
     ssl_session_cache shared:SSL:10m;
     ssl_protocols TLSv1.2 TLSv1.3;
@@ -734,7 +584,7 @@ http {
     location ~* (^|/)(composer\.(json|lock)|package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig(\..*)?\.json|vite\.config\.(js|ts)|webpack.*|Dockerfile|docker-compose\.ya?ml)$ { deny all; }
     location ~* ^/(vendor|node_modules|__pycache__|tests?|docs?)(/|$) { deny all; }
 
-    # Proxy app/API (points to the same upstream; isolate via env on backend if needed)
+    # API → FastAPI
     location /api/ {
       proxy_pass http://fastapi_upstream/;
       proxy_set_header Host              $host;
@@ -748,13 +598,11 @@ http {
       proxy_buffering off;
     }
 
-    # SPA (can use same dist or a different path if you deploy separate assets)
+    # SPA
     root /srv/spa/dist;
     index index.html;
     autoindex off;
-    location / {
-      try_files $uri $uri/ /index.html;
-    }
+    location / { try_files $uri $uri/ /index.html; }
   }
 }
 
@@ -8455,6 +8303,55 @@ lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
 secrets/
 in/
 stripe_prod_key.txt
+
+C:/code2/lbpr/docker-compose.ssl.yml
+version: "3.9"
+services:
+  nginx:
+    volumes:
+      - ./ops/certs/cf-origin:/etc/ssl/cf-origin:ro
+
+
+C:/code2/lbpr/GUIDE-CLOUDFLARE-STAGING.md
+# Staging SSL on Cloudflare (Origin Certificate) — Step-by-step
+
+This config uses a **Cloudflare Origin Certificate** for `staging.lexbot.pro` (served behind Cloudflare's proxy).
+
+## 1) In Cloudflare Dashboard
+1. **DNS →** ensure `staging.lexbot.pro` points to your server and has the **orange cloud (Proxy)** enabled.
+2. **SSL/TLS → Overview:** set mode to **Full (strict)**.
+3. **SSL/TLS → Origin Server → Create Certificate:**
+   - Hostnames: `staging.lexbot.pro`
+   - Key type: **RSA**
+   - Validity: keep default (e.g., 15 years) or your preference
+   - Download **Certificate (PEM)** and **Private key**
+
+## 2) Put the files in the repo (mounted into the container)
+Save as:
+```
+ops/certs/cf-origin/staging.lexbot.pro.pem
+ops/certs/cf-origin/staging.lexbot.pro.key
+```
+> ⚠️ Treat the **.key** as a secret. Do **NOT** commit it. Add `ops/certs/cf-origin/*.key` to `.gitignore`.
+
+## 3) Update and restart nginx via compose
+Use the provided override so nginx gets the certs mounted at `/etc/ssl/cf-origin`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ssl.yml up -d --build
+docker compose logs -f nginx
+```
+
+## 4) Verify
+- Visit: `https://staging.lexbot.pro`
+- You should no longer see “cannot load certificate … letsencrypt …/staging.lexbot.pro/fullchain.pem” errors.
+- In `docker logs nginx`, the warning about `listen ... http2` will be gone (we now use `http2 on;`).
+
+## Notes
+- Production (`lexbot.pro`) still uses Let's Encrypt in `nginx.conf`. You can migrate prod to Cloudflare Origin certs later by switching the certificate paths similarly.
+- Keep `cloudflare-real-ip.conf` mounted to restore real client IPs through Cloudflare.
+- Optional Cloudflare toggles (Speed → Optimization): enable HTTP/2 and HTTP/3 (with quic). Nginx here serves HTTP/2; HTTP/3 would require a QUIC-enabled nginx build.
+
 
 C:/code2/lbpr/makefile-readme.txt
 How to use

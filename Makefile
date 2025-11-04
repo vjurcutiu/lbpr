@@ -1,164 +1,37 @@
-# --- Makefile (root) ---
-# Nice, explicit variables
-COMPOSE        ?= docker compose
-BASE_YML       := -f docker-compose.yml
-DEV_YML        := -f docker-compose.dev.yml
-TEST_YML       := -f backend/docker-compose.test.yml
+\
+SHELL := /bin/bash
+DC ?= docker compose
+BASE := -f docker-compose.yml
+SSL  := -f docker-compose.ssl.yml
 
-# MODE can be "prod" (default) or "dev"
-MODE           ?= prod
-ifeq ($(MODE),dev)
-STACK          := $(BASE_YML) $(DEV_YML)
-else
-STACK          := $(BASE_YML)
-endif
-
-# Frontend build config (no Node needed on host)
-SPA_DIR        := static/spa
-NODE_IMAGE     ?= node:20-alpine
-PNPM_FLAGS     ?= --frozen-lockfile
-
-# Misc
-.SILENT:
-.PHONY: help up down stop logs rebuild nuke ps \
-        dev dev-logs dev-down prod-up prod-logs prod-down spa-build \
-        sh-api sh-nginx test test-build test-run test-down test-clean-build test-e2e
+.PHONY: help dev up-dev staging up-staging prod up-prod down logs reload-nginx cert-perms
 
 help:
-	echo ""
-	echo "Targets:"
-	echo "  up             Build SPA + bring stack up (default MODE=$(MODE))"
-	echo "  down           Stop & remove stack (keeps volumes/images)"
-	echo "  logs           Follow logs"
-	echo "  rebuild        Rebuild images (no cache) and restart"
-	echo "  nuke           HARD reset: down -v --remove-orphans"
-	echo "  ps             Show status"
-	echo "  dev            Start development stack (docker-compose.dev.yml, no SPA build)"
-	echo "  dev-logs       Tail dev logs (nginx, spa, api)"
-	echo "  dev-down       Stop development stack (remove orphans)"
-	echo "  spa-build      Build SPA using $(NODE_IMAGE)"
-	echo "  sh-api         Shell into API container"
-	echo "  sh-nginx       Shell into Nginx container"
-	echo ""
-	echo "Environment:"
-	echo "  MODE=prod|dev  (default prod)"
-	echo ""
+\t@echo "Targets:"
+\t@echo "  dev / up-dev        - bring up stack (no SSL override)"
+\t@echo "  staging / up-staging- bring up stack with Cloudflare SSL override"
+\t@echo "  prod / up-prod      - bring up stack with Cloudflare SSL override"
+\t@echo "  reload-nginx        - test & reload nginx with SSL override"
+\t@echo "  logs                - follow logs (nginx, api)"
+\t@echo "  down                - stop all containers"
 
-# ===== Core flows =====
+dev up-dev:
+\t$(DC) $(BASE) up -d --build
 
-# On servers: `make up` (MODE defaults to prod)
-up: spa-build
-	$(COMPOSE) $(STACK) up -d --build
-	$(COMPOSE) $(STACK) ps
+staging up-staging:
+\t$(DC) $(BASE) $(SSL) up -d --build
+
+prod up-prod:
+\t$(DC) $(BASE) $(SSL) up -d --build
 
 down:
-	$(COMPOSE) $(STACK) down
-
-stop:
-	$(COMPOSE) $(STACK) stop
+\t$(DC) $(BASE) $(SSL) down
 
 logs:
-	$(COMPOSE) $(STACK) logs -f
+\t$(DC) $(BASE) $(SSL) logs -f nginx api || $(DC) $(BASE) logs -f nginx api
 
-rebuild:
-	$(COMPOSE) $(STACK) build --no-cache --pull
-	$(COMPOSE) $(STACK) up -d
-	$(COMPOSE) $(STACK) logs -f
+reload-nginx:
+\t$(DC) $(BASE) $(SSL) exec nginx nginx -t && $(DC) $(BASE) $(SSL) exec nginx nginx -s reload
 
-nuke:
-	$(COMPOSE) $(STACK) down -v --remove-orphans
-
-ps:
-	$(COMPOSE) $(STACK) ps
-
-# TypeScript checking toggle for SPA builds:
-#   make up TS_CHECK=1   -> runs tsc before vite (strict)
-#   make up              -> skips TS type-checks (default) to ensure prod build
-TS_CHECK ?= 0
-
-spa-build:
-	# Build the SPA into $(SPA_DIR)/dist so Nginx can serve /srv/spa/dist
-	# Run in a Node container; skip TS checks by default to avoid blocking prod
-	docker run --rm \
-	  -e CI=true \
-	  -e NPM_CONFIG_FUND=false \
-	  -e NPM_CONFIG_AUDIT=false \
-	  -v "$$(pwd)/$(SPA_DIR):/app" \
-	  -v "$$HOME/.pnpm-store:/root/.local/share/pnpm/store" \
-	  -w /app $(NODE_IMAGE) \
-	  sh -lc '\
-	    set -euo pipefail; \
-	    echo "== node & pnpm versions ==" && node -v || true; \
-	    corepack enable; \
-	    corepack prepare pnpm@10.18.2 --activate; \
-	    pnpm -v || true; \
-	    echo "== pnpm install =="; \
-	    pnpm install $(PNPM_FLAGS) --prefer-offline || pnpm install; \
-	    echo "== build =="; \
-	    if [ "$(TS_CHECK)" = "1" ]; then \
-	      echo "(TS_CHECK=1) running tsc -b."; \
-	      pnpm exec tsc -b; \
-	    else \
-	      echo "(TS_CHECK=0) skipping tsc -b"; \
-	    fi; \
-	    pnpm exec vite build; \
-	    echo "== outputs =="; \
-	    ls -lah dist || true; \
-	  '
-	# Sanity check: index.html must exist
-	test -f "$(SPA_DIR)/dist/index.html" || (echo "ERROR: $(SPA_DIR)/dist/index.html not found"; exit 1)
-
-# ===== Development (Windows-friendly, standalone) =====
-# These targets directly compose docker-compose.yml + docker-compose.dev.yml
-# and DO NOT call spa-build or prod stacks.
-
-dev:
-	$(COMPOSE) $(BASE_YML) $(DEV_YML) up -d --build
-	$(COMPOSE) $(BASE_YML) $(DEV_YML) ps
-
-dev-logs:
-	$(COMPOSE) $(BASE_YML) $(DEV_YML) logs -f nginx spa api
-
-dev-down:
-	$(COMPOSE) $(BASE_YML) $(DEV_YML) down --remove-orphans
-
-# ===== Convenience (prod) =====
-prod-up:
-	$(MAKE) up MODE=prod
-
-prod-logs:
-	$(MAKE) logs MODE=prod
-
-prod-down:
-	$(MAKE) down MODE=prod
-
-# ===== Shells =====
-sh-api:
-	$(COMPOSE) $(STACK) exec api sh || true
-
-sh-nginx:
-	$(COMPOSE) $(STACK) exec nginx sh || true
-
-# ===== Tests via compose (kept from your original workflow) =====
-test-build:
-	$(COMPOSE) $(TEST_YML) build api-test
-
-test-clean-build:
-	$(COMPOSE) $(TEST_YML) build --no-cache --pull api-test
-
-test:
-	$(MAKE) test-build
-	if [ -z "$(ARGS)" ]; then \
-	  $(COMPOSE) $(TEST_YML) run --rm api-test ; \
-	else \
-	  $(COMPOSE) $(TEST_YML) run --rm api-test sh -lc "pytest $(ARGS)"; \
-	fi
-
-test-run: test-build
-	$(COMPOSE) $(TEST_YML) run --rm api-test sh -lc "pytest $(ARGS)"
-
-test-down:
-	$(COMPOSE) $(TEST_YML) down -v --remove-orphans
-
-test-e2e:
-	docker compose -f docker-compose.playwright.yml run --rm playwright
+cert-perms:
+\tchmod 600 ops/certs/cf-origin/*.key || true
