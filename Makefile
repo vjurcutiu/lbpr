@@ -1,37 +1,46 @@
-\
 SHELL := /bin/bash
 DC ?= docker compose
+PROJECT ?= lbpr
 BASE := -f docker-compose.yml
 SSL  := -f docker-compose.ssl.yml
+NET  := $(PROJECT)_appnet
 
-.PHONY: help dev up-dev staging up-staging prod up-prod down logs reload-nginx cert-perms
+.PHONY: help dev up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms
 
 help:
-\t@echo "Targets:"
-\t@echo "  dev / up-dev        - bring up stack (no SSL override)"
-\t@echo "  staging / up-staging- bring up stack with Cloudflare SSL override"
-\t@echo "  prod / up-prod      - bring up stack with Cloudflare SSL override"
-\t@echo "  reload-nginx        - test & reload nginx with SSL override"
-\t@echo "  logs                - follow logs (nginx, api)"
-\t@echo "  down                - stop all containers"
+	@echo "Targets:"
+	@echo "  dev / up-dev         - bring up stack (no SSL override)"
+	@echo "  staging / up-staging - bring up stack with Cloudflare SSL override"
+	@echo "  prod / up-prod       - bring up stack with Cloudflare SSL override"
+	@echo "  reload-nginx         - test & reload nginx with SSL override"
+	@echo "  logs                 - follow logs (nginx, api)"
+	@echo "  down                 - stop stack (with SSL override), remove orphans"
+	@echo "  down-all             - extra-aggressive down (both combos) and remove network"
 
 dev up-dev:
-\t$(DC) $(BASE) up -d --build
+	$(DC) -p $(PROJECT) $(BASE) up -d --build
 
 staging up-staging:
-\t$(DC) $(BASE) $(SSL) up -d --build
+	$(DC) -p $(PROJECT) $(BASE) $(SSL) up -d --build
 
 prod up-prod:
-\t$(DC) $(BASE) $(SSL) up -d --build
+	$(DC) -p $(PROJECT) $(BASE) $(SSL) up -d --build
 
 down:
-\t$(DC) $(BASE) $(SSL) down
+	$(DC) -p $(PROJECT) $(BASE) $(SSL) down --remove-orphans
+
+# In case the stack was started previously without the SSL override (or vice versa),
+# this target brings both combos down and then removes the project network if it lingers.
+down-all:
+	-$(DC) -p $(PROJECT) $(BASE) $(SSL) down --remove-orphans
+	-$(DC) -p $(PROJECT) $(BASE) down --remove-orphans
+	-docker network rm $(NET)
 
 logs:
-\t$(DC) $(BASE) $(SSL) logs -f nginx api || $(DC) $(BASE) logs -f nginx api
+	$(DC) -p $(PROJECT) $(BASE) $(SSL) logs -f nginx api || $(DC) -p $(PROJECT) $(BASE) logs -f nginx api
 
 reload-nginx:
-\t$(DC) $(BASE) $(SSL) exec nginx nginx -t && $(DC) $(BASE) $(SSL) exec nginx nginx -s reload
+	$(DC) -p $(PROJECT) $(BASE) $(SSL) exec nginx nginx -t && $(DC) -p $(PROJECT) $(BASE) $(SSL) exec nginx nginx -s reload
 
 cert-perms:
-\tchmod 600 ops/certs/cf-origin/*.key || true
+	chmod 600 ops/certs/cf-origin/*.key || true
