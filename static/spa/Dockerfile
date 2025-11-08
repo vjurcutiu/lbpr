@@ -10,7 +10,10 @@ RUN pnpm fetch && pnpm install --frozen-lockfile
 
 # Copy source and build
 COPY . .
-RUN pnpm build
+
+# Allow CI to skip TS typechecking: pass CI_FAST_BUILD=1 as a build-arg
+ARG CI_FAST_BUILD=0
+RUN if [ "$CI_FAST_BUILD" = "1" ]; then pnpm run build:ci; else pnpm run build; fi
 
 # Minimal image that carries only the built assets.
 # This is NOT an nginx runtime — it just stores /srv/spa/dist

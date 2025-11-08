@@ -151,7 +151,9 @@ C:/code2/lbpr/static/spa/package.json
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "typecheck:watch": "tsc -b --watch"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
