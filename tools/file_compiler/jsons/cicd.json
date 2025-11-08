@@ -1,0 +1,8 @@
+ {
+   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\cicd_context.txt",
+   "folders": ["C:\\code2\\lbpr\\.github\\workflows"
+            ],
+   "include_glob": "*",
+   "dedup": "path"
+ }
+
