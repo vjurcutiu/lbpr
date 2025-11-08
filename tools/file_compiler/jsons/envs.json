@@ -6,6 +6,7 @@
               "C:\\code2\\lbpr\\envs\\stripe"
             ],
    "include_glob": "*",
+   "exclude_glob": ["package.json", "pnpm-lock.yaml"],
    "dedup": "path"
  }
 
