@@ -59,7 +59,6 @@ jobs:
   spa-image:
     name: Build SPA assets image
     runs-on: ubuntu-latest
-    # Build SPA in parallel; no dependency on API job
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -96,5 +95,7 @@ jobs:
           labels: ${{ steps.meta_spa.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            CI_FAST_BUILD=1
 
 

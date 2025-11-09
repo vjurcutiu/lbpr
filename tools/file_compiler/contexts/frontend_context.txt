@@ -150,6 +150,7 @@ C:/code2/lbpr/static/spa/package.json
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:ci": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc -b",

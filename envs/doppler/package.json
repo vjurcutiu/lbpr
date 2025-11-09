@@ -1,0 +1,46 @@
+{
+  "name": "doppler-sdk-exporter",
+  "version": "0.1.2",
+  "description": "TypeScript SDK + CLI to list Doppler projects, environments, configs (root & branches) and secret names/values for LLM/RAG export.",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "bin": {
+    "doppler-dump": "bin/doppler-dump.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "start": "node dist/cli.js --help"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "keywords": [
+    "doppler",
+    "sdk",
+    "secrets",
+    "configs",
+    "env",
+    "export",
+    "llm"
+  ],
+  "author": "LBP-REACT",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.2",
+    "undici": "^7.16.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.7.0",
+    "dotenv": "^16.4.5"
+  }
+}
