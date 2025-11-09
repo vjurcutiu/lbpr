@@ -1171,6 +1171,9 @@ lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
 secrets/
 in/
 stripe_prod_key.txt
+doppler_export_*.json
+snapshot.json
+readme.md
 
 C:/code2/lbpr/GUIDE-CLOUDFLARE-STAGING.md
 # Staging SSL on Cloudflare (Origin Certificate) — Step-by-step

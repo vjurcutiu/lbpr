@@ -1,0 +1,22 @@
+{
+  "output": "out/combined.txt",
+  "folders": [
+    "src",
+    "scripts"
+  ],
+  "recurse_folders": [
+    "features",
+    "packages"
+  ],
+  "include_glob": [
+    "*.py",
+    "*.ts",
+    "*.tsx",
+    "*.js"
+  ],
+  "exclude_glob": [
+    "*.spec.ts",
+    "*.test.tsx"
+  ],
+  "dedup": "path"
+}
