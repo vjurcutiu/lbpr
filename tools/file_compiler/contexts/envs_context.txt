@@ -1,385 +1,33 @@
+C:/code2/lbpr/envs/doppler/.env
+DOPPLER_TOKEN=dp.pt.zv7oT2yBMLYIKAocCPHz259c2Gt19gyzpR972OR5v7J
+
 C:/code2/lbpr/envs/firebase/.env
 GOOGLE_APPLICATION_CREDENTIALS=C:/code2/lbpr/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
 FIREBASE_PROJECT_ID=lexbot-pro
 
 
-C:/code2/lbpr/envs/firebase/README.md
-# Firebase Env SDK (SSOT)
+C:/code2/lbpr/envs/stripe/.env
+# Required
+STRIPE_API_KEY=REDACTED_STRIPE_SECRET_KEY
 
-A tiny toolkit to **export** your Firebase project's settings to a local *single source of truth* (SSOT) and **apply** them back to any project.
+# Optional
+STRIPE_API_VERSION=2025-10-29.clover
+STRIPE_ACCOUNT_ID=acct_...
 
-Targets covered:
-- Authentication config (providers, password policy, templates — via Identity Platform Admin v2)
-- Cloud Firestore & Cloud Storage **Security Rules** (via Firebase Rules API)
-- Firebase **Extensions** (manifest + per-instance `.env` — via `firebase-tools ext:export`)
-- Cloud Functions **runtime config** (legacy `functions:config` — optional)
-
-> Default project in your repo: **`lexbot-pro`** (from your env files). You can pass another with `--project <id>`.
-
-## Install
-```bash
-cd envs/firebase
-pnpm i   # or npm i / yarn
-```
-
-Authenticate for Google APIs (one-time):
-```bash
-gcloud auth application-default login   # or set GOOGLE_APPLICATION_CREDENTIALS to a service account JSON
-```
-
-## Export to SSOT
-```bash
-pnpm export -- --project lexbot-pro
-```
-Outputs into `envs/firebase/ssot/`:
-- `auth.config.json`
-- `firestore.rules`
-- `storage.rules`
-- `firebase.json` (+ `extensions/*.env`) from extensions export
-- `functions.config.json` (optional; if available)
-
-## Apply from SSOT
-```bash
-pnpm apply -- --project lexbot-pro --all
-# or selectively:
-pnpm apply -- --project lexbot-pro --auth --rules --extensions --functions
-```
-
-### Notes & permissions
-- **Auth** uses Identity Platform Admin v2 (`identitytoolkit.googleapis.com`). Scopes: `https://www.googleapis.com/auth/identitytoolkit`.
-- **Rules** use Firebase Rules API (`firebaserules.googleapis.com`). We update the releases `cloud.firestore/(default)` and `firebase.storage`.
-- **Extensions** rely on the Firebase CLI manifest. We run `firebase ext:export` and `firebase deploy --only extensions`.
-- **Functions config** runs `firebase functions:config:get/set` for *Gen1-style* config. For Gen2, prefer env files, params, and Secret Manager.
-
-See Google docs for API details:
-- Identity Platform Admin v2 get/update config.  
-- Firebase Rules API releases & rulesets.  
-- Extensions manifest + export/deploy.
+# Proxy if needed
+# HTTP_PROXY=http://localhost:8080
 
 
+C:/code2/lbpr/envs/stripe/.env.example
+# Required
+STRIPE_API_KEY=sk_test_...
 
-C:/code2/lbpr/envs/firebase/tsconfig.json
-{
-  "compilerOptions": {
-    "target": "ES2021",
-    "module": "ES2022",
-    "moduleResolution": "bundler",
-    "outDir": "dist",
-    "rootDir": "src",
-    "strict": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "types": [
-      "node"
-    ]
-  },
-  "include": [
-    "src"
-  ]
-}
+# Optional
+STRIPE_API_VERSION=2025-10-29.clover
+STRIPE_ACCOUNT_ID=acct_...
 
-C:/code2/lbpr/envs/firebase/src/auth.ts
-import { google } from 'googleapis';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import pc from 'picocolors';
-import { getGoogleAuth } from './googleAuth.js';
-
-const SCOPE = 'https://www.googleapis.com/auth/identitytoolkit';
-
-export async function exportAuthConfig(projectId: string, outDir: string) {
-  const { client } = await getGoogleAuth([SCOPE]);
-  const identity = google.identitytoolkit({ version: 'v2', auth: client as any });
-  const name = `projects/${projectId}/config`;
-  const res = await identity.projects.getConfig({ name });
-  await fs.mkdir(outDir, { recursive: true });
-  const file = path.join(outDir, 'auth.config.json');
-  await fs.writeFile(file, JSON.stringify(res.data, null, 2));
-  console.log(pc.green(`✓ Auth config exported → ${file}`));
-}
-
-export async function applyAuthConfig(projectId: string, ssotDir: string) {
-  const file = path.join(ssotDir, 'auth.config.json');
-  const raw = await fs.readFile(file, 'utf8');
-  const data = JSON.parse(raw);
-  const { client } = await getGoogleAuth([SCOPE]);
-  const identity = google.identitytoolkit({ version: 'v2', auth: client as any });
-  const name = `projects/${projectId}/config`;
-  await identity.projects.updateConfig({ name, updateMask: undefined as any, requestBody: data });
-  console.log(pc.green(`✓ Auth config applied from ${file}`));
-}
-
-
-C:/code2/lbpr/envs/firebase/src/extensions.ts
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import pc from 'picocolors';
-import { execa } from 'execa';
-
-async function ensureFirebaseJson(dir: string) {
-  const file = path.join(dir, 'firebase.json');
-  try { await fs.access(file); } catch { await fs.writeFile(file, JSON.stringify({}, null, 2)); }
-}
-
-export async function exportExtensions(projectId: string, outDir: string) {
-  await fs.mkdir(outDir, { recursive: true });
-  await ensureFirebaseJson(outDir);
-  const { stdout } = await execa('npx', ['-y', 'firebase-tools', 'ext:export', '--project', projectId, '--non-interactive'], { cwd: outDir });
-  console.log(pc.green('✓ Extensions exported to manifest & .env files under:'), outDir);
-  if (stdout) console.log(pc.dim(stdout.split('\n').slice(-8).join('\n')));
-}
-
-export async function applyExtensions(projectId: string, ssotDir: string) {
-  const args = ['-y', 'firebase-tools', 'deploy', '--only', 'extensions', '--project', projectId, '--non-interactive'];
-  const { stdout } = await execa('npx', args, { cwd: ssotDir });
-  console.log(pc.green('✓ Extensions deployed from manifest in:'), ssotDir);
-  if (stdout) console.log(pc.dim(stdout.split('\n').slice(-12).join('\n')));
-}
-
-
-C:/code2/lbpr/envs/firebase/src/functions.ts
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import pc from 'picocolors';
-import { execa } from 'execa';
-
-export async function exportFunctionsConfig(projectId: string, outDir: string) {
-  await fs.mkdir(outDir, { recursive: true });
-  try {
-    const { stdout } = await execa('npx', ['-y', 'firebase-tools', 'functions:config:get', '--project', projectId], { cwd: outDir });
-    const json = stdout?.trim() || '{}';
-    const dest = path.join(outDir, 'functions.config.json');
-    await fs.writeFile(dest, json + '\n');
-    console.log(pc.green(`✓ functions:config exported → ${dest}`));
-  } catch (e: any) {
-    console.warn(pc.yellow('! Skipping functions:config export (maybe unused in Gen2).'), e?.shortMessage || '');
-  }
-}
-
-function flatten(obj: any, prefix = ''): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(obj || {})) {
-    const key = prefix ? `${prefix}.${k}` : k;
-    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
-      Object.assign(out, flatten(v as any, key));
-    } else {
-      out[key] = typeof v === 'string' ? v : JSON.stringify(v);
-    }
-  }
-  return out;
-}
-
-export async function applyFunctionsConfig(projectId: string, ssotDir: string) {
-  const file = path.join(ssotDir, 'functions.config.json');
-  try {
-    const raw = await fs.readFile(file, 'utf8');
-    const json = JSON.parse(raw || '{}');
-    const flat = flatten(json);
-    if (!Object.keys(flat).length) {
-      console.log(pc.dim('functions.config.json empty — nothing to set.'));
-      return;
-    }
-    const pairs = Object.entries(flat).map(([k, v]) => `${k}=${v}`);
-    const args = ['-y', 'firebase-tools', 'functions:config:set', '--project', projectId, ...pairs];
-    await execa('npx', args, { cwd: ssotDir, stdio: 'inherit' });
-    console.log(pc.green('✓ functions:config applied from'), file);
-  } catch {
-    console.warn(pc.yellow('! Skipping functions:config apply — file not found or invalid JSON:'), file);
-  }
-}
-
-
-C:/code2/lbpr/envs/firebase/src/googleAuth.ts
-import { GoogleAuth } from 'google-auth-library';
-
-export async function getGoogleAuth(scopes: string[]) {
-  const auth = new GoogleAuth({ scopes });
-  const client = await auth.getClient();
-  const projectId = await auth.getProjectId();
-  return { auth, client, projectId };
-}
-
-
-C:/code2/lbpr/envs/firebase/src/index.ts
-#!/usr/bin/env node
-import path from 'node:path';
-import fs from 'node:fs/promises';
-import pc from 'picocolors';
-import yargs from 'yargs';
-import { hideBin } from 'yargs/helpers';
-import { exportAuthConfig, applyAuthConfig } from './auth.js';
-import { exportRules, applyRules } from './rules.js';
-import { exportExtensions, applyExtensions } from './extensions.js';
-import { exportFunctionsConfig, applyFunctionsConfig } from './functions.js';
-
-const SSOT_DIR = path.resolve(process.cwd(), 'ssot');
-
-function guessProjectId() {
-  return process.env.FIREBASE_PROJECT_ID || 'lexbot-pro';
-}
-
-const argv = (yargs(hideBin(process.argv)) as any)
-  .command('export', 'Export remote settings to SSOT', (y: any) => y
-    .option('project', { type: 'string', demandOption: false, default: guessProjectId() })
-    .option('auth', { type: 'boolean', default: true })
-    .option('rules', { type: 'boolean', default: true })
-    .option('extensions', { type: 'boolean', default: true })
-    .option('functions', { type: 'boolean', default: true })
-  , async (args: any) => {
-    const projectId = args.project!;
-    await fs.mkdir(SSOT_DIR, { recursive: true });
-    console.log(pc.cyan(pc.bold(`Exporting Firebase settings for ${projectId} → ${SSOT_DIR}`)));
-    if (args.auth) await exportAuthConfig(projectId, SSOT_DIR);
-    if (args.rules) await exportRules(projectId, SSOT_DIR);
-    if (args.extensions) await exportExtensions(projectId, SSOT_DIR);
-    if (args.functions) await exportFunctionsConfig(projectId, SSOT_DIR);
-    console.log(pc.bold(pc.green('Done.')));
-  })
-  .command('apply', 'Apply SSOT to remote project', (y: any) => y
-    .option('project', { type: 'string', demandOption: false, default: guessProjectId() })
-    .option('auth', { type: 'boolean' })
-    .option('rules', { type: 'boolean' })
-    .option('extensions', { type: 'boolean' })
-    .option('functions', { type: 'boolean' })
-    .option('all', { type: 'boolean', default: false })
-  , async (args: any) => {
-    const projectId = args.project!;
-    const pick = (flag?: boolean) => Boolean(args.all || flag);
-    console.log(pc.cyan(pc.bold(`Applying SSOT → ${projectId} from ${SSOT_DIR}`)));
-    if (pick(args.auth)) await applyAuthConfig(projectId, SSOT_DIR);
-    if (pick(args.rules)) await applyRules(projectId, SSOT_DIR);
-    if (pick(args.extensions)) await applyExtensions(projectId, SSOT_DIR);
-    if (pick(args.functions)) await applyFunctionsConfig(projectId, SSOT_DIR);
-    console.log(pc.bold(pc.green('Done.')));
-  })
-  .demandCommand(1)
-  .help()
-  .strict()
-  .argv;
-
-
-C:/code2/lbpr/envs/firebase/src/rules.ts
-import { google } from 'googleapis';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import pc from 'picocolors';
-import { getGoogleAuth } from './googleAuth.js';
-
-const SCOPE = 'https://www.googleapis.com/auth/firebase';
-
-type RuleTarget = 'cloud.firestore' | 'firebase.storage';
-
-/**
- * Firestore default DB release id can be either:
- *   projects/{project}/releases/cloud.firestore
- * or   projects/{project}/releases/cloud.firestore/(default)
- * They are equivalent per docs. We'll try the short one first, then the (default) form.
- */
-function releaseCandidates(projectId: string, target: RuleTarget) {
-  if (target === 'cloud.firestore') {
-    return [
-      `projects/${projectId}/releases/cloud.firestore`,
-      `projects/${projectId}/releases/cloud.firestore/(default)`,
-    ];
-  }
-  return [`projects/${projectId}/releases/firebase.storage`];
-}
-
-export async function exportRules(projectId: string, outDir: string) {
-  const { client } = await getGoogleAuth([SCOPE]);
-  const firebaserules = google.firebaserules({ version: 'v1', auth: client as any });
-
-  await fs.mkdir(outDir, { recursive: true });
-
-  for (const target of ['cloud.firestore','firebase.storage'] as RuleTarget[]) {
-    let relName: string | null = null;
-    let release: any | null = null;
-
-    for (const cand of releaseCandidates(projectId, target)) {
-      try {
-        const r = await firebaserules.projects.releases.get({ name: cand });
-        release = (r.data as any).release || r.data;
-        relName = cand;
-        break;
-      } catch (e: any) {
-        if (e?.code === 404 || e?.response?.status === 404) continue;
-        throw e;
-      }
-    }
-
-    const outfile = path.join(outDir, target === 'cloud.firestore' ? 'firestore.rules' : 'storage.rules');
-
-    if (!release || !release.rulesetName) {
-      const placeholder = target === 'cloud.firestore'
-        ? `// rules_version = '2';
-service cloud.firestore { match /databases/{database}/documents { match /{document=**} { allow read, write: if false; } } }
-`
-        : `// rules_version = '2';
-service firebase.storage { match /b/{bucket}/o { match /{allPaths=**} { allow read, write: if false; } } }
-`;
-      try { await fs.access(outfile); }
-      catch { await fs.writeFile(outfile, placeholder); }
-      console.warn(pc.yellow(`! No ${target} release found — wrote/kept placeholder at ${outfile}`));
-      continue;
-    }
-
-    const rs = await firebaserules.projects.rulesets.get({ name: release.rulesetName });
-    const files = rs.data.source?.files || [];
-    const content = files.map(f => f.content || '').join('\n');
-    await fs.writeFile(outfile, content.trim() + '\n');
-    console.log(pc.green(`✓ ${target} rules exported → ${outfile}`));
-  }
-}
-
-function targetReleaseId(target: RuleTarget): string {
-  return target === 'cloud.firestore' ? 'cloud.firestore' : 'firebase.storage';
-}
-
-export async function applyRules(projectId: string, ssotDir: string) {
-  const { client } = await getGoogleAuth([SCOPE]);
-  const firebaserules = google.firebaserules({ version: 'v1', auth: client as any });
-
-  const tasks: Array<{target: RuleTarget, file: string}> = [
-    { target: 'cloud.firestore', file: 'firestore.rules' },
-    { target: 'firebase.storage', file: 'storage.rules' },
-  ];
-
-  for (const t of tasks) {
-    const filePath = path.join(ssotDir, t.file);
-    let content = '';
-    try {
-      content = await fs.readFile(filePath, 'utf8');
-    } catch {
-      console.warn(pc.yellow(`! Skipping ${t.target} — file not found: ${filePath}`));
-      continue;
-    }
-
-    const created = await firebaserules.projects.rulesets.create({
-      name: `projects/${projectId}`,
-      requestBody: { source: { files: [{ name: t.file, content }] } },
-    });
-    const rulesetName = created.data.name!;
-
-    const relId = targetReleaseId(t.target);
-    const relShort = `projects/${projectId}/releases/${relId}`;
-    try {
-      await firebaserules.projects.releases.patch({
-        name: relShort,
-        updateMask: 'rulesetName',
-        requestBody: { release: { name: relShort, rulesetName } } as any,
-      });
-    } catch (e: any) {
-      const notFound = e?.code === 404 || e?.response?.status === 404;
-      if (!notFound) throw e;
-      await firebaserules.projects.releases.create({
-        name: `projects/${projectId}`,
-        requestBody: { name: relShort, rulesetName },
-      });
-    }
-
-    console.log(pc.green(`✓ ${t.target} rules applied from ${filePath} → ${rulesetName}`));
-  }
-}
+# Proxy if needed
+# HTTP_PROXY=http://localhost:8080
 
 
 C:/code2/lbpr/envs/firebase/ssot/auth.config.json
@@ -476,6 +124,286 @@ C:/code2/lbpr/envs/firebase/ssot/auth.config.json
   },
   "defaultHostingSite": "lexbot-pro"
 }
+
+C:/code2/lbpr/envs/firebase/src/auth.ts
+import { google } from 'googleapis';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import pc from 'picocolors';
+import { getGoogleAuth } from './googleAuth.js';
+
+const SCOPE = 'https://www.googleapis.com/auth/identitytoolkit';
+
+export async function exportAuthConfig(projectId: string, outDir: string) {
+  const { client } = await getGoogleAuth([SCOPE]);
+  const identity = google.identitytoolkit({ version: 'v2', auth: client as any });
+  const name = `projects/${projectId}/config`;
+  const res = await identity.projects.getConfig({ name });
+  await fs.mkdir(outDir, { recursive: true });
+  const file = path.join(outDir, 'auth.config.json');
+  await fs.writeFile(file, JSON.stringify(res.data, null, 2));
+  console.log(pc.green(`✓ Auth config exported → ${file}`));
+}
+
+export async function applyAuthConfig(projectId: string, ssotDir: string) {
+  const file = path.join(ssotDir, 'auth.config.json');
+  const raw = await fs.readFile(file, 'utf8');
+  const data = JSON.parse(raw);
+  const { client } = await getGoogleAuth([SCOPE]);
+  const identity = google.identitytoolkit({ version: 'v2', auth: client as any });
+  const name = `projects/${projectId}/config`;
+  await identity.projects.updateConfig({ name, updateMask: undefined as any, requestBody: data });
+  console.log(pc.green(`✓ Auth config applied from ${file}`));
+}
+
+
+C:/code2/lbpr/envs/doppler/src/cli.ts
+#!/usr/bin/env node
+import "dotenv/config";
+import { Command } from 'commander';
+import { DopplerClient } from './client.js';
+import type { ExportSnapshot, ExportedConfigSummary, Config } from './types.js';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+const program = new Command();
+
+program
+  .name('doppler-dump')
+  .description('Export projects → environments → configs (+ optional secret names/values) from Doppler as JSON.')
+  .option('--token <string>', 'Doppler token (falls back to env DOPPLER_TOKEN or DOPPLER_API_TOKEN)')
+  .option('--base-url <string>', 'API base URL', 'https://api.doppler.com/v3')
+  .option('--project <string>', 'Only scan this project id/slug')
+  .option('--include-values', 'Include secret values (default false)', false)
+  .option('--include-dynamic', 'Include dynamic secret values (issue leases)', false)
+  .option('--include-managed', 'Include managed secrets', false)
+  .option('--stdout', 'Print to stdout instead of writing to a file', false)
+  .option('--out <path>', 'Output file path (default: doppler_export_<timestamp>.json)')
+  .option('--concurrency <n>', 'Concurrent secret fetches per project', (v) => parseInt(v,10), 5)
+  .option('--per-page <n>', 'Page size for list endpoints', (v) => parseInt(v,10), 200)
+  .option('--max-pages <n>', 'Max pages to fetch', (v) => parseInt(v,10), 10)
+  .option('--verbose', 'Verbose http logging', false)
+  .parse(process.argv);
+
+const opts = program.opts();
+
+const token = opts.token || process.env.DOPPLER_TOKEN || process.env.DOPPLER_API_TOKEN;
+if (!token) {
+  console.error('Error: Provide a token via --token or env DOPPLER_TOKEN / DOPPLER_API_TOKEN');
+  process.exit(1);
+}
+
+const client = new DopplerClient({
+  token,
+  baseUrl: opts.baseUrl,
+  perPage: opts.perPage,
+  maxPages: opts.maxPages,
+  verbose: opts.verbose
+});
+
+function isStringArray(a: any): a is string[] { return Array.isArray(a) && a.every(x => typeof x === 'string'); }
+
+async function withConcurrency<T, R>(items: T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  let index = 0;
+  const workers = new Array(Math.min(limit, Math.max(1, items.length))).fill(0).map(async () => {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await task(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+(async () => {
+  const [tokenInfo, projects] = await Promise.all([client.me().catch(() => undefined), client.listProjects()]);
+  const filteredProjects = opts.project ? projects.filter(p => p.id === opts.project || p.name === opts.project) : projects;
+
+  const out: ExportSnapshot = {
+    generated_at: new Date().toISOString(),
+    base_url: opts.baseUrl,
+    token_info: tokenInfo,
+    projects: []
+  };
+
+  for (const project of filteredProjects) {
+    const [envs, configs] = await Promise.all([
+      client.listEnvironments(project.id),
+      client.listConfigs(project.id)
+    ]);
+
+    const task = async (cfg: Config): Promise<ExportedConfigSummary> => {
+      const base = { project: project.id, environment: cfg.environment, config: cfg.name, is_root: !!cfg.root };
+      if (!opts.includeValues) {
+        const names = await client.listSecretNames(project.id, cfg.name);
+        const arr = Array.isArray(names) ? names.map((n: any) => (typeof n === 'string' ? n : n?.name)).filter(Boolean) : [];
+        return { ...base, secret_names: arr };
+      } else {
+        const secrets = await client.listSecrets(project.id, cfg.name, { 
+          includeDynamic: !!opts.includeDynamic,
+          includeManaged: !!opts.includeManaged
+        });
+        return { ...base, secrets };
+      }
+    };
+
+    const summariesRes = await withConcurrency(configs, opts.concurrency, task);
+
+    out.projects.push({ id: project.id, name: project.name, environments: envs, configs, summaries: summariesRes });
+  }
+
+  const json = JSON.stringify(out, null, 2);
+  if (opts.stdout) {
+    console.log(json);
+  } else {
+    const file = opts.out || path.join(process.cwd(), `doppler_export_${Date.now()}.json`);
+    fs.writeFileSync(file, json, 'utf8');
+    console.log(`Wrote ${file}`);
+  }
+})().catch(err => {
+  console.error('Failed:', err?.message || err);
+  process.exit(1);
+});
+
+
+C:/code2/lbpr/envs/doppler/src/client.ts
+
+import { HttpClient, HttpOptions } from './http.js';
+import type { Project, Environment, Config, SecretName, SecretValue, TokenInfo } from './types.js';
+
+export interface DopplerClientOptions extends Omit<HttpOptions, 'token'> {
+  token: string;
+  perPage?: number;
+  maxPages?: number;
+}
+
+function toArray<T>(v: any, mapItem?: (x: any) => T): T[] {
+  if (Array.isArray(v)) return mapItem ? v.map(mapItem) : v;
+  if (!v || typeof v !== 'object') return [];
+  // common array-valued keys
+  for (const k of ['projects','environments','configs','names','secrets','data','items','results']) {
+    const x = (v as any)[k];
+    if (Array.isArray(x)) return mapItem ? x.map(mapItem) : x;
+  }
+  return [];
+}
+
+export class DopplerClient {
+  private http: HttpClient;
+  private perPage: number;
+  private maxPages: number;
+
+  constructor(opts: DopplerClientOptions) {
+    this.http = new HttpClient(opts);
+    this.perPage = opts.perPage ?? 200;
+    this.maxPages = opts.maxPages ?? 10;
+  }
+
+  async me(): Promise<TokenInfo> {
+    const r = await this.http.get('/me');
+    return (r?.token ?? r) as TokenInfo;
+  }
+
+  private async pagedGet(path: string, params: Record<string, any> = {}): Promise<any[]> {
+    let page = 1;
+    const acc: any[] = [];
+    while (page <= this.maxPages) {
+      const res = await this.http.get(path, { ...params, page, per_page: this.perPage });
+      const arr = toArray<any>(res);
+      if (arr.length) {
+        acc.push(...arr);
+        if (arr.length < this.perPage) break;
+      } else {
+        break;
+      }
+      page++;
+    }
+    return acc;
+  }
+
+  async listProjects(): Promise<Project[]> {
+    const items = await this.pagedGet('/projects');
+    return items as Project[];
+  }
+
+  async listEnvironments(project: string): Promise<Environment[]> {
+    const items = await this.pagedGet('/environments', { project });
+    return items as Environment[];
+  }
+
+  async listConfigs(project: string, environment?: string): Promise<Config[]> {
+    const items = await this.pagedGet('/configs', { project, environment });
+    return items as Config[];
+  }
+
+  async getConfig(project: string, config: string): Promise<Config> {
+    const r = await this.http.get('/configs/config', { project, config });
+    return (r?.config ?? r) as Config;
+  }
+
+  async listSecretNames(project: string, config: string): Promise<SecretName[]> {
+    const r = await this.http.get('/configs/config/secrets/names', { project, config });
+    // Official docs show { names: string[] }
+    // Normalize: strings → { name }, or objects having .name
+    const arr = toArray<string | SecretName>(r);
+    return arr.map((x: any) => (typeof x === 'string' ? { name: x } : { name: x?.name })).filter((n: any) => !!n.name);
+  }
+
+  async listSecrets(project: string, config: string, opts?: { includeDynamic?: boolean; includeManaged?: boolean; }): Promise<SecretValue[]> {
+    const r = await this.http.get('/configs/config/secrets', { 
+      project, 
+      config,
+      include_dynamic_secrets: opts?.includeDynamic ? 'true' : 'false',
+      include_managed_secrets: opts?.includeManaged ? 'true' : 'false'
+    });
+    // Docs & community libs show shape: { secrets: { NAME: { value, ... } } }
+    const payload = (r && typeof r === 'object' && (r as any).secrets) ? (r as any).secrets : r;
+    if (Array.isArray(payload)) {
+      return payload as SecretValue[];
+    } else if (payload && typeof payload === 'object') {
+      return Object.entries(payload).map(([name, obj]: [string, any]) => ({ name, ...(obj || {}) }));
+    }
+    return [];
+  }
+}
+
+
+C:/code2/lbpr/envs/doppler/bin/doppler-dump.js
+#!/usr/bin/env node
+import('../dist/cli.js').catch((e) => {
+  console.error('Failed to start doppler-dump CLI:', e?.message || e);
+  process.exit(1);
+});
+
+
+C:/code2/lbpr/envs/firebase/src/extensions.ts
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import pc from 'picocolors';
+import { execa } from 'execa';
+
+async function ensureFirebaseJson(dir: string) {
+  const file = path.join(dir, 'firebase.json');
+  try { await fs.access(file); } catch { await fs.writeFile(file, JSON.stringify({}, null, 2)); }
+}
+
+export async function exportExtensions(projectId: string, outDir: string) {
+  await fs.mkdir(outDir, { recursive: true });
+  await ensureFirebaseJson(outDir);
+  const { stdout } = await execa('npx', ['-y', 'firebase-tools', 'ext:export', '--project', projectId, '--non-interactive'], { cwd: outDir });
+  console.log(pc.green('✓ Extensions exported to manifest & .env files under:'), outDir);
+  if (stdout) console.log(pc.dim(stdout.split('\n').slice(-8).join('\n')));
+}
+
+export async function applyExtensions(projectId: string, ssotDir: string) {
+  const args = ['-y', 'firebase-tools', 'deploy', '--only', 'extensions', '--project', projectId, '--non-interactive'];
+  const { stdout } = await execa('npx', args, { cwd: ssotDir });
+  console.log(pc.green('✓ Extensions deployed from manifest in:'), ssotDir);
+  if (stdout) console.log(pc.dim(stdout.split('\n').slice(-12).join('\n')));
+}
+
 
 C:/code2/lbpr/envs/firebase/ssot/firebase.json
 {
@@ -602,39 +530,163 @@ C:/code2/lbpr/envs/firebase/ssot/functions.config.json
 {}
 
 
-C:/code2/lbpr/envs/firebase/ssot/storage.rules
-// rules_version = '2';
-service firebase.storage {{
-  match /b/{bucket}/o {{
-    match /{allPaths=**} {{
-      allow read, write: if false;
-    }}
-  }}
-}}
+C:/code2/lbpr/envs/firebase/src/functions.ts
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import pc from 'picocolors';
+import { execa } from 'execa';
+
+export async function exportFunctionsConfig(projectId: string, outDir: string) {
+  await fs.mkdir(outDir, { recursive: true });
+  try {
+    const { stdout } = await execa('npx', ['-y', 'firebase-tools', 'functions:config:get', '--project', projectId], { cwd: outDir });
+    const json = stdout?.trim() || '{}';
+    const dest = path.join(outDir, 'functions.config.json');
+    await fs.writeFile(dest, json + '\n');
+    console.log(pc.green(`✓ functions:config exported → ${dest}`));
+  } catch (e: any) {
+    console.warn(pc.yellow('! Skipping functions:config export (maybe unused in Gen2).'), e?.shortMessage || '');
+  }
+}
+
+function flatten(obj: any, prefix = ''): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj || {})) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      Object.assign(out, flatten(v as any, key));
+    } else {
+      out[key] = typeof v === 'string' ? v : JSON.stringify(v);
+    }
+  }
+  return out;
+}
+
+export async function applyFunctionsConfig(projectId: string, ssotDir: string) {
+  const file = path.join(ssotDir, 'functions.config.json');
+  try {
+    const raw = await fs.readFile(file, 'utf8');
+    const json = JSON.parse(raw || '{}');
+    const flat = flatten(json);
+    if (!Object.keys(flat).length) {
+      console.log(pc.dim('functions.config.json empty — nothing to set.'));
+      return;
+    }
+    const pairs = Object.entries(flat).map(([k, v]) => `${k}=${v}`);
+    const args = ['-y', 'firebase-tools', 'functions:config:set', '--project', projectId, ...pairs];
+    await execa('npx', args, { cwd: ssotDir, stdio: 'inherit' });
+    console.log(pc.green('✓ functions:config applied from'), file);
+  } catch {
+    console.warn(pc.yellow('! Skipping functions:config apply — file not found or invalid JSON:'), file);
+  }
+}
 
 
-C:/code2/lbpr/envs/stripe/.env
-# Required
-STRIPE_API_KEY=REDACTED_STRIPE_SECRET_KEY
+C:/code2/lbpr/envs/firebase/src/googleAuth.ts
+import { GoogleAuth } from 'google-auth-library';
 
-# Optional
-STRIPE_API_VERSION=2025-10-29.clover
-STRIPE_ACCOUNT_ID=acct_...
+export async function getGoogleAuth(scopes: string[]) {
+  const auth = new GoogleAuth({ scopes });
+  const client = await auth.getClient();
+  const projectId = await auth.getProjectId();
+  return { auth, client, projectId };
+}
 
-# Proxy if needed
-# HTTP_PROXY=http://localhost:8080
 
+C:/code2/lbpr/envs/doppler/src/http.ts
 
-C:/code2/lbpr/envs/stripe/.env.example
-# Required
-STRIPE_API_KEY=sk_test_...
+import { fetch, Headers } from 'undici';
 
-# Optional
-STRIPE_API_VERSION=2025-10-29.clover
-STRIPE_ACCOUNT_ID=acct_...
+export type QueryParams = Record<string, string | number | boolean | undefined | null>;
 
-# Proxy if needed
-# HTTP_PROXY=http://localhost:8080
+export class HttpError extends Error {
+  constructor(public status: number, public statusText: string, public body?: any) {
+    super(`HTTP ${status} ${statusText}${body ? `: ${JSON.stringify(body).slice(0,500)}` : ''}`);
+  }
+}
+
+export interface HttpOptions {
+  token: string;
+  baseUrl?: string;
+  maxRetries?: number;
+  timeoutMs?: number;
+  verbose?: boolean;
+}
+
+export class HttpClient {
+  private baseUrl: string;
+  private maxRetries: number;
+  private timeoutMs: number;
+  private verbose: boolean;
+
+  constructor(private opts: HttpOptions) {
+    this.baseUrl = opts.baseUrl ?? 'https://api.doppler.com/v3';
+    this.maxRetries = opts.maxRetries ?? 3;
+    this.timeoutMs  = opts.timeoutMs  ?? 30_000;
+    this.verbose    = !!opts.verbose;
+  }
+
+  private log(...args: any[]) { if (this.verbose) console.log('[doppler-sdk]', ...args); }
+
+  private qs(params?: QueryParams): string {
+    if (!params) return '';
+    const usp = new URLSearchParams();
+    for (const [k,v] of Object.entries(params)) {
+      if (v === undefined || v === null) continue;
+      usp.set(k, String(v));
+    }
+    const s = usp.toString();
+    return s ? `?${s}` : '';
+  }
+
+  async get(path: string, params?: QueryParams): Promise<any> { return this.request('GET', path, undefined, params); }
+
+  async request(method: string, path: string, body?: any, params?: QueryParams): Promise<any> {
+    const url = `${this.baseUrl}${path}${this.qs(params)}`;
+    const headers = new Headers({
+      'authorization': `Bearer ${this.opts.token}`,
+      'accept': 'application/json',
+      'content-type': 'application/json'
+    });
+
+    let attempt = 0, lastErr: any, waitMs = 500;
+    while (attempt <= this.maxRetries) {
+      attempt++;
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        this.log(`${method} ${url}`);
+        const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: controller.signal });
+        clearTimeout(id);
+
+        if (res.status === 204) return null;
+        if (res.status === 429) {
+          const retryAfter = Number(res.headers.get('retry-after'));
+          const ms = isNaN(retryAfter) ? waitMs : retryAfter * 1000;
+          this.log(`429 rate limited, retrying in ${ms}ms`);
+          await new Promise(r => setTimeout(r, ms));
+          waitMs = Math.min(waitMs * 2, 8000);
+          continue;
+        }
+        if (!res.ok) {
+          let errBody: any = undefined; try { errBody = await res.json(); } catch {}
+          throw new HttpError(res.status, res.statusText, errBody);
+        }
+        const text = await res.text();
+        try { return text ? JSON.parse(text) : null; } catch { return text; }
+      } catch (err: any) {
+        lastErr = err;
+        if (attempt > this.maxRetries) break;
+        const status = err?.status;
+        if (status && status >= 400 && status < 500 && status !== 429) break;
+        this.log(`Attempt ${attempt}/${this.maxRetries} failed: ${err?.message || err}`);
+        await new Promise(r => setTimeout(r, waitMs));
+        waitMs = Math.min(waitMs * 2, 8000);
+      }
+    }
+    throw lastErr ?? new Error('Unknown HTTP error');
+  }
+}
 
 
 C:/code2/lbpr/envs/stripe/index.js
@@ -1210,6 +1262,272 @@ async function cmdValidate() {
 })();
 
 
+C:/code2/lbpr/envs/doppler/src/index.ts
+export * from './types.js';
+export * from './http.js';
+export * from './client.js';
+
+
+C:/code2/lbpr/envs/firebase/src/index.ts
+#!/usr/bin/env node
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import pc from 'picocolors';
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
+import { exportAuthConfig, applyAuthConfig } from './auth.js';
+import { exportRules, applyRules } from './rules.js';
+import { exportExtensions, applyExtensions } from './extensions.js';
+import { exportFunctionsConfig, applyFunctionsConfig } from './functions.js';
+
+const SSOT_DIR = path.resolve(process.cwd(), 'ssot');
+
+function guessProjectId() {
+  return process.env.FIREBASE_PROJECT_ID || 'lexbot-pro';
+}
+
+const argv = (yargs(hideBin(process.argv)) as any)
+  .command('export', 'Export remote settings to SSOT', (y: any) => y
+    .option('project', { type: 'string', demandOption: false, default: guessProjectId() })
+    .option('auth', { type: 'boolean', default: true })
+    .option('rules', { type: 'boolean', default: true })
+    .option('extensions', { type: 'boolean', default: true })
+    .option('functions', { type: 'boolean', default: true })
+  , async (args: any) => {
+    const projectId = args.project!;
+    await fs.mkdir(SSOT_DIR, { recursive: true });
+    console.log(pc.cyan(pc.bold(`Exporting Firebase settings for ${projectId} → ${SSOT_DIR}`)));
+    if (args.auth) await exportAuthConfig(projectId, SSOT_DIR);
+    if (args.rules) await exportRules(projectId, SSOT_DIR);
+    if (args.extensions) await exportExtensions(projectId, SSOT_DIR);
+    if (args.functions) await exportFunctionsConfig(projectId, SSOT_DIR);
+    console.log(pc.bold(pc.green('Done.')));
+  })
+  .command('apply', 'Apply SSOT to remote project', (y: any) => y
+    .option('project', { type: 'string', demandOption: false, default: guessProjectId() })
+    .option('auth', { type: 'boolean' })
+    .option('rules', { type: 'boolean' })
+    .option('extensions', { type: 'boolean' })
+    .option('functions', { type: 'boolean' })
+    .option('all', { type: 'boolean', default: false })
+  , async (args: any) => {
+    const projectId = args.project!;
+    const pick = (flag?: boolean) => Boolean(args.all || flag);
+    console.log(pc.cyan(pc.bold(`Applying SSOT → ${projectId} from ${SSOT_DIR}`)));
+    if (pick(args.auth)) await applyAuthConfig(projectId, SSOT_DIR);
+    if (pick(args.rules)) await applyRules(projectId, SSOT_DIR);
+    if (pick(args.extensions)) await applyExtensions(projectId, SSOT_DIR);
+    if (pick(args.functions)) await applyFunctionsConfig(projectId, SSOT_DIR);
+    console.log(pc.bold(pc.green('Done.')));
+  })
+  .demandCommand(1)
+  .help()
+  .strict()
+  .argv;
+
+
+C:/code2/lbpr/envs/doppler/LICENSE
+MIT License
+
+(c) 2025
+
+
+C:/code2/lbpr/envs/doppler/package.json
+{
+  "name": "doppler-sdk-exporter",
+  "version": "0.1.2",
+  "description": "TypeScript SDK + CLI to list Doppler projects, environments, configs (root & branches) and secret names/values for LLM/RAG export.",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "bin": {
+    "doppler-dump": "bin/doppler-dump.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "start": "node dist/cli.js --help"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "keywords": [
+    "doppler",
+    "sdk",
+    "secrets",
+    "configs",
+    "env",
+    "export",
+    "llm"
+  ],
+  "author": "LBP-REACT",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.2",
+    "undici": "^7.16.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "@types/node": "^22.7.0",
+    "dotenv": "^16.4.5"
+  }
+}
+
+C:/code2/lbpr/envs/firebase/package.json
+{
+  "name": "lbp-env-firebase",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Programmatic export/apply of Firebase project settings (Auth, Rules, Extensions, Functions config) to/from an SSOT.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "export": "dotenv -e ./.env -- tsx src/index.ts export",
+    "apply":  "dotenv -e ./.env -- tsx src/index.ts apply"
+  },
+  "bin": {
+    "firebase-env": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "execa": "^9.4.0",
+    "google-auth-library": "^10.5.0",
+    "googleapis": "^164.1.0",
+    "picocolors": "^1.1.0",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/yargs": "^17.0.32",
+    "dotenv-cli": "^11.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
+
+C:/code2/lbpr/envs/stripe/package.json
+{
+  "name": "@lbp-react/envs-stripe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SSOT-driven Stripe env SDK (pull/diff/apply).",
+  "scripts": {
+    "pull": "node index.js pull",
+    "apply": "node index.js apply",
+    "diff": "node index.js diff",
+    "validate": "node index.js validate"
+  },
+  "dependencies": {
+    "stripe": "^19.1.0",
+    "fast-json-stable-stringify": "^2.1.0",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
+C:/code2/lbpr/envs/doppler/README.md
+
+# doppler-sdk-exporter
+
+Exports **Projects → Environments → Configs (root & branches)** and optionally **secret names** or **values** from your Doppler account to a single JSON.
+
+> Default = names-only (safe for LLM ingestion). Use `--include-values` to include actual values.
+
+### Auth
+Use a **Personal Token** (`dp.pt...`) or **Service Account Token** (`dp.sa...`) with sufficient access. **Service Tokens** (`dp.st...`) are config-scoped and cannot list projects. citeturn0search2turn0search7
+
+### Build & Run
+```bash
+npm i
+npm run build
+# provide token via env or --token
+DOPPLER_TOKEN=dp.pt_xxx npx . doppler-dump --out snapshot.json
+```
+
+### CLI
+```
+--token <string>           overrides env DOPPLER_TOKEN / DOPPLER_API_TOKEN
+--base-url <string>        default https://api.doppler.com/v3
+--project <slug>           only export this project
+--include-values           include secret values (default: false)
+--include-dynamic          include dynamic secret values (if perms)
+--include-managed          include managed secrets (if perms)
+--stdout                   print JSON to stdout
+--out <file>               output path (default doppler_export_<ts>.json)
+--concurrency <n>          parallel secret fetches (default 5)
+--per-page <n>             page size (default 200)
+--max-pages <n>            max pages (default 10)
+--verbose                  HTTP logging (429 retries honored)
+```
+
+
+C:/code2/lbpr/envs/firebase/README.md
+# Firebase Env SDK (SSOT)
+
+A tiny toolkit to **export** your Firebase project's settings to a local *single source of truth* (SSOT) and **apply** them back to any project.
+
+Targets covered:
+- Authentication config (providers, password policy, templates — via Identity Platform Admin v2)
+- Cloud Firestore & Cloud Storage **Security Rules** (via Firebase Rules API)
+- Firebase **Extensions** (manifest + per-instance `.env` — via `firebase-tools ext:export`)
+- Cloud Functions **runtime config** (legacy `functions:config` — optional)
+
+> Default project in your repo: **`lexbot-pro`** (from your env files). You can pass another with `--project <id>`.
+
+## Install
+```bash
+cd envs/firebase
+pnpm i   # or npm i / yarn
+```
+
+Authenticate for Google APIs (one-time):
+```bash
+gcloud auth application-default login   # or set GOOGLE_APPLICATION_CREDENTIALS to a service account JSON
+```
+
+## Export to SSOT
+```bash
+pnpm export -- --project lexbot-pro
+```
+Outputs into `envs/firebase/ssot/`:
+- `auth.config.json`
+- `firestore.rules`
+- `storage.rules`
+- `firebase.json` (+ `extensions/*.env`) from extensions export
+- `functions.config.json` (optional; if available)
+
+## Apply from SSOT
+```bash
+pnpm apply -- --project lexbot-pro --all
+# or selectively:
+pnpm apply -- --project lexbot-pro --auth --rules --extensions --functions
+```
+
+### Notes & permissions
+- **Auth** uses Identity Platform Admin v2 (`identitytoolkit.googleapis.com`). Scopes: `https://www.googleapis.com/auth/identitytoolkit`.
+- **Rules** use Firebase Rules API (`firebaserules.googleapis.com`). We update the releases `cloud.firestore/(default)` and `firebase.storage`.
+- **Extensions** rely on the Firebase CLI manifest. We run `firebase ext:export` and `firebase deploy --only extensions`.
+- **Functions config** runs `firebase functions:config:get/set` for *Gen1-style* config. For Gen2, prefer env files, params, and Secret Manager.
+
+See Google docs for API details:
+- Identity Platform Admin v2 get/update config.  
+- Firebase Rules API releases & rulesets.  
+- Extensions manifest + export/deploy.
+
+
+
 C:/code2/lbpr/envs/stripe/README.md
 # Stripe Env SDK (SSOT-driven)
 
@@ -1334,6 +1652,137 @@ Keep your SSOT in Git per env (e.g., `ssot.dev.json`, `ssot.staging.json`, `ssot
 MIT License © 2025 LBP-REACT
 
 
+C:/code2/lbpr/envs/firebase/src/rules.ts
+import { google } from 'googleapis';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import pc from 'picocolors';
+import { getGoogleAuth } from './googleAuth.js';
+
+const SCOPE = 'https://www.googleapis.com/auth/firebase';
+
+type RuleTarget = 'cloud.firestore' | 'firebase.storage';
+
+/**
+ * Firestore default DB release id can be either:
+ *   projects/{project}/releases/cloud.firestore
+ * or   projects/{project}/releases/cloud.firestore/(default)
+ * They are equivalent per docs. We'll try the short one first, then the (default) form.
+ */
+function releaseCandidates(projectId: string, target: RuleTarget) {
+  if (target === 'cloud.firestore') {
+    return [
+      `projects/${projectId}/releases/cloud.firestore`,
+      `projects/${projectId}/releases/cloud.firestore/(default)`,
+    ];
+  }
+  return [`projects/${projectId}/releases/firebase.storage`];
+}
+
+export async function exportRules(projectId: string, outDir: string) {
+  const { client } = await getGoogleAuth([SCOPE]);
+  const firebaserules = google.firebaserules({ version: 'v1', auth: client as any });
+
+  await fs.mkdir(outDir, { recursive: true });
+
+  for (const target of ['cloud.firestore','firebase.storage'] as RuleTarget[]) {
+    let relName: string | null = null;
+    let release: any | null = null;
+
+    for (const cand of releaseCandidates(projectId, target)) {
+      try {
+        const r = await firebaserules.projects.releases.get({ name: cand });
+        release = (r.data as any).release || r.data;
+        relName = cand;
+        break;
+      } catch (e: any) {
+        if (e?.code === 404 || e?.response?.status === 404) continue;
+        throw e;
+      }
+    }
+
+    const outfile = path.join(outDir, target === 'cloud.firestore' ? 'firestore.rules' : 'storage.rules');
+
+    if (!release || !release.rulesetName) {
+      const placeholder = target === 'cloud.firestore'
+        ? `// rules_version = '2';
+service cloud.firestore { match /databases/{database}/documents { match /{document=**} { allow read, write: if false; } } }
+`
+        : `// rules_version = '2';
+service firebase.storage { match /b/{bucket}/o { match /{allPaths=**} { allow read, write: if false; } } }
+`;
+      try { await fs.access(outfile); }
+      catch { await fs.writeFile(outfile, placeholder); }
+      console.warn(pc.yellow(`! No ${target} release found — wrote/kept placeholder at ${outfile}`));
+      continue;
+    }
+
+    const rs = await firebaserules.projects.rulesets.get({ name: release.rulesetName });
+    const files = rs.data.source?.files || [];
+    const content = files.map(f => f.content || '').join('\n');
+    await fs.writeFile(outfile, content.trim() + '\n');
+    console.log(pc.green(`✓ ${target} rules exported → ${outfile}`));
+  }
+}
+
+function targetReleaseId(target: RuleTarget): string {
+  return target === 'cloud.firestore' ? 'cloud.firestore' : 'firebase.storage';
+}
+
+export async function applyRules(projectId: string, ssotDir: string) {
+  const { client } = await getGoogleAuth([SCOPE]);
+  const firebaserules = google.firebaserules({ version: 'v1', auth: client as any });
+
+  const tasks: Array<{target: RuleTarget, file: string}> = [
+    { target: 'cloud.firestore', file: 'firestore.rules' },
+    { target: 'firebase.storage', file: 'storage.rules' },
+  ];
+
+  for (const t of tasks) {
+    const filePath = path.join(ssotDir, t.file);
+    let content = '';
+    try {
+      content = await fs.readFile(filePath, 'utf8');
+    } catch {
+      console.warn(pc.yellow(`! Skipping ${t.target} — file not found: ${filePath}`));
+      continue;
+    }
+
+    const created = await firebaserules.projects.rulesets.create({
+      name: `projects/${projectId}`,
+      requestBody: { source: { files: [{ name: t.file, content }] } },
+    });
+    const rulesetName = created.data.name!;
+
+    const relId = targetReleaseId(t.target);
+    const relShort = `projects/${projectId}/releases/${relId}`;
+    try {
+      await firebaserules.projects.releases.patch({
+        name: relShort,
+        updateMask: 'rulesetName',
+        requestBody: { release: { name: relShort, rulesetName } } as any,
+      });
+    } catch (e: any) {
+      const notFound = e?.code === 404 || e?.response?.status === 404;
+      if (!notFound) throw e;
+      await firebaserules.projects.releases.create({
+        name: `projects/${projectId}`,
+        requestBody: { name: relShort, rulesetName },
+      });
+    }
+
+    console.log(pc.green(`✓ ${t.target} rules applied from ${filePath} → ${rulesetName}`));
+  }
+}
+
+
+C:/code2/lbpr/envs/doppler/snapshot.json
+{
+  "generated_at": "2025-11-09T14:21:27.551Z",
+  "base_url": "https://api.doppler.com/v3",
+  "projects": []
+}
+
 C:/code2/lbpr/envs/stripe/ssot.example.json
 {
   "products": [
@@ -1448,5 +1897,74 @@ C:/code2/lbpr/envs/stripe/ssot.example.json
 
 C:/code2/lbpr/envs/stripe/ssot.stripe.json
 {"_generated_at":"2025-11-03T16:39:11.324Z","account":{"business_type":"company","country":"RO","default_currency":"ron","email":"vladjurcutiu89@gmail.com","id":"acct_1ReA1CEOpDS9PYbX","settings":{"branding":{"icon":null,"logo":null,"primary_color":null,"secondary_color":null}}},"coupons":[],"portal":{"configurations":[{"business_profile":{"headline":null,"privacy_policy_url":null,"terms_of_service_url":null},"features":{"customer_update":{"allowed_updates":["name","email","address","phone"],"enabled":true},"invoice_history":{"enabled":true},"payment_method_update":{"enabled":true,"payment_method_configuration":null},"subscription_cancel":{"cancellation_reason":{"enabled":true,"options":["too_expensive","switched_service","unused","other"]},"enabled":true,"mode":"at_period_end","proration_behavior":"none"},"subscription_pause":{"enabled":false},"subscription_update":{"default_allowed_updates":[],"enabled":false,"proration_behavior":"always_invoice","schedule_at_period_end":{"conditions":[]},"trial_update_behavior":"end_trial"}},"id":"bpc_1SKc0ZEOpDS9PYbX6r4mv7uM","is_default":true}]},"products":[{"active":true,"code":null,"default_price":"price_1SKIKrEOpDS9PYbX6jBSwgzn","description":"Licence to use LexBot PRO for 1 month","id":"prod_TGq0wARzBVMx5T","metadata":{},"name":"LexBot PRO - 1 Month","prices":[{"active":true,"currency":"usd","id":"price_1SL6zFEOpDS9PYbXi5bxxzCd","lookup_key":null,"nickname":null,"recurring":{"interval":"month","interval_count":1,"meter":null,"trial_period_days":null,"usage_type":"licensed"},"tax_behavior":"unspecified","type":"recurring","unit_amount":10000},{"active":true,"currency":"usd","id":"price_1SKIKrEOpDS9PYbX6jBSwgzn","lookup_key":null,"nickname":null,"recurring":{"interval":"month","interval_count":1,"meter":null,"trial_period_days":null,"usage_type":"licensed"},"tax_behavior":"unspecified","type":"recurring","unit_amount":100}]},{"active":false,"code":null,"default_price":"price_1RevrwEOpDS9PYbXYI6NHPUk","description":"Licence to use LexBot PRO for 1 month","id":"prod_Sa64g0Ek6ARubz","metadata":{},"name":"LexBot PRO - 1 month","prices":[{"active":true,"currency":"usd","id":"price_1SKGgVEOpDS9PYbXaPuG9i62","lookup_key":null,"nickname":null,"recurring":{"interval":"month","interval_count":1,"meter":null,"trial_period_days":null,"usage_type":"licensed"},"tax_behavior":"unspecified","type":"recurring","unit_amount":100},{"active":true,"currency":"ron","id":"price_1RevrwEOpDS9PYbXYI6NHPUk","lookup_key":null,"nickname":null,"recurring":{"interval":"month","interval_count":1,"meter":null,"trial_period_days":null,"usage_type":"licensed"},"tax_behavior":"unspecified","type":"recurring","unit_amount":50000}]}],"shipping_rates":[],"tax_settings":{"automatic_tax":null,"head_office":null},"webhooks":[{"api_version":"2025-05-28.basil","connect":false,"description":null,"enabled_events":["product.created","product.updated","product.deleted","price.created","price.updated","price.deleted","checkout.session.completed","customer.subscription.created","customer.subscription.updated","customer.subscription.deleted","payment_intent.processing","payment_intent.succeeded","payment_intent.canceled","payment_intent.payment_failed","invoice.paid","invoice.payment_succeeded","invoice.payment_failed","invoice.upcoming","invoice.marked_uncollectible","invoice.payment_action_required"],"id":"we_1SK5UvEOpDS9PYbXwNy9WUtb","status":"enabled","url":"https://europe-central2-lexbot-pro.cloudfunctions.net/ext-firestore-stripe-payments-handleWebhookEvents"}]}
+
+
+C:/code2/lbpr/envs/firebase/ssot/storage.rules
+// rules_version = '2';
+service firebase.storage {{
+  match /b/{bucket}/o {{
+    match /{allPaths=**} {{
+      allow read, write: if false;
+    }}
+  }}
+}}
+
+
+C:/code2/lbpr/envs/doppler/tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "declaration": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src"
+  ]
+}
+
+C:/code2/lbpr/envs/firebase/tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src"
+  ]
+}
+
+C:/code2/lbpr/envs/doppler/src/types.ts
+
+export interface Project { id: string; name: string; description?: string; created_at?: string; }
+export interface Environment { id: string; name: string; project: string; created_at?: string; initial_fetch_at?: string; }
+export interface Config { name: string; project: string; environment: string; created_at?: string; initial_fetch_at?: string; last_fetch_at?: string; root: boolean; locked?: boolean; }
+export interface SecretName { name: string; }
+export interface SecretValue { name: string; value?: string; computed?: boolean; raw?: string; note?: string | null; type?: string; }
+export interface TokenInfo { token_type: string; subject?: string; email?: string; scopes?: string[]; }
+export interface ExportedConfigSummary { project: string; environment: string; config: string; is_root: boolean; secret_names?: string[]; secrets?: SecretValue[]; }
+export interface ExportSnapshot {
+  generated_at: string;
+  base_url: string;
+  token_info?: TokenInfo;
+  projects: Array<{ id: string; name: string; environments: Environment[]; configs: Config[]; summaries: ExportedConfigSummary[]; }>;
+}
 
 

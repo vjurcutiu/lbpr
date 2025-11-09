@@ -1,12 +1,9 @@
  {
    "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\envs_context.txt",
-   "folders": ["C:\\code2\\lbpr\\envs\\firebase",
-                "C:\\code2\\lbpr\\envs\\firebase\\src",
-                "C:\\code2\\lbpr\\envs\\firebase\\ssot",
-              "C:\\code2\\lbpr\\envs\\stripe"
+   "recurse_folders": ["C:\\code2\\lbpr\\envs"
             ],
    "include_glob": "*",
-   "exclude_glob": ["package.json", "pnpm-lock.yaml"],
+   "exclude_glob": ["pnpm-lock.yaml"],
    "dedup": "path"
  }
 

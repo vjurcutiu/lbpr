@@ -9,3 +9,9 @@ docs/**/draft-*
 node_modules/
 .venv/
 __pycache__/
+doppler_export_*.json
+\.pnpm-store
+pnpm-lock.yaml
+logs/
+*.log
+logs/*.log

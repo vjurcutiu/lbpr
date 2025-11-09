@@ -6,7 +6,24 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any, Iterable
+from typing import List, Tuple, Optional, Any, Iterable
+
+VERBOSE = False
+
+# Allow opt-in verbosity via env as well
+try:
+    if os.environ.get('FILE_COMPILER_VERBOSE', '') in ('1', 'true', 'TRUE', 'yes', 'Yes'):
+        VERBOSE = True
+except Exception:
+    pass
+
+
+def _dbg(*args):
+    if VERBOSE:
+        try:
+            print("[verbose]", *args, flush=True)
+        except Exception:
+            pass
 
 
 # -------------------------
@@ -16,13 +33,22 @@ from typing import List, Tuple, Optional, Dict, Any, Iterable
 DEFAULT_IGNORE_FILENAME = ".compiler_ignore"
 
 
+def _normalize_pattern(line: str) -> str:
+    """Normalize a single ignore pattern line for cross-platform matching."""
+    # Allow escaped dot "\." to become "."
+    line = line.replace(r"\.", ".")
+    # Normalize path separators to POSIX style
+    line = line.replace("\\", "/")
+    return line
+
+
 def _load_ignore_patterns(ignore_file: Path) -> List[str]:
     """
     Load ignore patterns from a .compiler_ignore file.
     - Empty lines and lines starting with '#' are ignored.
     - Patterns use Unix shell-style wildcards (fnmatch), and are matched
-      against POSIX-style paths relative to the manifest directory.
-    - A pattern ending with a trailing slash (e.g. 'build/') ignores that directory and all its contents.
+      against POSIX-style paths.
+    - A pattern ending with a trailing slash (e.g. 'build/') ignores that directory and its contents.
     """
     patterns: List[str] = []
     try:
@@ -33,28 +59,48 @@ def _load_ignore_patterns(ignore_file: Path) -> List[str]:
                     continue
                 if line.endswith("\\"):
                     line = line.rstrip("\\").rstrip()
-                patterns.append(line.replace("\\", "/"))
+                patterns.append(_normalize_pattern(line))
     except FileNotFoundError:
         pass
     return patterns
 
 
-def _path_matches_any(path_posix: str, patterns: List[str]) -> bool:
+def _merge_patterns(*lists: List[str]) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for lst in lists:
+        for p in lst:
+            if p not in seen:
+                seen.add(p)
+                out.append(p)
+    return out
+
+
+def _path_matches_any_detail(path_posix: str, patterns: List[str]):
     """
-    Match path_posix (a POSIX-style relative path) against ignore patterns.
-    - If a pattern ends with '/', treat it as a directory prefix ignore (dir/**).
-    - Otherwise, fnmatch the full relative path and also the basename for convenience.
+    Return (matched: bool, pattern: Optional[str], reason: str) for the *path_posix*.
+    - If a pattern ends with '/', it acts like a directory-segment match, i.e. any '/<dir>/' segment.
+    - Otherwise, we try glob against the full relative path and the basename.
     """
+    import fnmatch as _fn
     basename = path_posix.split("/")[-1]
+    hay = f"/{path_posix.strip('/')}/"
     for pat in patterns:
+        if not pat:
+            continue
         if pat.endswith("/"):
-            prefix = pat
-            if path_posix.startswith(prefix) or (path_posix + "/").startswith(prefix):
-                return True
+            dir_pat = pat.rstrip("/")
+            if not dir_pat:
+                continue
+            needle = f"/{dir_pat}/"
+            if needle in hay:
+                return True, pat, "dir-segment"
         else:
-            if fnmatch.fnmatch(path_posix, pat) or fnmatch.fnmatch(basename, pat):
-                return True
-    return False
+            if _fn.fnmatch(path_posix, pat):
+                return True, pat, "path-glob"
+            if _fn.fnmatch(basename, pat):
+                return True, pat, "basename-glob"
+    return False, None, ""
 
 
 def _is_ignored(path: Path, base_dir: Path, ignore_patterns: List[str]) -> bool:
@@ -66,17 +112,24 @@ def _is_ignored(path: Path, base_dir: Path, ignore_patterns: List[str]) -> bool:
         rel = path.resolve().relative_to(base_dir.resolve())
         rel_str = rel.as_posix()
     except Exception:
-        rel_str = path.name
+        rel_str = path.as_posix().replace("\\", "/")
 
-    if _path_matches_any(rel_str, ignore_patterns):
+    matched, pat, why = _path_matches_any_detail(rel_str, ignore_patterns)
+    if matched:
+        _dbg('ignore', rel_str, 'matched', pat, f'({why})')
         return True
-    # Also check each ancestor directory prefix (dir/ semantics)
+
+    # Check ancestor directories for trailing-slash directory patterns
     parts = rel_str.split("/")
     accum = ""
     for i, part in enumerate(parts[:-1]):
         accum = part if i == 0 else f"{accum}/{part}"
-        if _path_matches_any(accum + "/", ignore_patterns):
+        matched2, pat2, why2 = _path_matches_any_detail(accum + "/", ignore_patterns)
+        if matched2:
+            _dbg('ignore via ancestor', accum + '/', 'matched', pat2, f'({why2})')
             return True
+
+    _dbg('keep', rel_str, 'no pattern match')
     return False
 
 
@@ -106,8 +159,10 @@ def _filter_names(
     for p in paths:
         name = p.name
         if include_glob and not matches_any(name, include_glob):
+            _dbg("filter: exclude by include_glob", name)
             continue
         if exclude_glob and matches_any(name, exclude_glob):
+            _dbg("filter: exclude by exclude_glob", name)
             continue
         result.append(p)
     return result
@@ -160,25 +215,35 @@ def _collect_from_folder(
     if not folder.exists() or not folder.is_dir():
         raise FileNotFoundError(f"Folder not found or not a directory: {folder}")
 
+    scanning_root = folder.resolve()
+
+    # Merge patterns from the scanned folder's own .compiler_ignore (if any)
+    folder_local_patterns = _load_ignore_patterns(scanning_root / DEFAULT_IGNORE_FILENAME)
+    patterns = _merge_patterns(ignore_patterns, folder_local_patterns)
+    if folder_local_patterns:
+        _dbg("using-local-ignore", str(scanning_root / DEFAULT_IGNORE_FILENAME), folder_local_patterns)
+
+    _dbg("scan-folder", str(folder), "recursive=", recursive)
     results: List[Path] = []
 
     if not recursive:
         immediate_files = [p for p in folder.iterdir() if p.is_file()]
         immediate_files.sort(key=lambda p: p.name.lower())
-        immediate_files = [p for p in immediate_files if not _is_ignored(p, base_dir, ignore_patterns)]
+        immediate_files = [p for p in immediate_files if not _is_ignored(p, scanning_root, patterns)]
         return _filter_names(immediate_files, include_glob, exclude_glob)
 
-    for root, dirs, files in os.walk(folder):
-        root_path = Path(root)
+    for root_dir, dirs, files in os.walk(folder):
+        root_path = Path(root_dir)
         # Prune ignored dirs
         for d in list(dirs):
             d_path = root_path / d
-            if _is_ignored(d_path, base_dir, ignore_patterns):
+            if _is_ignored(d_path, scanning_root, patterns):
+                _dbg('prune-dir', str(d_path))
                 dirs.remove(d)
 
         for fname in files:
             fpath = root_path / fname
-            if _is_ignored(fpath, base_dir, ignore_patterns):
+            if _is_ignored(fpath, scanning_root, patterns):
                 continue
             results.append(fpath)
 
@@ -189,6 +254,19 @@ def _collect_from_folder(
 # -------------------------
 # Manifest parsing
 # -------------------------
+
+def _load_global_ignore() -> List[str]:
+    """
+    Load 'global' ignore rules from the directory where this script resides.
+    These act as general rules across all scans.
+    """
+    try:
+        script_dir = Path(__file__).resolve().parent
+    except NameError:
+        # Fallback when __file__ is unavailable (rare)
+        script_dir = Path.cwd()
+    return _load_ignore_patterns(script_dir / DEFAULT_IGNORE_FILENAME)
+
 
 def read_manifest(path: Path) -> Tuple[Path, List[Path]]:
     """
@@ -203,7 +281,10 @@ def read_manifest(path: Path) -> Tuple[Path, List[Path]]:
       - "files": explicit file list.
       - "include_glob"/"exclude_glob": filename-level filters.
       - "dedup": "path" | "hash" | "none".
-      - .compiler_ignore next to the manifest defines ignore patterns.
+      - Ignore precedence:
+          GLOBAL (.compiler_ignore next to file_compiler.py)
+          + MANIFEST (.compiler_ignore next to manifest)
+          + FOLDER-LOCAL (.compiler_ignore inside each scanned folder)
     """
     try:
         with path.open("r", encoding="utf-8") as f:
@@ -232,7 +313,14 @@ def read_manifest(path: Path) -> Tuple[Path, List[Path]]:
         raise ValueError("dedup must be one of: 'path', 'hash', 'none'.")
 
     manifest_dir = path.parent if path.parent else Path(".")
-    ignore_patterns = _load_ignore_patterns(manifest_dir / DEFAULT_IGNORE_FILENAME)
+
+    global_ignore = _load_global_ignore()
+    manifest_ignore = _load_ignore_patterns(manifest_dir / DEFAULT_IGNORE_FILENAME)
+    base_ignore_patterns = _merge_patterns(global_ignore, manifest_ignore)
+    if global_ignore:
+        _dbg("global-ignore", global_ignore)
+    if manifest_ignore:
+        _dbg("manifest-ignore", manifest_ignore)
 
     collected: List[Path] = []
 
@@ -241,9 +329,13 @@ def read_manifest(path: Path) -> Tuple[Path, List[Path]]:
         if not isinstance(files_section, list) or not all(isinstance(x, str) for x in files_section):
             raise ValueError("'files' must be a list of filenames (strings).")
         for p_str in files_section:
-            p = (manifest_dir / p_str).resolve()
-            if not _is_ignored(p, manifest_dir.resolve(), ignore_patterns):
+            p = (manifest_dir / p_str).resolve() if not os.path.isabs(p_str) else Path(p_str).resolve()
+            local_patterns = _load_ignore_patterns(p.parent / DEFAULT_IGNORE_FILENAME)
+            patterns = _merge_patterns(base_ignore_patterns, local_patterns)
+            if not _is_ignored(p, p.parent.resolve(), patterns):
                 collected.append(p)
+            else:
+                _dbg("skip-file-by-ignore", str(p))
 
     # Determine recursive folders
     recursive_folders: List[str] = []
@@ -257,28 +349,27 @@ def read_manifest(path: Path) -> Tuple[Path, List[Path]]:
     if folders_nonrec:
         folders_list: List[str] = _as_list(folders_nonrec)
         for folder_str in folders_list:
-            folder_path = (manifest_dir / folder_str).resolve()
-            # If legacy bool true, treat these as recursive
+            folder_path = (manifest_dir / folder_str).resolve() if not os.path.isabs(folder_str) else Path(folder_str).resolve()
             recursive_flag = True if legacy_bool else False
             files = _collect_from_folder(
                 folder_path,
                 include_glob,
                 exclude_glob,
-                manifest_dir.resolve(),
-                ignore_patterns,
+                folder_path.resolve(),         # base_dir = scanned folder root
+                base_ignore_patterns,          # global + manifest; _collect merges folder-local
                 recursive_flag,
             )
             collected.extend(files)
 
     # Recursive folders (new list-based behavior)
     for folder_str in recursive_folders:
-        folder_path = (manifest_dir / folder_str).resolve()
+        folder_path = (manifest_dir / folder_str).resolve() if not os.path.isabs(folder_str) else Path(folder_str).resolve()
         files = _collect_from_folder(
             folder_path,
             include_glob,
             exclude_glob,
-            manifest_dir.resolve(),
-            ignore_patterns,
+            folder_path.resolve(),             # base_dir = scanned folder root
+            base_ignore_patterns,              # global + manifest; _collect merges folder-local
             True,
         )
         collected.extend(files)
@@ -286,11 +377,14 @@ def read_manifest(path: Path) -> Tuple[Path, List[Path]]:
     if not collected:
         raise ValueError("No files specified. Provide 'files' and/or 'folders'/'recurse_folders' in the manifest.")
 
+    _dbg("collected_count_before_dedup", len(collected))
+
     if dedup_mode == "path":
         collected = _dedup_by_path(collected)
     elif dedup_mode == "hash":
         collected = _dedup_by_hash(collected)
 
+    _dbg("collected_count_after_dedup", len(collected))
     return output_path, collected
 
 
@@ -319,6 +413,7 @@ def compile_files(output_path: Path, file_paths: List[Path]) -> None:
                 with src.open("rb") as fb:
                     out.write(fb.read().decode("utf-8", errors="replace"))
             out.write("\n\n")
+    _dbg("wrote_output", str(output_path))
 
 
 def process_manifest(manifest_path: Path) -> Tuple[bool, Optional[Path], int, Optional[str]]:
@@ -340,12 +435,27 @@ def main():
         "Supports explicit file lists and folder-based extraction with recursive and non-recursive lists, "
         "plus optional dedup and .compiler_ignore."
     ))
+
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose debug logging.")
+    parser.add_argument("--explain-ignore", nargs="+", metavar="PATH",
+                        help="Explain whether each PATH would be ignored using the manifest's .compiler_ignore. "
+                             "Useful for debugging ignore rules. Requires single-manifest mode.")
+
     mode = parser.add_mutually_exclusive_group(required=False)
     mode.add_argument("manifest", type=Path, nargs="?", help="Path to a single JSON manifest.")
     mode.add_argument("--batch", action="store_true", help="Process all JSON manifests in a directory (use --dir).")
+
     parser.add_argument("--dir", type=Path, default=Path("./jsons"), help="Directory for --batch (default: ./jsons).")
     parser.add_argument("--ignore", type=Path, default=None, help="Optional path to a .compiler_ignore override (single-file mode).")
+
     args = parser.parse_args()
+
+    global VERBOSE
+    VERBOSE = bool(VERBOSE or getattr(args, 'verbose', False))
+
+    if args.batch and args.explain_ignore:
+        print("[error] --explain-ignore is only available with a single manifest.", file=sys.stderr)
+        sys.exit(1)
 
     if args.batch:
         folder: Path = args.dir
@@ -358,6 +468,7 @@ def main():
             sys.exit(0)
         ok_count = fail_count = 0
         for mf in manifests:
+            _dbg("process-manifest", str(mf))
             ok, outp, n, err = process_manifest(mf)
             if ok:
                 print(f"[ok] {mf} → {outp} ({n} file(s)).")
@@ -372,15 +483,47 @@ def main():
         print("[error] Provide a manifest path, or use --batch.", file=sys.stderr)
         sys.exit(1)
 
-    # Simple override approach: if --ignore provided and local .compiler_ignore is missing, write a temp one.
+    manifest_dir = args.manifest.parent if args.manifest.parent else Path(".")
+
+    # Optional override for .compiler_ignore
     if args.ignore is not None and args.ignore.exists():
-        manifest_dir = args.manifest.parent if args.manifest.parent else Path(".")
         temp_ignore = manifest_dir / DEFAULT_IGNORE_FILENAME
         if not temp_ignore.exists():
             try:
                 temp_ignore.write_text(args.ignore.read_text(encoding="utf-8"), encoding="utf-8")
+                _dbg("applied-ignore-override", str(args.ignore), "→", str(temp_ignore))
             except Exception as e:
                 print(f"[warn] Could not apply --ignore override: {e}", file=sys.stderr)
+
+    # Explain mode for targeted paths
+    if args.explain_ignore:
+        patterns = _load_ignore_patterns(manifest_dir / DEFAULT_IGNORE_FILENAME)
+        # merge with global as well (so explanation reflects true behavior)
+        patterns = _merge_patterns(_load_global_ignore(), patterns)
+        print(f"[info] Using {DEFAULT_IGNORE_FILENAME} from: {manifest_dir} + script dir")
+        print(f"[info] Patterns: {patterns}")
+        base = manifest_dir.resolve()
+        for p in args.explain_ignore:
+            p_path = (base / p).resolve() if not os.path.isabs(p) else Path(p).resolve()
+            try:
+                rel = p_path.relative_to(base).as_posix()
+            except Exception:
+                rel = p_path.as_posix().replace("\\", "/")
+            matched, pat, why = _path_matches_any_detail(rel, patterns)
+            if not matched:
+                # ancestor check
+                parts = rel.split("/")
+                accum = ""
+                for i, part in enumerate(parts[:-1]):
+                    accum = part if i == 0 else f"{accum}/{part}"
+                    m2, pat2, why2 = _path_matches_any_detail(accum + "/", patterns)
+                    if m2:
+                        matched, pat, why = m2, pat2, why2 + " (ancestor)"
+                        break
+
+            print(f"{'IGNORED ' if matched else 'KEPT    '} {rel}  "
+                  f"{'by ' + str(pat) + ' (' + str(why) + ')' if matched else '(no match)'}")
+        sys.exit(0)
 
     ok, outp, n, err = process_manifest(args.manifest)
     if not ok:
@@ -391,31 +534,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# -------------------------
-# Examples
-#
-# New manifest style (non-recursive + recursive):
-# {
-#   "output": "out/combined.txt",
-#   "folders": ["src", "scripts"],                 // non-recursive
-#   "recurse_folders": ["features", "packages"],   // recursive
-#   "include_glob": ["*.py", "*.ts", "*.tsx"],
-#   "exclude_glob": ["*.spec.ts"],
-#   "dedup": "path"
-# }
-#
-# Backward compatible style:
-# {
-#   "output": "out/combined.txt",
-#   "folders": ["src", "features"],
-#   "recurse_folders": true,   // treat all 'folders' as recursive (legacy behavior)
-#   "include_glob": "*"
-# }
-#
-# .compiler_ignore example:
-#   build/
-#   dist/
-#   *.log
-#   **/*.spec.ts
-#   docs/**/draft-*
