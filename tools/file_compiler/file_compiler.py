@@ -309,10 +309,7 @@ def compile_files(output_path: Path, file_paths: List[Path]) -> None:
 
     with output_path.open("w", encoding="utf-8", newline="") as out:
         for src in file_paths:
-            try:
-                header = str(src.relative_to(Path.cwd()))
-            except Exception:
-                header = str(src)
+            header = str(src.resolve())
             out.write(header.replace("\\", "/"))
             out.write("\n")
             try:
