@@ -1,0 +1,10 @@
+# --- Add this to your server deploy script after computing $DC ---
+OVERRIDES="-f docker-compose.yml -f ops/deploy/docker-compose.deploy.yml"
+if [ -f docker-compose.ssl.yml ]; then
+  OVERRIDES="$OVERRIDES -f docker-compose.ssl.yml"
+fi
+if [ -f ops/deploy/docker-compose.doppler.yml ]; then
+  OVERRIDES="$OVERRIDES -f ops/deploy/docker-compose.doppler.yml"
+fi
+$DC --env-file ./.deploy.env $OVERRIDES up -d --remove-orphans
+# --- End addition ---

@@ -1,4 +1,4 @@
-name: CI — Build, Push, and Deploy to Hetzner
+name: CI — Build, Push, and Deploy to Hetzner (Doppler)
 
 on:
   push:
@@ -22,7 +22,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Login only on main pushes (so PRs build but don't push)
       - name: Log in to Docker Hub
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
@@ -97,12 +96,11 @@ jobs:
             CI_FAST_BUILD=1
 
   deploy:
-    name: Deploy to Hetzner
+    name: Deploy to Hetzner (Doppler)
     needs: [api-image, spa-image]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
-      # Compose override uses these
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       SHORT_SHA: ${{ github.sha }}
     steps:
@@ -127,31 +125,49 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -p "${{ secrets.HETZNER_SSH_PORT || 22 }}" "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Prepare deploy bundle
+      - name: Prepare deploy bundle (includes Doppler config)
         run: |
+
+          # Root .env still used by docker-compose for interpolation (e.g., REDIS_PASSWORD)
+          if [ -n "${{ secrets.SERVER_ROOT_ENV }}" ]; then
+            printf "%s" "${{ secrets.SERVER_ROOT_ENV }}" > _deploy/.env
+          fi
+
+          # (Optional) backend .env if you keep any non-secret toggles there
+          if [ -n "${{ secrets.SERVER_BACKEND_ENV }}" ]; then
+            mkdir -p _deploy/backend
+            printf "%s" "${{ secrets.SERVER_BACKEND_ENV }}" > _deploy/backend/.env
+          fi
+
           mkdir -p _deploy/ops/deploy
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
           cp ops/deploy/docker-compose.deploy.yml _deploy/
+          cp ops/deploy/docker-compose.doppler.yml _deploy/ops/deploy/docker-compose.doppler.yml || true
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
           chmod +x _deploy/ops/deploy/deploy.sh
 
-          # Write env files from GitHub secrets
-          printf "%s" "${{ secrets.SERVER_ROOT_ENV }}" > _deploy/.env
-          mkdir -p _deploy/backend
-          printf "%s" "${{ secrets.SERVER_BACKEND_ENV }}" > _deploy/backend/.env
-
-          # Firebase SA file (base64-encoded JSON in secret FIREBASE_SA_JSON_B64)
-          if [ -n "${{ secrets.FIREBASE_SA_JSON_B64 }}" ]; then
-            echo "${{ secrets.FIREBASE_SA_JSON_B64 }}" | base64 -d > _deploy/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
-          fi
-
-          # Deploy variables used by compose override
+          # Base envs
           cat > _deploy/.deploy.env <<EOF
           DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
           API_TAG=${{ steps.tags.outputs.api_tag }}
           SPA_TAG=${{ steps.tags.outputs.spa_tag }}
           EOF
+
+          # Doppler runtime envs for the API
+          if [ -n "${{ secrets.DOPPLER_TOKEN }}" ]; then
+            cat >> _deploy/.deploy.env <<EOF
+            DOPPLER_TOKEN=${{ secrets.DOPPLER_TOKEN }}
+            DOPPLER_PROJECT=${{ secrets.DOPPLER_PROJECT }}
+            DOPPLER_CONFIG=${{ secrets.DOPPLER_CONFIG }}
+            EOF
+          fi
+
+          # Optional: write Firebase SA JSON (if not moving it into Doppler yet)
+          mkdir -p _deploy/backend
+          if [ -n "${{ secrets.FIREBASE_SA_JSON_B64 }}" ]; then
+            echo "${{ secrets.FIREBASE_SA_JSON_B64 }}" | base64 -d > _deploy/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
+          fi
 
       - name: Rsync deploy bundle to server
         run: |
@@ -166,9 +182,9 @@ jobs:
             export API_TAG="${{ steps.tags.outputs.api_tag }}"
             export SPA_TAG="${{ steps.tags.outputs.spa_tag }}"
 
-            # Optional login (needed if images are private)
+            # Login for private images
             echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin || true
 
-            # Run deploy script (pulls images, extracts SPA assets, composes up)
+            # Deploy
             bash ops/deploy/deploy.sh
           '

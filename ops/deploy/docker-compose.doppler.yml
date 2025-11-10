@@ -1,0 +1,18 @@
+version: "3.9"
+services:
+  api:
+    # Image is already set by docker-compose.deploy.yml override
+    # Replace the command to launch via Doppler
+    command: >
+      doppler run
+      --fallback-to-local=true
+      --project ${DOPPLER_PROJECT}
+      --config ${DOPPLER_CONFIG}
+      --
+      uvicorn main:app --host 0.0.0.0 --port 8000 --proxy-headers
+    env_file: []
+    environment:
+      - DOPPLER_TOKEN=${DOPPLER_TOKEN}
+      - DOPPLER_PROJECT=${DOPPLER_PROJECT}
+      - DOPPLER_CONFIG=${DOPPLER_CONFIG}
+      - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json

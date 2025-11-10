@@ -1,0 +1,7 @@
+version: "3.9"
+services:
+  api:
+    image: "docker.io/${DOCKERHUB_USERNAME}/lbpr-api:${API_TAG}"
+    # keep other settings (env_file, volumes, healthcheck) from base compose
+
+  # nginx uses built assets from ./static/spa (populated by deploy.sh)

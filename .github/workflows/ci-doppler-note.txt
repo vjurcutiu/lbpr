@@ -1,0 +1,7 @@
+# Add these GitHub secrets so deploys can run the API with Doppler:
+#
+# DOPPLER_TOKEN          -> Service Token scoped to your project/config (read-only)
+# DOPPLER_PROJECT        -> e.g. lbpr (Doppler project slug)
+# DOPPLER_CONFIG         -> e.g. prod (or staging)
+#
+# The workflow will write them into server file ./.deploy.env so compose can pass them to the API container.
