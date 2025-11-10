@@ -102,10 +102,10 @@ export async function applyRules(projectId: string, ssotDir: string) {
     const relId = targetReleaseId(t.target);
     const relShort = `projects/${projectId}/releases/${relId}`;
     try {
+      // IMPORTANT: updateMask must be inside requestBody per API
       await firebaserules.projects.releases.patch({
         name: relShort,
-        updateMask: 'rulesetName',
-        requestBody: { release: { name: relShort, rulesetName } } as any,
+        requestBody: { release: { name: relShort, rulesetName }, updateMask: 'rulesetName' },
       });
     } catch (e: any) {
       const notFound = e?.code === 404 || e?.response?.status === 404;

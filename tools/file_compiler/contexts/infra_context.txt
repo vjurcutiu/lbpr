@@ -1173,7 +1173,6 @@ in/
 stripe_prod_key.txt
 doppler_export_*.json
 snapshot.json
-readme.md
 *.pyc
 
 C:/code2/lbpr/GUIDE-CLOUDFLARE-STAGING.md

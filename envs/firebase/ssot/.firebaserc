@@ -1,0 +1,11 @@
+{
+  "projects": {},
+  "targets": {},
+  "etags": {
+    "lexbot-pro": {
+      "extensionInstances": {
+        "firestore-stripe-payments": "50a9045b881d51b931aa4e25bf86447d46da893883793006167db08f563b30b6"
+      }
+    }
+  }
+}

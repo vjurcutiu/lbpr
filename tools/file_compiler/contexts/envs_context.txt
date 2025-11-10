@@ -30,6 +30,19 @@ STRIPE_ACCOUNT_ID=acct_...
 # HTTP_PROXY=http://localhost:8080
 
 
+C:/code2/lbpr/envs/firebase/ssot/.firebaserc
+{
+  "projects": {},
+  "targets": {},
+  "etags": {
+    "lexbot-pro": {
+      "extensionInstances": {
+        "firestore-stripe-payments": "50a9045b881d51b931aa4e25bf86447d46da893883793006167db08f563b30b6"
+      }
+    }
+  }
+}
+
 C:/code2/lbpr/envs/firebase/ssot/auth.config.json
 {
   "name": "projects/117603882984/config",
@@ -405,10 +418,36 @@ export async function applyExtensions(projectId: string, ssotDir: string) {
 }
 
 
+C:/code2/lbpr/envs/firebase/bin/firebase-dump.js
+#!/usr/bin/env node
+// Small launcher that loads the compiled CLI
+import('../dist/index.js').catch((e) => {
+  console.error('Failed to start firebase-dump:', e?.message || e);
+  process.exit(1);
+});
+
+
 C:/code2/lbpr/envs/firebase/ssot/firebase.json
 {
-  "extensions": {}
+  "extensions": {
+    "firestore-stripe-payments": "invertase/firestore-stripe-payments@0.3.12"
+  }
 }
+
+
+C:/code2/lbpr/envs/firebase/ssot/extensions/firestore-stripe-payments.env
+CREATE_CHECKOUT_SESSION_MIN_INSTANCES=0
+CUSTOMERS_COLLECTION=customers
+DELETE_STRIPE_CUSTOMERS=Do not delete
+firebaseextensions.v1beta.function/memory=256
+firebaseextensions.v1beta.function/minInstances=0
+firebaseextensions.v1beta.function/vpcConnectorEgressSettings=VPC_CONNECTOR_EGRESS_SETTINGS_UNSPECIFIED
+LOCATION=europe-central2
+PRODUCTS_COLLECTION=products
+STRIPE_API_KEY=projects/${param:PROJECT_NUMBER}/secrets/firestore-stripe-payments-STRIPE_API_KEY/versions/latest
+STRIPE_CONFIG_COLLECTION=configuration
+STRIPE_WEBHOOK_SECRET=projects/${param:PROJECT_NUMBER}/secrets/firestore-stripe-payments-STRIPE_WEBHOOK_SECRET/versions/latest
+SYNC_USERS_ON_CREATE=Do not sync
 
 C:/code2/lbpr/envs/firebase/ssot/firestore.rules
 // Firestore Security Rules for Firebase Authentication + Stripe Extension + Per-User Chat
@@ -1279,6 +1318,7 @@ import { exportAuthConfig, applyAuthConfig } from './auth.js';
 import { exportRules, applyRules } from './rules.js';
 import { exportExtensions, applyExtensions } from './extensions.js';
 import { exportFunctionsConfig, applyFunctionsConfig } from './functions.js';
+import 'dotenv/config';
 
 const SSOT_DIR = path.resolve(process.cwd(), 'ssot');
 
@@ -1391,15 +1431,16 @@ C:/code2/lbpr/envs/firebase/package.json
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "export": "dotenv -e ./.env -- tsx src/index.ts export",
-    "apply":  "dotenv -e ./.env -- tsx src/index.ts apply"
+    "apply": "dotenv -e ./.env -- tsx src/index.ts apply"
   },
   "bin": {
-    "firebase-env": "./dist/cli.js"
+    "firebase-env": "./dist/index.js"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "dotenv": "^17.2.3",
     "execa": "^9.4.0",
     "google-auth-library": "^10.5.0",
     "googleapis": "^164.1.0",
@@ -1486,27 +1527,10 @@ Targets covered:
 
 > Default project in your repo: **`lexbot-pro`** (from your env files). You can pass another with `--project <id>`.
 
-## Install
-```bash
-cd envs/firebase
-pnpm i   # or npm i / yarn
-```
-
-Authenticate for Google APIs (one-time):
-```bash
-gcloud auth application-default login   # or set GOOGLE_APPLICATION_CREDENTIALS to a service account JSON
-```
-
 ## Export to SSOT
 ```bash
 pnpm export -- --project lexbot-pro
 ```
-Outputs into `envs/firebase/ssot/`:
-- `auth.config.json`
-- `firestore.rules`
-- `storage.rules`
-- `firebase.json` (+ `extensions/*.env`) from extensions export
-- `functions.config.json` (optional; if available)
 
 ## Apply from SSOT
 ```bash
@@ -1514,18 +1538,6 @@ pnpm apply -- --project lexbot-pro --all
 # or selectively:
 pnpm apply -- --project lexbot-pro --auth --rules --extensions --functions
 ```
-
-### Notes & permissions
-- **Auth** uses Identity Platform Admin v2 (`identitytoolkit.googleapis.com`). Scopes: `https://www.googleapis.com/auth/identitytoolkit`.
-- **Rules** use Firebase Rules API (`firebaserules.googleapis.com`). We update the releases `cloud.firestore/(default)` and `firebase.storage`.
-- **Extensions** rely on the Firebase CLI manifest. We run `firebase ext:export` and `firebase deploy --only extensions`.
-- **Functions config** runs `firebase functions:config:get/set` for *Gen1-style* config. For Gen2, prefer env files, params, and Secret Manager.
-
-See Google docs for API details:
-- Identity Platform Admin v2 get/update config.  
-- Firebase Rules API releases & rulesets.  
-- Extensions manifest + export/deploy.
-
 
 
 C:/code2/lbpr/envs/stripe/README.md
@@ -1757,10 +1769,10 @@ export async function applyRules(projectId: string, ssotDir: string) {
     const relId = targetReleaseId(t.target);
     const relShort = `projects/${projectId}/releases/${relId}`;
     try {
+      // IMPORTANT: updateMask must be inside requestBody per API
       await firebaserules.projects.releases.patch({
         name: relShort,
-        updateMask: 'rulesetName',
-        requestBody: { release: { name: relShort, rulesetName } } as any,
+        requestBody: { release: { name: relShort, rulesetName }, updateMask: 'rulesetName' },
       });
     } catch (e: any) {
       const notFound = e?.code === 404 || e?.response?.status === 404;
@@ -1901,13 +1913,13 @@ C:/code2/lbpr/envs/stripe/ssot.stripe.json
 
 C:/code2/lbpr/envs/firebase/ssot/storage.rules
 // rules_version = '2';
-service firebase.storage {{
-  match /b/{bucket}/o {{
-    match /{allPaths=**} {{
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
       allow read, write: if false;
-    }}
-  }}
-}}
+    }
+  }
+}
 
 
 C:/code2/lbpr/envs/doppler/tsconfig.json

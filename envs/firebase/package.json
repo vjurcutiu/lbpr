@@ -8,15 +8,16 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "export": "dotenv -e ./.env -- tsx src/index.ts export",
-    "apply":  "dotenv -e ./.env -- tsx src/index.ts apply"
+    "apply": "dotenv -e ./.env -- tsx src/index.ts apply"
   },
   "bin": {
-    "firebase-env": "./dist/cli.js"
+    "firebase-env": "./dist/index.js"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "dotenv": "^17.2.3",
     "execa": "^9.4.0",
     "google-auth-library": "^10.5.0",
     "googleapis": "^164.1.0",
