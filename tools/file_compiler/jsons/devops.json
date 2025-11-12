@@ -142,6 +142,20 @@
         "*.yaml",
         "*.json"
       ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\infra",
+      "recursive": true,
+      "include_only": [
+        "*.tf",
+        "*.tfvars",
+        "*.tfvars.json",
+        "*.yaml",
+        "*.yml",
+        "*.md",
+        "*.txt",
+        "README*"
+      ]
     }
   ],
   "exclude_glob": [

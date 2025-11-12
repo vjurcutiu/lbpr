@@ -123,9 +123,12 @@ jobs:
           ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
 
       - name: Add Hetzner host to known_hosts
+        env:
+          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -p "${{ secrets.HETZNER_SSH_PORT || 22 }}" "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_HOST}" >> ~/.ssh/known_hosts
 
       - name: Prepare deploy bundle
         run: |
@@ -154,14 +157,24 @@ jobs:
           EOF
 
       - name: Rsync deploy bundle to server
+        env:
+          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
         run: |
-          RSYNC_RSH="ssh -p ${{ secrets.HETZNER_SSH_PORT || 22 }}" rsync -avz --delete _deploy/ ${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }}:${{ secrets.REMOTE_DIR || '/opt/lbpr' }}/
+          RSYNC_RSH="ssh -p ${HETZNER_SSH_PORT:-22}" rsync -avz --delete _deploy/ "${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_DIR:-/opt/lbpr}/"
 
       - name: Remote deploy
+        env:
+          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
         run: |
-          ssh -p "${{ secrets.HETZNER_SSH_PORT || 22 }}" ${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }} '
+          ssh -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_USER}@${HETZNER_HOST}" "
             set -euo pipefail
-            cd "${{ secrets.REMOTE_DIR || "/opt/lbpr" }}"
+            cd "${REMOTE_DIR:-/opt/lbpr}"
             export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
             export API_TAG="${{ steps.tags.outputs.api_tag }}"
             export SPA_TAG="${{ steps.tags.outputs.spa_tag }}"
@@ -171,4 +184,4 @@ jobs:
 
             # Run deploy script (pulls images, extracts SPA assets, composes up)
             bash ops/deploy/deploy.sh
-          '
+          "

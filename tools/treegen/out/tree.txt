@@ -128,6 +128,20 @@ C:/code2/lbpr
 │       ├── ssot.example.json
 │       └── ssot.stripe.json
 ├── GUIDE-CLOUDFLARE-STAGING.md
+├── infra/
+│   └── terraform/
+│       └── hetzner/
+│           ├── cloud-init.yaml
+│           ├── cloudinit.tf
+│           ├── firewall.tf
+│           ├── outputs.tf
+│           ├── providers.tf
+│           ├── README.md
+│           ├── server.tf
+│           ├── ssh_key.tf
+│           ├── terraform.tfvars.example
+│           ├── variables.tf
+│           └── versions.tf
 ├── legal/
 │   ├── dpa.md
 │   ├── privacy.md
@@ -341,6 +355,7 @@ C:/code2/lbpr
     │   │   ├── cicd_context.txt
     │   │   ├── components.toml
     │   │   ├── design_context.txt
+    │   │   ├── devops_context.txt
     │   │   ├── envs_context.txt
     │   │   ├── frontend_auth_context.txt
     │   │   ├── frontend_billing_context.txt
@@ -359,6 +374,7 @@ C:/code2/lbpr
     │   │   ├── backend_upload_tracker.json
     │   │   ├── cicd.json
     │   │   ├── design.json
+    │   │   ├── devops.json
     │   │   ├── envs.json
     │   │   ├── frontend.json
     │   │   ├── frontend_auth.json
