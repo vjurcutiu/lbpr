@@ -1,0 +1,18 @@
+# Ignore build outputs and logs
+build/
+dist/
+*.log
+**/*.spec.ts
+docs/**/draft-*
+
+# Ignore common directories
+node_modules/
+venv/
+__pycache__/
+doppler_export_*.json
+\.pnpm-store
+pnpm-lock.yaml
+logs/
+*.log
+logs/*.log
+zips/

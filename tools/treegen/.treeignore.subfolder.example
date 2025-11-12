@@ -1,0 +1,2 @@
+# Example nested rules (place inside a subfolder)
+!keep/debug.log

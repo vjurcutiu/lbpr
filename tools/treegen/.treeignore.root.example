@@ -1,0 +1,3 @@
+# Root rules (lives in the folder being scanned)
+*.log
+**/__pycache__/

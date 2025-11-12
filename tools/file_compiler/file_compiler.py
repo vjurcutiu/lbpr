@@ -147,6 +147,72 @@ def _as_list(value: Optional[Any]) -> List[str]:
         return value
     raise ValueError("Expected string or list of strings.")
 
+def _as_str_or_key(d: dict, *keys: str) -> Optional[str]:
+    """Helper to fetch the first present key from dict and ensure it's a non-empty string."""
+    for k in keys:
+        if k in d and isinstance(d[k], str) and d[k].strip():
+            return d[k]
+    return None
+
+
+def _parse_folder_specs(
+    section_value: Any,
+    manifest_dir: Path,
+    default_recursive: bool,
+    global_include: List[str],
+    global_exclude: List[str],
+) -> List[Tuple[Path, List[str], List[str], bool]]:
+    """
+    Normalize a manifest section ("folders" or "recurse_folders") into a list of tuples:
+      (folder_path, include_glob, exclude_glob, recursive_flag)
+
+    Supported inputs:
+      - list[str]: treated as folder paths using global include/exclude and default_recursive.
+      - list[dict]: each object may contain keys:
+            "folder" | "path": string (required)
+            "include_only" | "include_glob": string | list[str] (optional, overrides global)
+            "exclude_glob": string | list[str] (optional, overrides global)
+            "recursive": bool (optional; if omitted, uses default_recursive)
+      - For backward compatibility, a bool is allowed ONLY for the "recurse_folders" top-level key.
+    """
+    specs: List[Tuple[Path, List[str], List[str], bool]] = []
+
+    # If None: nothing
+    if section_value is None:
+        return specs
+
+    # If list of strings:
+    if isinstance(section_value, list) and all(isinstance(x, str) for x in section_value):
+        for folder_str in section_value:
+            folder_path = (manifest_dir / folder_str).resolve() if not os.path.isabs(folder_str) else Path(folder_str).resolve()
+            specs.append((folder_path, list(global_include), list(global_exclude), default_recursive))
+        return specs
+
+    # If list of dicts:
+    if isinstance(section_value, list) and all(isinstance(x, dict) for x in section_value):
+        for item in section_value:
+            folder_str = _as_str_or_key(item, "folder", "path")
+            if not folder_str:
+                raise ValueError("Each folder spec must include a non-empty 'folder' (or 'path') string.")
+            inc = item.get("include_only", item.get("include_glob", None))
+            exc = item.get("exclude_glob", None)
+            recursive_flag = item.get("recursive", default_recursive)
+
+            inc_list = _as_list(inc) if inc is not None else list(global_include)
+            exc_list = _as_list(exc) if exc is not None else list(global_exclude)
+
+            folder_path = (manifest_dir / folder_str).resolve() if not os.path.isabs(folder_str) else Path(folder_str).resolve()
+            specs.append((folder_path, inc_list, exc_list, bool(recursive_flag)))
+        return specs
+
+    # If it's a bool, the caller (read_manifest) should treat it specially (legacy for recurse_folders).
+    if isinstance(section_value, bool):
+        # We do not return specs here; caller handles legacy behavior.
+        return specs
+
+    raise ValueError("Invalid section format. Expected list of strings or list of objects.")
+
+
 
 def _filter_names(
     paths: Iterable[Path], include_glob: List[str], exclude_glob: List[str]
@@ -274,7 +340,10 @@ def read_manifest(path: Path) -> Tuple[Path, List[Path]]:
 
     New behavior:
       - "folders": list of folders scanned NON-recursively.
-      - "recurse_folders": list of folders scanned RECURSIVELY.
+      - "recurse_folders":
+          • list of folder paths (strings) scanned RECURSIVELY, or
+          • list of objects with per-folder options:
+              { "folder": "path", "include_only": [..], "exclude_glob": [..], "recursive": true }
         (Backward compat: if recurse_folders is true, all "folders" are treated as recursive.)
 
     Other options:
@@ -337,40 +406,45 @@ def read_manifest(path: Path) -> Tuple[Path, List[Path]]:
             else:
                 _dbg("skip-file-by-ignore", str(p))
 
-    # Determine recursive folders
-    recursive_folders: List[str] = []
+    # Determine recursive folders (support list[str] and list[object] with per-folder include_only)
     legacy_bool = False
+    recursive_specs: List[Tuple[Path, List[str], List[str], bool]] = []
+
     if isinstance(recurse_section, bool):
+        # Legacy: if true, all items under 'folders' become recursive using global include/exclude
         legacy_bool = recurse_section
-    elif recurse_section is not None:
-        recursive_folders = _as_list(recurse_section)
+    else:
+        # New: parse object/list specs for recurse_folders
+        recursive_specs = _parse_folder_specs(recurse_section, manifest_dir, True, include_glob, exclude_glob)
 
-    # Non-recursive folders
-    if folders_nonrec:
-        folders_list: List[str] = _as_list(folders_nonrec)
-        for folder_str in folders_list:
-            folder_path = (manifest_dir / folder_str).resolve() if not os.path.isabs(folder_str) else Path(folder_str).resolve()
-            recursive_flag = True if legacy_bool else False
-            files = _collect_from_folder(
-                folder_path,
-                include_glob,
-                exclude_glob,
-                folder_path.resolve(),         # base_dir = scanned folder root
-                base_ignore_patterns,          # global + manifest; _collect merges folder-local
-                recursive_flag,
-            )
-            collected.extend(files)
+    # Non-recursive folders (support object/list specs too)
+    folder_specs: List[Tuple[Path, List[str], List[str], bool]] = _parse_folder_specs(folders_nonrec, manifest_dir, False, include_glob, exclude_glob)
 
-    # Recursive folders (new list-based behavior)
-    for folder_str in recursive_folders:
-        folder_path = (manifest_dir / folder_str).resolve() if not os.path.isabs(folder_str) else Path(folder_str).resolve()
+    # If legacy_bool is True, upgrade the above folder_specs to be recursive
+    if legacy_bool and folder_specs:
+        folder_specs = [(fp, inc, exc, True) for (fp, inc, exc, _r) in folder_specs]
+
+    # Collect from non-recursive (or legacy-upgraded) folder specs
+    for (folder_path, inc_glob, exc_glob, rec_flag) in folder_specs:
         files = _collect_from_folder(
             folder_path,
-            include_glob,
-            exclude_glob,
-            folder_path.resolve(),             # base_dir = scanned folder root
-            base_ignore_patterns,              # global + manifest; _collect merges folder-local
-            True,
+            inc_glob,
+            exc_glob,
+            folder_path.resolve(),
+            base_ignore_patterns,
+            rec_flag,
+        )
+        collected.extend(files)
+
+    # Collect from recursive specs (explicit recurse_folders list)
+    for (folder_path, inc_glob, exc_glob, rec_flag) in recursive_specs:
+        files = _collect_from_folder(
+            folder_path,
+            inc_glob,
+            exc_glob,
+            folder_path.resolve(),
+            base_ignore_patterns,
+            rec_flag,
         )
         collected.extend(files)
 
@@ -433,7 +507,7 @@ def main():
     parser = argparse.ArgumentParser(description=(
         "Compile files listed in JSON manifests into a single txt file with filename headers. "
         "Supports explicit file lists and folder-based extraction with recursive and non-recursive lists, "
-        "plus optional dedup and .compiler_ignore."
+        "plus optional per-folder include_only/exclude_glob, dedup and .compiler_ignore."
     ))
 
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose debug logging.")

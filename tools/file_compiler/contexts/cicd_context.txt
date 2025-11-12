@@ -1,5 +1,15 @@
-C:/code2/lbpr/.github/workflows/ci.yml
-name: CI — Build & Push Docker Images
+C:/code2/lbpr/.github/workflows/ci-doppler-note.txt
+# Add these GitHub secrets so deploys can run the API with Doppler:
+#
+# DOPPLER_TOKEN          -> Service Token scoped to your project/config (read-only)
+# DOPPLER_PROJECT        -> e.g. lbpr (Doppler project slug)
+# DOPPLER_CONFIG         -> e.g. prod (or staging)
+#
+# The workflow will write them into server file ./.deploy.env so compose can pass them to the API container.
+
+
+C:/code2/lbpr/.github/workflows/ci-doppler.yml
+name: CI — Build, Push, and Deploy to Hetzner (Doppler)
 
 on:
   push:
@@ -16,7 +26,199 @@ jobs:
   api-image:
     name: Build API image
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata (api)
+        id: meta_api
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-api
+          tags: |
+            type=sha,format=short
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build (and push) API image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          target: runtime
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta_api.outputs.tags }}
+          labels: ${{ steps.meta_api.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  spa-image:
+    name: Build SPA assets image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata (spa)
+        id: meta_spa
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-spa
+          tags: |
+            type=sha,format=short
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build (and push) SPA assets image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./static/spa
+          file: ./static/spa/Dockerfile
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta_spa.outputs.tags }}
+          labels: ${{ steps.meta_spa.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            CI_FAST_BUILD=1
+
+  deploy:
+    name: Deploy to Hetzner (Doppler)
+    needs: [api-image, spa-image]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      SHORT_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Compute image tags (sha-*)
+        id: tags
+        run: |
+          SHORT=$(echo "${SHORT_SHA}" | cut -c1-7)
+          echo "api_tag=sha-${SHORT}" >> $GITHUB_OUTPUT
+          echo "spa_tag=sha-${SHORT}" >> $GITHUB_OUTPUT
+          echo "short=${SHORT}" >> $GITHUB_OUTPUT
+
+      - name: Start ssh-agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
+
+      - name: Add Hetzner host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${{ secrets.HETZNER_SSH_PORT || 22 }}" "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Prepare deploy bundle (includes Doppler config)
+        run: |
+
+          # Root .env still used by docker-compose for interpolation (e.g., REDIS_PASSWORD)
+          if [ -n "${{ secrets.SERVER_ROOT_ENV }}" ]; then
+            printf "%s" "${{ secrets.SERVER_ROOT_ENV }}" > _deploy/.env
+          fi
+
+          # (Optional) backend .env if you keep any non-secret toggles there
+          if [ -n "${{ secrets.SERVER_BACKEND_ENV }}" ]; then
+            mkdir -p _deploy/backend
+            printf "%s" "${{ secrets.SERVER_BACKEND_ENV }}" > _deploy/backend/.env
+          fi
+
+          mkdir -p _deploy/ops/deploy
+          cp docker-compose.yml _deploy/
+          if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
+          cp ops/deploy/docker-compose.deploy.yml _deploy/
+          cp ops/deploy/docker-compose.doppler.yml _deploy/ops/deploy/docker-compose.doppler.yml || true
+          cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
+          chmod +x _deploy/ops/deploy/deploy.sh
+
+          # Base envs
+          cat > _deploy/.deploy.env <<EOF
+          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+          API_TAG=${{ steps.tags.outputs.api_tag }}
+          SPA_TAG=${{ steps.tags.outputs.spa_tag }}
+          EOF
+
+          # Doppler runtime envs for the API
+          if [ -n "${{ secrets.DOPPLER_TOKEN }}" ]; then
+            cat >> _deploy/.deploy.env <<EOF
+            DOPPLER_TOKEN=${{ secrets.DOPPLER_TOKEN }}
+            DOPPLER_PROJECT=${{ secrets.DOPPLER_PROJECT }}
+            DOPPLER_CONFIG=${{ secrets.DOPPLER_CONFIG }}
+            EOF
+          fi
+
+          # Optional: write Firebase SA JSON (if not moving it into Doppler yet)
+          mkdir -p _deploy/backend
+          if [ -n "${{ secrets.FIREBASE_SA_JSON_B64 }}" ]; then
+            echo "${{ secrets.FIREBASE_SA_JSON_B64 }}" | base64 -d > _deploy/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
+          fi
+
+      - name: Rsync deploy bundle to server
+        run: |
+          RSYNC_RSH="ssh -p ${{ secrets.HETZNER_SSH_PORT || 22 }}" rsync -avz --delete _deploy/ ${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }}:${{ secrets.REMOTE_DIR || '/opt/lbpr' }}/
+
+      - name: Remote deploy
+        run: |
+          ssh -p "${{ secrets.HETZNER_SSH_PORT || 22 }}" ${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }} '
+            set -euo pipefail
+            cd "${{ secrets.REMOTE_DIR || "/opt/lbpr" }}"
+            export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+            export API_TAG="${{ steps.tags.outputs.api_tag }}"
+            export SPA_TAG="${{ steps.tags.outputs.spa_tag }}"
+
+            # Login for private images
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin || true
+
+            # Deploy
+            bash ops/deploy/deploy.sh
+          '
+
+
+C:/code2/lbpr/.github/workflows/ci.yml
+name: CI — Build, Push, and Deploy to Hetzner
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  api-image:
+    name: Build API image
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -97,5 +299,82 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             CI_FAST_BUILD=1
+
+  deploy:
+    name: Deploy to Hetzner
+    needs: [api-image, spa-image]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      # Compose override uses these
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      SHORT_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Compute image tags (sha-*)
+        id: tags
+        run: |
+          SHORT=$(echo "${SHORT_SHA}" | cut -c1-7)
+          echo "api_tag=sha-${SHORT}" >> $GITHUB_OUTPUT
+          echo "spa_tag=sha-${SHORT}" >> $GITHUB_OUTPUT
+          echo "short=${SHORT}" >> $GITHUB_OUTPUT
+
+      - name: Start ssh-agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
+
+      - name: Add Hetzner host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${{ secrets.HETZNER_SSH_PORT || 22 }}" "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Prepare deploy bundle
+        run: |
+          mkdir -p _deploy/ops/deploy
+          cp docker-compose.yml _deploy/
+          if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
+          cp ops/deploy/docker-compose.deploy.yml _deploy/
+          cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
+          chmod +x _deploy/ops/deploy/deploy.sh
+
+          # Write env files from GitHub secrets
+          printf "%s" "${{ secrets.SERVER_ROOT_ENV }}" > _deploy/.env
+          mkdir -p _deploy/backend
+          printf "%s" "${{ secrets.SERVER_BACKEND_ENV }}" > _deploy/backend/.env
+
+          # Firebase SA file (base64-encoded JSON in secret FIREBASE_SA_JSON_B64)
+          if [ -n "${{ secrets.FIREBASE_SA_JSON_B64 }}" ]; then
+            echo "${{ secrets.FIREBASE_SA_JSON_B64 }}" | base64 -d > _deploy/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
+          fi
+
+          # Deploy variables used by compose override
+          cat > _deploy/.deploy.env <<EOF
+          DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+          API_TAG=${{ steps.tags.outputs.api_tag }}
+          SPA_TAG=${{ steps.tags.outputs.spa_tag }}
+          EOF
+
+      - name: Rsync deploy bundle to server
+        run: |
+          RSYNC_RSH="ssh -p ${{ secrets.HETZNER_SSH_PORT || 22 }}" rsync -avz --delete _deploy/ ${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }}:${{ secrets.REMOTE_DIR || '/opt/lbpr' }}/
+
+      - name: Remote deploy
+        run: |
+          ssh -p "${{ secrets.HETZNER_SSH_PORT || 22 }}" ${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }} '
+            set -euo pipefail
+            cd "${{ secrets.REMOTE_DIR || "/opt/lbpr" }}"
+            export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+            export API_TAG="${{ steps.tags.outputs.api_tag }}"
+            export SPA_TAG="${{ steps.tags.outputs.spa_tag }}"
+
+            # Optional login (needed if images are private)
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin || true
+
+            # Run deploy script (pulls images, extracts SPA assets, composes up)
+            bash ops/deploy/deploy.sh
+          '
 
 

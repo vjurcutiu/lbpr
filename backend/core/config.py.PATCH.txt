@@ -1,5 +1,0 @@
-
-# Add this field to core/config.py Settings:
-# FIREBASE_STORAGE_BUCKET: str | None = None
-#
-# Usage: If not set, we'll default to f"{FIREBASE_PROJECT_ID}.appspot.com"

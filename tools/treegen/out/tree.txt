@@ -1,0 +1,407 @@
+C:/code2/lbpr
+├── backend/
+│   ├── core/
+│   │   ├── config.py
+│   │   ├── firebase.py
+│   │   ├── logging.py
+│   │   ├── namespaces.py
+│   │   ├── plan.py
+│   │   ├── rate_limit.py
+│   │   ├── redis_utils.py
+│   │   ├── tokenizer.py
+│   │   └── tracker.py
+│   ├── docker-compose.test.yml
+│   ├── Dockerfile
+│   ├── Dockerfile.doppler.ADD.txt
+│   ├── docs/
+│   │   └── USAGE_LIMITS.md
+│   ├── features/
+│   │   ├── auth/
+│   │   │   ├── contracts.toml
+│   │   │   ├── deps.py
+│   │   │   ├── models.py
+│   │   │   ├── routes.py
+│   │   │   ├── service.py
+│   │   │   └── sessions.py
+│   │   ├── files/
+│   │   │   ├── __init__.py
+│   │   │   ├── router.py
+│   │   │   ├── schemas.py
+│   │   │   └── service.py
+│   │   ├── profile/
+│   │   │   ├── __init__.py
+│   │   │   ├── models.py
+│   │   │   ├── routes.py
+│   │   │   └── service.py
+│   │   ├── rag/
+│   │   │   ├── __init__.py
+│   │   │   ├── adapters/
+│   │   │   │   ├── openai_chat.py
+│   │   │   │   ├── openai_embedder.py
+│   │   │   │   ├── pinecone_dual_store.py
+│   │   │   │   └── pinecone_store.py
+│   │   │   ├── CHANGELOG_RAG_HISTORY.md
+│   │   │   ├── chunker.py
+│   │   │   ├── contracts_router.py
+│   │   │   ├── embedder.py
+│   │   │   ├── embedding/
+│   │   │   ├── ingest/
+│   │   │   ├── NAMESPACES.md
+│   │   │   ├── orchestrator.py
+│   │   │   ├── README.md
+│   │   │   ├── router.py
+│   │   │   ├── schemas.py
+│   │   │   ├── sparse.py
+│   │   │   ├── vector_store/
+│   │   │   └── vectorstore.py
+│   │   └── upload_tracker/
+│   │       ├── router.py
+│   │       └── schemas.py
+│   ├── lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
+│   ├── main.py
+│   ├── main.py.PATCH.txt
+│   ├── pytest.ini
+│   ├── rag/
+│   ├── README.md
+│   ├── README_FILES_FEATURE.md
+│   ├── requirements-dev.txt
+│   ├── requirements.txt
+│   ├── root@91.99.194.135
+│   ├── routers/
+│   │   ├── health.py
+│   │   └── limits.py
+│   ├── spec.md
+│   ├── tests/
+│   │   ├── conftest.py
+│   │   └── test_auth.py
+│   └── UPLOAD_INDEXING_README.md
+├── bigquery/
+│   ├── 01_verify_pageviews.sql
+│   └── 02_pageviews_by_campaign.sql
+├── cicd/
+│   └── gsm/
+│       └── env_update.py
+├── docker-compose.dev.yml
+├── docker-compose.playwright.yml
+├── docker-compose.ssl.yml
+├── docker-compose.yml
+├── envs/
+│   ├── doppler/
+│   │   ├── bin/
+│   │   │   └── doppler-dump.js
+│   │   ├── LICENSE
+│   │   ├── package.json
+│   │   ├── README.md
+│   │   ├── snapshot.json
+│   │   ├── src/
+│   │   │   ├── cli.ts
+│   │   │   ├── client.ts
+│   │   │   ├── http.ts
+│   │   │   ├── index.ts
+│   │   │   └── types.ts
+│   │   └── tsconfig.json
+│   ├── firebase/
+│   │   ├── bin/
+│   │   │   └── firebase-dump.js
+│   │   ├── package.json
+│   │   ├── README.md
+│   │   ├── src/
+│   │   │   ├── auth.ts
+│   │   │   ├── extensions.ts
+│   │   │   ├── functions.ts
+│   │   │   ├── googleAuth.ts
+│   │   │   ├── index.ts
+│   │   │   └── rules.ts
+│   │   ├── ssot/
+│   │   │   ├── auth.config.json
+│   │   │   ├── extensions/
+│   │   │   │   └── firestore-stripe-payments.env
+│   │   │   ├── firebase.json
+│   │   │   ├── firestore.rules
+│   │   │   ├── functions.config.json
+│   │   │   └── storage.rules
+│   │   └── tsconfig.json
+│   └── stripe/
+│       ├── index.js
+│       ├── package.json
+│       ├── README.md
+│       ├── ssot.example.json
+│       └── ssot.stripe.json
+├── GUIDE-CLOUDFLARE-STAGING.md
+├── legal/
+│   ├── dpa.md
+│   ├── privacy.md
+│   └── tnc.md
+├── Makefile
+├── makefile-readme.txt
+├── ops/
+│   ├── certbot-www/
+│   ├── certs/
+│   │   └── cf-origin/
+│   │       └── README.txt
+│   ├── deploy/
+│   │   ├── deploy.sh
+│   │   ├── deploy.sh.ADD.txt
+│   │   ├── docker-compose.deploy.yml
+│   │   ├── docker-compose.doppler.yml
+│   │   ├── README-doppler.md
+│   │   └── README.md
+│   ├── nginx/
+│   │   ├── nginx.conf
+│   │   ├── nginx.dev.conf
+│   │   └── snippets/
+│   │       └── cloudflare-real-ip.conf
+│   └── redis/
+│       ├── README.md
+│       ├── redis.conf
+│       ├── redis.dev.conf
+│       └── redis.prod.conf
+├── package.json
+├── static/
+│   ├── marketing/
+│   │   └── index.html
+│   └── spa/
+│       ├── components.json
+│       ├── Dockerfile
+│       ├── Dockerfile.dev
+│       ├── eslint.config.js
+│       ├── firestore.rules
+│       ├── index.html
+│       ├── package-lock.json
+│       ├── package.json
+│       ├── playwright.config.ts
+│       ├── postcss.config.cjs
+│       ├── public/
+│       │   ├── auth-hero.jpg
+│       │   ├── icon.png
+│       │   └── vite.svg
+│       ├── README.md
+│       ├── src/
+│       │   ├── App.css
+│       │   ├── App.tsx
+│       │   ├── AppShell.tsx
+│       │   ├── assets/
+│       │   │   └── react.svg
+│       │   ├── components/
+│       │   │   └── ui/
+│       │   │       ├── accordion.tsx
+│       │   │       ├── alert-dialog.tsx
+│       │   │       ├── alert.tsx
+│       │   │       ├── aspect-ratio.tsx
+│       │   │       ├── avatar.tsx
+│       │   │       ├── badge.tsx
+│       │   │       ├── breadcrumb.tsx
+│       │   │       ├── button-group.tsx
+│       │   │       ├── button.tsx
+│       │   │       ├── calendar.tsx
+│       │   │       ├── card.tsx
+│       │   │       ├── carousel.tsx
+│       │   │       ├── chart.tsx
+│       │   │       ├── checkbox.tsx
+│       │   │       ├── collapsible.tsx
+│       │   │       ├── command.tsx
+│       │   │       ├── context-menu.tsx
+│       │   │       ├── dialog.tsx
+│       │   │       ├── drawer.tsx
+│       │   │       ├── dropdown-menu.tsx
+│       │   │       ├── empty.tsx
+│       │   │       ├── field.tsx
+│       │   │       ├── form.tsx
+│       │   │       ├── hover-card.tsx
+│       │   │       ├── input-group.tsx
+│       │   │       ├── input-otp.tsx
+│       │   │       ├── input.tsx
+│       │   │       ├── item.tsx
+│       │   │       ├── kbd.tsx
+│       │   │       ├── label.tsx
+│       │   │       ├── menubar.tsx
+│       │   │       ├── navigation-menu.tsx
+│       │   │       ├── pagination.tsx
+│       │   │       ├── popover.tsx
+│       │   │       ├── progress.tsx
+│       │   │       ├── radio-group.tsx
+│       │   │       ├── resizable.tsx
+│       │   │       ├── scroll-area.tsx
+│       │   │       ├── select.tsx
+│       │   │       ├── separator.tsx
+│       │   │       ├── sheet.tsx
+│       │   │       ├── sidebar.tsx
+│       │   │       ├── skeleton.tsx
+│       │   │       ├── slider.tsx
+│       │   │       ├── sonner.tsx
+│       │   │       ├── spinner.tsx
+│       │   │       ├── switch.tsx
+│       │   │       ├── table.tsx
+│       │   │       ├── tabs.tsx
+│       │   │       ├── textarea.tsx
+│       │   │       ├── toggle-group.tsx
+│       │   │       ├── toggle.tsx
+│       │   │       └── tooltip.tsx
+│       │   ├── features/
+│       │   │   ├── auth/
+│       │   │   │   ├── appcheck.ts
+│       │   │   │   ├── AuthLayout.tsx
+│       │   │   │   ├── AuthPage.tsx
+│       │   │   │   ├── AuthProvider.tsx
+│       │   │   │   ├── errorMessages.ts
+│       │   │   │   ├── firebase.ts
+│       │   │   │   ├── ForbiddenPage.tsx
+│       │   │   │   ├── LoginPage.tsx
+│       │   │   │   ├── ProtectedRoute.tsx
+│       │   │   │   ├── ReauthDialog.tsx
+│       │   │   │   ├── SignupPage.tsx
+│       │   │   │   ├── useSession.ts
+│       │   │   │   └── VerifyEmailPage.tsx
+│       │   │   ├── billing/
+│       │   │   │   ├── api.ts
+│       │   │   │   ├── BillingPage.tsx
+│       │   │   │   ├── index.ts
+│       │   │   │   └── README.md
+│       │   │   ├── chat/
+│       │   │   │   ├── api.ts
+│       │   │   │   ├── ChatPage.tsx
+│       │   │   │   ├── chatStore.ts
+│       │   │   │   └── types.ts
+│       │   │   ├── files/
+│       │   │   │   ├── api.ts
+│       │   │   │   ├── components/
+│       │   │   │   │   ├── EmptyState.tsx
+│       │   │   │   │   ├── FileIconByName.tsx
+│       │   │   │   │   ├── FileTree.tsx
+│       │   │   │   │   ├── FileViewer.tsx
+│       │   │   │   │   └── UploadTracker.tsx
+│       │   │   │   ├── FilesPage.tsx
+│       │   │   │   ├── hooks/
+│       │   │   │   │   └── useInterval.ts
+│       │   │   │   ├── styles.css
+│       │   │   │   ├── uploadTrackerApi.ts
+│       │   │   │   └── utils/
+│       │   │   │       ├── fileTree.ts
+│       │   │   │       └── formatters.ts
+│       │   │   ├── profile/
+│       │   │   │   ├── ProfileMenu.tsx
+│       │   │   │   └── ProfilePage.tsx
+│       │   │   └── support/
+│       │   │       └── SupportPage.tsx
+│       │   ├── hooks/
+│       │   │   └── use-mobile.ts
+│       │   ├── index.css
+│       │   ├── index.legal.css
+│       │   ├── lib/
+│       │   │   ├── consent.ts
+│       │   │   ├── firebase.ts
+│       │   │   ├── gtag.ts
+│       │   │   ├── utils.ts
+│       │   │   └── utm.ts
+│       │   ├── main.tsx
+│       │   ├── pages/
+│       │   │   ├── DPA.tsx
+│       │   │   ├── MarkdownPage.tsx
+│       │   │   ├── NotFound.tsx
+│       │   │   ├── Privacy.tsx
+│       │   │   └── Terms.tsx
+│       │   ├── routes.tsx
+│       │   ├── shared/
+│       │   │   ├── api.ts
+│       │   │   └── persist.ts
+│       │   └── vite-env.d.ts
+│       ├── tailwind.config.ts
+│       ├── tests/
+│       │   ├── README.md
+│       │   └── unit/
+│       │       ├── __mocks__/
+│       │       │   └── firebase.ts
+│       │       ├── auth/
+│       │       │   ├── errorMessages.test.ts
+│       │       │   ├── LoginPage.test.tsx
+│       │       │   ├── SignupPage.test.tsx
+│       │       │   ├── testUtils.tsx
+│       │       │   └── VerifyEmailPage.test.tsx
+│       │       ├── billing/
+│       │       │   ├── __mocks__/
+│       │       │   │   └── billingApiMock.ts
+│       │       │   └── BillingPage.test.tsx
+│       │       └── setupTests.ts
+│       ├── tsconfig.app.json
+│       ├── tsconfig.json
+│       ├── tsconfig.node.json
+│       ├── vite.config.ts
+│       ├── vitest-results.json
+│       └── vitest.config.ts
+├── stripe_prod_key.txt
+├── todo.txt
+└── tools/
+    ├── file_compiler/
+    │   ├── contexts/
+    │   │   ├── backend_auth_context.txt
+    │   │   ├── backend_context.txt
+    │   │   ├── backend_rag_context.txt
+    │   │   ├── backend_tests_context.txt
+    │   │   ├── backend_upload_tracker_context.txt
+    │   │   ├── cicd_context.txt
+    │   │   ├── components.toml
+    │   │   ├── design_context.txt
+    │   │   ├── envs_context.txt
+    │   │   ├── frontend_auth_context.txt
+    │   │   ├── frontend_billing_context.txt
+    │   │   ├── frontend_chat_context.txt
+    │   │   ├── frontend_context.txt
+    │   │   ├── frontend_files_context.txt
+    │   │   ├── frontend_profile_context.txt
+    │   │   ├── frontend_tests.txt
+    │   │   ├── infra_context.txt
+    │   │   └── spec.md
+    │   ├── example_manifest.json
+    │   ├── file_compiler.py
+    │   ├── jsons/
+    │   │   ├── auth.json
+    │   │   ├── backend.json
+    │   │   ├── backend_upload_tracker.json
+    │   │   ├── cicd.json
+    │   │   ├── design.json
+    │   │   ├── envs.json
+    │   │   ├── frontend.json
+    │   │   ├── frontend_auth.json
+    │   │   ├── frontend_billing.json
+    │   │   ├── frontend_chat.json
+    │   │   ├── frontend_files.json
+    │   │   ├── frontend_profile.json
+    │   │   ├── frontend_tests.json
+    │   │   ├── infra.json
+    │   │   ├── rag.json
+    │   │   └── tests.json
+    │   ├── README.txt
+    │   ├── reqs/
+    │   │   ├── auth_reqs.txt
+    │   │   └── billing_reqs.txt
+    │   └── tests/
+    │       ├── auth_tests.txt
+    │       └── billing_tests.txt
+    ├── patcher/
+    │   ├── in/
+    │   │   ├── backend/
+    │   │   │   ├── core/
+    │   │   │   │   └── tracker.py.patch
+    │   │   │   ├── features/
+    │   │   │   │   ├── files/
+    │   │   │   │   │   └── service.py.patch
+    │   │   │   │   ├── rag/
+    │   │   │   │   │   └── orchestrator.py.patch
+    │   │   │   │   └── uploads/
+    │   │   │   │       └── tracker_router.py.patch
+    │   │   │   ├── main.py.patch
+    │   │   │   └── requirements.txt.patch
+    │   │   └── frontend/
+    │   │       └── src/
+    │   │           ├── components/
+    │   │           │   └── TransfersDrawer.tsx.patch
+    │   │           └── hooks/
+    │   │               └── useUploadTracker.ts.patch
+    │   └── patcher.py
+    └── treegen/
+        ├── config.example.json
+        ├── config.json
+        ├── out/
+        │   └── tree.txt
+        ├── README.md
+        └── treegen.py

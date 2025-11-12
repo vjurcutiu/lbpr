@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars and fill values
+
+hcloud_token   = "htz-xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEyourPublicKeyGoesHere user@example"
+# Optionally restrict SSH:
+# ssh_allowed_cidrs = ["203.0.113.10/32"]
+# Customize server size and location:
+# server_type = "cx32"
+# location    = "hel1"

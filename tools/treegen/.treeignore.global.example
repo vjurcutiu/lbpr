@@ -1,0 +1,4 @@
+# Global rules (lives next to treegen.py)
+build/
+dist/
+node_modules/

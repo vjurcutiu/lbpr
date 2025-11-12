@@ -1,7 +1,0 @@
-# Add these optional fields to `core/config.py` Settings if you want to expose them via /safe_settings_snapshot():
-#   RAG_HYBRID_DUAL_INDEX: bool = False
-#   PINECONE_INDEX_DENSE: str | None = None
-#   PINECONE_INDEX_SPARSE: str | None = None
-#
-# They are not strictly required because the Pinecone adapters read from environment
-# directly, but adding them keeps configuration discoverable.

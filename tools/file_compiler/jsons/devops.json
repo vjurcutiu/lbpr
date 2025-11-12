@@ -1,0 +1,163 @@
+{
+  "output": "C:\\\\code2\\\\lbpr\\\\tools\\\\file_compiler\\\\contexts\\\\devops_context.txt",
+  "files": [
+    "C:\\\\code2\\\\lbpr\\\\Makefile",
+    "C:\\\\code2\\\\lbpr\\\\GUIDE-CLOUDFLARE-STAGING.md",
+    "C:\\\\code2\\\\lbpr\\\\docker-compose.yml",
+    "C:\\\\code2\\\\lbpr\\\\docker-compose.dev.yml",
+    "C:\\\\code2\\\\lbpr\\\\docker-compose.ssl.yml",
+    "C:\\\\code2\\\\lbpr\\\\docker-compose.playwright.yml",
+    "C:\\\\code2\\\\lbpr\\\\backend\\\\docker-compose.test.yml",
+    "C:\\\\code2\\\\lbpr\\\\backend\\\\Dockerfile",
+    "C:\\\\code2\\\\lbpr\\\\static\\\\spa\\\\Dockerfile",
+    "C:\\\\code2\\\\lbpr\\\\static\\\\spa\\\\Dockerfile.dev",
+    "C:\\\\code2\\\\lbpr\\\\ops\\\\deploy\\\\deploy.sh",
+    "C:\\\\code2\\\\lbpr\\\\ops\\\\deploy\\\\docker-compose.deploy.yml",
+    "C:\\\\code2\\\\lbpr\\\\ops\\\\deploy\\\\docker-compose.doppler.yml",
+    "C:\\\\code2\\\\lbpr\\\\ops\\\\nginx\\\\nginx.conf",
+    "C:\\\\code2\\\\lbpr\\\\ops\\\\nginx\\\\nginx.dev.conf",
+    "C:\\\\code2\\\\lbpr\\\\ops\\\\redis\\\\redis.prod.conf"
+  ],
+  "recurse_folders": [
+    {
+      "folder": "C:\\\\code2\\\\lbpr",
+      "recursive": true,
+      "include_only": [
+        "Dockerfile",
+        "Dockerfile.*",
+        "docker-compose*.yml",
+        "compose*.yml",
+        "compose*.yaml",
+        "docker-*.yml",
+        "Makefile",
+        "Makefile.*",
+        "*.tf",
+        "*.tfvars",
+        "*.tfvars.json",
+        "kustomization.yaml",
+        "Chart.yaml",
+        "values*.yaml",
+        "helmfile*.yaml"
+      ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\.github\\\\workflows",
+      "recursive": true,
+      "include_only": [
+        "*.yml",
+        "*.yaml"
+      ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\ops",
+      "recursive": true,
+      "include_only": [
+        "*.yml",
+        "*.yaml",
+        "*.conf",
+        "*.sh",
+        "README*",
+        "*.md",
+        "*.txt"
+      ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\ops\\\\redis",
+      "recursive": true,
+      "include_only": [
+        "*.conf",
+        "README*"
+      ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\ops\\\\nginx",
+      "recursive": true,
+      "include_only": [
+        "*.conf",
+        "README*"
+      ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\ops\\\\deploy",
+      "recursive": true,
+      "include_only": [
+        "*.yml",
+        "*.yaml",
+        "*.sh",
+        "README*",
+        "*.md"
+      ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\ops\\\\certs",
+      "recursive": true,
+      "include_only": [
+        "README*",
+        "*.md",
+        "*.txt"
+      ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\envs",
+      "recursive": true,
+      "include_only": [
+        "*.ts",
+        "*.js",
+        "*.json",
+        "*.md"
+      ],
+      "exclude_glob": [
+        "pnpm-lock.yaml",
+        "package-lock.json",
+        "yarn.lock"
+      ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\backend",
+      "recursive": true,
+      "include_only": [
+        "Dockerfile*",
+        ".dockerignore",
+        "docker-compose*.yml",
+        ".env*"
+      ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\static\\\\spa",
+      "recursive": true,
+      "include_only": [
+        "Dockerfile*",
+        ".dockerignore",
+        "docker-compose*.yml"
+      ]
+    },
+    {
+      "folder": "C:\\\\code2\\\\lbpr\\\\cicd",
+      "recursive": true,
+      "include_only": [
+        "*.py",
+        "*.sh",
+        "*.md",
+        "*.yml",
+        "*.yaml",
+        "*.json"
+      ]
+    }
+  ],
+  "exclude_glob": [
+    "*.pem",
+    "*.crt",
+    "*.cer",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*secret*",
+    "*SECRET*",
+    "*prod*key*",
+    "*.log",
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "yarn.lock"
+  ],
+  "dedup": "path"
+}

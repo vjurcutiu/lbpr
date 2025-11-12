@@ -335,24 +335,6 @@ PINECONE_INDEX_SPARSE=lbpr-sparse
 # Authenticated Redis URL (note the colon before password)
 REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
 
-C:/code2/lbpr/backend/core/config.py.PATCH.txt
-
-# Add this field to core/config.py Settings:
-# FIREBASE_STORAGE_BUCKET: str | None = None
-#
-# Usage: If not set, we'll default to f"{FIREBASE_PROJECT_ID}.appspot.com"
-
-
-C:/code2/lbpr/backend/core/config.py.PATCH_DUAL_INDEX.txt
-# Add these optional fields to `core/config.py` Settings if you want to expose them via /safe_settings_snapshot():
-#   RAG_HYBRID_DUAL_INDEX: bool = False
-#   PINECONE_INDEX_DENSE: str | None = None
-#   PINECONE_INDEX_SPARSE: str | None = None
-#
-# They are not strictly required because the Pinecone adapters read from environment
-# directly, but adding them keeps configuration discoverable.
-
-
 C:/code2/lbpr/backend/core/logging.py
 # core/logging.py
 from __future__ import annotations

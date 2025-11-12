@@ -1,0 +1,6 @@
+# Example .treeignore
+build/
+dist/
+node_modules/
+*.log
+**/__pycache__/

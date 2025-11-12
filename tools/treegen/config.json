@@ -1,0 +1,11 @@
+{
+  "root": "C:\\code2\\lbpr",
+  "output_dir": "./out",
+  "output_file": "tree.txt",
+  "include_hidden": false,
+  "follow_symlinks": false,
+  "max_depth": null,
+  "sort": "name",
+  "encoding": "utf-8",
+  "use_global_treeignore": true
+}
