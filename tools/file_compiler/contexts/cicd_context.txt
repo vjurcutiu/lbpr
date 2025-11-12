@@ -378,3 +378,78 @@ jobs:
           '
 
 
+C:/code2/lbpr/.github/workflows/infra-hetzner-apply.yml
+name: Infra (Hetzner) — plan & apply + deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply after plan?"
+        type: boolean
+        default: true
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform/hetzner
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+
+      - name: Write terraform.tfvars from GitHub Secrets (example)
+        run: |
+          cat > terraform.tfvars <<'EOF'
+          hcloud_token   = "${{ secrets.HCLOUD_TOKEN }}"
+          ssh_public_key = "${{ secrets.DEPLOY_SSH_PUBKEY }}"
+          # Optional: lock down SSH to CI runner public IP(s)
+          # ssh_allowed_cidrs = ["${{ secrets.SSH_ALLOWED_CIDR }}"]
+          EOF
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color
+
+      - name: Terraform Apply
+        if: ${{ inputs.apply }}
+        run: terraform apply -auto-approve
+
+      - name: Export server IP output
+        if: ${{ inputs.apply }}
+        id: out
+        run: echo "IP=$(terraform output -raw server_ipv4)" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: terraform
+    if: ${{ inputs.apply }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Add server host key (best: use known_hosts from a trusted source)
+          ssh-keyscan -H "${{ needs.terraform.outputs.IP }}" >> ~/.ssh/known_hosts
+
+      - name: Rsync app bundle
+        run: |
+          rsync -az --delete             -e 'ssh -i ~/.ssh/id_ed25519'             ./             "deploy@${{ needs.terraform.outputs.IP }}:/opt/lbpr/"
+
+      - name: Remote compose up
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "deploy@${{ needs.terraform.outputs.IP }}"             "docker compose -f /opt/lbpr/ops/deploy/docker-compose.deploy.yml pull &&              docker compose -f /opt/lbpr/ops/deploy/docker-compose.deploy.yml up -d --remove-orphans"
+

@@ -804,6 +804,21 @@ rename-command FLUSHDB ""
 rename-command SHUTDOWN ""
 
 
+C:/code2/lbpr/infra/terraform/hetzner/cloudinit.tf
+data "cloudinit_config" "user_data" {
+  gzip          = false
+  base64_encode = false
+
+  part {
+    filename     = "cloud-init.yaml"
+    content_type = "text/cloud-config"
+    content = templatefile("${path.module}/cloud-init.yaml", {
+      deploy_user         = var.deploy_user
+      ssh_authorized_key  = var.ssh_public_key
+    })
+  }
+}
+
 C:/code2/lbpr/backend/Dockerfile.doppler.ADD.txt
 # --- Add this block to your backend Dockerfile (base or runtime stage) ---
 # Install Doppler CLI for runtime secrets injection
@@ -813,6 +828,43 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
   && rm -rf /var/lib/apt/lists/*
 # --- End Doppler block ---
 
+
+C:/code2/lbpr/infra/terraform/hetzner/firewall.tf
+resource "hcloud_firewall" "main" {
+  name = "${var.project_name}-fw"
+
+  rule {
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "22"
+    source_ips  = var.ssh_allowed_cidrs
+    description = "SSH"
+  }
+
+  rule {
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "80"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+    description = "HTTP"
+  }
+
+  rule {
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "443"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+    description = "HTTPS"
+  }
+
+  # Allow ICMP (ping)
+  rule {
+    direction   = "in"
+    protocol    = "icmp"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+    description = "ICMP"
+  }
+}
 
 C:/code2/lbpr/backend/venv/Lib/site-packages/pip/_vendor/urllib3/packages/backports/makefile.py
 # -*- coding: utf-8 -*-
@@ -867,6 +919,141 @@ def backport_makefile(
     text.mode = mode
     return text
 
+
+C:/code2/lbpr/infra/terraform/hetzner/outputs.tf
+output "server_ipv4" {
+  description = "Public IPv4 of the app server."
+  value       = hcloud_server.app.ipv4_address
+}
+
+output "server_name" {
+  value = hcloud_server.app.name
+}
+
+output "ssh_hint" {
+  value = "ssh ${var.deploy_user}@${hcloud_server.app.ipv4_address}"
+}
+
+C:/code2/lbpr/infra/terraform/hetzner/providers.tf
+variable "hcloud_token" {
+  description = "Hetzner Cloud API token with read/write permissions."
+  type        = string
+  sensitive   = true
+}
+
+provider "hcloud" {
+  token = var.hcloud_token
+}
+
+C:/code2/lbpr/infra/terraform/hetzner/server.tf
+resource "hcloud_server" "app" {
+  name        = "${var.project_name}-${var.server_name}"
+  image       = var.image
+  server_type = var.server_type
+  location    = var.location
+
+  # Attach firewall
+  firewall_ids = [hcloud_firewall.main.id]
+
+  # Public networking (IPv4 + optional IPv6)
+  public_net {
+    ipv4_enabled = true
+    ipv6_enabled = var.enable_ipv6
+  }
+
+  # Inject SSH keys (if created via Terraform)
+  ssh_keys = var.create_ssh_key ? [hcloud_ssh_key.deploy[0].name] : []
+
+  user_data = data.cloudinit_config.user_data.rendered
+}
+
+C:/code2/lbpr/infra/terraform/hetzner/ssh_key.tf
+resource "hcloud_ssh_key" "deploy" {
+  count      = var.create_ssh_key ? 1 : 0
+  name       = var.ssh_key_name
+  public_key = var.ssh_public_key
+}
+
+C:/code2/lbpr/infra/terraform/hetzner/variables.tf
+variable "project_name" {
+  description = "A short name prefix for all resources."
+  type        = string
+  default     = "lbpr"
+}
+
+variable "server_name" {
+  description = "Server name (will be prefixed with project_name)."
+  type        = string
+  default     = "app-1"
+}
+
+variable "server_type" {
+  description = "Hetzner server type (e.g., cx22, cx32, cax31)."
+  type        = string
+  default     = "cx22"
+}
+
+variable "location" {
+  description = "Hetzner location (nbg1, fsn1, hel1 or ash)."
+  type        = string
+  default     = "nbg1"
+}
+
+variable "image" {
+  description = "Base image to use."
+  type        = string
+  default     = "ubuntu-24.04"
+}
+
+variable "create_ssh_key" {
+  description = "Upload the provided public key into the Hetzner project."
+  type        = bool
+  default     = true
+}
+
+variable "ssh_key_name" {
+  description = "Name of the SSH key in Hetzner."
+  type        = string
+  default     = "lbpr-deploy"
+}
+
+variable "ssh_public_key" {
+  description = "Public SSH key content (e.g., from id_rsa.pub or ed25519.pub)."
+  type        = string
+}
+
+variable "deploy_user" {
+  description = "Non-root user created on the VM with sudo & docker access."
+  type        = string
+  default     = "deploy"
+}
+
+variable "ssh_allowed_cidrs" {
+  description = "CIDRs allowed to reach SSH (22/tcp) on the Hetzner firewall."
+  type        = list(string)
+  default     = ["0.0.0.0/0", "::/0"]
+}
+
+variable "enable_ipv6" {
+  description = "Enable IPv6 on the public interface."
+  type        = bool
+  default     = true
+}
+
+C:/code2/lbpr/infra/terraform/hetzner/versions.tf
+terraform {
+  required_version = ">= 1.6.0"
+  required_providers {
+    hcloud = {
+      source  = "hetznercloud/hcloud"
+      version = "~> 1.54"
+    }
+    cloudinit = {
+      source  = "hashicorp/cloudinit"
+      version = "~> 2.3"
+    }
+  }
+}
 
 C:/code2/lbpr/.github/workflows/ci-doppler.yml
 name: CI — Build, Push, and Deploy to Hetzner (Doppler)
@@ -1237,6 +1424,81 @@ jobs:
             bash ops/deploy/deploy.sh
           '
 
+
+C:/code2/lbpr/.github/workflows/infra-hetzner-apply.yml
+name: Infra (Hetzner) — plan & apply + deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply after plan?"
+        type: boolean
+        default: true
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform/hetzner
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.11.4
+
+      - name: Write terraform.tfvars from GitHub Secrets (example)
+        run: |
+          cat > terraform.tfvars <<'EOF'
+          hcloud_token   = "${{ secrets.HCLOUD_TOKEN }}"
+          ssh_public_key = "${{ secrets.DEPLOY_SSH_PUBKEY }}"
+          # Optional: lock down SSH to CI runner public IP(s)
+          # ssh_allowed_cidrs = ["${{ secrets.SSH_ALLOWED_CIDR }}"]
+          EOF
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color
+
+      - name: Terraform Apply
+        if: ${{ inputs.apply }}
+        run: terraform apply -auto-approve
+
+      - name: Export server IP output
+        if: ${{ inputs.apply }}
+        id: out
+        run: echo "IP=$(terraform output -raw server_ipv4)" >> $GITHUB_OUTPUT
+
+  deploy:
+    needs: terraform
+    if: ${{ inputs.apply }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Add server host key (best: use known_hosts from a trusted source)
+          ssh-keyscan -H "${{ needs.terraform.outputs.IP }}" >> ~/.ssh/known_hosts
+
+      - name: Rsync app bundle
+        run: |
+          rsync -az --delete             -e 'ssh -i ~/.ssh/id_ed25519'             ./             "deploy@${{ needs.terraform.outputs.IP }}:/opt/lbpr/"
+
+      - name: Remote compose up
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "deploy@${{ needs.terraform.outputs.IP }}"             "docker compose -f /opt/lbpr/ops/deploy/docker-compose.deploy.yml pull &&              docker compose -f /opt/lbpr/ops/deploy/docker-compose.deploy.yml up -d --remove-orphans"
 
 C:/code2/lbpr/ops/nginx/snippets/cloudflare-real-ip.conf
 # Auto-generated: Trust Cloudflare edge and restore real client IPs
