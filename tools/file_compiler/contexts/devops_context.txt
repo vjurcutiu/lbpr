@@ -1160,8 +1160,8 @@ jobs:
       - name: Build & push SPA image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./ops/spa/Dockerfile
+          context: ./static/spa
+          file: ./static/spa/Dockerfile
           platforms: linux/amd64
           push: true
           tags: |
