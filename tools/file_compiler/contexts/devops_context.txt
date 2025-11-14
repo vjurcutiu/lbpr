@@ -1204,7 +1204,7 @@ jobs:
           mkdir -p _deploy/ops/deploy
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
-          cp ops/deploy/docker-compose.deploy.yml _deploy/
+          cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
           cp ops/deploy/docker-compose.doppler.yml _deploy/ops/deploy/docker-compose.doppler.yml || true
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
           chmod +x _deploy/ops/deploy/deploy.sh
@@ -1261,8 +1261,6 @@ jobs:
             # Deploy
             bash ops/deploy/deploy.sh
           "
-
-
 
 
 C:/code2/lbpr/.github/workflows/ci.yml
@@ -1403,7 +1401,7 @@ jobs:
           mkdir -p _deploy/ops/deploy
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
-          cp ops/deploy/docker-compose.deploy.yml _deploy/
+          cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
           chmod +x _deploy/ops/deploy/deploy.sh
 
@@ -1454,6 +1452,8 @@ jobs:
             bash ops/deploy/deploy.sh
           "
 
+
+C:/code2/lbpr/
 
 C:/code2/lbpr/.github/workflows/infra-hetzner-apply.yml
 name: Infra (Hetzner) — plan & apply + deploy

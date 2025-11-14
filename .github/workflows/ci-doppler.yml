@@ -203,8 +203,3 @@ jobs:
             # Deploy
             bash ops/deploy/deploy.sh
           "
-
-
-
-
-C:/code2/lbpr/
