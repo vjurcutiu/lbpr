@@ -5,11 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# (optional) system deps + Doppler CLI
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates wget curl gnupg \
-    && curl -Ls https://cli.doppler.com/install.sh | sh \
-    && rm -rf /var/lib/apt/lists/*
+# System deps + Doppler CLI (Debian/Ubuntu pattern from official docs)
+RUN apt-get update && apt-get install -y --no-install-recommends \      apt-transport-https ca-certificates curl gnupg \    && curl -sLf --retry 3 --tlsv1.2 --proto "=https" 'https://packages.doppler.com/public/cli/gpg.DE2A7741A397C129.key' \       | gpg --dearmor -o /usr/share/keyrings/doppler-archive-keyring.gpg \    && echo "deb [signed-by=/usr/share/keyrings/doppler-archive-keyring.gpg] https://packages.doppler.com/public/cli/deb/debian any-version main" \       | tee /etc/apt/sources.list.d/doppler-cli.list \    && apt-get update \    && apt-get -y install doppler \    && rm -rf /var/lib/apt/lists/*
 
 # install only runtime deps
 COPY requirements.txt .
@@ -29,7 +26,7 @@ ENV PYTHONPATH=/app
 # Avoid initializing Firebase Admin in test runs (optional; you can also set this in compose)
 ENV SKIP_FIREBASE_INIT=1
 
-# FIX: collect coverage for the whole repo, not a non-existent "app" package
+# Collect coverage for the whole repo (not a non-existent "app" package)
 CMD ["pytest", "-q", "--maxfail=1", "--disable-warnings", "--cov=.", "--cov-report=term-missing"]
 
 # ---------- production runtime ----------
