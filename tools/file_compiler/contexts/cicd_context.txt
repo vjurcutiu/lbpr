@@ -112,6 +112,9 @@ jobs:
           push: true
           tags: |
             docker.io/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-spa:${{ needs.tags.outputs.spa_tag }}
+          build-args: |
+            CI_FAST_BUILD=1
+
 
   deploy:
     name: Deploy to Hetzner (Doppler)
