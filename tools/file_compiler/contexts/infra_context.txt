@@ -272,9 +272,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# (optional) system deps
+# (optional) system deps + Doppler CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates wget \
+      ca-certificates wget curl gnupg \
+    && curl -Ls https://cli.doppler.com/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
 
 # install only runtime deps
