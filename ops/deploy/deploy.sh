@@ -6,12 +6,12 @@ cd "$REMOTE_DIR"
 
 mkdir -p static/spa backend ops/deploy
 
-# Load deployment variables if present
+# Load deployment variables if present (.deploy.env written by CI)
 if [ -f ".deploy.env" ]; then
   set -a; . ./.deploy.env; set +a
 fi
 
-# 🔐 NEW: load root .env so REDIS_PASSWORD is in the environment for compose
+# Also load root .env so things like REDIS_PASSWORD are in the shell too (nice for debugging)
 if [ -f ".env" ]; then
   set -a; . ./.env; set +a
 fi
@@ -55,8 +55,8 @@ if [ -f ops/deploy/docker-compose.doppler.yml ]; then
   OVERRIDES="$OVERRIDES -f ops/deploy/docker-compose.doppler.yml"
 fi
 
-# Bring services up
-$DC --env-file ./.deploy.env $OVERRIDES up -d --remove-orphans
+# ✅ IMPORTANT CHANGE: drop --env-file so compose auto-loads .env (with REDIS_PASSWORD)
+$DC $OVERRIDES up -d --remove-orphans
 
 echo "[deploy] Done. Current services:"
 $DC ps
