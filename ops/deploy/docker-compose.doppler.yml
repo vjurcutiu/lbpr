@@ -1,18 +1,15 @@
 version: "3.9"
+
 services:
   api:
-    # Image is already set by docker-compose.deploy.yml override
-    # Replace the command to launch via Doppler
-    command: >
-      doppler run
-      --fallback-to-local=true
-      --project ${DOPPLER_PROJECT}
-      --config ${DOPPLER_CONFIG}
-      --
-      uvicorn main:app --host 0.0.0.0 --port 8000 --proxy-headers
-    env_file: []
+    # Placeholder Doppler override.
+    # We no longer run `doppler` inside the container to avoid coupling the image
+    # to external package repos at build time.
+    # API configuration still comes from:
+    #   - ./backend/.env        (SERVER_BACKEND_ENV from GitHub secrets)
+    #   - ./.env                (SERVER_ROOT_ENV for shared values like REDIS_PASSWORD)
+    # This file is kept so deploy.sh can safely include it when DOPPLER_TOKEN is present.
+    # You can later reintroduce a `command:` override here if you decide
+    # to wrap docker compose with `doppler run` on the host.
     environment:
-      - DOPPLER_TOKEN=${DOPPLER_TOKEN}
-      - DOPPLER_PROJECT=${DOPPLER_PROJECT}
-      - DOPPLER_CONFIG=${DOPPLER_CONFIG}
-      - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
+      - DOPPLER_ENABLED=true
