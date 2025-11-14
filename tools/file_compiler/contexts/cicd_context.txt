@@ -139,8 +139,9 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_HOST}" >> ~/.ssh/known_hosts
 
-      - name: Prepare deploy bundle (includes Doppler config)
+      - name: Prepare deploy bundle
         run: |
+          set -euo pipefail
 
           # Root .env still used by docker-compose for interpolation (e.g., REDIS_PASSWORD)
           if [ -n "${{ secrets.SERVER_ROOT_ENV }}" ]; then
@@ -168,13 +169,13 @@ jobs:
           SPA_TAG=${{ steps.tags.outputs.spa_tag }}
           EOF
 
-          # Doppler runtime envs for the API
-          if [ -n "${{ secrets.DOPPLER_TOKEN }}" ]; then
-            cat >> _deploy/.deploy.env <<EOF
-            DOPPLER_TOKEN=${{ secrets.DOPPLER_TOKEN }}
-            DOPPLER_PROJECT=${{ secrets.DOPPLER_PROJECT }}
-            DOPPLER_CONFIG=${{ secrets.DOPPLER_CONFIG }}
-            EOF
+                    # Doppler runtime envs for the API
+                    if [ -n "${{ secrets.DOPPLER_TOKEN }}" ]; then
+          cat >> _deploy/.deploy.env <<EOF
+          DOPPLER_TOKEN=${{ secrets.DOPPLER_TOKEN }}
+          DOPPLER_PROJECT=${{ secrets.DOPPLER_PROJECT }}
+          DOPPLER_CONFIG=${{ secrets.DOPPLER_CONFIG }}
+          EOF
           fi
 
           # Optional: write Firebase SA JSON (if not moving it into Doppler yet)
@@ -182,6 +183,7 @@ jobs:
           if [ -n "${{ secrets.FIREBASE_SA_JSON_B64 }}" ]; then
             echo "${{ secrets.FIREBASE_SA_JSON_B64 }}" | base64 -d > _deploy/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
           fi
+
 
       - name: Rsync deploy bundle to server
         env:
@@ -212,6 +214,8 @@ jobs:
             # Deploy
             bash ops/deploy/deploy.sh
           "
+
+
 
 
 C:/code2/lbpr/.github/workflows/ci.yml
