@@ -191,8 +191,8 @@ program
   .option('--include-values', 'Include secret values (default false)', false)
   .option('--include-dynamic', 'Include dynamic secret values (issue leases)', false)
   .option('--include-managed', 'Include managed secrets', false)
-  .option('--stdout', 'Print to stdout instead of writing to a file', false)
-  .option('--out <path>', 'Output file path (default: doppler_export_<timestamp>.json)')
+  .option('--stdout', 'Print to stdout in addition to writing snapshot.json', false)
+  .option('--out <path>', 'Additional output file path (snapshot.json is always written)',)
   .option('--concurrency <n>', 'Concurrent secret fetches per project', (v) => parseInt(v,10), 5)
   .option('--per-page <n>', 'Page size for list endpoints', (v) => parseInt(v,10), 200)
   .option('--max-pages <n>', 'Max pages to fetch', (v) => parseInt(v,10), 10)
@@ -268,12 +268,22 @@ async function withConcurrency<T, R>(items: T[], limit: number, task: (item: T) 
   }
 
   const json = JSON.stringify(out, null, 2);
+
+  // Always write snapshot.json in the current working directory
+  const snapshotPath = path.join(process.cwd(), 'snapshot.json');
+  fs.writeFileSync(snapshotPath, json, 'utf8');
+  console.log(`Wrote ${snapshotPath}`);
+
+  // Optional: also write to a secondary output file if --out is provided and different
+  if (opts.out && opts.out !== 'snapshot.json') {
+    const outPath = path.isAbsolute(opts.out) ? opts.out : path.join(process.cwd(), opts.out);
+    fs.writeFileSync(outPath, json, 'utf8');
+    console.log(`Wrote ${outPath}`);
+  }
+
+  // Optionally print to stdout as well
   if (opts.stdout) {
     console.log(json);
-  } else {
-    const file = opts.out || path.join(process.cwd(), `doppler_export_${Date.now()}.json`);
-    fs.writeFileSync(file, json, 'utf8');
-    console.log(`Wrote ${file}`);
   }
 })().catch(err => {
   console.error('Failed:', err?.message || err);
@@ -1790,9 +1800,554 @@ export async function applyRules(projectId: string, ssotDir: string) {
 
 C:/code2/lbpr/envs/doppler/snapshot.json
 {
-  "generated_at": "2025-11-09T14:21:27.551Z",
+  "generated_at": "2025-11-14T09:36:08.733Z",
   "base_url": "https://api.doppler.com/v3",
-  "projects": []
+  "token_info": {
+    "slug": "67784976-3307-449e-92a1-177744744ef9",
+    "name": null,
+    "created_at": "2025-11-09T14:19:17.348Z",
+    "last_seen_at": "2025-11-14T09:36:08.190Z",
+    "type": "personal",
+    "token_preview": "dp.pt…OR5v7J",
+    "principal": {
+      "type": "workplace_user",
+      "slug": "54c650d8-eed4-42fb-9e7d-2a3e7d5e3b87"
+    },
+    "workplace": {
+      "slug": "4e4a7eb68b5e1f6405ec",
+      "name": "lbpr"
+    },
+    "success": true
+  },
+  "projects": [
+    {
+      "id": "example-project",
+      "name": "example-project",
+      "environments": [
+        {
+          "id": "dev",
+          "slug": "dev",
+          "name": "Development",
+          "initial_fetch_at": null,
+          "created_at": "2025-11-08T13:37:25.533Z",
+          "project": "example-project"
+        },
+        {
+          "id": "stg",
+          "slug": "stg",
+          "name": "Staging",
+          "initial_fetch_at": null,
+          "created_at": "2025-11-08T13:37:25.533Z",
+          "project": "example-project"
+        },
+        {
+          "id": "prd",
+          "slug": "prd",
+          "name": "Production",
+          "initial_fetch_at": null,
+          "created_at": "2025-11-08T13:37:25.533Z",
+          "project": "example-project"
+        }
+      ],
+      "configs": [
+        {
+          "name": "dev",
+          "root": true,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": true,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T13:37:25.536Z",
+          "environment": "dev",
+          "project": "example-project",
+          "slug": "9a21c889-293f-4228-9131-8e35ccb1b34f"
+        },
+        {
+          "name": "dev_personal",
+          "root": false,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": true,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-09T14:27:18.570Z",
+          "environment": "dev",
+          "project": "example-project",
+          "slug": "0abc6377-d182-40bf-90fb-dcf6f2d060f8"
+        },
+        {
+          "name": "stg",
+          "root": true,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": true,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T13:37:25.538Z",
+          "environment": "stg",
+          "project": "example-project",
+          "slug": "d5a25c17-b63f-48c6-b4f5-2d62fc5660ca"
+        },
+        {
+          "name": "prd",
+          "root": true,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": true,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T13:37:25.540Z",
+          "environment": "prd",
+          "project": "example-project",
+          "slug": "5571d474-288c-41af-8218-ad4d26b4e902"
+        }
+      ],
+      "summaries": [
+        {
+          "project": "example-project",
+          "environment": "dev",
+          "config": "dev",
+          "is_root": true,
+          "secret_names": [
+            "DB_URL",
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT",
+            "FEATURE_FLAGS",
+            "LOGGING",
+            "PRIVATE_KEY",
+            "STRIPE_KEY"
+          ]
+        },
+        {
+          "project": "example-project",
+          "environment": "dev",
+          "config": "dev_personal",
+          "is_root": false,
+          "secret_names": [
+            "DB_URL",
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT",
+            "FEATURE_FLAGS",
+            "LOGGING",
+            "PRIVATE_KEY",
+            "STRIPE_KEY"
+          ]
+        },
+        {
+          "project": "example-project",
+          "environment": "stg",
+          "config": "stg",
+          "is_root": true,
+          "secret_names": [
+            "DB_URL",
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT",
+            "FEATURE_FLAGS",
+            "LOGGING",
+            "PRIVATE_KEY",
+            "STRIPE_KEY"
+          ]
+        },
+        {
+          "project": "example-project",
+          "environment": "prd",
+          "config": "prd",
+          "is_root": true,
+          "secret_names": [
+            "DB_URL",
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT",
+            "FEATURE_FLAGS",
+            "LOGGING",
+            "PRIVATE_KEY",
+            "STRIPE_KEY"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lbpr",
+      "name": "lbpr",
+      "environments": [
+        {
+          "id": "dev",
+          "slug": "dev",
+          "name": "Development",
+          "initial_fetch_at": null,
+          "created_at": "2025-11-08T13:58:28.640Z",
+          "project": "lbpr"
+        },
+        {
+          "id": "stg",
+          "slug": "stg",
+          "name": "Staging",
+          "initial_fetch_at": null,
+          "created_at": "2025-11-08T13:58:28.640Z",
+          "project": "lbpr"
+        },
+        {
+          "id": "prd",
+          "slug": "prd",
+          "name": "Production",
+          "initial_fetch_at": null,
+          "created_at": "2025-11-08T13:58:28.640Z",
+          "project": "lbpr"
+        }
+      ],
+      "configs": [
+        {
+          "name": "dev",
+          "root": true,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": true,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T13:58:28.643Z",
+          "environment": "dev",
+          "project": "lbpr",
+          "slug": "0f48b90d-c4cf-43db-b4b9-c68449c39810"
+        },
+        {
+          "name": "dev_personal",
+          "root": false,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": true,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T13:58:29.258Z",
+          "environment": "dev",
+          "project": "lbpr",
+          "slug": "1691c50d-37f1-4f2a-828c-94edbc5e6ca4"
+        },
+        {
+          "name": "dev_backend",
+          "root": false,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": false,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T18:46:00.678Z",
+          "environment": "dev",
+          "project": "lbpr",
+          "slug": "453904fd-7775-47d6-af3c-f7db2c9bc8fe"
+        },
+        {
+          "name": "dev_frontend",
+          "root": false,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": false,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T14:17:35.908Z",
+          "environment": "dev",
+          "project": "lbpr",
+          "slug": "eb7ba908-52a2-49b8-88f0-01f8725654aa"
+        },
+        {
+          "name": "stg",
+          "root": true,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": true,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T13:58:28.646Z",
+          "environment": "stg",
+          "project": "lbpr",
+          "slug": "3e04b145-ee47-4e4c-a89d-b312ee1d25ce"
+        },
+        {
+          "name": "stg_backend",
+          "root": false,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": false,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T18:46:10.375Z",
+          "environment": "stg",
+          "project": "lbpr",
+          "slug": "67d5a3e5-94e6-47aa-b39e-3f44cbbfc3b1"
+        },
+        {
+          "name": "stg_frontend",
+          "root": false,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": false,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T18:46:18.021Z",
+          "environment": "stg",
+          "project": "lbpr",
+          "slug": "d9864e7c-d8a0-4a04-9086-86fca4b4f153"
+        },
+        {
+          "name": "prd",
+          "root": true,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": true,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T13:58:28.648Z",
+          "environment": "prd",
+          "project": "lbpr",
+          "slug": "5fb971cb-bbe6-450a-8bb8-3b6ad0380ea7"
+        },
+        {
+          "name": "prd_backend",
+          "root": false,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": false,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T18:46:22.946Z",
+          "environment": "prd",
+          "project": "lbpr",
+          "slug": "98b973e5-4d3e-4a7f-8dfe-b3d8232f3856"
+        },
+        {
+          "name": "prd_frontend",
+          "root": false,
+          "inheritable": false,
+          "inheriting": false,
+          "inherits": [],
+          "locked": false,
+          "initial_fetch_at": null,
+          "last_fetch_at": null,
+          "created_at": "2025-11-08T18:46:29.709Z",
+          "environment": "prd",
+          "project": "lbpr",
+          "slug": "a59c3fb2-5dcc-41e0-a0ad-56da66a5b6dc"
+        }
+      ],
+      "summaries": [
+        {
+          "project": "lbpr",
+          "environment": "dev",
+          "config": "dev",
+          "is_root": true,
+          "secret_names": [
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT"
+          ]
+        },
+        {
+          "project": "lbpr",
+          "environment": "dev",
+          "config": "dev_personal",
+          "is_root": false,
+          "secret_names": [
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT"
+          ]
+        },
+        {
+          "project": "lbpr",
+          "environment": "dev",
+          "config": "dev_backend",
+          "is_root": false,
+          "secret_names": [
+            "COOKIE_NAME",
+            "COOKIE_PATH",
+            "COOKIE_SAMESITE",
+            "COOKIE_SECURE",
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT",
+            "ENV",
+            "FIREBASE_CREDENTIALS",
+            "FIREBASE_CREDENTIALS_DEFAULT",
+            "FIREBASE_PROJECT_ID",
+            "FIREBASE_STORAGE_BUCKET",
+            "LIMITS_FREE_MESSAGES",
+            "LIMITS_FREE_UPLOAD_TOKENS",
+            "LIMITS_PRO_MESSAGES",
+            "LIMITS_PRO_UPLOAD_TOKENS",
+            "OPENAI_API_KEY",
+            "PINECONE_API_KEY",
+            "PINECONE_CLOUD",
+            "PINECONE_INDEX",
+            "PINECONE_INDEX_DENSE",
+            "PINECONE_INDEX_SPARSE",
+            "PINECONE_REGION",
+            "RAG_EMBED_DIM",
+            "RAG_EMBED_MODEL",
+            "RAG_EMBEDDER",
+            "RAG_HYBRID_ALPHA",
+            "RAG_HYBRID_DUAL_INDEX",
+            "RAG_HYBRID_FUSION",
+            "RAG_VECTORSTORE",
+            "REDIS_PASSWORD",
+            "REDIS_URL",
+            "SESSION_HOURS",
+            "TOKENIZER_MODEL"
+          ]
+        },
+        {
+          "project": "lbpr",
+          "environment": "dev",
+          "config": "dev_frontend",
+          "is_root": false,
+          "secret_names": [
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT",
+            "VITE_AW_SIGNUP_CONVERSION_LABEL",
+            "VITE_COOKIEBOT_ID",
+            "VITE_FIREBASE_API_KEY",
+            "VITE_FIREBASE_APP_ID",
+            "VITE_FIREBASE_AUTH_DOMAIN",
+            "VITE_FIREBASE_FUNCTIONS_REGION",
+            "VITE_FIREBASE_MESSAGING_SENDER_ID",
+            "VITE_FIREBASE_PROJECT_ID",
+            "VITE_GA4_DEBUG",
+            "VITE_GA4_MEASUREMENT_ID",
+            "VITE_GADS_DEFAULT_DENY",
+            "VITE_GADS_ID",
+            "VITE_GADS_SIGNUP_LABEL",
+            "VITE_GTAG_AW_ID",
+            "VITE_STRIPE_PRICE_ALLOWLIST",
+            "VITE_STRIPE_PRO_PRICE_ID"
+          ]
+        },
+        {
+          "project": "lbpr",
+          "environment": "stg",
+          "config": "stg",
+          "is_root": true,
+          "secret_names": [
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT"
+          ]
+        },
+        {
+          "project": "lbpr",
+          "environment": "stg",
+          "config": "stg_backend",
+          "is_root": false,
+          "secret_names": [
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT"
+          ]
+        },
+        {
+          "project": "lbpr",
+          "environment": "stg",
+          "config": "stg_frontend",
+          "is_root": false,
+          "secret_names": [
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT"
+          ]
+        },
+        {
+          "project": "lbpr",
+          "environment": "prd",
+          "config": "prd",
+          "is_root": true,
+          "secret_names": [
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT"
+          ]
+        },
+        {
+          "project": "lbpr",
+          "environment": "prd",
+          "config": "prd_backend",
+          "is_root": false,
+          "secret_names": [
+            "COOKIE_NAME",
+            "COOKIE_PATH",
+            "COOKIE_SAMESITE",
+            "COOKIE_SECURE",
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT",
+            "ENV",
+            "FIREBASE_CREDENTIALS",
+            "FIREBASE_CREDENTIALS_DEFAULT",
+            "FIREBASE_PROJECT_ID",
+            "FIREBASE_STORAGE_BUCKET",
+            "LIMITS_FREE_MESSAGES",
+            "LIMITS_FREE_UPLOAD_TOKENS",
+            "LIMITS_PRO_MESSAGES",
+            "LIMITS_PRO_UPLOAD_TOKENS",
+            "OPENAI_API_KEY",
+            "PINECONE_API_KEY",
+            "PINECONE_CLOUD",
+            "PINECONE_INDEX",
+            "PINECONE_INDEX_DENSE",
+            "PINECONE_INDEX_SPARSE",
+            "PINECONE_REGION",
+            "RAG_EMBED_DIM",
+            "RAG_EMBED_MODEL",
+            "RAG_EMBEDDER",
+            "RAG_HYBRID_ALPHA",
+            "RAG_HYBRID_DUAL_INDEX",
+            "RAG_HYBRID_FUSION",
+            "RAG_VECTORSTORE",
+            "REDIS_PASSWORD",
+            "REDIS_URL",
+            "SESSION_HOURS",
+            "TOKENIZER_MODEL"
+          ]
+        },
+        {
+          "project": "lbpr",
+          "environment": "prd",
+          "config": "prd_frontend",
+          "is_root": false,
+          "secret_names": [
+            "DOPPLER_CONFIG",
+            "DOPPLER_ENVIRONMENT",
+            "DOPPLER_PROJECT",
+            "VITE_COOKIEBOT_ID",
+            "VITE_FIREBASE_API_KEY",
+            "VITE_FIREBASE_APP_ID",
+            "VITE_FIREBASE_AUTH_DOMAIN",
+            "VITE_FIREBASE_MESSAGING_SENDER_ID",
+            "VITE_FIREBASE_PROJECT_ID",
+            "VITE_GADS_DEFAULT_DENY",
+            "VITE_GADS_ID",
+            "VITE_GADS_SIGNUP_LABEL",
+            "VITE_STRIPE_PRICE_ALLOWLIST",
+            "VITE_STRIPE_PRO_PRICE_ID"
+          ]
+        }
+      ]
+    }
+  ]
 }
 
 C:/code2/lbpr/envs/stripe/ssot.example.json

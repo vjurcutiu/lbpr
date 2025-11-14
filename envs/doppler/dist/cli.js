@@ -14,8 +14,8 @@ program
     .option('--include-values', 'Include secret values (default false)', false)
     .option('--include-dynamic', 'Include dynamic secret values (issue leases)', false)
     .option('--include-managed', 'Include managed secrets', false)
-    .option('--stdout', 'Print to stdout instead of writing to a file', false)
-    .option('--out <path>', 'Output file path (default: doppler_export_<timestamp>.json)')
+    .option('--stdout', 'Print to stdout in addition to writing snapshot.json', false)
+    .option('--out <path>', 'Additional output file path (snapshot.json is always written)')
     .option('--concurrency <n>', 'Concurrent secret fetches per project', (v) => parseInt(v, 10), 5)
     .option('--per-page <n>', 'Page size for list endpoints', (v) => parseInt(v, 10), 200)
     .option('--max-pages <n>', 'Max pages to fetch', (v) => parseInt(v, 10), 10)
@@ -80,13 +80,19 @@ async function withConcurrency(items, limit, task) {
         out.projects.push({ id: project.id, name: project.name, environments: envs, configs, summaries: summariesRes });
     }
     const json = JSON.stringify(out, null, 2);
+    // Always write snapshot.json in the current working directory
+    const snapshotPath = path.join(process.cwd(), 'snapshot.json');
+    fs.writeFileSync(snapshotPath, json, 'utf8');
+    console.log(`Wrote ${snapshotPath}`);
+    // Optional: also write to a secondary output file if --out is provided and different
+    if (opts.out && opts.out !== 'snapshot.json') {
+        const outPath = path.isAbsolute(opts.out) ? opts.out : path.join(process.cwd(), opts.out);
+        fs.writeFileSync(outPath, json, 'utf8');
+        console.log(`Wrote ${outPath}`);
+    }
+    // Optionally print to stdout as well
     if (opts.stdout) {
         console.log(json);
-    }
-    else {
-        const file = opts.out || path.join(process.cwd(), `doppler_export_${Date.now()}.json`);
-        fs.writeFileSync(file, json, 'utf8');
-        console.log(`Wrote ${file}`);
     }
 })().catch(err => {
     console.error('Failed:', err?.message || err);
