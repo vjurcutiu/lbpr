@@ -5,8 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# (optional) system deps
-RUN apt-get update && apt-get install -y --no-install-recommends \      ca-certificates wget \    && rm -rf /var/lib/apt/lists/*
+# Minimal system deps
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/*
 
 # install only runtime deps
 COPY requirements.txt .
