@@ -94,16 +94,41 @@ jobs:
           set -euo pipefail
 
           mkdir -p _deploy/ops/deploy
+          mkdir -p _deploy/ops/nginx/snippets
+          mkdir -p _deploy/ops/certs
+          mkdir -p _deploy/ops/redis
           mkdir -p _deploy/backend
           mkdir -p _deploy/static
 
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
 
+          # SPA marketing assets, if present
           if [ -d static/marketing ]; then
             cp -R static/marketing _deploy/static/
           fi
 
+          # Nginx config + snippets for production
+          cp ops/nginx/nginx.conf _deploy/ops/nginx/nginx.conf
+          if [ -f ops/nginx/snippets/cloudflare-real-ip.conf ]; then
+            cp ops/nginx/snippets/cloudflare-real-ip.conf _deploy/ops/nginx/snippets/cloudflare-real-ip.conf
+          fi
+
+          # SSL certs and ACME webroot (if present)
+          if [ -d ops/certs/cf-origin ]; then
+            mkdir -p _deploy/ops/certs/cf-origin
+            cp -R ops/certs/cf-origin/* _deploy/ops/certs/cf-origin/
+          fi
+          if [ -d ops/certbot-www ]; then
+            cp -R ops/certbot-www _deploy/ops/
+          fi
+
+          # Redis prod config
+          if [ -f ops/redis/redis.prod.conf ]; then
+            cp ops/redis/redis.prod.conf _deploy/ops/redis/redis.prod.conf
+          fi
+
+          # Compose deploy overlays
           cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
           cp ops/deploy/docker-compose.doppler.yml _deploy/ops/deploy/docker-compose.doppler.yml
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
@@ -152,7 +177,7 @@ jobs:
         run: |
           ssh -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_USER}@${HETZNER_HOST}" "
             set -euo pipefail
-            cd "${REMOTE_DIR:-/opt/lbpr}"
+            cd \"${REMOTE_DIR:-/opt/lbpr}\"
             export DOCKERHUB_USERNAME='${{ secrets.DOCKERHUB_USERNAME }}'
             export API_TAG='${{ steps.tags.outputs.api_tag }}'
             export SPA_TAG='${{ steps.tags.outputs.spa_tag }}'
