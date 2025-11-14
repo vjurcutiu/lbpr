@@ -86,6 +86,8 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-spa:${{ steps.tags.outputs.spa_tag }}
+          build-args: |
+            CI_FAST_BUILD=1
 
       - name: Prepare deploy bundle
         run: |
