@@ -120,27 +120,39 @@ jobs:
             echo "${{ secrets.FIREBASE_SA_JSON_B64 }}" | base64 -d > _deploy/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
           fi
 
-      - name: Rsync deploy bundle to Hetzner
+      - name: Start ssh-agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
+
+      - name: Add Hetzner host to known_hosts
+        env:
+          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Rsync deploy bundle to server
+        env:
+          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
         run: |
           set -euo pipefail
-          REMOTE_BASE="${{ secrets.REMOTE_DIR }}"
-          if [ -z "$REMOTE_BASE" ]; then
-            REMOTE_BASE="/opt/lbpr"
-          fi
-          rsync -az --delete _deploy/ "${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }}:${REMOTE_BASE}/"
+          RSYNC_RSH="ssh -p ${HETZNER_SSH_PORT:-22}" rsync -avz --delete _deploy/ "${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_DIR:-/opt/lbpr}/"
 
-      - name: Run remote deploy
+      - name: Remote deploy
+        env:
+          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
         run: |
-          set -euo pipefail
-          REMOTE_BASE="${{ secrets.REMOTE_DIR }}"
-          if [ -z "$REMOTE_BASE" ]; then
-            REMOTE_BASE="/opt/lbpr"
-          fi
-
-          ssh -p "${{ secrets.HETZNER_SSH_PORT }}" "${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }}" "
+          ssh -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_USER}@${HETZNER_HOST}" "
             set -euo pipefail
-            cd "${REMOTE_BASE}"
-
+            cd "${REMOTE_DIR:-/opt/lbpr}"
             export DOCKERHUB_USERNAME='${{ secrets.DOCKERHUB_USERNAME }}'
             export API_TAG='${{ steps.tags.outputs.api_tag }}'
             export SPA_TAG='${{ steps.tags.outputs.spa_tag }}'
