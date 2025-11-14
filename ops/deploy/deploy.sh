@@ -11,6 +11,11 @@ if [ -f ".deploy.env" ]; then
   set -a; . ./.deploy.env; set +a
 fi
 
+# 🔐 NEW: load root .env so REDIS_PASSWORD is in the environment for compose
+if [ -f ".env" ]; then
+  set -a; . ./.env; set +a
+fi
+
 : "${DOCKERHUB_USERNAME:?missing}"
 : "${API_TAG:?missing}"
 : "${SPA_TAG:?missing}"

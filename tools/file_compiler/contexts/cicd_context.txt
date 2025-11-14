@@ -28,7 +28,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -37,11 +40,10 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
-          registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract Docker metadata (api)
+      - name: Docker meta (API)
         id: meta_api
         uses: docker/metadata-action@v5
         with:
@@ -69,7 +71,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -78,11 +83,10 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
-          registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract Docker metadata (spa)
+      - name: Docker meta (SPA)
         id: meta_spa
         uses: docker/metadata-action@v5
         with:
@@ -108,23 +112,27 @@ jobs:
 
   deploy:
     name: Deploy to Hetzner (Doppler)
-    needs: [api-image, spa-image]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    needs:
+      - api-image
+      - spa-image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     env:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-      SHORT_SHA: ${{ github.sha }}
+      HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+      HETZNER_USER: ${{ secrets.HETZNER_USER }}
+      HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+      REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-      - name: Compute image tags (sha-*)
+      - name: Compute image tags (sha-short)
         id: tags
         run: |
-          SHORT=$(echo "${SHORT_SHA}" | cut -c1-7)
-          echo "api_tag=sha-${SHORT}" >> $GITHUB_OUTPUT
-          echo "spa_tag=sha-${SHORT}" >> $GITHUB_OUTPUT
-          echo "short=${SHORT}" >> $GITHUB_OUTPUT
+          SHORT="$(git rev-parse --short HEAD)"
+          echo "api_tag=sha-${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "spa_tag=sha-${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "short=${SHORT}" >> "$GITHUB_OUTPUT"
 
       - name: Start ssh-agent
         uses: webfactory/ssh-agent@v0.9.0
@@ -132,9 +140,6 @@ jobs:
           ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
 
       - name: Add Hetzner host to known_hosts
-        env:
-          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
-          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_HOST}" >> ~/.ssh/known_hosts
@@ -142,6 +147,9 @@ jobs:
       - name: Prepare deploy bundle
         run: |
           set -euo pipefail
+
+          # Ensure base deploy dir exists (idempotent)
+          mkdir -p _deploy
 
           # Root .env still used by docker-compose for interpolation (e.g., REDIS_PASSWORD)
           if [ -n "${{ secrets.SERVER_ROOT_ENV }}" ]; then
@@ -154,23 +162,28 @@ jobs:
             printf "%s" "${{ secrets.SERVER_BACKEND_ENV }}" > _deploy/backend/.env
           fi
 
+          # Copy deploy-related files
           mkdir -p _deploy/ops/deploy
           cp docker-compose.yml _deploy/
-          if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
+          if [ -f docker-compose.ssl.yml ]; then
+            cp docker-compose.ssl.yml _deploy/
+          fi
           cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
-          cp ops/deploy/docker-compose.doppler.yml _deploy/ops/deploy/docker-compose.doppler.yml || true
+          if [ -f ops/deploy/docker-compose.doppler.yml ]; then
+            cp ops/deploy/docker-compose.doppler.yml _deploy/ops/deploy/docker-compose.doppler.yml
+          fi
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
           chmod +x _deploy/ops/deploy/deploy.sh
 
-          # Base envs
+          # Base envs for deploy script
           cat > _deploy/.deploy.env <<EOF
           DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
           API_TAG=${{ steps.tags.outputs.api_tag }}
           SPA_TAG=${{ steps.tags.outputs.spa_tag }}
           EOF
 
-                    # Doppler runtime envs for the API
-                    if [ -n "${{ secrets.DOPPLER_TOKEN }}" ]; then
+          # Doppler runtime envs for the API
+          if [ -n "${{ secrets.DOPPLER_TOKEN }}" ]; then
           cat >> _deploy/.deploy.env <<EOF
           DOPPLER_TOKEN=${{ secrets.DOPPLER_TOKEN }}
           DOPPLER_PROJECT=${{ secrets.DOPPLER_PROJECT }}
@@ -184,34 +197,27 @@ jobs:
             echo "${{ secrets.FIREBASE_SA_JSON_B64 }}" | base64 -d > _deploy/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
           fi
 
-
       - name: Rsync deploy bundle to server
-        env:
-          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
-          HETZNER_USER: ${{ secrets.HETZNER_USER }}
-          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
-          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
         run: |
-          RSYNC_RSH="ssh -p ${HETZNER_SSH_PORT:-22}" rsync -avz --delete _deploy/ "${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_DIR:-/opt/lbpr}/"
+          set -euo pipefail
+          REMOTE_BASE="${REMOTE_DIR:-/opt/lbpr}"
+          rsync -az -e "ssh -p ${HETZNER_SSH_PORT:-22}" _deploy/ "${HETZNER_USER}@${HETZNER_HOST}:${REMOTE_BASE}/"
 
-      - name: Remote deploy
-        env:
-          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
-          HETZNER_USER: ${{ secrets.HETZNER_USER }}
-          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
-          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
+      - name: Run remote deploy
         run: |
+          set -euo pipefail
+          REMOTE_BASE="${REMOTE_DIR:-/opt/lbpr}"
+
           ssh -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_USER}@${HETZNER_HOST}" "
             set -euo pipefail
-            cd "${REMOTE_DIR:-/opt/lbpr}"
-            export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
-            export API_TAG="${{ steps.tags.outputs.api_tag }}"
-            export SPA_TAG="${{ steps.tags.outputs.spa_tag }}"
+            cd \"${REMOTE_BASE}\"
 
-            # Login for private images
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin || true
+            export DOCKERHUB_USERNAME='${{ secrets.DOCKERHUB_USERNAME }}'
+            export API_TAG='${{ steps.tags.outputs.api_tag }}'
+            export SPA_TAG='${{ steps.tags.outputs.spa_tag }}'
 
-            # Deploy
+            echo '${{ secrets.DOCKERHUB_TOKEN }}' | docker login --username '${{ secrets.DOCKERHUB_USERNAME }}' --password-stdin || true
+
             bash ops/deploy/deploy.sh
           "
 
