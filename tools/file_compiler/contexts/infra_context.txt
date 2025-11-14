@@ -75,7 +75,7 @@ services:
     image: redis:7.2-alpine
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:?set in .env}
-    command:   
+    command:
       - sh
       - -lc
       - exec redis-server /usr/local/etc/redis/redis.conf --requirepass "$REDIS_PASSWORD"
@@ -83,7 +83,7 @@ services:
       - redis-data:/data
       - ./ops/redis/redis.prod.conf:/usr/local/etc/redis/redis.conf:ro
     healthcheck:
-      test:     
+      test:
         - CMD-SHELL
         - redis-cli -a "$REDIS_PASSWORD" ping | grep -q PONG
       interval: 5s
