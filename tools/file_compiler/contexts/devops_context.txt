@@ -472,23 +472,53 @@ if [ -f docker-compose.ssl.yml ]; then
   OVERRIDES="$OVERRIDES -f docker-compose.ssl.yml"
 fi
 
-# Only enable Doppler override when DOPPLER_TOKEN is available
+# Optional Doppler overlay just tags the container so it knows secrets came from Doppler.
 if [ -n "${DOPPLER_TOKEN:-}" ] && [ -f ops/deploy/docker-compose.doppler.yml ]; then
-  echo "[deploy] Enabling Doppler override (project=${DOPPLER_PROJECT:-?}, config=${DOPPLER_CONFIG:-?})."
+  echo "[deploy] Including Doppler compose overlay (project=${DOPPLER_PROJECT:-?}, config=${DOPPLER_CONFIG:-?})."
   OVERRIDES="$OVERRIDES -f ops/deploy/docker-compose.doppler.yml"
-else
-  echo "[deploy] Doppler override not enabled (no DOPPLER_TOKEN in environment)."
 fi
 
-echo "[deploy] Running: $DC $OVERRIDES up -d --remove-orphans"
-if ! $DC $OVERRIDES up -d --remove-orphans; then
-  status=$?
-  echo "[deploy] docker compose up failed (exit $status). Recent logs for api + redis:"
-  $DC $OVERRIDES logs --tail=200 api redis || true
-  echo "[deploy] To inspect all logs on the server, run:"
-  echo "  $DC $OVERRIDES logs"
-  exit $status
+# Decide whether to use Doppler CLI for secrets injection
+USE_DOPPLER=0
+if [ -n "${DOPPLER_TOKEN:-}" ]; then
+  if command -v doppler >/dev/null 2>&1; then
+    USE_DOPPLER=1
+  else
+    echo "[deploy] WARNING: DOPPLER_TOKEN is set but Doppler CLI is not installed on the server."
+    echo "[deploy]          Install it with:"
+    echo "            (curl -Ls --tlsv1.2 --proto \"=https\" --retry 3 https://cli.doppler.com/install.sh || wget -t 3 -qO- https://cli.doppler.com/install.sh) | sudo sh"
+    echo "[deploy]          Falling back to plain docker compose for now."
+  fi
 fi
+
+if [ "$USE_DOPPLER" -eq 1 ]; then
+  echo "[deploy] Running docker compose via Doppler (mounting backend/.env from project=${DOPPLER_PROJECT:-?}, config=${DOPPLER_CONFIG:-?})."
+  RUN_CMD="$DC $OVERRIDES up -d --remove-orphans"
+  echo "[deploy] Command: doppler run --mount backend/.env -- $RUN_CMD"
+
+  # Doppler injects all secrets as env vars AND exposes them via backend/.env (named pipe).
+  # docker compose then uses backend/.env for the api env_file + REDIS_PASSWORD etc from the env.
+  if ! doppler run --mount backend/.env -- $DC $OVERRIDES up -d --remove-orphans; then
+    status=$?
+    echo "[deploy] docker compose up (via Doppler) failed (exit $status). Recent logs for api + redis:"
+    $DC $OVERRIDES logs --tail=200 api redis || true
+    echo "[deploy] To inspect all logs on the server, run:"
+    echo "  $DC $OVERRIDES logs"
+    exit $status
+  fi
+else
+  echo "[deploy] Running docker compose without Doppler."
+  echo "[deploy] Running: $DC $OVERRIDES up -d --remove-orphans"
+  if ! $DC $OVERRIDES up -d --remove-orphans; then
+    status=$?
+    echo "[deploy] docker compose up failed (exit $status). Recent logs for api + redis:"
+    $DC $OVERRIDES logs --tail=200 api redis || true
+    echo "[deploy] To inspect all logs on the server, run:"
+    echo "  $DC $OVERRIDES logs"
+    exit $status
+  fi
+fi
+
 
 echo "[deploy] Done. Current services:"
 $DC $OVERRIDES ps
