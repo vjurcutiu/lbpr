@@ -6,6 +6,12 @@ cd "$REMOTE_DIR"
 
 mkdir -p static/spa backend ops/deploy
 
+# Ensure backend/.env exists so docker compose env_file lookup never fails.
+# When running with Doppler, this can stay mostly empty – it's just to satisfy compose.
+if [ ! -f "backend/.env" ]; then
+  echo "# backend/.env stub for server deploy (API env comes from Doppler or secrets)" > backend/.env
+fi
+
 # Load deployment variables if present (.deploy.env written by CI)
 if [ -f ".deploy.env" ]; then
   set -a; . ./.deploy.env; set +a
@@ -51,11 +57,16 @@ OVERRIDES="-f docker-compose.yml -f ops/deploy/docker-compose.deploy.yml"
 if [ -f docker-compose.ssl.yml ]; then
   OVERRIDES="$OVERRIDES -f docker-compose.ssl.yml"
 fi
-if [ -f ops/deploy/docker-compose.doppler.yml ]; then
+
+# Only enable Doppler override when DOPPLER_TOKEN is available
+if [ -n "${DOPPLER_TOKEN:-}" ] && [ -f ops/deploy/docker-compose.doppler.yml ]; then
+  echo "[deploy] Enabling Doppler override (project=${DOPPLER_PROJECT:-?}, config=${DOPPLER_CONFIG:-?})."
   OVERRIDES="$OVERRIDES -f ops/deploy/docker-compose.doppler.yml"
+else
+  echo "[deploy] Doppler override not enabled (no DOPPLER_TOKEN in environment)."
 fi
 
-# ✅ IMPORTANT CHANGE: drop --env-file so compose auto-loads .env (with REDIS_PASSWORD)
+# docker compose will auto-load .env (for REDIS_PASSWORD, etc.)
 $DC $OVERRIDES up -d --remove-orphans
 
 echo "[deploy] Done. Current services:"
