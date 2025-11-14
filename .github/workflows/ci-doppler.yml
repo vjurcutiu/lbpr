@@ -146,7 +146,7 @@ jobs:
           mkdir -p _deploy/ops/deploy
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
-          cp ops/deploy/docker-compose.deploy.yml _deploy/
+          cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
           cp ops/deploy/docker-compose.doppler.yml _deploy/ops/deploy/docker-compose.doppler.yml || true
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
           chmod +x _deploy/ops/deploy/deploy.sh
@@ -205,3 +205,6 @@ jobs:
           "
 
 
+
+
+C:/code2/lbpr/

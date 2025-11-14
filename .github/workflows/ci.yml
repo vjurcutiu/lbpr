@@ -135,7 +135,7 @@ jobs:
           mkdir -p _deploy/ops/deploy
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
-          cp ops/deploy/docker-compose.deploy.yml _deploy/
+          cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
           chmod +x _deploy/ops/deploy/deploy.sh
 
@@ -185,3 +185,6 @@ jobs:
             # Run deploy script (pulls images, extracts SPA assets, composes up)
             bash ops/deploy/deploy.sh
           "
+
+
+C:/code2/lbpr/
