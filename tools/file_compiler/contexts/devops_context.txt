@@ -1166,6 +1166,9 @@ jobs:
           push: true
           tags: |
             docker.io/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-spa:${{ needs.tags.outputs.spa_tag }}
+          build-args: |
+            CI_FAST_BUILD=1
+
 
   deploy:
     name: Deploy to Hetzner (Doppler)
@@ -1206,10 +1209,16 @@ jobs:
           set -euo pipefail
 
           mkdir -p _deploy/ops/deploy
+          mkdir -p _deploy/backend
+          mkdir -p _deploy/static
+
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
-          mkdir -p _deploy/static
-          if [ -d static/marketing ]; then cp -R static/marketing _deploy/static/; fi
+
+          if [ -d static/marketing ]; then
+            cp -R static/marketing _deploy/static/
+          fi
+
           cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
           cp ops/deploy/docker-compose.doppler.yml _deploy/ops/deploy/docker-compose.doppler.yml
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
@@ -1217,6 +1226,7 @@ jobs:
 
           touch _deploy/.env
           touch _deploy/backend/.env
+
 
       - name: Upload deploy bundle as artifact
         uses: actions/upload-artifact@v4
