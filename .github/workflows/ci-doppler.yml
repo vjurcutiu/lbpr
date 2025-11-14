@@ -1,143 +1,91 @@
-name: CI (Doppler) — Build, Push, and Deploy to Hetzner
+name: CI + Deploy (Doppler)
 
 on:
   push:
     branches:
       - main
+      - develop
   workflow_dispatch:
 
 env:
   REGISTRY: docker.io
 
 jobs:
-  tags:
-    name: Compute image tags
+  build-and-deploy:
     runs-on: ubuntu-latest
-    outputs:
-      api_tag: ${{ steps.set-tags.outputs.api_tag }}
-      spa_tag: ${{ steps.set-tags.outputs.spa_tag }}
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Compute tags
-        id: set-tags
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Validate Doppler secrets
         run: |
-          if [[ "${GITHUB_REF_TYPE}" == "branch" ]]; then
-            SAFE_BRANCH="${GITHUB_REF_NAME//\//-}"
-            API_TAG="branch-${SAFE_BRANCH}"
-            SPA_TAG="branch-${SAFE_BRANCH}"
+          set -euo pipefail
+          if [ -z "${{ secrets.DOPPLER_TOKEN_API }}" ]; then
+            echo "DOPPLER_TOKEN_API is not set" >&2
+            exit 1
+          fi
+          if [ -z "${{ secrets.DOPPLER_TOKEN_SPA }}" ]; then
+            echo "DOPPLER_TOKEN_SPA is not set" >&2
+            exit 1
+          fi
+          if [ -z "${{ secrets.DOPPLER_PROJECT }}" ]; then
+            echo "DOPPLER_PROJECT is not set" >&2
+            exit 1
+          fi
+          if [ -z "${{ secrets.DOPPLER_CONFIG }}" ]; then
+            echo "DOPPLER_CONFIG is not set" >&2
+            exit 1
+          fi
+
+      - name: Determine tags
+        id: tags
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            API_TAG="${{ github.ref_name }}"
+            SPA_TAG="${{ github.ref_name }}"
+          elif [ "${{ github.ref_name }}" = "main" ]; then
+            API_TAG="branch-main"
+            SPA_TAG="branch-main"
           else
-            SHORT_SHA="${GITHUB_SHA::7}"
-            API_TAG="sha-${SHORT_SHA}"
-            SPA_TAG="sha-${SHORT_SHA}"
+            SANITIZED_BRANCH=$(echo "${{ github.ref_name }}" | tr '/' '-')
+            API_TAG="branch-${SANITIZED_BRANCH}"
+            SPA_TAG="branch-${SANITIZED_BRANCH}"
           fi
 
           echo "api_tag=${API_TAG}" >> "$GITHUB_OUTPUT"
           echo "spa_tag=${SPA_TAG}" >> "$GITHUB_OUTPUT"
 
-          echo "API_TAG=${API_TAG}"
-          echo "SPA_TAG=${SPA_TAG}"
-
-  build-api:
-    name: Build & Push API
-    runs-on: ubuntu-latest
-    needs: [tags]
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build & push API image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          platforms: linux/amd64
+          context: .
+          file: backend/Dockerfile
           push: true
           tags: |
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-api:${{ needs.tags.outputs.api_tag }}
+            ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-api:${{ steps.tags.outputs.api_tag }}
 
-  build-spa:
-    name: Build & Push SPA
-    runs-on: ubuntu-latest
-    needs: [tags]
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+      - name: Build and push SPA image
+        uses: docker/build-push-action@v5
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build & push SPA image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./static/spa
-          file: ./static/spa/Dockerfile
-          platforms: linux/amd64
+          context: .
+          file: static/spa/Dockerfile
           push: true
           tags: |
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-spa:${{ needs.tags.outputs.spa_tag }}
-          build-args: |
-            CI_FAST_BUILD=1
-
-
-  deploy:
-    name: Deploy to Hetzner (Doppler)
-    runs-on: ubuntu-latest
-    needs: [build-api, build-spa, tags]
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Validate Doppler secrets
-        env:
-          DOPPLER_TOKEN_API: ${{ secrets.DOPPLER_TOKEN_API }}
-          DOPPLER_TOKEN_SPA: ${{ secrets.DOPPLER_TOKEN_SPA }}
-        run: |
-          set -euo pipefail
-
-          required=(DOPPLER_TOKEN_API DOPPLER_TOKEN_SPA)
-          missing=0
-
-          for key in "${required[@]}"; do
-            # Indirect expansion: ${!key} = value of the env var whose name is in $key
-            if [[ -z "${!key:-}" ]]; then
-              echo "::error::Missing required secret: $key"
-              missing=1
-            fi
-          done
-
-          if [[ "$missing" -ne 0 ]]; then
-            echo "Required Doppler secrets missing. Failing."
-            exit 1
-          fi
-
+            ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-spa:${{ steps.tags.outputs.spa_tag }}
 
       - name: Prepare deploy bundle
         run: |
@@ -159,44 +107,24 @@ jobs:
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
           chmod +x _deploy/ops/deploy/deploy.sh
 
-          touch _deploy/.env
-          touch _deploy/backend/.env
+          # Root .env (Redis, shared secrets) from GitHub secret
+          printf "%s" "${{ secrets.SERVER_ROOT_ENV }}" > _deploy/.env
 
+          # Backend .env from GitHub secret
+          printf "%s" "${{ secrets.SERVER_BACKEND_ENV }}" > _deploy/backend/.env
 
-      - name: Upload deploy bundle as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: deploy-bundle
-          path: _deploy
-
-      - name: Download deploy bundle (self)
-        uses: actions/download-artifact@v4
-        with:
-          name: deploy-bundle
-          path: _deploy
-
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
-
-      - name: Add Hetzner to known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -p "${{ secrets.HETZNER_SSH_PORT }}" "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts
+          # Firebase service account (optional, base64-encoded JSON)
+          if [ -n "${{ secrets.FIREBASE_SA_JSON_B64 }}" ]; then
+            echo "${{ secrets.FIREBASE_SA_JSON_B64 }}" | base64 -d > _deploy/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
+          fi
 
       - name: Rsync deploy bundle to Hetzner
         run: |
+          set -euo pipefail
           REMOTE_BASE="${{ secrets.REMOTE_DIR || '/opt/lbpr' }}"
           rsync -az --delete _deploy/ "${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }}:${REMOTE_BASE}/"
 
       - name: Run remote deploy
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          API_TAG: ${{ needs.tags.outputs.api_tag }}
-          SPA_TAG: ${{ needs.tags.outputs.spa_tag }}
-          DOPPLER_PROJECT: ${{ vars.DOPPLER_PROJECT }}
-          DOPPLER_CONFIG: ${{ vars.DOPPLER_CONFIG }}
         run: |
           set -euo pipefail
           REMOTE_BASE="${{ secrets.REMOTE_DIR || '/opt/lbpr' }}"
@@ -205,14 +133,14 @@ jobs:
             set -euo pipefail
             cd "${REMOTE_BASE}"
 
-            export DOCKERHUB_USERNAME='${{ env.DOCKERHUB_USERNAME }}'
-            export API_TAG='${{ env.API_TAG }}'
-            export SPA_TAG='${{ env.SPA_TAG }}'
+            export DOCKERHUB_USERNAME='${{ secrets.DOCKERHUB_USERNAME }}'
+            export API_TAG='${{ steps.tags.outputs.api_tag }}'
+            export SPA_TAG='${{ steps.tags.outputs.spa_tag }}'
 
             echo '${{ secrets.DOCKERHUB_TOKEN }}' | docker login --username '${{ secrets.DOCKERHUB_USERNAME }}' --password-stdin || true
 
-            echo 'DOPPLER_PROJECT=${{ env.DOPPLER_PROJECT }}' > .deploy.env
-            echo 'DOPPLER_CONFIG=${{ env.DOPPLER_CONFIG }}' >> .deploy.env
+            echo 'DOPPLER_PROJECT=${{ secrets.DOPPLER_PROJECT }}' > .deploy.env
+            echo 'DOPPLER_CONFIG=${{ secrets.DOPPLER_CONFIG }}' >> .deploy.env
             echo 'DOPPLER_ENABLED=1' >> .deploy.env
 
             bash ops/deploy/deploy.sh

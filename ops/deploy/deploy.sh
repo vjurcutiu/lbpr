@@ -31,15 +31,18 @@ SPACONTAINER="lbpr-spa-extract"
 
 echo "[deploy] Preparing SPA static assets from image docker.io/${DOCKERHUB_USERNAME}/lbpr-spa:${SPA_TAG}"
 
-if $DOCKER_COMPOSE ps -a --format '{{.Name}}' | grep -q "^${SPACONTAINER}$"; then
+if docker ps -a --format '{{.Names}}' | grep -q "^${SPACONTAINER}$"; then
   echo "[deploy] Removing existing SPA extract container ${SPACONTAINER}"
-  $DOCKER_COMPOSE rm -f "${SPACONTAINER}" || true
+  docker rm -f "${SPACONTAINER}" || true
 fi
 
-mkdir -p static/spa
+mkdir -p static/spa/dist
 
 echo "[deploy] Running SPA extract container..."
-docker run --name "${SPACONTAINER}" --rm   -v "$ROOT_DIR/static/spa:/opt/spa-output"   "docker.io/${DOCKERHUB_USERNAME}/lbpr-spa:${SPA_TAG}"   /bin/sh -lc 'cp -r /opt/spa/dist/* /opt/spa-output/'
+docker run --name "${SPACONTAINER}" --rm \
+  -v "$ROOT_DIR/static/spa:/opt/spa-output" \
+  "docker.io/${DOCKERHUB_USERNAME}/lbpr-spa:${SPA_TAG}" \
+  /bin/sh -lc 'mkdir -p /opt/spa-output/dist && cp -r /srv/spa/dist/* /opt/spa-output/dist/'
 
 echo "[deploy] SPA assets ready at static/spa/dist"
 
