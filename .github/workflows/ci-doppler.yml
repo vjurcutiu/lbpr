@@ -81,8 +81,8 @@ jobs:
       - name: Build and push SPA image
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: static/spa/Dockerfile
+          context: ./static/spa
+          file: ./static/spa/Dockerfile
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-spa:${{ steps.tags.outputs.spa_tag }}
@@ -121,13 +121,19 @@ jobs:
       - name: Rsync deploy bundle to Hetzner
         run: |
           set -euo pipefail
-          REMOTE_BASE="${{ secrets.REMOTE_DIR || '/opt/lbpr' }}"
+          REMOTE_BASE="${{ secrets.REMOTE_DIR }}"
+          if [ -z "$REMOTE_BASE" ]; then
+            REMOTE_BASE="/opt/lbpr"
+          fi
           rsync -az --delete _deploy/ "${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }}:${REMOTE_BASE}/"
 
       - name: Run remote deploy
         run: |
           set -euo pipefail
-          REMOTE_BASE="${{ secrets.REMOTE_DIR || '/opt/lbpr' }}"
+          REMOTE_BASE="${{ secrets.REMOTE_DIR }}"
+          if [ -z "$REMOTE_BASE" ]; then
+            REMOTE_BASE="/opt/lbpr"
+          fi
 
           ssh -p "${{ secrets.HETZNER_SSH_PORT }}" "${{ secrets.HETZNER_USER }}@${{ secrets.HETZNER_HOST }}" "
             set -euo pipefail
