@@ -454,6 +454,15 @@ docker run --name "${SPACONTAINER}" --rm \
   /bin/sh -lc 'mkdir -p /opt/spa-output/dist && cp -r /srv/spa/dist/* /opt/spa-output/dist/'
 
 echo "[deploy] SPA assets ready at static/spa/dist"
+echo "[deploy] Host SPA tree (static/spa):"
+ls -la static/spa || true
+echo "[deploy] Host SPA dist tree (static/spa/dist):"
+ls -la static/spa/dist || true
+
+if [[ ! -f static/spa/dist/index.html ]]; then
+  echo "[deploy] ERROR: static/spa/dist/index.html is missing after extraction; SPA routing will fail." >&2
+  exit 1
+fi
 
 OVERRIDES="-f docker-compose.yml -f ops/deploy/docker-compose.deploy.yml"
 
@@ -476,12 +485,18 @@ API_IMAGE="docker.io/${DOCKERHUB_USERNAME}/lbpr-api:${API_TAG}"
 docker pull "$API_IMAGE"
 
 echo "[deploy] Using docker compose overrides: $OVERRIDES"
+$DOCKER_COMPOSE $OVERRIDES ps
 $DOCKER_COMPOSE $OVERRIDES up -d --remove-orphans
+
+echo "[deploy] Verifying SPA assets inside nginx container..."
+if ! $DOCKER_COMPOSE $OVERRIDES exec nginx sh -lc 'echo "[nginx] /srv:" && ls -la /srv || true; echo "[nginx] /srv/spa:" && ls -la /srv/spa || true; echo "[nginx] /srv/spa/dist:" && ls -la /srv/spa/dist || true; echo "[nginx] index.html:" && ls -la /srv/spa/dist/index.html || true'; then
+  echo "[deploy] WARNING: Could not list SPA assets inside nginx container (container may be starting or unhealthy)." >&2
+fi
 
 echo "[deploy] Testing nginx config..."
 if ! $DOCKER_COMPOSE $OVERRIDES exec nginx nginx -t; then
   echo "[deploy] ERROR: nginx -t failed, showing recent nginx logs" >&2
-  $DOCKER_COMPOSE $OVERRIDES logs --tail=100 nginx || true
+  $DOCKER_COMPOSE $OVERRIDES logs --tail=200 nginx || true
   exit 1
 fi
 
