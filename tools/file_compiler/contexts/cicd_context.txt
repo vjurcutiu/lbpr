@@ -473,9 +473,20 @@ jobs:
 
       - name: Rsync app bundle
         run: |
-          rsync -az --delete             -e 'ssh -i ~/.ssh/id_ed25519'             ./             "deploy@${{ needs.terraform.outputs.IP }}:/opt/lbpr/"
+          rsync -az --delete \
+            -e 'ssh -i ~/.ssh/id_ed25519' \
+            ./ \
+            "deploy@${{ needs.terraform.outputs.IP }}:/opt/lbpr/"
 
-      - name: Remote compose up
+      - name: Remote deploy via deploy.sh
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 "deploy@${{ needs.terraform.outputs.IP }}"             "docker compose -f /opt/lbpr/ops/deploy/docker-compose.deploy.yml pull &&              docker compose -f /opt/lbpr/ops/deploy/docker-compose.deploy.yml up -d --remove-orphans"
+          ssh -i ~/.ssh/id_ed25519 "deploy@${{ needs.terraform.outputs.IP }}" "
+            set -euo pipefail
+            cd /opt/lbpr
+            export DOCKERHUB_USERNAME='${DOCKERHUB_USERNAME}'
+            bash ops/deploy/deploy.sh
+          "
+
 
