@@ -448,10 +448,7 @@ fi
 mkdir -p static/spa/dist
 
 echo "[deploy] Running SPA extract container..."
-docker run --name "${SPACONTAINER}" --rm \
-  -v "$ROOT_DIR/static/spa:/opt/spa-output" \
-  "docker.io/${DOCKERHUB_USERNAME}/lbpr-spa:${SPA_TAG}" \
-  /bin/sh -lc 'mkdir -p /opt/spa-output/dist && cp -r /srv/spa/dist/* /opt/spa-output/dist/'
+docker run --name "${SPACONTAINER}" --rm   -v "$ROOT_DIR/static/spa:/opt/spa-output"   "docker.io/${DOCKERHUB_USERNAME}/lbpr-spa:${SPA_TAG}"   /bin/sh -lc 'mkdir -p /opt/spa-output/dist && cp -r /srv/spa/dist/* /opt/spa-output/dist/'
 
 echo "[deploy] SPA assets ready at static/spa/dist"
 echo "[deploy] Host SPA tree (static/spa):"
@@ -487,6 +484,9 @@ docker pull "$API_IMAGE"
 echo "[deploy] Using docker compose overrides: $OVERRIDES"
 $DOCKER_COMPOSE $OVERRIDES ps
 $DOCKER_COMPOSE $OVERRIDES up -d --remove-orphans
+
+echo "[deploy] Forcing nginx recreate to ensure fresh static/spa mounts..."
+$DOCKER_COMPOSE $OVERRIDES up -d --no-deps --force-recreate nginx
 
 echo "[deploy] Verifying SPA assets inside nginx container..."
 if ! $DOCKER_COMPOSE $OVERRIDES exec nginx sh -lc 'echo "[nginx] /srv:" && ls -la /srv || true; echo "[nginx] /srv/spa:" && ls -la /srv/spa || true; echo "[nginx] /srv/spa/dist:" && ls -la /srv/spa/dist || true; echo "[nginx] index.html:" && ls -la /srv/spa/dist/index.html || true'; then
