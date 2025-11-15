@@ -89,6 +89,18 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-api:${{ steps.tags.outputs.api_tag }}
 
+      - name: Install Doppler CLI (SPA)
+        uses: dopplerhq/cli-action@v3
+
+      - name: Generate SPA .env from Doppler
+        working-directory: static/spa
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN_SPA }}
+        run: |
+          set -euo pipefail
+          doppler secrets download --no-file --format env > .env.production
+          echo "SPA .env.production generated with $(wc -l < .env.production) entries"
+
       - name: Build and push SPA image
         uses: docker/build-push-action@v5
         with:
@@ -129,8 +141,10 @@ jobs:
           mkdir -p _deploy/ops/certs/cf-origin
 
           # Cloudflare Origin cert + key from GitHub secrets (lexbot.pro)
-          printf "%s\n" "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
-          printf "%s\n" "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
+          printf "%s
+" "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
+          printf "%s
+" "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
 
           # Optional ACME webroot (if you also use certbot for Let's Encrypt)
           if [ -d ops/certbot-www ]; then
@@ -172,6 +186,7 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_HOST}" >> ~/.ssh/known_hosts
 
+
       - name: Rsync deploy bundle to server
         env:
           HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
@@ -191,7 +206,7 @@ jobs:
         run: |
           ssh -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_USER}@${HETZNER_HOST}" "
             set -euo pipefail
-            cd \"${REMOTE_DIR:-/opt/lbpr}\"
+            cd "${REMOTE_DIR:-/opt/lbpr}"
             export DOCKERHUB_USERNAME='${{ secrets.DOCKERHUB_USERNAME }}'
             export API_TAG='${{ steps.tags.outputs.api_tag }}'
             export SPA_TAG='${{ steps.tags.outputs.spa_tag }}'
@@ -204,7 +219,6 @@ jobs:
 
             bash ops/deploy/deploy.sh
           "
-
 
 
 C:/code2/lbpr/.github/workflows/ci.yml
