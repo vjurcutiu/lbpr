@@ -69,4 +69,14 @@ docker pull "$API_IMAGE"
 echo "[deploy] Using docker compose overrides: $OVERRIDES"
 $DOCKER_COMPOSE $OVERRIDES up -d --remove-orphans
 
+echo "[deploy] Testing nginx config..."
+if ! $DOCKER_COMPOSE $OVERRIDES exec nginx nginx -t; then
+  echo "[deploy] ERROR: nginx -t failed, showing recent nginx logs" >&2
+  $DOCKER_COMPOSE $OVERRIDES logs --tail=100 nginx || true
+  exit 1
+fi
+
+echo "[deploy] Reloading nginx..."
+$DOCKER_COMPOSE $OVERRIDES exec nginx nginx -s reload
+
 echo "[deploy] Done."
