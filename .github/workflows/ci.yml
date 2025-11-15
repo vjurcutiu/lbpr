@@ -133,6 +133,12 @@ jobs:
       - name: Prepare deploy bundle
         run: |
           mkdir -p _deploy/ops/deploy
+
+          # Cloudflare Origin SSL cert & key for nginx (lexbot.pro)
+          mkdir -p _deploy/ops/certs/cf-origin
+          printf "%s\n" "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
+          printf "%s\n" "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
+
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
           cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
@@ -186,5 +192,3 @@ jobs:
             bash ops/deploy/deploy.sh
           "
 
-
-C:/code2/lbpr/

@@ -105,16 +105,44 @@ jobs:
           set -euo pipefail
 
           mkdir -p _deploy/ops/deploy
+          mkdir -p _deploy/ops/nginx/snippets
+          mkdir -p _deploy/ops/certs
+          mkdir -p _deploy/ops/redis
           mkdir -p _deploy/backend
           mkdir -p _deploy/static
 
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
 
+          # SPA marketing assets, if present
           if [ -d static/marketing ]; then
             cp -R static/marketing _deploy/static/
           fi
 
+          # Nginx config + snippets for production
+          cp ops/nginx/nginx.conf _deploy/ops/nginx/nginx.conf
+          if [ -f ops/nginx/snippets/cloudflare-real-ip.conf ]; then
+            cp ops/nginx/snippets/cloudflare-real-ip.conf _deploy/ops/nginx/snippets/cloudflare-real-ip.conf
+          fi
+
+          # SSL certs and ACME webroot
+          mkdir -p _deploy/ops/certs/cf-origin
+
+          # Cloudflare Origin cert + key from GitHub secrets (lexbot.pro)
+          printf "%s\n" "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
+          printf "%s\n" "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
+
+          # Optional ACME webroot (if you also use certbot for Let's Encrypt)
+          if [ -d ops/certbot-www ]; then
+            cp -R ops/certbot-www _deploy/ops/
+          fi
+
+          # Redis prod config
+          if [ -f ops/redis/redis.prod.conf ]; then
+            cp ops/redis/redis.prod.conf _deploy/ops/redis/redis.prod.conf
+          fi
+
+          # Compose deploy overlays
           cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
           cp ops/deploy/docker-compose.doppler.yml _deploy/ops/deploy/docker-compose.doppler.yml
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
@@ -163,7 +191,7 @@ jobs:
         run: |
           ssh -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_USER}@${HETZNER_HOST}" "
             set -euo pipefail
-            cd "${REMOTE_DIR:-/opt/lbpr}"
+            cd \"${REMOTE_DIR:-/opt/lbpr}\"
             export DOCKERHUB_USERNAME='${{ secrets.DOCKERHUB_USERNAME }}'
             export API_TAG='${{ steps.tags.outputs.api_tag }}'
             export SPA_TAG='${{ steps.tags.outputs.spa_tag }}'
@@ -176,6 +204,7 @@ jobs:
 
             bash ops/deploy/deploy.sh
           "
+
 
 
 C:/code2/lbpr/.github/workflows/ci.yml
@@ -314,6 +343,12 @@ jobs:
       - name: Prepare deploy bundle
         run: |
           mkdir -p _deploy/ops/deploy
+
+          # Cloudflare Origin SSL cert & key for nginx (lexbot.pro)
+          mkdir -p _deploy/ops/certs/cf-origin
+          printf "%s\n" "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
+          printf "%s\n" "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
+
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
           cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
@@ -368,7 +403,6 @@ jobs:
           "
 
 
-C:/code2/lbpr/
 
 C:/code2/lbpr/.github/workflows/infra-hetzner-apply.yml
 name: Infra (Hetzner) — plan & apply + deploy

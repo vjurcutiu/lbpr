@@ -1162,16 +1162,44 @@ jobs:
           set -euo pipefail
 
           mkdir -p _deploy/ops/deploy
+          mkdir -p _deploy/ops/nginx/snippets
+          mkdir -p _deploy/ops/certs
+          mkdir -p _deploy/ops/redis
           mkdir -p _deploy/backend
           mkdir -p _deploy/static
 
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
 
+          # SPA marketing assets, if present
           if [ -d static/marketing ]; then
             cp -R static/marketing _deploy/static/
           fi
 
+          # Nginx config + snippets for production
+          cp ops/nginx/nginx.conf _deploy/ops/nginx/nginx.conf
+          if [ -f ops/nginx/snippets/cloudflare-real-ip.conf ]; then
+            cp ops/nginx/snippets/cloudflare-real-ip.conf _deploy/ops/nginx/snippets/cloudflare-real-ip.conf
+          fi
+
+          # SSL certs and ACME webroot
+          mkdir -p _deploy/ops/certs/cf-origin
+
+          # Cloudflare Origin cert + key from GitHub secrets (lexbot.pro)
+          printf "%s\n" "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
+          printf "%s\n" "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
+
+          # Optional ACME webroot (if you also use certbot for Let's Encrypt)
+          if [ -d ops/certbot-www ]; then
+            cp -R ops/certbot-www _deploy/ops/
+          fi
+
+          # Redis prod config
+          if [ -f ops/redis/redis.prod.conf ]; then
+            cp ops/redis/redis.prod.conf _deploy/ops/redis/redis.prod.conf
+          fi
+
+          # Compose deploy overlays
           cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
           cp ops/deploy/docker-compose.doppler.yml _deploy/ops/deploy/docker-compose.doppler.yml
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
@@ -1220,7 +1248,7 @@ jobs:
         run: |
           ssh -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_USER}@${HETZNER_HOST}" "
             set -euo pipefail
-            cd "${REMOTE_DIR:-/opt/lbpr}"
+            cd \"${REMOTE_DIR:-/opt/lbpr}\"
             export DOCKERHUB_USERNAME='${{ secrets.DOCKERHUB_USERNAME }}'
             export API_TAG='${{ steps.tags.outputs.api_tag }}'
             export SPA_TAG='${{ steps.tags.outputs.spa_tag }}'
@@ -1233,6 +1261,7 @@ jobs:
 
             bash ops/deploy/deploy.sh
           "
+
 
 
 C:/code2/lbpr/.github/workflows/ci.yml
@@ -1371,6 +1400,12 @@ jobs:
       - name: Prepare deploy bundle
         run: |
           mkdir -p _deploy/ops/deploy
+
+          # Cloudflare Origin SSL cert & key for nginx (lexbot.pro)
+          mkdir -p _deploy/ops/certs/cf-origin
+          printf "%s\n" "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
+          printf "%s\n" "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
+
           cp docker-compose.yml _deploy/
           if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
           cp ops/deploy/docker-compose.deploy.yml _deploy/ops/deploy/docker-compose.deploy.yml
@@ -1425,7 +1460,6 @@ jobs:
           "
 
 
-C:/code2/lbpr/
 
 C:/code2/lbpr/.github/workflows/infra-hetzner-apply.yml
 name: Infra (Hetzner) — plan & apply + deploy
@@ -1502,6 +1536,37 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_ed25519 "deploy@${{ needs.terraform.outputs.IP }}"             "docker compose -f /opt/lbpr/ops/deploy/docker-compose.deploy.yml pull &&              docker compose -f /opt/lbpr/ops/deploy/docker-compose.deploy.yml up -d --remove-orphans"
 
+C:/code2/lbpr/ops/certs/cf-origin/cert.txt
+-----BEGIN CERTIFICATE-----
+MIIEtDCCA5ygAwIBAgIUclcEm7aVbaAxUfmsCrEeMWL1sx4wDQYJKoZIhvcNAQEL
+BQAwgYsxCzAJBgNVBAYTAlVTMRkwFwYDVQQKExBDbG91ZEZsYXJlLCBJbmMuMTQw
+MgYDVQQLEytDbG91ZEZsYXJlIE9yaWdpbiBTU0wgQ2VydGlmaWNhdGUgQXV0aG9y
+aXR5MRYwFAYDVQQHEw1TYW4gRnJhbmNpc2NvMRMwEQYDVQQIEwpDYWxpZm9ybmlh
+MB4XDTI1MTExNDIwMzIwMFoXDTQwMTExMDIwMzIwMFowYjEZMBcGA1UEChMQQ2xv
+dWRGbGFyZSwgSW5jLjEdMBsGA1UECxMUQ2xvdWRGbGFyZSBPcmlnaW4gQ0ExJjAk
+BgNVBAMTHUNsb3VkRmxhcmUgT3JpZ2luIENlcnRpZmljYXRlMIIBIjANBgkqhkiG
+9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4ba4m9WLKa1BNcvOXsEkHz/wsmtX+vKNchXD
+B89PS/rhutfLn6aAyN3oIWDORX7tWs8jYNii4B65U0ikcqFlY5DB9yy5LDdiF5ah
+O/k+weu869OBy2JV0vgO1UwDQndSERJwVCIPcBSsHGpgPbwfj2lBP80jN2vVO7p7
+ytx1iH2FVBlf6qEGpbpCrdvXWOFK+qXE8/tc58pSNwcIOKg//xbBcoy4AgaFMYUj
+Q7F7oC+4VbggMf4GLAcq5xhkXXhyRyEa4ZdHGGQAm/mtpGU+jvx0FsbP8fsstVlU
+ef1V1Y4jU1dVfzudXfgAIkzRkJ0uHeyLtlyLhZFt+lFnFotEtQIDAQABo4IBNjCC
+ATIwDgYDVR0PAQH/BAQDAgWgMB0GA1UdJQQWMBQGCCsGAQUFBwMCBggrBgEFBQcD
+ATAMBgNVHRMBAf8EAjAAMB0GA1UdDgQWBBQeK5OjyUMlFi0nLuIYXDT0lgf6bzAf
+BgNVHSMEGDAWgBQk6FNXXXw0QIep65TbuuEWePwppDBABggrBgEFBQcBAQQ0MDIw
+MAYIKwYBBQUHMAGGJGh0dHA6Ly9vY3NwLmNsb3VkZmxhcmUuY29tL29yaWdpbl9j
+YTA3BgNVHREEMDAuggwqLmxleGJvdC5wcm+CCmxleGJvdC5wcm+CEnN0YWdpbmcu
+bGV4Ym90LnBybzA4BgNVHR8EMTAvMC2gK6AphidodHRwOi8vY3JsLmNsb3VkZmxh
+cmUuY29tL29yaWdpbl9jYS5jcmwwDQYJKoZIhvcNAQELBQADggEBABMAN+BQgqSK
+O5cAVs8QziwBhWH0LiiEnrGvKsw+1Kt/Uy7HdQKIrOwUA90b49P9O0R3CiX3/exh
+rp3KzUO1R5FrnaHDuhCgcYS3YJvVPOB1Yn/3mypEvhfT2EiPOQdoAsGNRm6HhLL/
+EjupAsqisTvEQF7GcPlTqIbb58yLZDuDP6/LGeOpHqVID+jcOom8iqKiiFOfb/Ev
+zHQeB/gwr/Vmi224xW9Drj+nIr+amw9+ny8lTDuB4ybJipKtQs4icNIo+ECXF7nj
+cp6zXs5yB4hX9FsZyH4Sx3KudaBvPAk0hdbtMwLHWQIoUtp+57LG7/bjLNN4cnpB
+6UUInltL0wg=
+-----END CERTIFICATE-----
+
+
 C:/code2/lbpr/ops/nginx/snippets/cloudflare-real-ip.conf
 # Auto-generated: Trust Cloudflare edge and restore real client IPs
 real_ip_header CF-Connecting-IP;
@@ -1545,6 +1610,10 @@ if [ -f ops/deploy/docker-compose.doppler.yml ]; then
 fi
 $DC --env-file ./.deploy.env $OVERRIDES up -d --remove-orphans
 # --- End addition ---
+
+
+C:/code2/lbpr/ops/certs/cf-origin/key.txt
+REDACTED_PRIVATE_KEY
 
 
 C:/code2/lbpr/ops/deploy/README-doppler.md
@@ -1714,12 +1783,16 @@ echo 'vm.overcommit_memory = 1' | sudo tee -a /etc/sysctl.conf
 
 
 C:/code2/lbpr/ops/certs/cf-origin/README.txt
-Place your Cloudflare Origin Certificate files here:
+Place your Cloudflare Origin Certificate files here if you are running nginx locally
+without the GitHub Actions deploy pipeline.
 
-- staging.lexbot.pro.pem  (the certificate file)
-- staging.lexbot.pro.key  (the private key file)
+In CI, the deploy workflow writes the Cloudflare Origin certificate and key from
+GitHub secrets into this folder with the following names:
 
-Files will be mounted read-only to /etc/ssl/cf-origin/ inside the nginx container.
+- lexbot.pro-origin.pem  (the certificate file, from CF_ORIGIN_CERT_LEXBOT_PRO)
+- lexbot.pro-origin.key  (the private key file, from CF_ORIGIN_KEY_LEXBOT_PRO)
+
+These files are mounted read-only to /etc/ssl/cf-origin/ inside the nginx container.
 
 
 C:/code2/lbpr/ops/redis/redis.conf

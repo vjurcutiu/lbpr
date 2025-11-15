@@ -114,11 +114,14 @@ jobs:
             cp ops/nginx/snippets/cloudflare-real-ip.conf _deploy/ops/nginx/snippets/cloudflare-real-ip.conf
           fi
 
-          # SSL certs and ACME webroot (if present)
-          if [ -d ops/certs/cf-origin ]; then
-            mkdir -p _deploy/ops/certs/cf-origin
-            cp -R ops/certs/cf-origin/* _deploy/ops/certs/cf-origin/
-          fi
+          # SSL certs and ACME webroot
+          mkdir -p _deploy/ops/certs/cf-origin
+
+          # Cloudflare Origin cert + key from GitHub secrets (lexbot.pro)
+          printf "%s\n" "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
+          printf "%s\n" "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
+
+          # Optional ACME webroot (if you also use certbot for Let's Encrypt)
           if [ -d ops/certbot-www ]; then
             cp -R ops/certbot-www _deploy/ops/
           fi
@@ -190,3 +193,4 @@ jobs:
 
             bash ops/deploy/deploy.sh
           "
+

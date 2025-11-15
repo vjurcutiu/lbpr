@@ -1173,6 +1173,8 @@ doppler_export_*.json
 snapshot.json
 *.pyc
 
+certs/
+
 C:/code2/lbpr/GUIDE-CLOUDFLARE-STAGING.md
 # Staging SSL on Cloudflare (Origin Certificate) — Step-by-step
 
