@@ -101,6 +101,38 @@ jobs:
           doppler secrets download --no-file --format env > .env.production
           echo "SPA .env.production generated with $(wc -l < .env.production) entries"
 
+      - name: Validate SPA env (Firebase)
+        working-directory: static/spa
+        run: |
+          set -euo pipefail
+          if [ ! -f .env.production ]; then
+            echo "[SPA ENV] ERROR: .env.production not found" >&2
+            ls -la
+            exit 1
+          fi
+          required_vars=(
+            VITE_FIREBASE_API_KEY
+            VITE_FIREBASE_AUTH_DOMAIN
+            VITE_FIREBASE_PROJECT_ID
+            VITE_FIREBASE_APP_ID
+            VITE_FIREBASE_MESSAGING_SENDER_ID
+          )
+          echo "[SPA ENV] Validating Firebase vars in .env.production"
+          for var in "${required_vars[@]}"; do
+            line=$(grep "^$var=" .env.production || true)
+            value=${line#"$var="}
+            if [ -z "$line" ]; then
+              echo "[SPA ENV] ERROR: $var is missing in .env.production" >&2
+              exit 1
+            fi
+            if [ -z "$value" ]; then
+              echo "[SPA ENV] ERROR: $var is empty in .env.production" >&2
+              exit 1
+            fi
+            echo "[SPA ENV] $var present (length ${#value})"
+          done
+          echo "[SPA ENV] Firebase env validation OK"
+
       - name: Build and push SPA image
         uses: docker/build-push-action@v5
         with:
@@ -185,7 +217,6 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_HOST}" >> ~/.ssh/known_hosts
-
 
       - name: Rsync deploy bundle to server
         env:
