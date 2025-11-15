@@ -1256,9 +1256,9 @@ jobs:
 
           # Cloudflare Origin cert + key from GitHub secrets (lexbot.pro)
           printf "%s
-" "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
+          " "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
           printf "%s
-" "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
+          " "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
 
           # Optional ACME webroot (if you also use certbot for Let's Encrypt)
           if [ -d ops/certbot-www ]; then
