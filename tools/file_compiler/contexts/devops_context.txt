@@ -1246,6 +1246,8 @@ jobs:
           fi
 
           # Nginx config + snippets for production
+          # Ensure nginx.conf in deploy bundle is always a regular file
+          rm -rf _deploy/ops/nginx/nginx.conf
           cp ops/nginx/nginx.conf _deploy/ops/nginx/nginx.conf
           if [ -f ops/nginx/snippets/cloudflare-real-ip.conf ]; then
             cp ops/nginx/snippets/cloudflare-real-ip.conf _deploy/ops/nginx/snippets/cloudflare-real-ip.conf
@@ -1255,10 +1257,8 @@ jobs:
           mkdir -p _deploy/ops/certs/cf-origin
 
           # Cloudflare Origin cert + key from GitHub secrets (lexbot.pro)
-          printf "%s
-          " "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
-          printf "%s
-          " "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
+          printf "%s\n" "${{ secrets.CF_ORIGIN_CERT_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.pem
+          printf "%s\n" "${{ secrets.CF_ORIGIN_KEY_LEXBOT_PRO }}" > _deploy/ops/certs/cf-origin/lexbot.pro-origin.key
 
           # Optional ACME webroot (if you also use certbot for Let's Encrypt)
           if [ -d ops/certbot-www ]; then
@@ -1299,6 +1299,22 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Fix remote nginx.conf path (ensure not a directory)
+        env:
+          HETZNER_SSH_PORT: ${{ secrets.HETZNER_SSH_PORT }}
+          HETZNER_USER: ${{ secrets.HETZNER_USER }}
+          HETZNER_HOST: ${{ secrets.HETZNER_HOST }}
+          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
+        run: |
+          ssh -p "${HETZNER_SSH_PORT:-22}" "${HETZNER_USER}@${HETZNER_HOST}" "
+            set -euo pipefail
+            cd "${REMOTE_DIR:-/opt/lbpr}"
+            if [ -d ops/nginx/nginx.conf ] && [ ! -f ops/nginx/nginx.conf ]; then
+              echo '[deploy] WARNING: ops/nginx/nginx.conf is a directory on remote; removing so rsync can lay down a file'
+              rm -rf ops/nginx/nginx.conf
+            fi
+          "
 
       - name: Rsync deploy bundle to server
         env:
