@@ -27,25 +27,52 @@ const firebaseConfig = {
 };
 
 // 🔍 Debug: what does the SPA actually see at runtime?
+declare global {
+  interface Window {
+    __LEXBOT_SPA_ENV__?: {
+      mode: string;
+      firebase: {
+        apiKeyLength?: number;
+        apiKeyTail?: string;
+        projectId?: string;
+        authDomain?: string;
+        appIdLength?: number;
+        appIdTail?: string;
+        messagingSenderId?: string;
+        messagingSenderIdLength?: number;
+      };
+    };
+  }
+}
+
 try {
   const debugPayload = {
-    apiKeyTail: firebaseConfig.apiKey ? firebaseConfig.apiKey.slice(-6) : undefined,
-    apiKeyLength: firebaseConfig.apiKey?.length,
-    authDomain: firebaseConfig.authDomain,
-    projectId: firebaseConfig.projectId,
-    appIdTail: firebaseConfig.appId ? firebaseConfig.appId.slice(-6) : undefined,
-    appIdLength: firebaseConfig.appId?.length,
-    messagingSenderId: firebaseConfig.messagingSenderId,
-    messagingSenderIdLength: firebaseConfig.messagingSenderId?.length,
+    mode: import.meta.env.MODE,
+    firebase: {
+      apiKeyLength: firebaseConfig.apiKey?.length,
+      apiKeyTail: firebaseConfig.apiKey ? firebaseConfig.apiKey.slice(-6) : undefined,
+      projectId: firebaseConfig.projectId,
+      authDomain: firebaseConfig.authDomain,
+      appIdLength: firebaseConfig.appId?.length,
+      appIdTail: firebaseConfig.appId ? firebaseConfig.appId.slice(-6) : undefined,
+      messagingSenderId: firebaseConfig.messagingSenderId,
+      messagingSenderIdLength: firebaseConfig.messagingSenderId?.length,
+    },
   };
 
-  console.log("[SPA DEBUG] Firebase config (auth/firebase.ts)", debugPayload);
+  // Assigning to window is an observable side-effect,
+  // so bundlers won't tree-shake this even if console.* is stripped.
+  window.__LEXBOT_SPA_ENV__ = debugPayload;
 
-  if (!firebaseConfig.apiKey) {
-    console.error("[SPA DEBUG] Missing Firebase apiKey at runtime (auth/firebase.ts)");
+  // Keep console logging for dev builds; it will be dropped in prod by drop_console.
+  if (import.meta.env.DEV) {
+    console.log("[SPA DEBUG] Firebase config (auth/firebase.ts)", debugPayload);
+    if (!firebaseConfig.apiKey) {
+      console.error("[SPA DEBUG] Missing Firebase apiKey at runtime (auth/firebase.ts)");
+    }
   }
 } catch {
-  // never break auth init because of logging
+  // never break auth init because of logging/debug
 }
 
 export const app = initializeApp(firebaseConfig);
