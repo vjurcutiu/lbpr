@@ -1,23 +1,42 @@
 SHELL := /bin/bash
 DC ?= docker compose
 PROJECT ?= lbpr
+
 BASE := -f docker-compose.yml
 SSL  := -f docker-compose.ssl.yml
+DEV  := -f docker-compose.dev.yml
+
 NET  := $(PROJECT)_appnet
 
-.PHONY: help dev up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms
+.PHONY: help dev dev-down dev-logs up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms
 
 help:
 	@echo "Targets:"
-	@echo "  dev / up-dev         - bring up stack (no SSL override)"
+	@echo "  dev                  - bring up local dev stack (docker-compose.dev.yml, app.localhost)"
+	@echo "  dev-down             - stop local dev stack"
+	@echo "  dev-logs             - follow dev logs (nginx, spa, api)"
+	@echo "  up-dev               - bring up base stack (docker-compose.yml, no SSL override)"
 	@echo "  staging / up-staging - bring up stack with Cloudflare SSL override"
 	@echo "  prod / up-prod       - bring up stack with Cloudflare SSL override"
 	@echo "  reload-nginx         - test & reload nginx with SSL override"
-	@echo "  logs                 - follow logs (nginx, api)"
+	@echo "  logs                 - follow logs (nginx, api) for base/prod stack"
 	@echo "  down                 - stop stack (with SSL override), remove orphans"
 	@echo "  down-all             - extra-aggressive down (both combos) and remove network"
 
-dev up-dev:
+# ----- Local dev stack (docker-compose.dev.yml) -----
+
+dev:
+	$(DC) -p $(PROJECT)-dev $(DEV) up -d --build
+
+dev-down:
+	$(DC) -p $(PROJECT)-dev $(DEV) down --remove-orphans
+
+dev-logs:
+	$(DC) -p $(PROJECT)-dev $(DEV) logs -f nginx spa api
+
+# ----- Base / prod-style stack (docker-compose.yml) -----
+
+up-dev:
 	$(DC) -p $(PROJECT) $(BASE) up -d --build
 
 staging up-staging:

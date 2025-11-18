@@ -6,10 +6,12 @@ import { AuthProvider } from "@/features/auth/AuthProvider";
 import "./index.legal.css";
 import { Toaster } from "sonner";
 import { initGtag } from "@/lib/gtag";
-// Keep your Cookiebot bridge if you have it
 import { initCookiebotConsentBridge } from "@/lib/consent";
+import { initCookiebot } from "@/lib/initCookiebot";
 
-// Initialize Google Ads/GA4 (gtag) + Cookiebot bridge
+// Initialize Cookiebot first (if enabled for this host),
+// then gtag / Consent Mode bridge.
+initCookiebot();
 initGtag();
 initCookiebotConsentBridge?.();
 
@@ -20,5 +22,5 @@ createRoot(document.getElementById("root")!).render(
       <Toaster richColors closeButton position="top-right" />
       <App />
     </AuthProvider>
-  </StrictMode>
+  </StrictMode>,
 );
