@@ -73,7 +73,7 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ secrets.DOCKERHUB_USERNAME }}/lbpr-api:${{ steps.tags.outputs.api_tag }}
 
-      - name: Install Doppler CLI (SPA)
+      - name: Install Doppler CLI
         uses: dopplerhq/cli-action@v3
 
       - name: Generate SPA .env from Doppler
@@ -140,7 +140,9 @@ jobs:
           mkdir -p _deploy/static
 
           cp docker-compose.yml _deploy/
-          if [ -f docker-compose.ssl.yml ]; then cp docker-compose.ssl.yml _deploy/; fi
+          if [ -f docker-compose.ssl.yml ]; then
+            cp docker-compose.ssl.yml _deploy/
+          fi
 
           # SPA marketing assets, if present
           if [ -d static/marketing ]; then
@@ -178,11 +180,13 @@ jobs:
           cp ops/deploy/deploy.sh _deploy/ops/deploy/deploy.sh
           chmod +x _deploy/ops/deploy/deploy.sh
 
-          # Root .env (Redis, shared secrets) from GitHub secret
+          # Root .env (Redis, shared infra secrets) from GitHub secret
           printf "%s" "${{ secrets.SERVER_ROOT_ENV }}" > _deploy/.env
 
-          # Backend .env from GitHub secret
-          printf "%s" "${{ secrets.SERVER_BACKEND_ENV }}" > _deploy/backend/.env
+          # Backend .env from Doppler (app-level env, incl. FIREBASE_STORAGE_BUCKET)
+          export DOPPLER_TOKEN="${{ secrets.DOPPLER_TOKEN_API }}"
+          doppler secrets download --no-file --format env > _deploy/backend/.env
+          echo "[deploy] backend/.env generated from Doppler with $(wc -l < _deploy/backend/.env) entries"
 
           # Firebase service account (optional, base64-encoded JSON)
           if [ -n "${{ secrets.FIREBASE_SA_JSON_B64 }}" ]; then
