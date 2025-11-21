@@ -403,10 +403,12 @@ import { AuthProvider } from "@/features/auth/AuthProvider";
 import "./index.legal.css";
 import { Toaster } from "sonner";
 import { initGtag } from "@/lib/gtag";
-// Keep your Cookiebot bridge if you have it
 import { initCookiebotConsentBridge } from "@/lib/consent";
+import { initCookiebot } from "@/lib/initCookiebot";
 
-// Initialize Google Ads/GA4 (gtag) + Cookiebot bridge
+// Initialize Cookiebot first (if enabled for this host),
+// then gtag / Consent Mode bridge.
+initCookiebot();
 initGtag();
 initCookiebotConsentBridge?.();
 
@@ -417,7 +419,7 @@ createRoot(document.getElementById("root")!).render(
       <Toaster richColors closeButton position="top-right" />
       <App />
     </AuthProvider>
-  </StrictMode>
+  </StrictMode>,
 );
 
 
@@ -1139,21 +1141,70 @@ C:/code2/lbpr/static/spa/index.html
     <link rel="icon" type="image/svg+xml" href="/icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LexBot PRO</title>
-
-    <!-- Cookiebot by Usercentrics: place as high in <head> as possible -->
-    <!-- Set VITE_COOKIEBOT_ID in your environment; Vite will replace the %...% token below at build -->
-    <script id="Cookiebot"
-            src="https://consent.cookiebot.com/uc.js"
-            data-cbid="%VITE_COOKIEBOT_ID%"
-            data-blockingmode="auto"
-            type="text/javascript"
-            async></script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+
+
+C:/code2/lbpr/static/spa/src/lib/initCookiebot.ts
+// src/lib/initCookiebot.ts
+// Dynamically injects the Cookiebot script based on env + hostname.
+// This avoids relying on %VITE_*% placeholders in index.html and
+// works in both dev and prod as long as VITE_COOKIEBOT_ID is set.
+
+export function initCookiebot() {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+
+  const id = import.meta.env.VITE_COOKIEBOT_ID as string | undefined;
+  if (!id) {
+    if (import.meta.env.DEV) {
+      console.warn("[cookiebot] VITE_COOKIEBOT_ID is not set; skipping Cookiebot init.");
+    }
+    return;
+  }
+
+  // Avoid double-injection
+  if (document.getElementById("Cookiebot")) return;
+
+  // Allow overriding hosts via env; fallback to a sensible default list.
+  const rawHosts =
+    (import.meta.env.VITE_COOKIEBOT_HOSTS as string | undefined) ||
+    "lexbot.pro,www.lexbot.pro,app.localhost,localhost";
+
+  const allowedHosts = rawHosts
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
+
+  if (!allowedHosts.includes(window.location.hostname)) {
+    if (import.meta.env.DEV) {
+      console.info(
+        "[cookiebot] Hostname not in VITE_COOKIEBOT_HOSTS; skipping Cookiebot for",
+        window.location.hostname,
+        "allowed:",
+        allowedHosts,
+      );
+    }
+    return;
+  }
+
+  const script = document.createElement("script");
+  script.id = "Cookiebot";
+  script.src = "https://consent.cookiebot.com/uc.js";
+  script.async = true;
+  script.type = "text/javascript";
+  (script as any).dataset.cbid = id;
+  (script as any).dataset.blockingmode = "auto";
+
+  document.head.appendChild(script);
+
+  if (import.meta.env.DEV) {
+    console.info("[cookiebot] Injected Cookiebot script for host", window.location.hostname);
+  }
+}
 
 
 C:/code2/lbpr/static/spa/src/lib/consent.ts

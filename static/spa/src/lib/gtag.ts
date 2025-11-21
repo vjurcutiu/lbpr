@@ -1,145 +1,109 @@
 // src/lib/gtag.ts
-// Unified loader for gtag.js, GA4 (G-XXXX) and Google Ads (AW-XXXX).
-// - Manual page_view for SPA with history listeners
-// - Respects Cookiebot consent if present (statistics/marketing)
-// - Adds UTM/click IDs from first-touch attribution on subsequent navigations
-
-import { parseAttributionFromURL, persistFirstTouchAttribution, getStoredAttribution } from "@/lib/utm";
+// Unified loader for GA4 + Google Ads conversion helper.
+//
+// - Reads IDs from VITE_GA4_MEASUREMENT_ID, VITE_GADS_ID, VITE_GADS_SIGNUP_LABEL
+//   (or VITE_AW_SIGNUP_CONVERSION_LABEL as a fallback).
+// - Handles SPA navigation events (history.pushState / popstate).
+// - Leaves consent handling to your CMP (Clickio or any other TCF v2 CMP)
+//   via Google Consent Mode / TCF integration.
 
 declare global {
   interface Window {
-    dataLayer?: any[];
+    dataLayer: any[];
     gtag?: (...args: any[]) => void;
-    Cookiebot?: any;
   }
 }
 
 const GA4_ID = import.meta.env.VITE_GA4_MEASUREMENT_ID as string | undefined;
-const GADS_ID = import.meta.env.VITE_GTAG_AW_ID as string | undefined; // optional
-const AW_SIGNUP_LABEL = import.meta.env.VITE_AW_SIGNUP_CONVERSION_LABEL as string | undefined;
-const GA4_DEBUG = String(import.meta.env.VITE_GA4_DEBUG || "0") === "1";
+const GADS_ID = import.meta.env.VITE_GADS_ID as string | undefined;
+const AW_SIGNUP_LABEL =
+  (import.meta.env.VITE_GADS_SIGNUP_LABEL as string | undefined) ||
+  (import.meta.env.VITE_AW_SIGNUP_CONVERSION_LABEL as string | undefined);
+const DEBUG = !!import.meta.env.VITE_GA4_DEBUG;
 
 let loaded = false;
-let historyPatched = false;
+// Track the last page path (including query string) we've sent to GA4.
+let currentPath = "";
 
-function hasConsent(): boolean {
-  // If Cookiebot is present, require at least "statistics" consent.
-  try {
-    const cb = (window as any).Cookiebot;
-    if (cb && typeof cb.consented === "object") {
-      const c = cb.consented;
-      return !!(c.statistics || c.marketing);
-    }
-  } catch {}
-  // If no consent manager, assume allowed.
-  return true;
-}
-
-export function initGtag(): void {
+export function initGtag() {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
   if (loaded) return;
-
-  // Capture first-touch attribution on initial load
-  try {
-    persistFirstTouchAttribution(parseAttributionFromURL());
-  } catch {}
-
-  // Create dataLayer + gtag proxy ASAP
-  window.dataLayer = window.dataLayer || [];
-  window.gtag = window.gtag || function(){ window.dataLayer!.push(arguments as any); };
-  window.gtag("js", new Date());
-
-  // Load gtag.js only once. Prefer GA4 ID, fallback to Ads ID if GA4 not provided.
-  const idForScript = GA4_ID || GADS_ID;
-  if (!idForScript) {
-    console.warn("[gtag] No GA4 or Ads ID provided. Set VITE_GA4_MEASUREMENT_ID or VITE_GTAG_AW_ID.");
+  if (!GA4_ID && !GADS_ID) {
+    if (DEBUG) console.info("[gtag] No GA4 or GAds IDs configured; skipping.");
     return;
   }
 
+  const w = window as any;
+  w.dataLayer = w.dataLayer || [];
+  w.gtag =
+    w.gtag ||
+    function gtag() {
+      w.dataLayer.push(arguments);
+    };
+
+  // Enable IAB TCF support so Google tags can read TC strings from a CMP
+  // like Clickio when present.
+  (w as any)["gtag_enable_tcf_support"] = true;
+
   const script = document.createElement("script");
   script.async = true;
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(idForScript)}`;
+  script.src = `https://www.googletagmanager.com/gtag/js?id=${GA4_ID || GADS_ID}`;
   document.head.appendChild(script);
 
-  // Configure GA4 (manual page_view) and Ads if present
+  w.gtag("js", new Date());
   if (GA4_ID) {
-    window.gtag("config", GA4_ID, {
-      send_page_view: false,           // SPA: we send our own
-      debug_mode: GA4_DEBUG,
+    w.gtag("config", GA4_ID, {
+      send_page_view: false,
+      debug_mode: DEBUG,
     });
   }
   if (GADS_ID) {
-    window.gtag("config", GADS_ID);
+    w.gtag("config", GADS_ID);
   }
 
   loaded = true;
 
-  // Immediately track the first view (after a short tick to let the app render the title)
-  setTimeout(() => trackPageView(), 0);
-
-  // Wire SPA navigation listeners
   patchHistoryForSPA();
-}
+  // Fire initial page_view explicitly; GA4 send_page_view is disabled above.
+  trackPageView();
 
-export function trackPageView(): void {
-  if (!loaded || !GA4_ID || !hasConsent()) return;
-
-  const page_location = window.location.href;
-  const page_referrer = document.referrer || undefined;
-  const page_title = document.title || undefined;
-
-  const attrib = getStoredAttribution() || {};
-  // GA4 will keep original UTMs from the landing URL. We also attach them to manual hits in SPA flows.
-  const campaignParams: Record<string, any> = {};
-  if (attrib.utm_source) campaignParams.source = attrib.utm_source;
-  if (attrib.utm_medium) campaignParams.medium = attrib.utm_medium;
-  if (attrib.utm_campaign) campaignParams.campaign = attrib.utm_campaign;
-  if (attrib.utm_term) campaignParams.term = attrib.utm_term;
-  if (attrib.utm_content) campaignParams.content = attrib.utm_content;
-  if (attrib.gclid) campaignParams.gclid = attrib.gclid;
-  if (attrib.wbraid) campaignParams.wbraid = attrib.wbraid;
-  if (attrib.gbraid) campaignParams.gbraid = attrib.gbraid;
-
-  window.gtag!("event", "page_view", {
-    page_location,
-    page_referrer,
-    page_title,
-    ...campaignParams,
-  });
-}
-
-// Monkey-patch History API to detect SPA navigations.
-function patchHistoryForSPA() {
-  if (historyPatched) return;
-  historyPatched = true;
-
-  const origPush = history.pushState;
-  const origReplace = history.replaceState;
-
-  function onChange() {
-    // Give React Router a tick to update title
-    setTimeout(() => trackPageView(), 0);
+  if (DEBUG) {
+    console.info("[gtag] init", { GA4_ID, GADS_ID });
   }
-
-  history.pushState = function (...args: any[]) {
-    const ret = origPush.apply(this, args as any);
-    onChange();
-    return ret;
-  } as any;
-
-  history.replaceState = function (...args: any[]) {
-    const ret = origReplace.apply(this, args as any);
-    onChange();
-    return ret;
-  } as any;
-
-  window.addEventListener("popstate", onChange);
-  window.addEventListener("hashchange", onChange);
 }
 
-// Optional: helper for Ads signup conversion (called after successful signup)
+export function trackPageView() {
+  if (!loaded || !GA4_ID) return;
+  const path = window.location.pathname + window.location.search;
+  if (path === currentPath) return;
+  currentPath = path;
+  window.gtag?.("event", "page_view", { page_path: path });
+}
+
+function patchHistoryForSPA() {
+  try {
+    const origPushState = history.pushState;
+    history.pushState = function (...args: any[]) {
+      origPushState.apply(this, args as any);
+      setTimeout(trackPageView, 0);
+    } as any;
+    window.addEventListener("popstate", () => setTimeout(trackPageView, 0));
+  } catch (err) {
+    if (DEBUG) console.warn("[gtag] history patch failed", err);
+  }
+}
+
 export function trackSignupConversion() {
-  if (!GADS_ID || !AW_SIGNUP_LABEL || !hasConsent()) return;
-  window.gtag!("event", "conversion", {
-    send_to: `${GADS_ID}/${AW_SIGNUP_LABEL}`,
+  if (!GADS_ID || !AW_SIGNUP_LABEL) {
+    if (DEBUG) {
+      console.debug("[gtag] signup conversion skipped", {
+        GADS_ID,
+        AW_SIGNUP_LABEL,
+      });
+    }
+    return;
+  }
+  window.gtag?.("event", "conversion", {
+    send_to: AW_SIGNUP_LABEL,
   });
 }

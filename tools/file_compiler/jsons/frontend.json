@@ -18,7 +18,8 @@
             "C:\\code2\\lbpr\\static\\spa\\.env",
             "C:\\code2\\lbpr\\static\\spa\\playwright.config.ts",
             "C:\\code2\\lbpr\\static\\spa\\vitest.config.ts",
-            "C:\\code2\\lbpr\\static\\spa\\index.html"
+            "C:\\code2\\lbpr\\static\\spa\\index.html",
+            "C:\\code2\\lbpr\\static\\spa\\src\\lib\\initCookiebot.ts"
         ],
   "folders": ["C:\\code2\\lbpr\\static\\spa\\src\\lib"]
 }
