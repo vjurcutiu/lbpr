@@ -8,7 +8,16 @@ DEV  := -f docker-compose.dev.yml
 
 NET  := $(PROJECT)_appnet
 
-.PHONY: help dev dev-down dev-logs up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms
+# Load local-only secrets/tokens (not committed)
+# Create a .env.local file at repo root (gitignored) with:
+#   DOPPLER_PROJECT=lbpr
+#   DOPPLER_CONFIG=dev
+#   DOPPLER_TOKEN_SPA=dp.st.dev.xxxxxx
+#   DOPPLER_TOKEN_API=dp.st.dev.yyyyyy
+-include .env.local
+export
+
+.PHONY: help dev dev-down dev-logs up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check
 
 help:
 	@echo "Targets:"
@@ -22,10 +31,30 @@ help:
 	@echo "  logs                 - follow logs (nginx, api) for base/prod stack"
 	@echo "  down                 - stop stack (with SSL override), remove orphans"
 	@echo "  down-all             - extra-aggressive down (both combos) and remove network"
+	@echo ""
+	@echo "Doppler:"
+	@echo "  doppler-dev-env      - generate static/spa/.env + backend/.env from Doppler (dev)"
+	@echo ""
+	@echo "Local setup (once):"
+	@echo "  1) Install Doppler CLI"
+	@echo "  2) Create .env.local with DOPPLER_* values (see comment at top)"
+
+# ----- Doppler (local dev) -----
+
+doppler-check:
+	@command -v doppler >/dev/null 2>&1 || (echo "ERROR: Doppler CLI not installed (install doppler and try again)"; exit 1)
+	@test -n "$(DOPPLER_PROJECT)" || (echo "ERROR: DOPPLER_PROJECT missing (set in .env.local)"; exit 1)
+	@test -n "$(DOPPLER_CONFIG)" || (echo "ERROR: DOPPLER_CONFIG missing (set in .env.local, e.g. dev)"; exit 1)
+	@test -n "$(DOPPLER_TOKEN_SPA)" || (echo "ERROR: DOPPLER_TOKEN_SPA missing (set in .env.local)"; exit 1)
+	@test -n "$(DOPPLER_TOKEN_API)" || (echo "ERROR: DOPPLER_TOKEN_API missing (set in .env.local)"; exit 1)
+
+doppler-dev-env:
+	powershell -ExecutionPolicy Bypass -File ops/doppler_dev.ps1
+
 
 # ----- Local dev stack (docker-compose.dev.yml) -----
 
-dev:
+dev: doppler-dev-env
 	$(DC) -p $(PROJECT)-dev $(DEV) up -d --build
 
 dev-down:
