@@ -33,7 +33,7 @@ jobs:
           whoami
           hostname
           docker version
-          docker info | head -n 40
+          docker info | head -n 40 || true
 
       # If you are ONLY building linux/amd64, QEMU is not required.
       # Keeping it is fine, but you can remove it to reduce moving parts.

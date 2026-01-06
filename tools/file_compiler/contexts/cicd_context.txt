@@ -32,7 +32,7 @@ jobs:
   build-and-deploy:
     # IMPORTANT: Use a UNIQUE label so jobs don't get scheduled onto any other self-hosted runner (e.g., WSL).
     # Make sure your runner has this label (you set it during ./config.sh --labels ...).
-    runs-on: [self-hosted, lexbot-prod]
+    runs-on: [self-hosted, Linux, X64]
 
     steps:
       - name: Checkout repository
