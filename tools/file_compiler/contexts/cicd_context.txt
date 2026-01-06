@@ -217,8 +217,15 @@ jobs:
           DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -p "${DEPLOY_SSH_PORT:-22}" "${DEPLOY_HOST}" >> ~/.ssh/known_hosts
+          set -euxo pipefail
+          echo "HOME=$HOME"
+          echo "DEPLOY_SSH_PORT=${DEPLOY_SSH_PORT:-22}"
+          echo "DEPLOY_HOST is set? $([ -n "${DEPLOY_HOST:-}" ] && echo yes || echo no)"
+          which ssh-keyscan
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          ssh-keyscan -H -p "${DEPLOY_SSH_PORT:-22}" "${DEPLOY_HOST}" >> "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
 
       - name: Fix remote nginx.conf path (ensure not a directory)
         env:
