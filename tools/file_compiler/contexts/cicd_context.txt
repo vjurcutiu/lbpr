@@ -28,7 +28,10 @@ permissions:
 
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
+    # Run on your self-hosted runner (Azure VM).
+    # GitHub automatically adds OS/arch labels for self-hosted runners: Linux, X64, ARM64, etc.
+    # Keeping Linux+X64 ensures this job won't land on a different self-hosted runner of another arch.
+    runs-on: [self-hosted, Linux, X64]
 
     steps:
       - name: Checkout repository
