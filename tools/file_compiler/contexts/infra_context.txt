@@ -1280,6 +1280,8 @@ snapshot.json
 *.pyc
 
 certs/
+lexbot-deploy-key.pem
+
 
 C:/code2/lbpr/GUIDE-CLOUDFLARE-STAGING.md
 # Staging SSL on Cloudflare (Origin Certificate) — Step-by-step
@@ -1320,6 +1322,10 @@ docker compose logs -f nginx
 - Production (`lexbot.pro`) still uses Let's Encrypt in `nginx.conf`. You can migrate prod to Cloudflare Origin certs later by switching the certificate paths similarly.
 - Keep `cloudflare-real-ip.conf` mounted to restore real client IPs through Cloudflare.
 - Optional Cloudflare toggles (Speed → Optimization): enable HTTP/2 and HTTP/3 (with quic). Nginx here serves HTTP/2; HTTP/3 would require a QUIC-enabled nginx build.
+
+
+C:/code2/lbpr/lexbot-deploy-key.pem
+REDACTED_PRIVATE_KEY
 
 
 C:/code2/lbpr/makefile-readme.txt
