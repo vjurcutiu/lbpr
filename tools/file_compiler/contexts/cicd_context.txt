@@ -9,7 +9,7 @@ C:/code2/lbpr/.github/workflows/ci-doppler-note.txt
 
 
 C:/code2/lbpr/.github/workflows/ci.yml
-name: CI — Build, Push, and Deploy (Doppler)
+name: CI — Build, Push, and Deploy (Self-hosted runner, no SSH)
 
 on:
   push:
@@ -20,6 +20,8 @@ on:
 
 env:
   REGISTRY: docker.io
+  # Where the app lives on the SAME machine as the self-hosted runner:
+  LOCAL_DEPLOY_DIR: /opt/lbpr
 
 permissions:
   contents: read
@@ -28,15 +30,24 @@ permissions:
 
 jobs:
   build-and-deploy:
-    # Run on your self-hosted runner (Azure VM).
-    # GitHub automatically adds OS/arch labels for self-hosted runners: Linux, X64, ARM64, etc.
-    # Keeping Linux+X64 ensures this job won't land on a different self-hosted runner of another arch.
-    runs-on: [self-hosted, Linux, X64]
+    # IMPORTANT: Use a UNIQUE label so jobs don't get scheduled onto any other self-hosted runner (e.g., WSL).
+    # Make sure your runner has this label (you set it during ./config.sh --labels ...).
+    runs-on: [self-hosted, lexbot-prod]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Docker info (runner sanity check)
+        run: |
+          set -euo pipefail
+          whoami
+          hostname
+          docker version
+          docker info | head -n 40
+
+      # If you are ONLY building linux/amd64, QEMU is not required.
+      # Keeping it is fine, but you can remove it to reduce moving parts.
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -142,7 +153,7 @@ jobs:
           build-args: |
             CI_FAST_BUILD=1
 
-      - name: Prepare deploy bundle
+      - name: Prepare local deploy bundle
         run: |
           set -euo pipefail
 
@@ -164,7 +175,6 @@ jobs:
           fi
 
           # Nginx config + snippets for production
-          # Ensure nginx.conf in deploy bundle is always a regular file
           rm -rf _deploy/ops/nginx/nginx.conf
           cp ops/nginx/nginx.conf _deploy/ops/nginx/nginx.conf
           if [ -f ops/nginx/snippets/cloudflare-real-ip.conf ]; then
@@ -197,7 +207,7 @@ jobs:
           # Root .env (Redis, shared infra secrets) from GitHub secret
           printf "%s" "${{ secrets.SERVER_ROOT_ENV }}" > _deploy/.env
 
-          # Backend .env from Doppler (app-level env, incl. FIREBASE_STORAGE_BUCKET)
+          # Backend .env from Doppler (app-level env)
           export DOPPLER_TOKEN="${{ secrets.DOPPLER_TOKEN_API }}"
           doppler secrets download --no-file --format env > _deploy/backend/.env
           echo "[deploy] backend/.env generated from Doppler with $(wc -l < _deploy/backend/.env) entries"
@@ -207,74 +217,28 @@ jobs:
             echo "${{ secrets.FIREBASE_SA_JSON_B64 }}" | base64 -d > _deploy/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json
           fi
 
-      - name: Start ssh-agent (deploy key)
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
-
-      - name: Add deploy host to known_hosts
-        env:
-          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-        run: |
-          set -euxo pipefail
-          echo "HOME=$HOME"
-          echo "DEPLOY_SSH_PORT=${DEPLOY_SSH_PORT:-22}"
-          echo "DEPLOY_HOST is set? $([ -n "${DEPLOY_HOST:-}" ] && echo yes || echo no)"
-          which ssh-keyscan
-          mkdir -p "$HOME/.ssh"
-          chmod 700 "$HOME/.ssh"
-          ssh-keyscan -H -p "${DEPLOY_SSH_PORT:-22}" "${DEPLOY_HOST}" >> "$HOME/.ssh/known_hosts"
-          chmod 600 "$HOME/.ssh/known_hosts"
-
-      - name: Fix remote nginx.conf path (ensure not a directory)
-        env:
-          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
-        run: |
-          ssh -p "${DEPLOY_SSH_PORT:-22}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
-            set -euo pipefail
-            cd \"${REMOTE_DIR:-/opt/lbpr}\"
-            if [ -d ops/nginx/nginx.conf ] && [ ! -f ops/nginx/nginx.conf ]; then
-              echo '[deploy] WARNING: ops/nginx/nginx.conf is a directory on remote; removing so rsync can lay down a file'
-              rm -rf ops/nginx/nginx.conf
-            fi
-          "
-
-      - name: Rsync deploy bundle to deploy target
-        env:
-          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
+      - name: Sync bundle into LOCAL_DEPLOY_DIR
         run: |
           set -euo pipefail
-          RSYNC_RSH="ssh -p ${DEPLOY_SSH_PORT:-22}" rsync -avz --delete _deploy/ "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_DIR:-/opt/lbpr}/"
+          sudo mkdir -p "${LOCAL_DEPLOY_DIR}"
+          sudo rsync -av --delete _deploy/ "${LOCAL_DEPLOY_DIR}/"
+          sudo chown -R "$(id -u):$(id -g)" "${LOCAL_DEPLOY_DIR}"
 
-      - name: Remote deploy
-        env:
-          DEPLOY_SSH_PORT: ${{ secrets.DEPLOY_SSH_PORT }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          REMOTE_DIR: ${{ secrets.REMOTE_DIR }}
+      - name: Deploy locally (no SSH)
+        working-directory: ${{ env.LOCAL_DEPLOY_DIR }}
         run: |
-          ssh -p "${DEPLOY_SSH_PORT:-22}" "${DEPLOY_USER}@${DEPLOY_HOST}" "
-            set -euo pipefail
-            cd \"${REMOTE_DIR:-/opt/lbpr}\"
-            export DOCKERHUB_USERNAME='${{ secrets.DOCKERHUB_USERNAME }}'
-            export API_TAG='${{ steps.tags.outputs.api_tag }}'
-            export SPA_TAG='${{ steps.tags.outputs.spa_tag }}'
+          set -euo pipefail
+          export DOCKERHUB_USERNAME='${{ secrets.DOCKERHUB_USERNAME }}'
+          export API_TAG='${{ steps.tags.outputs.api_tag }}'
+          export SPA_TAG='${{ steps.tags.outputs.spa_tag }}'
 
-            echo '${{ secrets.DOCKERHUB_TOKEN }}' | docker login --username '${{ secrets.DOCKERHUB_USERNAME }}' --password-stdin || true
+          echo '${{ secrets.DOCKERHUB_TOKEN }}' | docker login --username '${{ secrets.DOCKERHUB_USERNAME }}' --password-stdin || true
 
-            echo 'DOPPLER_PROJECT=${{ secrets.DOPPLER_PROJECT }}' > .deploy.env
-            echo 'DOPPLER_CONFIG=${{ secrets.DOPPLER_CONFIG }}' >> .deploy.env
-            echo 'DOPPLER_ENABLED=1' >> .deploy.env
+          echo 'DOPPLER_PROJECT=${{ secrets.DOPPLER_PROJECT }}' > .deploy.env
+          echo 'DOPPLER_CONFIG=${{ secrets.DOPPLER_CONFIG }}' >> .deploy.env
+          echo 'DOPPLER_ENABLED=1' >> .deploy.env
 
-            bash ops/deploy/deploy.sh
-          "
+          bash ops/deploy/deploy.sh
 
 
 C:/code2/lbpr/.github/workflows/infra-hetzner-apply.yml
