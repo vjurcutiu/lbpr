@@ -9,7 +9,16 @@ DEV  := -f docker-compose.dev.yml
 
 NET  := $(PROJECT)_appnet
 
-.PHONY: help dev dev-down dev-logs up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms
+# Load local-only secrets/tokens (not committed)
+# Create a .env.local file at repo root (gitignored) with:
+#   DOPPLER_PROJECT=lbpr
+#   DOPPLER_CONFIG=dev
+#   DOPPLER_TOKEN_SPA=dp.st.dev.xxxxxx
+#   DOPPLER_TOKEN_API=dp.st.dev.yyyyyy
+-include .env.local
+export
+
+.PHONY: help dev dev-down dev-logs up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check
 
 help:
 	@echo "Targets:"
@@ -23,10 +32,30 @@ help:
 	@echo "  logs                 - follow logs (nginx, api) for base/prod stack"
 	@echo "  down                 - stop stack (with SSL override), remove orphans"
 	@echo "  down-all             - extra-aggressive down (both combos) and remove network"
+	@echo ""
+	@echo "Doppler:"
+	@echo "  doppler-dev-env      - generate static/spa/.env + backend/.env from Doppler (dev)"
+	@echo ""
+	@echo "Local setup (once):"
+	@echo "  1) Install Doppler CLI"
+	@echo "  2) Create .env.local with DOPPLER_* values (see comment at top)"
+
+# ----- Doppler (local dev) -----
+
+doppler-check:
+	@command -v doppler >/dev/null 2>&1 || (echo "ERROR: Doppler CLI not installed (install doppler and try again)"; exit 1)
+	@test -n "$(DOPPLER_PROJECT)" || (echo "ERROR: DOPPLER_PROJECT missing (set in .env.local)"; exit 1)
+	@test -n "$(DOPPLER_CONFIG)" || (echo "ERROR: DOPPLER_CONFIG missing (set in .env.local, e.g. dev)"; exit 1)
+	@test -n "$(DOPPLER_TOKEN_SPA)" || (echo "ERROR: DOPPLER_TOKEN_SPA missing (set in .env.local)"; exit 1)
+	@test -n "$(DOPPLER_TOKEN_API)" || (echo "ERROR: DOPPLER_TOKEN_API missing (set in .env.local)"; exit 1)
+
+doppler-dev-env:
+	powershell -ExecutionPolicy Bypass -File ops/doppler_dev.ps1
+
 
 # ----- Local dev stack (docker-compose.dev.yml) -----
 
-dev:
+dev: doppler-dev-env
 	$(DC) -p $(PROJECT)-dev $(DEV) up -d --build
 
 dev-down:
@@ -368,55 +397,41 @@ tiktoken==0.11.0
 
 
 C:/code2/lbpr/backend/.env
-ENV=dev
-FIREBASE_PROJECT_ID="lexbot-pro"
+COOKIE_NAME="fb_session"
+COOKIE_PATH="/"
+COOKIE_SAMESITE="lax"
+COOKIE_SECURE="false"
+DOPPLER_CONFIG="dev_backend"
+DOPPLER_ENVIRONMENT="dev"
+DOPPLER_PROJECT="lbpr"
+ENV="dev"
 FIREBASE_CREDENTIALS="C:/code2/lbpr/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json"
 FIREBASE_CREDENTIALS_DEFAULT="C:/code2/lbpr/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json"
+FIREBASE_PROJECT_ID="lexbot-pro"
+FIREBASE_STORAGE_BUCKET="lexbot-pro.firebasestorage.app"
+LIMITS_FREE_MESSAGES="50"
+LIMITS_FREE_UPLOAD_TOKENS="100000"
+LIMITS_PRO_MESSAGES="10000"
+LIMITS_PRO_UPLOAD_TOKENS="20000000"
+OPENAI_API_KEY="REDACTED_OPENAI_API_KEY"
+PINECONE_API_KEY="REDACTED_PINECONE_API_KEY"
+PINECONE_CLOUD="aws"
+PINECONE_INDEX="lbpr"
+PINECONE_INDEX_DENSE="lbpr-dense"
+PINECONE_INDEX_SPARSE="lbpr-sparse"
+PINECONE_REGION="us-east-1"
+RAG_EMBEDDER="openai"
+RAG_EMBED_DIM="1536"
+RAG_EMBED_MODEL="text-embedding-3-small"
+RAG_HYBRID_ALPHA="0.5"
+RAG_HYBRID_DUAL_INDEX="1"
+RAG_HYBRID_FUSION="rrf"
+RAG_VECTORSTORE="pinecone"
+REDIS_PASSWORD="4OUJ8@,??4x9~"
+REDIS_URL="redis://:4OUJ8@,??4x9~@redis:6379/0"
+SESSION_HOURS="8"
+TOKENIZER_MODEL="cl100k_base"
 
-COOKIE_NAME=fb_session
-SESSION_HOURS=8
-COOKIE_SECURE=false
-COOKIE_SAMESITE=lax
-COOKIE_PATH=/
-# COOKIE_DOMAIN=app.example.com
-
-# For CORS/hosts (set in prod)
-# CORS_ALLOW_ORIGINS=["https://app.example.com"]
-# TRUSTED_HOSTS=["app.example.com"]
-
-RAG_EMBEDDER=openai
-OPENAI_API_KEY=REDACTED_OPENAI_API_KEY
-RAG_EMBED_MODEL=text-embedding-3-small
-RAG_VECTORSTORE=pinecone
-PINECONE_API_KEY=REDACTED_PINECONE_API_KEY
-PINECONE_INDEX=lbpr
-PINECONE_CLOUD=aws
-PINECONE_REGION=us-east-1
-RAG_EMBED_DIM=1536
-
-FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
-
-RAG_HYBRID_FUSION=rrf
-RAG_HYBRID_ALPHA=0.5  
-
-LIMITS_FREE_MESSAGES=50
-LIMITS_FREE_UPLOAD_TOKENS=100000
-LIMITS_PRO_MESSAGES=10000
-LIMITS_PRO_UPLOAD_TOKENS=20000000
-
-# Optional: tokenizer override if you want a specific encoding name
-TOKENIZER_MODEL=cl100k_base
-
-RAG_HYBRID_DUAL_INDEX=1
-
-# Use a base name or explicit names
-PINECONE_INDEX_DENSE=lbpr-dense
-PINECONE_INDEX_SPARSE=lbpr-sparse
-
-
-
-# Authenticated Redis URL (note the colon before password)
-REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
 
 C:/code2/lbpr/backend/.dockerignore
 # python
@@ -841,6 +856,7 @@ C:/code2/lbpr/static/spa/package.json
     "input-otp": "^1.4.2",
     "lucide-react": "^0.544.0",
     "next-themes": "^0.4.6",
+    "posthog-js": "^1.310.1",
     "react": "^19.1.1",
     "react-day-picker": "^9.11.1",
     "react-dom": "^19.1.1",
@@ -1200,6 +1216,17 @@ REDIS_PASSWORD="4OUJ8@,£4x9~"
 C:/code2/lbpr/.env.example
 REDIS_PASSWORD=
 
+C:/code2/lbpr/.env.local
+DOPPLER_PROJECT=lbpr
+
+
+DOPPLER_CONFIG_FRONTEND=dev_frontend
+DOPPLER_CONFIG_BACKEND=dev_backend
+
+
+DOPPLER_TOKEN_SPA=dp.st.dev_frontend.T0MO9lVg5gxOEQwATH6FiJ79twp04umVH0ioxJlyq2T
+DOPPLER_TOKEN_API=dp.st.dev_backend.GOI0kdR4C8VLfxMdIb6prN0qHmo39xQCZoRKiMr7YnK
+
 C:/code2/lbpr/.gitignore
 # Default .gitignore file
 venv/
@@ -1370,6 +1397,38 @@ password recovery
 2fa
 provide proper error message when email is already in use
 same password rules on password change as auth
+
+C:/code2/lbpr/ops/doppler_dev.ps1
+$ErrorActionPreference = "Stop"
+
+if (-not $env:DOPPLER_PROJECT) { throw "DOPPLER_PROJECT missing" }
+if (-not $env:DOPPLER_CONFIG_FRONTEND) { throw "DOPPLER_CONFIG_FRONTEND missing" }
+if (-not $env:DOPPLER_CONFIG_BACKEND) { throw "DOPPLER_CONFIG_BACKEND missing" }
+if (-not $env:DOPPLER_TOKEN_SPA) { throw "DOPPLER_TOKEN_SPA missing" }
+if (-not $env:DOPPLER_TOKEN_API) { throw "DOPPLER_TOKEN_API missing" }
+
+Write-Host "[doppler] writing static/spa/.env"
+Push-Location "static/spa"
+$env:DOPPLER_TOKEN = $env:DOPPLER_TOKEN_SPA
+doppler secrets download `
+  --no-file `
+  --format env `
+  --project $env:DOPPLER_PROJECT `
+  --config $env:DOPPLER_CONFIG_FRONTEND |
+  Out-File -Encoding ascii ".env"
+Pop-Location
+
+Write-Host "[doppler] writing backend/.env"
+Push-Location "backend"
+$env:DOPPLER_TOKEN = $env:DOPPLER_TOKEN_API
+doppler secrets download `
+  --no-file `
+  --format env `
+  --project $env:DOPPLER_PROJECT `
+  --config $env:DOPPLER_CONFIG_BACKEND |
+  Out-File -Encoding ascii ".env"
+Pop-Location
+
 
 C:/code2/lbpr/ops/redis/README.md
 # Redis start error: `Unknown command 'flushall' ... incr.aof` — Fix

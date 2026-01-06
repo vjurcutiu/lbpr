@@ -285,55 +285,41 @@ def init_firebase():
 
 
 C:/code2/lbpr/backend/.env
-ENV=dev
-FIREBASE_PROJECT_ID="lexbot-pro"
+COOKIE_NAME="fb_session"
+COOKIE_PATH="/"
+COOKIE_SAMESITE="lax"
+COOKIE_SECURE="false"
+DOPPLER_CONFIG="dev_backend"
+DOPPLER_ENVIRONMENT="dev"
+DOPPLER_PROJECT="lbpr"
+ENV="dev"
 FIREBASE_CREDENTIALS="C:/code2/lbpr/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json"
 FIREBASE_CREDENTIALS_DEFAULT="C:/code2/lbpr/backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json"
+FIREBASE_PROJECT_ID="lexbot-pro"
+FIREBASE_STORAGE_BUCKET="lexbot-pro.firebasestorage.app"
+LIMITS_FREE_MESSAGES="50"
+LIMITS_FREE_UPLOAD_TOKENS="100000"
+LIMITS_PRO_MESSAGES="10000"
+LIMITS_PRO_UPLOAD_TOKENS="20000000"
+OPENAI_API_KEY="REDACTED_OPENAI_API_KEY"
+PINECONE_API_KEY="REDACTED_PINECONE_API_KEY"
+PINECONE_CLOUD="aws"
+PINECONE_INDEX="lbpr"
+PINECONE_INDEX_DENSE="lbpr-dense"
+PINECONE_INDEX_SPARSE="lbpr-sparse"
+PINECONE_REGION="us-east-1"
+RAG_EMBEDDER="openai"
+RAG_EMBED_DIM="1536"
+RAG_EMBED_MODEL="text-embedding-3-small"
+RAG_HYBRID_ALPHA="0.5"
+RAG_HYBRID_DUAL_INDEX="1"
+RAG_HYBRID_FUSION="rrf"
+RAG_VECTORSTORE="pinecone"
+REDIS_PASSWORD="4OUJ8@,??4x9~"
+REDIS_URL="redis://:4OUJ8@,??4x9~@redis:6379/0"
+SESSION_HOURS="8"
+TOKENIZER_MODEL="cl100k_base"
 
-COOKIE_NAME=fb_session
-SESSION_HOURS=8
-COOKIE_SECURE=false
-COOKIE_SAMESITE=lax
-COOKIE_PATH=/
-# COOKIE_DOMAIN=app.example.com
-
-# For CORS/hosts (set in prod)
-# CORS_ALLOW_ORIGINS=["https://app.example.com"]
-# TRUSTED_HOSTS=["app.example.com"]
-
-RAG_EMBEDDER=openai
-OPENAI_API_KEY=REDACTED_OPENAI_API_KEY
-RAG_EMBED_MODEL=text-embedding-3-small
-RAG_VECTORSTORE=pinecone
-PINECONE_API_KEY=REDACTED_PINECONE_API_KEY
-PINECONE_INDEX=lbpr
-PINECONE_CLOUD=aws
-PINECONE_REGION=us-east-1
-RAG_EMBED_DIM=1536
-
-FIREBASE_STORAGE_BUCKET=lexbot-pro.firebasestorage.app
-
-RAG_HYBRID_FUSION=rrf
-RAG_HYBRID_ALPHA=0.5  
-
-LIMITS_FREE_MESSAGES=50
-LIMITS_FREE_UPLOAD_TOKENS=100000
-LIMITS_PRO_MESSAGES=10000
-LIMITS_PRO_UPLOAD_TOKENS=20000000
-
-# Optional: tokenizer override if you want a specific encoding name
-TOKENIZER_MODEL=cl100k_base
-
-RAG_HYBRID_DUAL_INDEX=1
-
-# Use a base name or explicit names
-PINECONE_INDEX_DENSE=lbpr-dense
-PINECONE_INDEX_SPARSE=lbpr-sparse
-
-
-
-# Authenticated Redis URL (note the colon before password)
-REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
 
 C:/code2/lbpr/backend/core/logging.py
 # core/logging.py

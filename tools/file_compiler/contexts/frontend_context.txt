@@ -193,6 +193,7 @@ C:/code2/lbpr/static/spa/package.json
     "input-otp": "^1.4.2",
     "lucide-react": "^0.544.0",
     "next-themes": "^0.4.6",
+    "posthog-js": "^1.310.1",
     "react": "^19.1.1",
     "react-day-picker": "^9.11.1",
     "react-dom": "^19.1.1",
@@ -403,19 +404,31 @@ import { AuthProvider } from "@/features/auth/AuthProvider";
 import "./index.legal.css";
 import { Toaster } from "sonner";
 import { initGtag } from "@/lib/gtag";
+import { PostHogProvider } from "posthog-js/react";
 
 // Initialize Google tag (GA4 + Ads).
 // Consent is handled by your CMP (e.g. Clickio) via Google Consent Mode / TCF.
 // Make sure the Clickio CMP script is installed according to their docs.
 initGtag();
 
+const posthogOptions = {
+  api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
+  defaults: "2025-11-30",
+  // You can add PostHog options here later (masking, autocapture tweaks, etc.)
+} as const;
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <AuthProvider>
-      {/* Global toast portal */}
-      <Toaster richColors closeButton position="top-right" />
-      <App />
-    </AuthProvider>
+    <PostHogProvider
+      apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_KEY}
+      options={posthogOptions}
+    >
+      <AuthProvider>
+        {/* Global toast portal */}
+        <Toaster richColors closeButton position="top-right" />
+        <App />
+      </AuthProvider>
+    </PostHogProvider>
   </StrictMode>,
 );
 
@@ -1060,27 +1073,28 @@ C:/code2/lbpr/static/spa/src/App.css
 
 
 C:/code2/lbpr/static/spa/.env
+DOPPLER_CONFIG="dev_frontend"
+DOPPLER_ENVIRONMENT="dev"
+DOPPLER_PROJECT="lbpr"
+VITE_AW_SIGNUP_CONVERSION_LABEL="6BNkCIDFrbYbEPjs9PJB"
+VITE_COOKIEBOT_ID="0c08c9b3-a651-49eb-8871-bd878b83965a"
 VITE_FIREBASE_API_KEY=REDACTED_FIREBASE_WEB_API_KEY
-VITE_FIREBASE_AUTH_DOMAIN=lexbot-pro.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=lexbot-pro
-VITE_FIREBASE_APP_ID=...
-VITE_FIREBASE_MESSAGING_SENDER_ID=...
-VITE_FIREBASE_FUNCTIONS_REGION=europe-central2
+VITE_FIREBASE_APP_ID="..."
+VITE_FIREBASE_AUTH_DOMAIN="lexbot-pro.firebaseapp.com"
+VITE_FIREBASE_FUNCTIONS_REGION="europe-central2"
+VITE_FIREBASE_MESSAGING_SENDER_ID="..."
+VITE_FIREBASE_PROJECT_ID="lexbot-pro"
+VITE_GA4_DEBUG="1"
+VITE_GA4_MEASUREMENT_ID="G-K1NMGELCRP"
+VITE_GADS_DEFAULT_DENY="1"
+VITE_GADS_ID="AW-17689294456"
+VITE_GADS_SIGNUP_LABEL="AW-17689294456/6BNkCIDFrbYbEPjs9PJB"
+VITE_GTAG_AW_ID="AW-17689294456"
+VITE_PUBLIC_POSTHOG_HOST="https://eu.i.posthog.com"
+VITE_PUBLIC_POSTHOG_KEY="phc_ua78LCz4GAZFwnh1RutONeiSPATQino1uZz4WtowPlM"
+VITE_STRIPE_PRICE_ALLOWLIST="price_1SL6zFEOpDS9PYbXi5bxxzCd"
+VITE_STRIPE_PRO_PRICE_ID="price_1SL6zFEOpDS9PYbXi5bxxzCd"
 
-VITE_STRIPE_PRO_PRICE_ID=price_1SL6zFEOpDS9PYbXi5bxxzCd
-VITE_STRIPE_PRICE_ALLOWLIST=price_1SL6zFEOpDS9PYbXi5bxxzCd
-
-VITE_GADS_ID=AW-17689294456         
-VITE_GADS_SIGNUP_LABEL=AW-17689294456/6BNkCIDFrbYbEPjs9PJB
-VITE_GADS_DEFAULT_DENY=1   
-VITE_COOKIEBOT_ID=0c08c9b3-a651-49eb-8871-bd878b83965a
-
-VITE_GA4_MEASUREMENT_ID=G-K1NMGELCRP
-# optional Google Ads bits (keeps your existing conversion helper working)
-VITE_GTAG_AW_ID=AW-17689294456
-VITE_AW_SIGNUP_CONVERSION_LABEL=6BNkCIDFrbYbEPjs9PJB
-# optional: show events in GA4 DebugView
-VITE_GA4_DEBUG=1
 
 C:/code2/lbpr/static/spa/playwright.config.ts
 import { defineConfig, devices } from "@playwright/test";
