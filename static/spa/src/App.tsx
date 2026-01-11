@@ -24,6 +24,10 @@ const LoginPage = lazy(() => import("@/features/auth/LoginPage"));
 const SignupPage = lazy(() => import("@/features/auth/SignupPage"));
 const ForbiddenPage = lazy(() => import("@/features/auth/ForbiddenPage"));
 const VerifyEmailPage = lazy(() => import("@/features/auth/VerifyEmailPage")); // NEW
+
+// Public landing
+const TryLandingPage = lazy(() => import("@/pages/TryLandingPage")); // NEW
+
 // App
 const FilesPage = lazy(() => import("@/features/files/FilesPage"));
 const ChatPage = lazy(() => import("@/features/chat/ChatPage"));
@@ -46,6 +50,8 @@ const ROUTES: AppRoute[] = [
   { path: "/signup", element: <SignupPage />, nav: "none", hidden: true },
   { path: "/forbidden", element: <ForbiddenPage />, nav: "none", hidden: true },
   { path: "/verify-email", element: <VerifyEmailPage />, nav: "none", hidden: true }, // NEW
+  { path: "/try", element: <TryLandingPage />, nav: "none", hidden: true }, // NEW
+
   // Public Legal
   { path: "/privacy", element: <AppShell children={<PrivacyPage />} />, nav: "none" },
   { path: "/terms",   element: <AppShell children={<TermsPage />} />,   nav: "none" },
@@ -101,18 +107,15 @@ export default function App() {
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/forbidden" element={<ForbiddenPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/try" element={<TryLandingPage />} /> {/* NEW */}
 
           {/* Public legal pages (wrapped in AppShell for nav/footer) */}
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/terms"   element={<TermsPage />} />
           <Route path="/dpa"   element={<DPAPage />} />
 
-
-
-
           {/* Protected */}
           <Route element={<ProtectedRoute />}>
-
             {/* Full-bleed Chat */}
             <Route
               path="/chat"
