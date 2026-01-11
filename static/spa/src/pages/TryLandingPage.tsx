@@ -86,7 +86,7 @@ export default function TryLandingPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary" className="rounded-full">
                   <Sparkles className="mr-1 h-3.5 w-3.5" />
-                  Smart answers from your own files
+                  Search and explore your own files
                 </Badge>
                 <Badge className="rounded-full">Free forever plan</Badge>
               </div>
@@ -96,21 +96,20 @@ export default function TryLandingPage() {
                   <>
                     Hello <span className="text-primary">{refName}</span>.{" "}
                     <span className="text-muted-foreground">
-                      Turn your documents into instant answers.
+                      Find what matters in your documents — instantly.
                     </span>
                   </>
                 ) : (
                   <>
-                    Turn your documents into{" "}
-                    <span className="text-primary">instant</span> answers.
+                    Find what matters in your{" "}
+                    <span className="text-primary">documents</span> — instantly.
                   </>
                 )}
               </h1>
 
               <p className="mt-5 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-                Upload PDFs, notes, policies, research, or client files. Ask questions in plain
-                language. Get reliable, audit‑friendly answers that reference the exact passages
-                used.
+                Upload PDFs, notes, research, or reference material. Ask questions in plain
+                language and quickly find relevant information across all your files.
               </p>
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -125,9 +124,9 @@ export default function TryLandingPage() {
               </div>
 
               <div className="mt-7 grid gap-3 sm:grid-cols-3">
-                <MiniStat icon={<BadgeCheck className="h-4 w-4" />} title="Cited answers" desc="Every response points to sources." />
+                <MiniStat icon={<BadgeCheck className="h-4 w-4" />} title="Clear answers" desc="Structured responses focused on clarity." />
                 <MiniStat icon={<FileSearch className="h-4 w-4" />} title="Fast retrieval" desc="Search across many files in seconds." />
-                <MiniStat icon={<Lock className="h-4 w-4" />} title="Private by default" desc="Designed for sensitive documents." />
+                <MiniStat icon={<Lock className="h-4 w-4" />} title="Your workspace" desc="Your files stay within your account." />
               </div>
             </div>
 
@@ -156,8 +155,8 @@ export default function TryLandingPage() {
                 <StepRow
                   n="3"
                   icon={<BadgeCheck className="h-4 w-4" />}
-                  title="Get a cited answer"
-                  body="Answer + links to the exact pages/lines used."
+                  title="Get a clear answer"
+                  body="A focused response based on your files."
                 />
 
                 <div className="mt-6 rounded-xl border bg-background p-4">
@@ -188,15 +187,15 @@ export default function TryLandingPage() {
         <div className="grid gap-4 md:grid-cols-3">
           <OutcomeCard
             title="Answer faster"
-            body="Stop re-reading long files. Ask, verify, and move on."
+            body="Stop re-reading long files. Ask and move on."
           />
           <OutcomeCard
-            title="Stay audit‑friendly"
-            body="Source references help you trust and defend outputs."
+            title="Stay focused"
+            body="Quickly surface the information you need."
           />
           <OutcomeCard
             title="Work across languages"
-            body="Multi‑lingual queries and documents (where supported by your model setup)."
+            body="Use the interface and ask questions in multiple languages."
           />
         </div>
       </section>
@@ -215,7 +214,7 @@ export default function TryLandingPage() {
             <FeatureCard
               icon={<BookOpen className="h-5 w-5" />}
               title="Bring your own files"
-              body="Upload policies, research, notes, memos, contracts, manuals, and more."
+              body="Upload research, notes, documents, and reference material."
             />
             <FeatureCard
               icon={<FileSearch className="h-5 w-5" />}
@@ -224,8 +223,8 @@ export default function TryLandingPage() {
             />
             <FeatureCard
               icon={<BadgeCheck className="h-5 w-5" />}
-              title="Get answers with sources"
-              body="See where each claim comes from, so you can validate quickly."
+              title="Get clear responses"
+              body="Structured output designed for quick understanding."
             />
           </div>
 
@@ -238,9 +237,9 @@ export default function TryLandingPage() {
                 </p>
               </CardHeader>
               <CardContent className="space-y-3">
-                <ExamplePrompt>“Summarize the key requirements and cite each section.”</ExamplePrompt>
+                <ExamplePrompt>“Summarize the key points from this document.”</ExamplePrompt>
                 <ExamplePrompt>“What changed between version A and B?”</ExamplePrompt>
-                <ExamplePrompt>“List risks, mitigation steps, and where they appear.”</ExamplePrompt>
+                <ExamplePrompt>“List the main risks and key considerations.”</ExamplePrompt>
                 <ExamplePrompt>“Extract deadlines and obligations into bullet points.”</ExamplePrompt>
               </CardContent>
             </Card>
@@ -258,12 +257,12 @@ export default function TryLandingPage() {
                   body="Clean headings, bullets, and actionable takeaways."
                 />
                 <Bullet
-                  title="Source references"
-                  body="Quickly verify by jumping to the relevant parts."
+                  title="Focused responses"
+                  body="Get straight to the relevant information."
                 />
                 <Bullet
-                  title="Private by default"
-                  body="Your files stay within your workspace and access controls."
+                  title="Simple by default"
+                  body="No setup, no configuration, no complexity."
                 />
               </CardContent>
             </Card>
@@ -278,18 +277,17 @@ export default function TryLandingPage() {
             <div>
               <h2 className="text-3xl font-semibold tracking-tight">Security & privacy</h2>
               <p className="mt-3 text-muted-foreground">
-                Built for work where documents matter. Keep control over what you upload and who can
-                access it.
+                Built for everyday work with documents. Upload files and explore them in one place.
               </p>
 
               <div className="mt-6 space-y-4">
                 <SecurityRow
-                  title="Private workspaces"
-                  body="Keep documents separated by project or client."
+                  title="Organized files"
+                  body="Group and manage documents in one workspace."
                 />
                 <SecurityRow
-                  title="Citations reduce hallucinations"
-                  body="It’s easier to verify when every claim has a source."
+                  title="Grounded responses"
+                  body="Answers are based on the files you upload."
                 />
                 <SecurityRow
                   title="Principle of least surprise"
@@ -349,16 +347,16 @@ export default function TryLandingPage() {
               a="A lightweight plan to validate the workflow: 50 messages and ~75 pages of uploads, with no credit card required."
             />
             <Faq
-              q="Will I see where answers come from?"
-              a="Yes — LexBot PRO is designed to reference the exact source passages used, so you can verify quickly."
+              q="How are answers generated?"
+              a="LexBot PRO uses your uploaded files to generate responses based on their content."
             />
             <Faq
               q="Does it work for multilingual documents?"
-              a="The UI supports multilingual usage. Actual performance depends on your configured model and content."
+              a="Yes, LexBot PRO supports around ~100 languages, with near native fluency for up to 40 of them."
             />
             <Faq
               q="How do I start?"
-              a="Create a free account, upload a file, and ask a question. You’ll get an answer with citations."
+              a="Create a free account, upload a file, and ask a question. You’ll get a clear answer based on your file."
             />
           </div>
 
