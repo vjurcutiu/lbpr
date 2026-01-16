@@ -23,6 +23,18 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function shouldRequireVerifiedEmail(fbUser: {
+  email?: string | null;
+  emailVerified: boolean;
+  providerData?: Array<{ providerId: string }>;
+}): boolean {
+  const providers = fbUser?.providerData?.map((p) => p.providerId) ?? [];
+  const hasPasswordProvider = providers.includes("password");
+  // Only gate email/password accounts that have an email.
+  return hasPasswordProvider && !!fbUser.email;
+}
+
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,8 +60,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         return;
       }
-      // Require verified email for password accounts
-      if (!fbUser.emailVerified) {
+      // Require verified email ONLY for email/password accounts.
+      // (Phone and Google sign-in shouldn't be blocked by emailVerified.)
+      if (shouldRequireVerifiedEmail(fbUser) && !fbUser.emailVerified) {
         // Don't attempt cookie exchange; keep as logged-out in app context
         setUser(null);
         try { await logoutFirebase(); } catch {}

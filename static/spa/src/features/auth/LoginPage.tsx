@@ -114,6 +114,26 @@ export default function LoginPage() {
             {loading ? "Signing in..." : "Sign in"}
           </button>
 
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={onGoogle}
+              disabled={googleLoading}
+              className="w-full rounded-xl border border-gray-300 py-2 disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              <GoogleIcon className="h-5 w-5" />
+              {googleLoading ? "Opening Google…" : "Continue with Google"}
+            </button>
+
+            <Link
+              to={`/phone?returnTo=${encodeURIComponent(returnTo)}`}
+              className="w-full rounded-xl border border-gray-300 py-2 flex items-center justify-center gap-2"
+            >
+              Continue with phone
+            </Link>
+          </div>
+
+
           <div className="text-sm text-center text-gray-600">
             New here?{" "}
             <Link to={`/signup?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">

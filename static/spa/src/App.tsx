@@ -22,6 +22,7 @@ type AppRoute = {
 // Public/auth
 const LoginPage = lazy(() => import("@/features/auth/LoginPage"));
 const SignupPage = lazy(() => import("@/features/auth/SignupPage"));
+const PhoneLoginPage = lazy(() => import("@/features/auth/PhoneLoginPage"));
 const ForbiddenPage = lazy(() => import("@/features/auth/ForbiddenPage"));
 const VerifyEmailPage = lazy(() => import("@/features/auth/VerifyEmailPage")); // NEW
 
@@ -47,6 +48,7 @@ const ROUTES: AppRoute[] = [
   // Public
   { path: "/", element: <Navigate to="/login" replace />, nav: "none", hidden: true },
   { path: "/login", element: <LoginPage />, nav: "none", hidden: true },
+  { path: "/phone", element: <PhoneLoginPage />, nav: "none", hidden: true },
   { path: "/signup", element: <SignupPage />, nav: "none", hidden: true },
   { path: "/forbidden", element: <ForbiddenPage />, nav: "none", hidden: true },
   { path: "/verify-email", element: <VerifyEmailPage />, nav: "none", hidden: true }, // NEW
@@ -104,6 +106,7 @@ export default function App() {
           {/* Public */}
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/phone" element={<PhoneLoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/forbidden" element={<ForbiddenPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />

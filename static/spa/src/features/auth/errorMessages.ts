@@ -8,6 +8,8 @@ export function friendlyAuthMessage(
     | "login"
     | "signup"
     | "verify"
+    | "phone"
+    | "phone-verify"
     | "generic"
     | "profile-email"
     | "profile-password" = "generic"
@@ -36,6 +38,40 @@ export function friendlyAuthMessage(
   }
   if (c.includes("internal-error")) {
     return "Something went wrong on our side. Please try again.";
+  }
+  if (c.includes("captcha-check-failed")) {
+    return "reCAPTCHA check failed. If you're running locally, make sure your domain is whitelisted in Firebase Authentication → Settings → Authorized domains.";
+  }
+
+
+
+  if (context === "phone") {
+    if (c.includes("invalid-phone-number")) {
+      return "That phone number looks invalid. Use international format, e.g. +40 712 345 678.";
+    }
+    if (c.includes("missing-phone-number")) {
+      return "Please enter your phone number.";
+    }
+    if (c.includes("quota-exceeded")) {
+      return "SMS quota exceeded for this project. Try again later or use email/Google.";
+    }
+    if (c.includes("user-disabled")) {
+      return "This account has been disabled. Contact support if this is unexpected.";
+    }
+    if (c.includes("too-many-requests")) {
+      return "Too many SMS requests. Please wait a moment and try again.";
+    }
+    return "We couldn't send the SMS code. Please try again.";
+  }
+
+  if (context === "phone-verify") {
+    if (c.includes("invalid-verification-code")) {
+      return "That code is incorrect. Please check the SMS and try again.";
+    }
+    if (c.includes("code-expired")) {
+      return "That code expired. Please request a new one.";
+    }
+    return "Couldn't verify the code. Please try again.";
   }
 
   if (context === "login") {

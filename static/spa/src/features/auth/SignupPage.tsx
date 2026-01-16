@@ -219,6 +219,14 @@ export default function SignupPage() {
               {googleLoading ? "Working…" : "Continue with Google"}
             </button>
 
+            <Link
+              to={`/phone?returnTo=${encodeURIComponent(returnTo)}`}
+              className="w-full rounded-xl border border-gray-300 py-2 flex items-center justify-center gap-2"
+            >
+              Continue with phone
+            </Link>
+
+
             <div className="text-sm text-center text-gray-600">
               Already have an account?{" "}
               <Link to={`/login?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">

@@ -16,6 +16,9 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   reauthenticateWithPopup,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  type ConfirmationResult,
 } from "firebase/auth";
 
 const firebaseConfig = {
@@ -131,3 +134,26 @@ export async function reauthWithGoogle() {
   await reauthenticateWithPopup(user, new GoogleAuthProvider());
   await reload(user);
 }
+
+// ---- Phone auth helpers ----
+// Firebase docs show (auth, containerOrId, params) for RecaptchaVerifier, but some SDK builds expose
+// (containerOrId, params, auth). We support both to avoid version-specific breakage.
+export function createRecaptchaVerifier(
+  containerOrId: string | HTMLElement,
+  params: Record<string, unknown> = {}
+): RecaptchaVerifier {
+  const cfg = { size: "invisible", ...params };
+  try {
+    // Preferred (per Firebase Web docs)
+    return new (RecaptchaVerifier as any)(auth, containerOrId as any, cfg);
+  } catch {
+    // Legacy/alternate constructor shape
+    return new (RecaptchaVerifier as any)(containerOrId as any, cfg, auth);
+  }
+}
+
+export function signInWithPhone(phoneNumber: string, verifier: RecaptchaVerifier): Promise<ConfirmationResult> {
+  return signInWithPhoneNumber(auth, phoneNumber, verifier);
+}
+
+export type { ConfirmationResult };
