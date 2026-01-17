@@ -81,6 +81,26 @@ try {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
+// ---- Dev-only phone auth escape hatch ----
+// When developing locally you can optionally bypass reCAPTCHA / app verification.
+// This is useful if reCAPTCHA is blocked by extensions/CSP, or if you only want to
+// validate the rest of the flow.
+//
+// NEVER enable this in production.
+//
+// Enable by setting:
+//   VITE_FIREBASE_DISABLE_PHONE_APP_VERIFICATION=1
+if (import.meta.env.DEV && import.meta.env.VITE_FIREBASE_DISABLE_PHONE_APP_VERIFICATION === "1") {
+  try {
+    auth.settings.appVerificationDisabledForTesting = true;
+    console.warn(
+      "[auth] Phone app verification disabled for testing (VITE_FIREBASE_DISABLE_PHONE_APP_VERIFICATION=1). DO NOT use in production."
+    );
+  } catch (e) {
+    console.warn("[auth] Failed to disable app verification for testing.", e);
+  }
+}
+
 // Keep Google provider exported (other parts of the app import it)
 export const provider = new GoogleAuthProvider();
 
@@ -142,7 +162,9 @@ export function createRecaptchaVerifier(
   containerOrId: string | HTMLElement,
   params: Record<string, unknown> = {}
 ): RecaptchaVerifier {
-  const cfg = { size: "invisible", ...params };
+  const cfg: Record<string, unknown> = { ...params };
+  if (!("size" in cfg)) cfg.size = "invisible";
+
   try {
     // Preferred (per Firebase Web docs)
     return new (RecaptchaVerifier as any)(auth, containerOrId as any, cfg);

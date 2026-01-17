@@ -11,6 +11,15 @@ function normalizePhone(raw: string) {
   return raw.trim().replace(/[\s()-]/g, "");
 }
 
+function makeHiddenRecaptchaContainer() {
+  const el = document.createElement("div");
+  el.style.display = "none";
+  // Unique ID to avoid the "reCAPTCHA has already been rendered" issue.
+  el.id = `recaptcha-${Math.random().toString(36).slice(2)}`;
+  document.body.appendChild(el);
+  return el;
+}
+
 export default function PhoneLoginPage() {
   const { user } = useAuthContext();
   const [params] = useSearchParams();
@@ -26,21 +35,31 @@ export default function PhoneLoginPage() {
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
 
   const verifierRef = useRef<ReturnType<typeof createRecaptchaVerifier> | null>(null);
+  const recaptchaElRef = useRef<HTMLElement | null>(null);
 
   const phoneHint = useMemo(() => {
     return "Use international format, e.g. +40 712 345 678.";
   }, []);
 
+  function cleanupRecaptcha() {
+    try {
+      verifierRef.current?.clear();
+    } catch {
+      // ignore
+    }
+    verifierRef.current = null;
+
+    try {
+      recaptchaElRef.current?.remove();
+    } catch {
+      // ignore
+    }
+    recaptchaElRef.current = null;
+  }
+
   useEffect(() => {
-    // Lazy init verifier on first send, but make sure container exists
-    return () => {
-      try {
-        verifierRef.current?.clear();
-      } catch {
-        // ignore
-      }
-      verifierRef.current = null;
-    };
+    return () => cleanupRecaptcha();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (user) return <Navigate to={returnTo} replace />;
@@ -62,18 +81,22 @@ export default function PhoneLoginPage() {
     setLoading(true);
     try {
       // (Re)create verifier each time we send to avoid stale state.
-      try {
-        verifierRef.current?.clear();
-      } catch {
-        // ignore
-      }
-      verifierRef.current = createRecaptchaVerifier("recaptcha-container", { size: "invisible" });
+      cleanupRecaptcha();
+
+      const el = makeHiddenRecaptchaContainer();
+      recaptchaElRef.current = el;
+      verifierRef.current = createRecaptchaVerifier(el, { size: "invisible" });
 
       const res = await signInWithPhone(p, verifierRef.current);
       setConfirmation(res);
       setStep("code");
+
+      // We no longer need the reCAPTCHA widget after the SMS has been sent.
+      cleanupRecaptcha();
     } catch (e: any) {
       console.warn("[auth:phone] Firebase error:", e);
+      // Keep recaptcha around in case the user retries; but make sure we don't leak multiple widgets.
+      cleanupRecaptcha();
       setErr(friendlyAuthMessage(e, "phone"));
     } finally {
       setLoading(false);
@@ -110,9 +133,6 @@ export default function PhoneLoginPage() {
   return (
     <AuthLayout title="Sign in with phone" subtitle="We'll text you a one-time code.">
       <div className="space-y-4 max-w-sm mx-auto">
-        {/* Required by Firebase phone auth */}
-        <div id="recaptcha-container" className="hidden" />
-
         {step === "phone" ? (
           <form className="space-y-4" onSubmit={onSendCode}>
             <label className="block space-y-1">
@@ -131,13 +151,15 @@ export default function PhoneLoginPage() {
             </label>
 
             {err ? (
-              <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">
-                {err}
-              </div>
+              <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">{err}</div>
             ) : null}
 
-            <button type="submit" disabled={loading} className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60">
-              {loading ? "Sending…" : "Send code"}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
+            >
+              {loading ? "Sending..." : "Send code"}
             </button>
 
             <div className="text-sm text-center text-gray-600">
@@ -168,13 +190,15 @@ export default function PhoneLoginPage() {
             </label>
 
             {err ? (
-              <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">
-                {err}
-              </div>
+              <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">{err}</div>
             ) : null}
 
-            <button type="submit" disabled={loading} className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60">
-              {loading ? "Verifying…" : "Verify & sign in"}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
+            >
+              {loading ? "Verifying..." : "Verify & sign in"}
             </button>
 
             <div className="flex items-center justify-between text-sm">
@@ -206,9 +230,7 @@ export default function PhoneLoginPage() {
           </form>
         )}
 
-        <div className="text-xs text-gray-500 text-center">
-          Standard SMS rates may apply.
-        </div>
+        <div className="text-xs text-gray-500 text-center">Standard SMS rates may apply.</div>
       </div>
     </AuthLayout>
   );

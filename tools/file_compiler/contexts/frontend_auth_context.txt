@@ -176,6 +176,18 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function shouldRequireVerifiedEmail(fbUser: {
+  email?: string | null;
+  emailVerified: boolean;
+  providerData?: Array<{ providerId: string }>;
+}): boolean {
+  const providers = fbUser?.providerData?.map((p) => p.providerId) ?? [];
+  const hasPasswordProvider = providers.includes("password");
+  // Only gate email/password accounts that have an email.
+  return hasPasswordProvider && !!fbUser.email;
+}
+
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -201,8 +213,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         return;
       }
-      // Require verified email for password accounts
-      if (!fbUser.emailVerified) {
+      // Require verified email ONLY for email/password accounts.
+      // (Phone and Google sign-in shouldn't be blocked by emailVerified.)
+      if (shouldRequireVerifiedEmail(fbUser) && !fbUser.emailVerified) {
         // Don't attempt cookie exchange; keep as logged-out in app context
         setUser(null);
         try { await logoutFirebase(); } catch {}
@@ -248,6 +261,8 @@ export function friendlyAuthMessage(
     | "login"
     | "signup"
     | "verify"
+    | "phone"
+    | "phone-verify"
     | "generic"
     | "profile-email"
     | "profile-password" = "generic"
@@ -276,6 +291,43 @@ export function friendlyAuthMessage(
   }
   if (c.includes("internal-error")) {
     return "Something went wrong on our side. Please try again.";
+  }
+  if (c.includes("captcha-check-failed")) {
+    return "reCAPTCHA check failed. If you're running locally, make sure your domain is whitelisted in Firebase Authentication → Settings → Authorized domains.";
+  }
+
+
+
+  if (context === "phone") {
+    if (c.includes("operation-not-allowed") || msg.toLowerCase().includes("region enabled")) {
+      return "SMS can't be sent to this phone number's region yet. In Firebase Console -> Authentication -> Settings -> SMS region policy, allow the country/region for this number (e.g. +40). If you're testing, add a test phone number/code under Authentication -> Sign-in method -> Phone -> Phone numbers for testing.";
+    }
+    if (c.includes("invalid-phone-number")) {
+      return "That phone number looks invalid. Use international format, e.g. +40 712 345 678.";
+    }
+    if (c.includes("missing-phone-number")) {
+      return "Please enter your phone number.";
+    }
+    if (c.includes("quota-exceeded")) {
+      return "SMS quota exceeded for this project. Try again later or use email/Google.";
+    }
+    if (c.includes("user-disabled")) {
+      return "This account has been disabled. Contact support if this is unexpected.";
+    }
+    if (c.includes("too-many-requests")) {
+      return "Too many SMS requests. Please wait a moment and try again.";
+    }
+    return "We couldn't send the SMS code. Please try again.";
+  }
+
+  if (context === "phone-verify") {
+    if (c.includes("invalid-verification-code")) {
+      return "That code is incorrect. Please check the SMS and try again.";
+    }
+    if (c.includes("code-expired")) {
+      return "That code expired. Please request a new one.";
+    }
+    return "Couldn't verify the code. Please try again.";
   }
 
   if (context === "login") {
@@ -352,6 +404,8 @@ export function friendlyAuthMessage(
 }
 
 
+
+
 C:/code2/lbpr/static/spa/src/features/auth/firebase.ts
 // src/features/auth/firebase.ts
 import { initializeApp } from "firebase/app";
@@ -371,6 +425,9 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   reauthenticateWithPopup,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  type ConfirmationResult,
 } from "firebase/auth";
 
 const firebaseConfig = {
@@ -433,6 +490,26 @@ try {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
+// ---- Dev-only phone auth escape hatch ----
+// When developing locally you can optionally bypass reCAPTCHA / app verification.
+// This is useful if reCAPTCHA is blocked by extensions/CSP, or if you only want to
+// validate the rest of the flow.
+//
+// NEVER enable this in production.
+//
+// Enable by setting:
+//   VITE_FIREBASE_DISABLE_PHONE_APP_VERIFICATION=1
+if (import.meta.env.DEV && import.meta.env.VITE_FIREBASE_DISABLE_PHONE_APP_VERIFICATION === "1") {
+  try {
+    auth.settings.appVerificationDisabledForTesting = true;
+    console.warn(
+      "[auth] Phone app verification disabled for testing (VITE_FIREBASE_DISABLE_PHONE_APP_VERIFICATION=1). DO NOT use in production."
+    );
+  } catch (e) {
+    console.warn("[auth] Failed to disable app verification for testing.", e);
+  }
+}
+
 // Keep Google provider exported (other parts of the app import it)
 export const provider = new GoogleAuthProvider();
 
@@ -486,6 +563,31 @@ export async function reauthWithGoogle() {
   await reauthenticateWithPopup(user, new GoogleAuthProvider());
   await reload(user);
 }
+
+// ---- Phone auth helpers ----
+// Firebase docs show (auth, containerOrId, params) for RecaptchaVerifier, but some SDK builds expose
+// (containerOrId, params, auth). We support both to avoid version-specific breakage.
+export function createRecaptchaVerifier(
+  containerOrId: string | HTMLElement,
+  params: Record<string, unknown> = {}
+): RecaptchaVerifier {
+  const cfg: Record<string, unknown> = { ...params };
+  if (!("size" in cfg)) cfg.size = "invisible";
+
+  try {
+    // Preferred (per Firebase Web docs)
+    return new (RecaptchaVerifier as any)(auth, containerOrId as any, cfg);
+  } catch {
+    // Legacy/alternate constructor shape
+    return new (RecaptchaVerifier as any)(containerOrId as any, cfg, auth);
+  }
+}
+
+export function signInWithPhone(phoneNumber: string, verifier: RecaptchaVerifier): Promise<ConfirmationResult> {
+  return signInWithPhoneNumber(auth, phoneNumber, verifier);
+}
+
+export type { ConfirmationResult };
 
 
 C:/code2/lbpr/static/spa/src/features/auth/ForbiddenPage.tsx
@@ -616,6 +718,26 @@ export default function LoginPage() {
             {loading ? "Signing in..." : "Sign in"}
           </button>
 
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={onGoogle}
+              disabled={googleLoading}
+              className="w-full rounded-xl border border-gray-300 py-2 disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              <GoogleIcon className="h-5 w-5" />
+              {googleLoading ? "Opening Google…" : "Continue with Google"}
+            </button>
+
+            <Link
+              to={`/phone?returnTo=${encodeURIComponent(returnTo)}`}
+              className="w-full rounded-xl border border-gray-300 py-2 flex items-center justify-center gap-2"
+            >
+              Continue with phone
+            </Link>
+          </div>
+
+
           <div className="text-sm text-center text-gray-600">
             New here?{" "}
             <Link to={`/signup?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">
@@ -628,6 +750,246 @@ export default function LoginPage() {
         <div className="text-xs text-gray-500 text-center">
           Private by default • Source-cited answers • Multi-lingual, Multi-domain
         </div>
+      </div>
+    </AuthLayout>
+  );
+}
+
+
+C:/code2/lbpr/static/spa/src/features/auth/PhoneLoginPage.tsx
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import AuthLayout from "./AuthLayout";
+import { useAuthContext } from "./AuthProvider";
+import { createRecaptchaVerifier, signInWithPhone, type ConfirmationResult } from "./firebase";
+import { friendlyAuthMessage } from "./errorMessages";
+
+function normalizePhone(raw: string) {
+  // Keep it simple: Firebase expects E.164 (e.g. "+40712345678")
+  return raw.trim().replace(/[\s()-]/g, "");
+}
+
+function makeHiddenRecaptchaContainer() {
+  const el = document.createElement("div");
+  el.style.display = "none";
+  // Unique ID to avoid the "reCAPTCHA has already been rendered" issue.
+  el.id = `recaptcha-${Math.random().toString(36).slice(2)}`;
+  document.body.appendChild(el);
+  return el;
+}
+
+export default function PhoneLoginPage() {
+  const { user } = useAuthContext();
+  const [params] = useSearchParams();
+  const returnTo = params.get("returnTo") || "/files";
+
+  const [step, setStep] = useState<"phone" | "code">("phone");
+  const [phone, setPhone] = useState("+");
+  const [code, setCode] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
+
+  const verifierRef = useRef<ReturnType<typeof createRecaptchaVerifier> | null>(null);
+  const recaptchaElRef = useRef<HTMLElement | null>(null);
+
+  const phoneHint = useMemo(() => {
+    return "Use international format, e.g. +40 712 345 678.";
+  }, []);
+
+  function cleanupRecaptcha() {
+    try {
+      verifierRef.current?.clear();
+    } catch {
+      // ignore
+    }
+    verifierRef.current = null;
+
+    try {
+      recaptchaElRef.current?.remove();
+    } catch {
+      // ignore
+    }
+    recaptchaElRef.current = null;
+  }
+
+  useEffect(() => {
+    return () => cleanupRecaptcha();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (user) return <Navigate to={returnTo} replace />;
+
+  async function onSendCode(e: FormEvent) {
+    e.preventDefault();
+    setErr(null);
+
+    const p = normalizePhone(phone);
+    if (!p || p === "+") {
+      setErr("Please enter your phone number.");
+      return;
+    }
+    if (!p.startsWith("+")) {
+      setErr("Phone number must start with + and a country code (E.164 format).");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // (Re)create verifier each time we send to avoid stale state.
+      cleanupRecaptcha();
+
+      const el = makeHiddenRecaptchaContainer();
+      recaptchaElRef.current = el;
+      verifierRef.current = createRecaptchaVerifier(el, { size: "invisible" });
+
+      const res = await signInWithPhone(p, verifierRef.current);
+      setConfirmation(res);
+      setStep("code");
+
+      // We no longer need the reCAPTCHA widget after the SMS has been sent.
+      cleanupRecaptcha();
+    } catch (e: any) {
+      console.warn("[auth:phone] Firebase error:", e);
+      // Keep recaptcha around in case the user retries; but make sure we don't leak multiple widgets.
+      cleanupRecaptcha();
+      setErr(friendlyAuthMessage(e, "phone"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onVerifyCode(e: FormEvent) {
+    e.preventDefault();
+    setErr(null);
+
+    const c = code.trim();
+    if (!c) {
+      setErr("Please enter the SMS code.");
+      return;
+    }
+    if (!confirmation) {
+      setErr("Please request a code first.");
+      setStep("phone");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await confirmation.confirm(c);
+      // AuthProvider will exchange cookie + redirect will happen as user becomes non-null.
+    } catch (e: any) {
+      console.warn("[auth:phone:verify] Firebase error:", e);
+      setErr(friendlyAuthMessage(e, "phone-verify"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AuthLayout title="Sign in with phone" subtitle="We'll text you a one-time code.">
+      <div className="space-y-4 max-w-sm mx-auto">
+        {step === "phone" ? (
+          <form className="space-y-4" onSubmit={onSendCode}>
+            <label className="block space-y-1">
+              <span className="text-sm text-gray-700">Phone number</span>
+              <input
+                autoFocus
+                required
+                inputMode="tel"
+                autoComplete="tel"
+                className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+40 712 345 678"
+              />
+              <div className="text-xs text-gray-500 mt-1">{phoneHint}</div>
+            </label>
+
+            {err ? (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">{err}</div>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
+            >
+              {loading ? "Sending..." : "Send code"}
+            </button>
+
+            <div className="text-sm text-center text-gray-600">
+              Prefer email?{" "}
+              <Link to={`/login?returnTo=${encodeURIComponent(returnTo)}`} className="text-black underline underline-offset-4">
+                Sign in with email
+              </Link>
+            </div>
+          </form>
+        ) : (
+          <form className="space-y-4" onSubmit={onVerifyCode}>
+            <div className="text-sm text-gray-600">
+              We sent a code to <span className="font-medium">{normalizePhone(phone)}</span>.
+            </div>
+
+            <label className="block space-y-1">
+              <span className="text-sm text-gray-700">SMS code</span>
+              <input
+                autoFocus
+                required
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                className="w-full rounded-xl border border-gray-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                placeholder="123456"
+              />
+            </label>
+
+            {err ? (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl p-2">{err}</div>
+            ) : null}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-xl bg-black text-white py-2 disabled:opacity-60"
+            >
+              {loading ? "Verifying..." : "Verify & sign in"}
+            </button>
+
+            <div className="flex items-center justify-between text-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  setErr(null);
+                  setCode("");
+                  setStep("phone");
+                }}
+                className="text-gray-700 underline underline-offset-4"
+              >
+                Change number
+              </button>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => {
+                  // Resend: go back to phone step so onSendCode runs again.
+                  setErr(null);
+                  setCode("");
+                  setStep("phone");
+                }}
+                className="text-gray-700 underline underline-offset-4 disabled:opacity-60"
+              >
+                Resend code
+              </button>
+            </div>
+          </form>
+        )}
+
+        <div className="text-xs text-gray-500 text-center">Standard SMS rates may apply.</div>
       </div>
     </AuthLayout>
   );
@@ -1129,6 +1491,14 @@ export default function SignupPage() {
             >
               {googleLoading ? "Working…" : "Continue with Google"}
             </button>
+
+            <Link
+              to={`/phone?returnTo=${encodeURIComponent(returnTo)}`}
+              className="w-full rounded-xl border border-gray-300 py-2 flex items-center justify-center gap-2"
+            >
+              Continue with phone
+            </Link>
+
 
             <div className="text-sm text-center text-gray-600">
               Already have an account?{" "}

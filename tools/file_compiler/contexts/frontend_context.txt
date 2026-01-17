@@ -357,12 +357,14 @@ const NotFound     = lazy(() => import("@/pages/NotFound"));
 // Auth pages
 const LoginPage     = lazy(() => import("@/features/auth/LoginPage"));
 const SignupPage    = lazy(() => import("@/features/auth/SignupPage"));
+const PhoneLoginPage = lazy(() => import("@/features/auth/PhoneLoginPage"));
 const ForbiddenPage = lazy(() => import("@/features/auth/ForbiddenPage"));
 const VerifyEmailPage = lazy(() => import("@/features/auth/VerifyEmailPage")); // NEW
 
 export const routes: AppRoute[] = [
   { path: "/",          element: <Navigate to="/login" replace />, label: "Home", nav: "none", hidden: true },
   { path: "/login",     element: <LoginPage />,                    nav: "none", hidden: true },
+  { path: "/phone",     element: <PhoneLoginPage />,               nav: "none", hidden: true },
   { path: "/signup",    element: <SignupPage />,                   nav: "none", hidden: true },
   { path: "/forbidden", element: <ForbiddenPage />,                nav: "none", hidden: true },
   { path: "/verify-email", element: <VerifyEmailPage />,           nav: "none", hidden: true }, // NEW
@@ -394,6 +396,7 @@ export function buildNavItems(where: "top" | "mobile") {
       where: (r.nav === "both" ? "both" : where) as "top" | "mobile" | "both",
     }));
 }
+
 
 C:/code2/lbpr/static/spa/src/main.tsx
 import { StrictMode } from "react";
@@ -909,6 +912,7 @@ type AppRoute = {
 // Public/auth
 const LoginPage = lazy(() => import("@/features/auth/LoginPage"));
 const SignupPage = lazy(() => import("@/features/auth/SignupPage"));
+const PhoneLoginPage = lazy(() => import("@/features/auth/PhoneLoginPage"));
 const ForbiddenPage = lazy(() => import("@/features/auth/ForbiddenPage"));
 const VerifyEmailPage = lazy(() => import("@/features/auth/VerifyEmailPage")); // NEW
 
@@ -934,6 +938,7 @@ const ROUTES: AppRoute[] = [
   // Public
   { path: "/", element: <Navigate to="/login" replace />, nav: "none", hidden: true },
   { path: "/login", element: <LoginPage />, nav: "none", hidden: true },
+  { path: "/phone", element: <PhoneLoginPage />, nav: "none", hidden: true },
   { path: "/signup", element: <SignupPage />, nav: "none", hidden: true },
   { path: "/forbidden", element: <ForbiddenPage />, nav: "none", hidden: true },
   { path: "/verify-email", element: <VerifyEmailPage />, nav: "none", hidden: true }, // NEW
@@ -991,6 +996,7 @@ export default function App() {
           {/* Public */}
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/phone" element={<PhoneLoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/forbidden" element={<ForbiddenPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />
@@ -1259,75 +1265,400 @@ export function initCookiebot() {
 
 
 C:/code2/lbpr/static/spa/src/pages/TryLandingPage.tsx
-import React, { useMemo } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+// src/pages/TryLandingPage.tsx
+import type { FormEvent } from "react";
+import { useMemo, useState, useEffect } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowRight,
-  BadgeCheck,
-  BookOpen,
-  FileSearch,
+  Check,
+  FileText,
   Lock,
+  Shield,
   Sparkles,
+  Upload,
   Wand2,
+  Loader2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
-/**
- * /try?ref=<name>
- * - Keeps copy professional + conversion-focused.
- * - Uses the app palette via CSS variables (bg-background, text-foreground, primary/accent).
- */
-export default function TryLandingPage() {
-  const [params] = useSearchParams();
+import { useAuthContext } from "@/features/auth/AuthProvider";
+import {
+  auth,
+  signUpWithEmailPassword,
+  sendVerificationEmail,
+  loginWithGoogle,
+} from "@/features/auth/firebase";
+import { friendlyAuthMessage } from "@/features/auth/errorMessages";
+import { trackSignupConversion } from "@/lib/gtag";
 
-  const refName = useMemo(() => {
-    const raw = params.get("ref") ?? "";
-    const decoded = safeDecode(raw).trim();
+function safeDecode(v: string) {
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+}
 
-    // Keep diacritics; remove control chars; limit length.
-    const cleaned = decoded.replace(/[\u0000-\u001F\u007F]/g, "").slice(0, 40);
+function titleCaseName(raw: string) {
+  const s = raw.trim().replace(/\s+/g, " ");
+  if (!s) return "";
+  return s
+    .split(" ")
+    .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1) : ""))
+    .join(" ");
+}
 
-    // Title-case-ish for Latin scripts; otherwise leave as-is.
-    return toTitleLike(cleaned);
-  }, [params]);
+function GoogleIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...props}>
+      <path
+        fill="#EA4335"
+        d="M12 10.2v3.6h5.1c-.22 1.32-1.54 3.86-5.1 3.86-3.08 0-5.6-2.55-5.6-5.66S8.92 6.34 12 6.34c1.76 0 2.95.75 3.62 1.4l2.46-2.37C16.7 3.41 14.52 2.5 12 2.5 6.98 2.5 2.9 6.58 2.9 11.6S6.98 20.7 12 20.7c6.14 0 8.1-4.29 8.1-6.41 0-.43-.05-.71-.12-1.02H12z"
+      />
+    </svg>
+  );
+}
 
-  const signupHref = useMemo(() => {
-    const ref = params.get("ref");
-    const q = new URLSearchParams();
-    q.set("highlight", "email");
-    if (ref) q.set("ref", ref);
-    return `/signup?${q.toString()}`;
-  }, [params]);
+function FeatureCard({
+  icon,
+  title,
+  body,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+}) {
+  return (
+    <Card className="rounded-2xl border bg-card shadow-sm">
+      <CardHeader className="space-y-2">
+        <div className="grid h-10 w-10 place-items-center rounded-xl bg-accent text-accent-foreground">
+          {icon}
+        </div>
+        <CardTitle className="text-base">{title}</CardTitle>
+      </CardHeader>
+      <CardContent className="text-sm text-muted-foreground">{body}</CardContent>
+    </Card>
+  );
+}
+
+function SecurityRow({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-2xl border bg-background p-4">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 grid h-8 w-8 place-items-center rounded-lg bg-accent text-accent-foreground">
+          <Shield className="h-4 w-4" />
+        </div>
+        <div>
+          <div className="text-sm font-medium">{title}</div>
+          <div className="text-sm text-muted-foreground">{body}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Faq({ q, a }: { q: string; a: string }) {
+  return (
+    <div className="rounded-2xl border bg-background p-5">
+      <div className="text-sm font-semibold">{q}</div>
+      <div className="mt-2 text-sm text-muted-foreground">{a}</div>
+    </div>
+  );
+}
+
+function SignupCard({
+  refName,
+  onSuccessNavigateTo = "/files",
+}: {
+  refName?: string;
+  onSuccessNavigateTo?: string;
+}) {
+  const navigate = useNavigate();
+  const { user } = useAuthContext();
+
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [pw2, setPw2] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+
+  const [redirectWhenAuthed, setRedirectWhenAuthed] = useState(false);
+
+  useEffect(() => {
+    if (redirectWhenAuthed && user) {
+      navigate(onSuccessNavigateTo, { replace: true });
+    }
+  }, [redirectWhenAuthed, user, navigate, onSuccessNavigateTo]);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setErr(null);
+
+    const em = email.trim();
+    if (!em) return setErr("Please enter your email.");
+    if (pw.length < 6) return setErr("Password must be at least 6 characters.");
+    if (pw !== pw2) return setErr("Passwords do not match.");
+
+    setLoading(true);
+    try {
+      const cred = await signUpWithEmailPassword(em, pw);
+
+      // This matches your existing SignupPage behavior.
+      try {
+        trackSignupConversion({ user_id: cred.user?.uid } as any);
+      } catch {}
+
+      await sendVerificationEmail();
+
+      // After this, AuthProvider will log the user out (until verified), which is OK.
+      setSent(true);
+    } catch (e2: any) {
+      console.warn("[auth:signup] Firebase error:", e2);
+      setErr(friendlyAuthMessage(e2, "signup"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onGoogle() {
+    setErr(null);
+    setGoogleLoading(true);
+    try {
+      const cred: any = await loginWithGoogle();
+      const isNewUser = !!cred?.additionalUserInfo?.isNewUser;
+      if (isNewUser) {
+        try {
+          trackSignupConversion({ user_id: cred?.user?.uid } as any);
+        } catch {}
+      }
+
+      // Wait for AuthProvider cookie exchange + user load, then navigate.
+      setRedirectWhenAuthed(true);
+    } catch (e: any) {
+      console.warn("[auth:signup:google] Firebase error:", e);
+      setErr(friendlyAuthMessage(e, "signup"));
+    } finally {
+      setGoogleLoading(false);
+    }
+  }
+
+  if (user) {
+    return (
+      <Card className="rounded-2xl border bg-card shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-lg">You’re signed in</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Jump straight into the app.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button asChild size="lg" className="w-full rounded-xl">
+            <Link to={onSuccessNavigateTo}>
+              Open app <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <Card id="signup" className="rounded-2xl border bg-card shadow-sm">
+      <CardHeader>
+        <CardTitle className="text-lg">
+          Start free{refName ? `, ${refName}` : ""}
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          50 messages • ~75 pages of uploads • No credit card required
+        </p>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {sent ? (
+          <Alert className="rounded-xl">
+            <AlertDescription className="text-sm">
+              We sent a verification email to{" "}
+              <span className="font-medium">{email.trim()}</span>. Click the link
+              in your inbox (and spam folder), then sign in.
+              <div className="mt-3 flex flex-col gap-2">
+                <Button asChild variant="outline" className="w-full rounded-xl">
+                  <Link to={`/login?returnTo=${encodeURIComponent(onSuccessNavigateTo)}`}>
+                    I’ve verified — sign in
+                  </Link>
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full rounded-xl"
+              onClick={onGoogle}
+              disabled={googleLoading}
+            >
+              {googleLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Working…
+                </>
+              ) : (
+                <>
+                  <GoogleIcon className="h-4 w-4" />
+                  Continue with Google
+                </>
+              )}
+            </Button>
+
+            <div className="flex items-center gap-3">
+              <Separator className="flex-1" />
+              <span className="text-xs text-muted-foreground">or</span>
+              <Separator className="flex-1" />
+            </div>
+
+            <form className="space-y-3" onSubmit={onSubmit}>
+              <div className="space-y-2">
+                <label className="block space-y-1">
+                  <span className="text-sm font-medium">Email</span>
+                  <Input
+                    required
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@company.com"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-sm font-medium">Password</span>
+                  <Input
+                    required
+                    type="password"
+                    autoComplete="off"
+                    value={pw}
+                    onChange={(e) => setPw(e.target.value)}
+                    placeholder="At least 6 characters"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-sm font-medium">Confirm password</span>
+                  <Input
+                    required
+                    type="password"
+                    autoComplete="off"
+                    value={pw2}
+                    onChange={(e) => setPw2(e.target.value)}
+                    placeholder="Repeat password"
+                  />
+                </label>
+              </div>
+
+              {err ? (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-2 text-sm text-destructive">
+                  {err}
+                </div>
+              ) : null}
+
+              <Button type="submit" disabled={loading} className="w-full rounded-xl">
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Creating…
+                  </>
+                ) : (
+                  <>
+                    Create account <ArrowRight className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
+
+              <div className="text-xs text-muted-foreground">
+                By continuing you agree to our{" "}
+                <Link className="underline underline-offset-4 hover:text-foreground" to="/terms">
+                  Terms
+                </Link>{" "}
+                and{" "}
+                <Link className="underline underline-offset-4 hover:text-foreground" to="/privacy">
+                  Privacy Policy
+                </Link>
+                .
+              </div>
+
+              <div className="text-sm text-center text-muted-foreground">
+                Already have an account?{" "}
+                <Link
+                  to={`/login?returnTo=${encodeURIComponent(onSuccessNavigateTo)}`}
+                  className="underline underline-offset-4 hover:text-foreground"
+                >
+                  Sign in
+                </Link>
+              </div>
+            </form>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function TryLandingPage() {
+  const [params] = useSearchParams();
+  const refRaw = useMemo(() => safeDecode(params.get("ref") || ""), [params]);
+  const refName = useMemo(() => titleCaseName(refRaw), [refRaw]);
+
+  // Keep these for footer links / fallbacks
+  const signupHref = "/signup?highlight=email";
+  const loginHref = "/login";
+
+  return (
+    <div className="min-h-dvh bg-background text-foreground">
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
-          <Link to="/" className="flex items-center gap-2">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
             <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
               <Wand2 className="h-5 w-5" />
             </div>
-            <div className="leading-tight">
+            <div>
               <div className="text-sm font-semibold">LexBot PRO</div>
               <div className="text-xs text-muted-foreground">AI Search Engine</div>
             </div>
-          </Link>
+          </div>
+
+          <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+            <a className="hover:text-foreground" href="#features">
+              Features
+            </a>
+            <a className="hover:text-foreground" href="#how">
+              How it works
+            </a>
+            <a className="hover:text-foreground" href="#security">
+              Security
+            </a>
+            <a className="hover:text-foreground" href="#faq">
+              FAQ
+            </a>
+          </nav>
 
           <div className="flex items-center gap-2">
-            <Button asChild variant="ghost" className="hidden sm:inline-flex">
-              <a href="#how">How it works</a>
+            <Button asChild variant="outline" className="hidden rounded-full sm:inline-flex">
+              <Link to={loginHref}>Sign in</Link>
             </Button>
-            <Button asChild variant="outline" className="hidden sm:inline-flex">
-              <a href="#security">Security</a>
-            </Button>
-            <Button asChild>
-              <Link to={signupHref}>
-                Create free account <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
+            <Button asChild className="rounded-full">
+              <a href="#signup">Start free</a>
             </Button>
           </div>
         </div>
@@ -1335,196 +1666,138 @@ export default function TryLandingPage() {
 
       {/* Hero */}
       <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-accent blur-3xl opacity-70" />
-          <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-primary/20 blur-3xl opacity-70" />
-          <div className="absolute left-1/2 top-[14rem] h-80 w-80 -translate-x-1/2 rounded-full bg-primary/10 blur-3xl opacity-70" />
-        </div>
+        <div className="absolute inset-0 bg-gradient-to-b from-primary/10 via-accent/10 to-background" />
+        <div className="absolute -left-32 -top-40 h-96 w-96 rounded-full bg-primary/20 blur-3xl" />
+        <div className="absolute -right-32 -bottom-40 h-96 w-96 rounded-full bg-accent/25 blur-3xl" />
 
-        <div className="mx-auto max-w-6xl px-4 py-14 sm:py-20">
-          <div className="grid items-center gap-10 lg:grid-cols-2">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="secondary" className="rounded-full">
-                  <Sparkles className="mr-1 h-3.5 w-3.5" />
-                  Search and explore your own files
-                </Badge>
-                <Badge className="rounded-full">Free forever plan</Badge>
-              </div>
-
-              <h1 className="mt-5 text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
-                {refName ? (
-                  <>
-                    Hello <span className="text-primary">{refName}</span>.{" "}
-                    <span className="text-muted-foreground">
-                      Find what matters in your documents — instantly.
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    Find what matters in your{" "}
-                    <span className="text-primary">documents</span> — instantly.
-                  </>
-                )}
-              </h1>
-
-              <p className="mt-5 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-                Upload PDFs, notes, research, or reference material. Ask questions in plain
-                language and quickly find relevant information across all your files.
-              </p>
-
-              <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Button asChild size="lg" className="rounded-xl">
-                  <Link to={signupHref}>
-                    Start free — no card needed <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
-                </Button>
-                <Button asChild size="lg" variant="outline" className="rounded-xl">
-                  <a href="#how">See how it works</a>
-                </Button>
-              </div>
-
-              <div className="mt-7 grid gap-3 sm:grid-cols-3">
-                <MiniStat icon={<BadgeCheck className="h-4 w-4" />} title="Clear answers" desc="Structured responses focused on clarity." />
-                <MiniStat icon={<FileSearch className="h-4 w-4" />} title="Fast retrieval" desc="Search across many files in seconds." />
-                <MiniStat icon={<Lock className="h-4 w-4" />} title="Your workspace" desc="Your files stay within your account." />
-              </div>
+        <div className="relative mx-auto grid max-w-6xl gap-8 px-4 py-14 lg:grid-cols-2 lg:items-start">
+          <div className="max-w-xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" className="rounded-full">
+                Private by default
+              </Badge>
+              <Badge variant="secondary" className="rounded-full">
+                Source-cited answers
+              </Badge>
+              <Badge variant="secondary" className="rounded-full">
+                No setup
+              </Badge>
             </div>
 
-            {/* Right hero card */}
-            <Card className="relative overflow-hidden rounded-2xl border bg-card shadow-sm">
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-accent/60 to-transparent" />
-              <CardHeader className="relative">
-                <CardTitle className="text-xl">What you can do in 2 minutes</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  A quick, realistic workflow — no setup, no “prompt engineering”.
-                </p>
-              </CardHeader>
-              <CardContent className="relative space-y-4">
-                <StepRow
-                  n="1"
-                  icon={<BookOpen className="h-4 w-4" />}
-                  title="Upload a document"
-                  body="PDFs, notes, docs — drag & drop."
-                />
-                <StepRow
-                  n="2"
-                  icon={<FileSearch className="h-4 w-4" />}
-                  title="Ask a specific question"
-                  body="“What are the key obligations in section 4?”"
-                />
-                <StepRow
-                  n="3"
-                  icon={<BadgeCheck className="h-4 w-4" />}
-                  title="Get a clear answer"
-                  body="A focused response based on your files."
-                />
+            <h1 className="mt-5 text-4xl font-semibold tracking-tight sm:text-5xl">
+              Smart answers from your own files.
+            </h1>
 
-                <div className="mt-6 rounded-xl border bg-background p-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-medium">Free forever</div>
-                      <div className="text-sm text-muted-foreground">
-                        50 messages • ~75 pages of uploads • No credit card required
-                      </div>
-                    </div>
-                    <Button asChild className="rounded-xl">
-                      <Link to={signupHref}>Try it</Link>
-                    </Button>
-                  </div>
+            <p className="mt-4 text-base text-muted-foreground sm:text-lg">
+              Upload documents and ask questions in plain English. Get fast, audit-friendly
+              answers that reference your sources.
+            </p>
+
+            <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
+              <li className="flex items-start gap-2">
+                <Check className="mt-0.5 h-4 w-4 text-foreground" />
+                <span>
+                  Free tier: <span className="text-foreground">50 messages</span> &{" "}
+                  <span className="text-foreground">~75 pages</span> of uploads
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Check className="mt-0.5 h-4 w-4 text-foreground" />
+                <span>Strong multi-lingual, multi-domain capabilities</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <Check className="mt-0.5 h-4 w-4 text-foreground" />
+                <span>Simple flows. Clear controls. No hidden sharing.</span>
+              </li>
+            </ul>
+
+            {refName ? (
+              <div className="mt-6 rounded-2xl border bg-background/70 p-4 backdrop-blur">
+                <div className="text-sm font-medium">Hi {refName} 👋</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  This link is personalized — start free on the right and try it with a real document.
                 </div>
+              </div>
+            ) : null}
+          </div>
 
-                <p className="text-xs text-muted-foreground">
-                  By continuing you agree to our Terms and Privacy Policy.
-                </p>
-              </CardContent>
-            </Card>
+          {/* Inline signup */}
+          <div className="lg:pl-6">
+            <SignupCard refName={refName || undefined} onSuccessNavigateTo="/files" />
           </div>
         </div>
       </section>
 
-      {/* Social proof / outcomes */}
-      <section className="mx-auto max-w-6xl px-4 py-10">
-        <div className="grid gap-4 md:grid-cols-3">
-          <OutcomeCard
-            title="Answer faster"
-            body="Stop re-reading long files. Ask and move on."
-          />
-          <OutcomeCard
-            title="Stay focused"
-            body="Quickly surface the information you need."
-          />
-          <OutcomeCard
-            title="Work across languages"
-            body="Use the interface and ask questions in multiple languages."
-          />
+      {/* Features */}
+      <section id="features" className="border-t">
+        <div className="mx-auto max-w-6xl px-4 py-14">
+          <div className="max-w-2xl">
+            <h2 className="text-3xl font-semibold tracking-tight">
+              Built for speed and clarity
+            </h2>
+            <p className="mt-2 text-muted-foreground">
+              A clean workflow: upload → ask → get cited answers.
+            </p>
+          </div>
+
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <FeatureCard
+              icon={<Upload className="h-5 w-5" />}
+              title="Upload files"
+              body="Bring PDFs, docs, and notes into one workspace."
+            />
+            <FeatureCard
+              icon={<Sparkles className="h-5 w-5" />}
+              title="Ask questions"
+              body="Chat naturally. The assistant uses your content as context."
+            />
+            <FeatureCard
+              icon={<FileText className="h-5 w-5" />}
+              title="Get grounded answers"
+              body="Responses are based on what’s in your documents."
+            />
+          </div>
         </div>
       </section>
 
-      {/* How it works */}
-      <section id="how" className="border-t bg-accent/30">
+      {/* How */}
+      <section id="how" className="border-t bg-accent/20">
         <div className="mx-auto max-w-6xl px-4 py-14">
           <div className="max-w-2xl">
             <h2 className="text-3xl font-semibold tracking-tight">How it works</h2>
             <p className="mt-2 text-muted-foreground">
-              A simple flow that matches how professionals actually work with documents.
+              Three steps to get value fast.
             </p>
           </div>
 
-          <div className="mt-8 grid gap-5 lg:grid-cols-3">
-            <FeatureCard
-              icon={<BookOpen className="h-5 w-5" />}
-              title="Bring your own files"
-              body="Upload research, notes, documents, and reference material."
-            />
-            <FeatureCard
-              icon={<FileSearch className="h-5 w-5" />}
-              title="Ask natural questions"
-              body="From quick lookups to deep comparisons — in plain language."
-            />
-            <FeatureCard
-              icon={<BadgeCheck className="h-5 w-5" />}
-              title="Get clear responses"
-              body="Structured output designed for quick understanding."
-            />
-          </div>
-
-          <div className="mt-10 grid gap-6 lg:grid-cols-2">
-            <Card className="rounded-2xl border bg-card shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg">Example questions</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Useful prompts that map to real tasks.
-                </p>
+          <div className="mt-8 grid gap-5 md:grid-cols-3">
+            <Card className="rounded-2xl border bg-background shadow-sm">
+              <CardHeader className="space-y-2">
+                <div className="text-xs text-muted-foreground">Step 1</div>
+                <CardTitle className="text-base">Create an account</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <ExamplePrompt>“Summarize the key points from this document.”</ExamplePrompt>
-                <ExamplePrompt>“What changed between version A and B?”</ExamplePrompt>
-                <ExamplePrompt>“List the main risks and key considerations.”</ExamplePrompt>
-                <ExamplePrompt>“Extract deadlines and obligations into bullet points.”</ExamplePrompt>
+              <CardContent className="text-sm text-muted-foreground">
+                Start free — no credit card required.
               </CardContent>
             </Card>
 
-            <Card className="rounded-2xl border bg-card shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-lg">Designed for clarity</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Professional output over “chatty” output.
-                </p>
+            <Card className="rounded-2xl border bg-background shadow-sm">
+              <CardHeader className="space-y-2">
+                <div className="text-xs text-muted-foreground">Step 2</div>
+                <CardTitle className="text-base">Upload a document</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <Bullet
-                  title="Structured responses"
-                  body="Clean headings, bullets, and actionable takeaways."
-                />
-                <Bullet
-                  title="Focused responses"
-                  body="Get straight to the relevant information."
-                />
-                <Bullet
-                  title="Simple by default"
-                  body="No setup, no configuration, no complexity."
-                />
+              <CardContent className="text-sm text-muted-foreground">
+                Add your file and let LexBot PRO index it.
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-2xl border bg-background shadow-sm">
+              <CardHeader className="space-y-2">
+                <div className="text-xs text-muted-foreground">Step 3</div>
+                <CardTitle className="text-base">Ask & get cited answers</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                Get fast answers grounded in your content.
               </CardContent>
             </Card>
           </div>
@@ -1534,14 +1807,16 @@ export default function TryLandingPage() {
       {/* Security */}
       <section id="security" className="border-t">
         <div className="mx-auto max-w-6xl px-4 py-14">
-          <div className="grid gap-10 lg:grid-cols-2 lg:items-center">
+          <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
             <div>
-              <h2 className="text-3xl font-semibold tracking-tight">Security & privacy</h2>
-              <p className="mt-3 text-muted-foreground">
-                Built for everyday work with documents. Upload files and explore them in one place.
+              <h2 className="text-3xl font-semibold tracking-tight">
+                Private by default
+              </h2>
+              <p className="mt-2 text-muted-foreground">
+                Keep work organized, predictable, and controlled.
               </p>
 
-              <div className="mt-6 space-y-4">
+              <div className="mt-6 grid gap-3">
                 <SecurityRow
                   title="Organized files"
                   body="Group and manage documents in one workspace."
@@ -1578,13 +1853,14 @@ export default function TryLandingPage() {
                     </div>
                   </div>
                 </div>
+
                 <Button asChild size="lg" className="w-full rounded-xl">
-                  <Link to={signupHref}>
+                  <a href="#signup">
                     Create free account <ArrowRight className="ml-2 h-4 w-4" />
-                  </Link>
+                  </a>
                 </Button>
                 <Button asChild variant="outline" className="w-full rounded-xl">
-                  <Link to="/signin">I already have an account</Link>
+                  <Link to="/login">I already have an account</Link>
                 </Button>
               </CardContent>
             </Card>
@@ -1593,13 +1869,11 @@ export default function TryLandingPage() {
       </section>
 
       {/* FAQ */}
-      <section className="border-t bg-accent/20">
+      <section id="faq" className="border-t bg-accent/20">
         <div className="mx-auto max-w-6xl px-4 py-14">
           <div className="max-w-2xl">
             <h2 className="text-3xl font-semibold tracking-tight">FAQ</h2>
-            <p className="mt-2 text-muted-foreground">
-              The essentials, answered clearly.
-            </p>
+            <p className="mt-2 text-muted-foreground">The essentials, answered clearly.</p>
           </div>
 
           <div className="mt-8 grid gap-5 lg:grid-cols-2">
@@ -1629,9 +1903,9 @@ export default function TryLandingPage() {
               </div>
             </div>
             <Button asChild size="lg" className="rounded-xl">
-              <Link to={signupHref}>
+              <a href="#signup">
                 Get started <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
+              </a>
             </Button>
           </div>
         </div>
@@ -1664,6 +1938,9 @@ export default function TryLandingPage() {
               <Link className="hover:text-foreground" to="/terms">
                 Terms
               </Link>
+              <Link className="hover:text-foreground" to={signupHref}>
+                Signup page
+              </Link>
             </div>
           </div>
 
@@ -1674,168 +1951,6 @@ export default function TryLandingPage() {
       </footer>
     </div>
   );
-}
-
-function MiniStat({
-  icon,
-  title,
-  desc,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  desc: string;
-}) {
-  return (
-    <div className="rounded-xl border bg-background p-4 shadow-sm">
-      <div className="flex items-center gap-2">
-        <div className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-accent-foreground">
-          {icon}
-        </div>
-        <div className="text-sm font-medium">{title}</div>
-      </div>
-      <div className="mt-2 text-sm text-muted-foreground">{desc}</div>
-    </div>
-  );
-}
-
-function StepRow({
-  n,
-  icon,
-  title,
-  body,
-}: {
-  n: string;
-  icon: React.ReactNode;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border bg-background p-4">
-      <div className="mt-0.5 flex items-center gap-2">
-        <div className="grid h-7 w-7 place-items-center rounded-lg bg-primary text-primary-foreground text-xs font-semibold">
-          {n}
-        </div>
-        <div className="grid h-7 w-7 place-items-center rounded-lg bg-accent text-accent-foreground">
-          {icon}
-        </div>
-      </div>
-      <div>
-        <div className="text-sm font-semibold">{title}</div>
-        <div className="text-sm text-muted-foreground">{body}</div>
-      </div>
-    </div>
-  );
-}
-
-function OutcomeCard({ title, body }: { title: string; body: string }) {
-  return (
-    <Card className="rounded-2xl border bg-card shadow-sm">
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">{body}</CardContent>
-    </Card>
-  );
-}
-
-function FeatureCard({
-  icon,
-  title,
-  body,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  body: string;
-}) {
-  return (
-    <Card className="rounded-2xl border bg-card shadow-sm">
-      <CardHeader className="flex flex-row items-center gap-3">
-        <div className="grid h-10 w-10 place-items-center rounded-xl bg-accent text-accent-foreground">
-          {icon}
-        </div>
-        <div>
-          <CardTitle className="text-base">{title}</CardTitle>
-          <p className="text-sm text-muted-foreground">{body}</p>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-0" />
-    </Card>
-  );
-}
-
-function ExamplePrompt({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border bg-background p-3">
-      <div className="mt-0.5 grid h-8 w-8 place-items-center rounded-lg bg-accent text-accent-foreground">
-        <Sparkles className="h-4 w-4" />
-      </div>
-      <div className="text-sm text-muted-foreground">{children}</div>
-    </div>
-  );
-}
-
-function Bullet({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="flex items-start gap-3">
-      <div className="mt-0.5 grid h-8 w-8 place-items-center rounded-lg bg-accent text-accent-foreground">
-        <BadgeCheck className="h-4 w-4" />
-      </div>
-      <div>
-        <div className="text-sm font-semibold">{title}</div>
-        <div className="text-sm text-muted-foreground">{body}</div>
-      </div>
-    </div>
-  );
-}
-
-function SecurityRow({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border bg-card p-4 shadow-sm">
-      <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-xl bg-accent text-accent-foreground">
-        <Lock className="h-4 w-4" />
-      </div>
-      <div>
-        <div className="text-sm font-semibold">{title}</div>
-        <div className="text-sm text-muted-foreground">{body}</div>
-      </div>
-    </div>
-  );
-}
-
-function Faq({ q, a }: { q: string; a: string }) {
-  return (
-    <Card className="rounded-2xl border bg-card shadow-sm">
-      <CardHeader>
-        <CardTitle className="text-base">{q}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">{a}</CardContent>
-    </Card>
-  );
-}
-
-function safeDecode(v: string) {
-  try {
-    return decodeURIComponent(v.replace(/\+/g, "%20"));
-  } catch {
-    return v;
-  }
-}
-
-function toTitleLike(v: string) {
-  if (!v) return v;
-  // If it looks like a normal "name", title-case spaces/hyphens.
-  if (/^[\p{L}\p{M}\s'.-]+$/u.test(v) && v.length <= 40) {
-    return v
-      .split(/(\s+|-)/)
-      .map((part) => {
-        if (part.trim() === "" || part === "-") return part;
-        const first = part.slice(0, 1);
-        const rest = part.slice(1);
-        return first.toLocaleUpperCase() + rest.toLocaleLowerCase();
-      })
-      .join("");
-  }
-  return v;
 }
 
 

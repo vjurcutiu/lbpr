@@ -1,4 +1,1702 @@
+C:/code2/lbpr/static/spa/tests/unit/auth/AuthProvider.test.tsx
+import React from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+
+// Mock deps used by AuthProvider
+const mockGetJSON = vi.fn();
+const mockPostJSON = vi.fn();
+vi.mock("@/shared/api", async () => ({ getJSON: mockGetJSON, postJSON: mockPostJSON }));
+
+let authCb: ((u: any) => Promise<void>) | null = null;
+
+const mockLogoutFirebase = vi.fn();
+const mockAuth: any = { currentUser: null };
+const mockOnAuth = vi.fn((cb: any) => {
+  authCb = cb;
+  return () => {
+    authCb = null;
+  };
+});
+
+vi.mock("@/features/auth/firebase", async () => ({
+  onAuth: (cb: any) => mockOnAuth(cb),
+  auth: mockAuth,
+  logoutFirebase: mockLogoutFirebase,
+}));
+
+import { AuthProvider, useAuthContext } from "@/features/auth/AuthProvider";
+
+function Consumer() {
+  const { user, loading } = useAuthContext();
+  return (
+    <div>
+      <div data-testid="loading">{String(loading)}</div>
+      <div data-testid="uid">{user?.uid || ""}</div>
+    </div>
+  );
+}
+
+function renderProvider() {
+  return render(
+    <AuthProvider>
+      <Consumer />
+    </AuthProvider>
+  );
+}
+
+describe("AuthProvider", () => {
+  beforeEach(() => {
+    mockGetJSON.mockReset();
+    mockPostJSON.mockReset();
+    mockLogoutFirebase.mockReset();
+    mockAuth.currentUser = null;
+    authCb = null;
+  });
+
+  it("loads server session on mount", async () => {
+    mockGetJSON.mockResolvedValueOnce({ user: { uid: "server-user" } });
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("uid")).toHaveTextContent("server-user");
+    });
+    expect(screen.getByTestId("loading")).toHaveTextContent("false");
+    expect(mockOnAuth).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps user null if server session fetch fails", async () => {
+    mockGetJSON.mockRejectedValueOnce(new Error("nope"));
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("loading")).toHaveTextContent("false");
+    });
+    expect(screen.getByTestId("uid")).toHaveTextContent("");
+  });
+
+  it("does not exchange cookie for unverified email/password users", async () => {
+    mockGetJSON.mockResolvedValue({ user: null });
+
+    renderProvider();
+    expect(authCb).toBeTypeOf("function");
+
+    const fbUser = {
+      email: "x@example.com",
+      emailVerified: false,
+      providerData: [{ providerId: "password" }],
+    };
+
+    await authCb!(fbUser);
+
+    expect(mockLogoutFirebase).toHaveBeenCalled();
+    expect(mockPostJSON).not.toHaveBeenCalled();
+    expect(screen.getByTestId("uid")).toHaveTextContent("");
+  });
+
+  it("exchanges cookie for phone users even if emailVerified is false", async () => {
+    mockGetJSON.mockResolvedValueOnce({ user: null });
+    // After cookie exchange, AuthProvider calls load() again
+    mockGetJSON.mockResolvedValueOnce({ user: { uid: "server-after" } });
+
+    const getIdToken = vi.fn().mockResolvedValue("ID_TOKEN");
+    mockAuth.currentUser = { getIdToken };
+
+    renderProvider();
+
+    const fbUser = {
+      email: null,
+      emailVerified: false,
+      providerData: [{ providerId: "phone" }],
+    };
+
+    await authCb!(fbUser);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("uid")).toHaveTextContent("server-after");
+    });
+
+    expect(getIdToken).toHaveBeenCalled();
+    expect(mockPostJSON).toHaveBeenCalledWith("/auth/session", { id_token: "ID_TOKEN" });
+  });
+
+  it("sets user null when cookie exchange fails", async () => {
+    mockGetJSON.mockResolvedValue({ user: null });
+
+    const getIdToken = vi.fn().mockResolvedValue("ID_TOKEN");
+    mockAuth.currentUser = { getIdToken };
+
+    mockPostJSON.mockRejectedValueOnce(new Error("bad"));
+
+    renderProvider();
+
+    const fbUser = {
+      email: "ok@example.com",
+      emailVerified: true,
+      providerData: [{ providerId: "password" }],
+    };
+
+    await authCb!(fbUser);
+
+    await waitFor(() => {
+      expect(mockPostJSON).toHaveBeenCalled();
+    });
+    expect(screen.getByTestId("uid")).toHaveTextContent("");
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/auth/AuthProvider.test.tsx
+import React from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+
+// Mock deps used by AuthProvider
+const mockGetJSON = vi.fn();
+const mockPostJSON = vi.fn();
+vi.mock("@/shared/api", async () => ({ getJSON: mockGetJSON, postJSON: mockPostJSON }));
+
+let authCb: ((u: any) => Promise<void>) | null = null;
+
+const mockLogoutFirebase = vi.fn();
+const mockAuth: any = { currentUser: null };
+const mockOnAuth = vi.fn((cb: any) => {
+  authCb = cb;
+  return () => {
+    authCb = null;
+  };
+});
+
+vi.mock("@/features/auth/firebase", async () => ({
+  onAuth: (cb: any) => mockOnAuth(cb),
+  auth: mockAuth,
+  logoutFirebase: mockLogoutFirebase,
+}));
+
+import { AuthProvider, useAuthContext } from "@/features/auth/AuthProvider";
+
+function Consumer() {
+  const { user, loading } = useAuthContext();
+  return (
+    <div>
+      <div data-testid="loading">{String(loading)}</div>
+      <div data-testid="uid">{user?.uid || ""}</div>
+    </div>
+  );
+}
+
+function renderProvider() {
+  return render(
+    <AuthProvider>
+      <Consumer />
+    </AuthProvider>
+  );
+}
+
+describe("AuthProvider", () => {
+  beforeEach(() => {
+    mockGetJSON.mockReset();
+    mockPostJSON.mockReset();
+    mockLogoutFirebase.mockReset();
+    mockAuth.currentUser = null;
+    authCb = null;
+  });
+
+  it("loads server session on mount", async () => {
+    mockGetJSON.mockResolvedValueOnce({ user: { uid: "server-user" } });
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("uid")).toHaveTextContent("server-user");
+    });
+    expect(screen.getByTestId("loading")).toHaveTextContent("false");
+    expect(mockOnAuth).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps user null if server session fetch fails", async () => {
+    mockGetJSON.mockRejectedValueOnce(new Error("nope"));
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("loading")).toHaveTextContent("false");
+    });
+    expect(screen.getByTestId("uid")).toHaveTextContent("");
+  });
+
+  it("does not exchange cookie for unverified email/password users", async () => {
+    mockGetJSON.mockResolvedValue({ user: null });
+
+    renderProvider();
+    expect(authCb).toBeTypeOf("function");
+
+    const fbUser = {
+      email: "x@example.com",
+      emailVerified: false,
+      providerData: [{ providerId: "password" }],
+    };
+
+    await authCb!(fbUser);
+
+    expect(mockLogoutFirebase).toHaveBeenCalled();
+    expect(mockPostJSON).not.toHaveBeenCalled();
+    expect(screen.getByTestId("uid")).toHaveTextContent("");
+  });
+
+  it("exchanges cookie for phone users even if emailVerified is false", async () => {
+    mockGetJSON.mockResolvedValueOnce({ user: null });
+    // After cookie exchange, AuthProvider calls load() again
+    mockGetJSON.mockResolvedValueOnce({ user: { uid: "server-after" } });
+
+    const getIdToken = vi.fn().mockResolvedValue("ID_TOKEN");
+    mockAuth.currentUser = { getIdToken };
+
+    renderProvider();
+
+    const fbUser = {
+      email: null,
+      emailVerified: false,
+      providerData: [{ providerId: "phone" }],
+    };
+
+    await authCb!(fbUser);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("uid")).toHaveTextContent("server-after");
+    });
+
+    expect(getIdToken).toHaveBeenCalled();
+    expect(mockPostJSON).toHaveBeenCalledWith("/auth/session", { id_token: "ID_TOKEN" });
+  });
+
+  it("sets user null when cookie exchange fails", async () => {
+    mockGetJSON.mockResolvedValue({ user: null });
+
+    const getIdToken = vi.fn().mockResolvedValue("ID_TOKEN");
+    mockAuth.currentUser = { getIdToken };
+
+    mockPostJSON.mockRejectedValueOnce(new Error("bad"));
+
+    renderProvider();
+
+    const fbUser = {
+      email: "ok@example.com",
+      emailVerified: true,
+      providerData: [{ providerId: "password" }],
+    };
+
+    await authCb!(fbUser);
+
+    await waitFor(() => {
+      expect(mockPostJSON).toHaveBeenCalled();
+    });
+    expect(screen.getByTestId("uid")).toHaveTextContent("");
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/billing/__mocks__/billingApiMock.ts
+// __mocks__/billingApiMock.ts
+// Re-export shapes to keep types happy when importing from '@/features/billing/api'
+export type { Product, Price, Subscription } from "@/features/billing/api";
+
+// Provide test doubles that return Promises by default because the component calls `.catch(...)`
+export const loadActiveProducts = vi.fn(async () => {
+  return [];
+});
+
+export const startCheckout = vi.fn(async (_priceId?: string, _opts?: any) => {
+  // Simulate Stripe redirect creation success
+  return { id: "cs_test_123" };
+});
+
+export const openBillingPortal = vi.fn(async () => {
+  // Simulate portal session creation success
+  return { id: "bps_test_123" };
+});
+
+// Observe subscriptions: resolves to an unsubscribe function and may call cb synchronously.
+export const observeSubscriptions = vi.fn((cb: (subs: Subscription[]) => void) => {
+  cb([]);
+  return Promise.resolve(() => {});
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/billing/BillingPage.test.tsx
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import React from "react";
+
+vi.mock("@/features/billing/api", async () => {
+  const mod = await import("./__mocks__/billingApiMock");
+  return mod;
+});
+vi.mock("@/shared/api", () => ({ getJSON: vi.fn() }));
+
+import BillingPage from "@/features/billing/BillingPage";
+import { getJSON } from "@/shared/api";
+import {
+  loadActiveProducts,
+  startCheckout,
+  openBillingPortal,
+  observeSubscriptions,
+  type Price,
+  type Product,
+  type Subscription,
+} from "@/features/billing/api";
+
+function arrangeProducts(): Product[] {
+  const pro: Price = {
+    id: "price_pro_month",
+    type: "recurring",
+    unit_amount: 1200,
+    currency: "eur",
+    interval: "month",
+    active: true,
+  };
+  return [{
+    id: "prod_pro",
+    name: "Pro",
+    description: "Pro plan",
+    active: true,
+    default_price: pro.id,
+    images: [],
+    metadata: {},
+    prices: [pro],
+  }];
+}
+
+function fakeLimits(plan: "FREE" | "PRO") {
+  return {
+    plan,
+    window: "202510",
+    caps: { messages: plan === "PRO" ? 10000 : 200, upload_tokens: plan === "PRO" ? 20000000 : 200000 },
+    usage: { messages: 3, upload_tokens: 1234 },
+    remaining: { messages: plan === "PRO" ? 9997 : 197, upload_tokens: plan === "PRO" ? (20000000-1234) : (200000-1234) },
+  };
+}
+
+const getProCard = async () => {
+  // Wait until we see the "Pro" heading and the formatted price, then return the enclosing card
+  const heading = await screen.findByRole("heading", { name: /pro/i });
+  const card = heading.closest("div")!.parentElement as HTMLElement;
+  expect(card).toBeTruthy();
+  // Also ensure the money text landed to avoid early queries
+  await screen.findByText(/€?\s?12\.00/i);
+  return card;
+};
+
+const getProButton = async () => {
+  const card = await getProCard();
+  // Be robust: search by text inside the card and then climb to the button element
+  const textNode = await within(card).findByText(/get pro|you're on pro/i);
+  const btn = textNode.closest("button") as HTMLButtonElement | null;
+  if (!btn) throw new Error("Pro button not found");
+  return btn;
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  (loadActiveProducts as any).mockResolvedValue(arrangeProducts());
+  (getJSON as any).mockResolvedValue(fakeLimits("FREE"));
+  (observeSubscriptions as any).mockImplementation((cb: (subs: Subscription[]) => void) => {
+    cb([]);
+    return Promise.resolve(() => {});
+  });
+});
+
+describe("BillingPage — subscription upgrade", () => {
+  it("shows 'Get Pro' and calls startCheckout with the chosen price", async () => {
+    render(<BillingPage />);
+
+    const btn = await getProButton();
+    expect(btn).toBeEnabled();
+
+    fireEvent.click(btn);
+    await waitFor(() => {
+      expect(startCheckout).toHaveBeenCalledTimes(1);
+      const [priceId, opts] = (startCheckout as any).mock.calls[0];
+      expect(priceId).toBe("price_pro_month");
+      expect(opts).toMatchObject({ mode: "subscription" });
+    });
+  });
+
+  it("disables Pro button when already on Pro (plan=PRO from /limits/me)", async () => {
+    (getJSON as any).mockResolvedValueOnce(fakeLimits("PRO"));
+
+    render(<BillingPage />);
+
+    const btn = await getProButton();
+    expect(btn).toBeDisabled();
+    expect(btn.textContent?.toLowerCase()).toContain("you're on pro");
+  });
+});
+
+describe("BillingPage — usage tier upgrades", () => {
+  it("shows usage cards and reflects PRO caps when plan=PRO from /limits/me", async () => {
+    (getJSON as any).mockResolvedValueOnce(fakeLimits("PRO"));
+    render(<BillingPage />);
+
+    expect(await screen.findByText(/Messages/i)).toBeInTheDocument();
+    expect(screen.getByText(/10,000/)).toBeInTheDocument();
+    expect(screen.getByText(/20,000,000/)).toBeInTheDocument();
+
+    const btn = await getProButton();
+    expect(btn).toBeDisabled();
+  });
+});
+
+describe("BillingPage — subscription cancellation", () => {
+  it("re-enables upgrade when only 'canceled' subscription is present", async () => {
+    (observeSubscriptions as any).mockImplementation((cb: (subs: Subscription[]) => void) => {
+      cb([{ id: "sub_1", status: "canceled" } as Subscription]);
+      return Promise.resolve(() => {});
+    });
+
+    render(<BillingPage />);
+    const btn = await getProButton();
+    expect(btn).toBeEnabled();
+  });
+});
+
+describe("BillingPage — access to Stripe's billing management", () => {
+  it("calls openBillingPortal when 'Manage billing' is clicked", async () => {
+    render(<BillingPage />);
+    const manage = await screen.findByRole("button", { name: /manage billing/i });
+    fireEvent.click(manage);
+    await waitFor(() => expect(openBillingPortal).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("BillingPage — subscription period dates", () => {
+  it("treats an 'active' sub with a future current_period_end as Pro (plan=PRO)", async () => {
+    const periodEnd = Math.floor(Date.now() / 1000) + 7 * 24 * 3600;
+    (observeSubscriptions as any).mockImplementation((cb: (subs: Subscription[]) => void) => {
+      cb([{ id: "sub_2", status: "active", current_period_end: periodEnd } as Subscription]);
+      return Promise.resolve(() => {});
+    });
+    (getJSON as any).mockResolvedValueOnce(fakeLimits("PRO"));
+
+    render(<BillingPage />);
+    const btn = await getProButton();
+    expect(btn).toBeDisabled();
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/auth/errorMessages.test.ts
+import { describe, expect, it } from "vitest";
+import { friendlyAuthMessage } from "@/features/auth/errorMessages";
+
+describe("friendlyAuthMessage", () => {
+  it("maps network errors", () => {
+    expect(friendlyAuthMessage({ code: "auth/network-request-failed" }, "login"))
+      .toMatch(/Network error/i);
+  });
+
+  it("maps login invalid credential variants", () => {
+    expect(friendlyAuthMessage({ code: "auth/invalid-credential" }, "login"))
+      .toBe("Email or password is incorrect.");
+    expect(friendlyAuthMessage({ code: "auth/wrong-password" }, "login"))
+      .toBe("Email or password is incorrect.");
+    expect(friendlyAuthMessage({ code: "auth/user-not-found" }, "login"))
+      .toBe("Email or password is incorrect.");
+  });
+
+  it("maps signup email already in use", () => {
+    expect(friendlyAuthMessage({ code: "auth/email-already-in-use" }, "signup"))
+      .toMatch(/already exists/i);
+  });
+
+  it("maps weak password", () => {
+    expect(friendlyAuthMessage({ code: "auth/weak-password" }, "signup"))
+      .toMatch(/too weak/i);
+  });
+
+  it("maps phone invalid phone", () => {
+    expect(friendlyAuthMessage({ code: "auth/invalid-phone-number" }, "phone"))
+      .toMatch(/looks invalid/i);
+  });
+
+  it("maps phone verify invalid code", () => {
+    expect(friendlyAuthMessage({ code: "auth/invalid-verification-code" }, "phone-verify"))
+      .toMatch(/incorrect/i);
+  });
+
+  it("infers code from message when code missing", () => {
+    const msg = "Firebase: Error (auth/too-many-requests).";
+    expect(friendlyAuthMessage({ message: msg }, "verify"))
+      .toMatch(/too often/i);
+  });
+
+  it("falls back to generic", () => {
+    expect(friendlyAuthMessage({ code: "auth/some-new-error" }, "login"))
+      .toMatch(/Unable to sign in/i);
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/auth/errorMessages.test.ts
+import { describe, expect, it } from "vitest";
+import { friendlyAuthMessage } from "@/features/auth/errorMessages";
+
+describe("friendlyAuthMessage", () => {
+  it("maps network errors", () => {
+    expect(friendlyAuthMessage({ code: "auth/network-request-failed" }, "login"))
+      .toMatch(/Network error/i);
+  });
+
+  it("maps login invalid credential variants", () => {
+    expect(friendlyAuthMessage({ code: "auth/invalid-credential" }, "login"))
+      .toBe("Email or password is incorrect.");
+    expect(friendlyAuthMessage({ code: "auth/wrong-password" }, "login"))
+      .toBe("Email or password is incorrect.");
+    expect(friendlyAuthMessage({ code: "auth/user-not-found" }, "login"))
+      .toBe("Email or password is incorrect.");
+  });
+
+  it("maps signup email already in use", () => {
+    expect(friendlyAuthMessage({ code: "auth/email-already-in-use" }, "signup"))
+      .toMatch(/already exists/i);
+  });
+
+  it("maps weak password", () => {
+    expect(friendlyAuthMessage({ code: "auth/weak-password" }, "signup"))
+      .toMatch(/too weak/i);
+  });
+
+  it("maps phone invalid phone", () => {
+    expect(friendlyAuthMessage({ code: "auth/invalid-phone-number" }, "phone"))
+      .toMatch(/looks invalid/i);
+  });
+
+  it("maps phone verify invalid code", () => {
+    expect(friendlyAuthMessage({ code: "auth/invalid-verification-code" }, "phone-verify"))
+      .toMatch(/incorrect/i);
+  });
+
+  it("infers code from message when code missing", () => {
+    const msg = "Firebase: Error (auth/too-many-requests).";
+    expect(friendlyAuthMessage({ message: msg }, "verify"))
+      .toMatch(/too often/i);
+  });
+
+  it("falls back to generic", () => {
+    expect(friendlyAuthMessage({ code: "auth/some-new-error" }, "login"))
+      .toMatch(/Unable to sign in/i);
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/__mocks__/firebase.ts
+import { vi } from "vitest";
+
+// Minimal mock of our app's firebase wrapper used by AuthProvider/Login/Signup/Verify tests.
+export const auth: { currentUser: any } = { currentUser: null };
+
+export const provider = {} as any;
+
+export const onAuth = vi.fn(() => {
+  // return unsubscribe noop
+  return () => {};
+});
+
+export const signInWithEmailPassword = vi.fn(async (_email: string, _pw: string) => {
+  // caller will set auth.currentUser before asserting when needed
+  return {};
+});
+
+export const createUserWithEmailAndPassword = vi.fn(async (_app: any, email: string, _pw: string) => {
+  const user = { uid: "u_test", email };
+  auth.currentUser = user;
+  return { user };
+});
+
+export const sendVerificationEmail = vi.fn(async (_user?: any) => {
+  return;
+});
+
+export const applyActionCode = vi.fn(async (_oobCode: string) => {
+  // resolved by default; specific tests override with mockRejectedValueOnce
+  return;
+});
+
+export const loginWithGoogle = vi.fn(async () => ({}));
+export const logoutFirebase = vi.fn(async () => ({}));
+
+
+C:/code2/lbpr/static/spa/tests/unit/helpers/flushPromises.ts
+export async function flushPromises() {
+  // Let pending microtasks resolve
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/helpers/flushPromises.ts
+export async function flushPromises() {
+  // Let pending microtasks resolve
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+
+C:/code2/lbpr/static/spa/tests/unit/auth/LoginPage.test.tsx
+import React from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+import { renderAt } from "../helpers/renderAt";
+import { flushPromises } from "../helpers/flushPromises";
+
+import {
+  resetAuthMocks,
+  setCurrentUser,
+  mockSignInWithEmailPassword,
+  mockLoginWithGoogle,
+} from "./mocks";
+
+// Must be imported before the component under test
+import "./mockModules";
+import { mockPostJSON } from "./mockModules";
+
+// We want LoginPage to think the user is logged out.
+import { vi as _vi } from "vitest";
+_vi.doMock("@/features/auth/AuthProvider", async () => {
+  return {
+    AuthProvider: ({ children }: any) => children,
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+  };
+});
+
+import LoginPage from "@/features/auth/LoginPage";
+
+describe("LoginPage", () => {
+  beforeEach(() => {
+    resetAuthMocks();
+    mockPostJSON.mockReset();
+  });
+
+  it("submits email/password and exchanges session when email is verified", async () => {
+    const user = userEvent.setup();
+
+    // Firebase sign-in success; mark currentUser as verified with idToken
+    setCurrentUser({
+      emailVerified: true,
+      getIdToken: vi.fn().mockResolvedValue("ID_TOKEN"),
+    });
+    mockSignInWithEmailPassword.mockResolvedValue({});
+    mockPostJSON.mockResolvedValue({ ok: true });
+
+    // Prevent jsdom navigation errors
+    vi.spyOn(window.location, "replace").mockImplementation(() => {});
+
+    renderAt(<LoginPage />, "/login?returnTo=%2Ffiles");
+
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "secret123");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await flushPromises();
+
+    expect(mockSignInWithEmailPassword).toHaveBeenCalledWith("test@example.com", "secret123");
+    expect(mockPostJSON).toHaveBeenCalledWith("/auth/session", { id_token: "ID_TOKEN" });
+    expect(window.location.replace).toHaveBeenCalledWith("/files");
+  });
+
+  it("shows email verification gate if user is not verified", async () => {
+    const user = userEvent.setup();
+
+    setCurrentUser({
+      emailVerified: false,
+      getIdToken: vi.fn().mockResolvedValue("ID_TOKEN"),
+    });
+    mockSignInWithEmailPassword.mockResolvedValue({});
+
+    renderAt(<LoginPage />, "/login?returnTo=%2Ffiles");
+
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "secret123");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(await screen.findByText(/Please verify your email/i)).toBeInTheDocument();
+    expect(mockPostJSON).not.toHaveBeenCalled();
+  });
+
+  it("renders friendly error message on login failure", async () => {
+    const user = userEvent.setup();
+
+    mockSignInWithEmailPassword.mockRejectedValue({ code: "auth/invalid-credential" });
+
+    renderAt(<LoginPage />, "/login");
+
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "wrong");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(await screen.findByText(/Email or password is incorrect/i)).toBeInTheDocument();
+  });
+
+  it("calls Google sign-in when clicking Continue with Google", async () => {
+    const user = userEvent.setup();
+    mockLoginWithGoogle.mockResolvedValue({});
+
+    renderAt(<LoginPage />, "/login");
+
+    await user.click(screen.getByRole("button", { name: /Continue with Google/i }));
+    expect(mockLoginWithGoogle).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/auth/LoginPage.test.tsx
+import React from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+import { renderAt } from "../helpers/renderAt";
+import { flushPromises } from "../helpers/flushPromises";
+
+import {
+  resetAuthMocks,
+  setCurrentUser,
+  mockSignInWithEmailPassword,
+  mockLoginWithGoogle,
+} from "./mocks";
+
+// Must be imported before the component under test
+import "./mockModules";
+import { mockPostJSON } from "./mockModules";
+
+// We want LoginPage to think the user is logged out.
+import { vi as _vi } from "vitest";
+_vi.doMock("@/features/auth/AuthProvider", async () => {
+  return {
+    AuthProvider: ({ children }: any) => children,
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+  };
+});
+
+import LoginPage from "@/features/auth/LoginPage";
+
+describe("LoginPage", () => {
+  beforeEach(() => {
+    resetAuthMocks();
+    mockPostJSON.mockReset();
+  });
+
+  it("submits email/password and exchanges session when email is verified", async () => {
+    const user = userEvent.setup();
+
+    // Firebase sign-in success; mark currentUser as verified with idToken
+    setCurrentUser({
+      emailVerified: true,
+      getIdToken: vi.fn().mockResolvedValue("ID_TOKEN"),
+    });
+    mockSignInWithEmailPassword.mockResolvedValue({});
+    mockPostJSON.mockResolvedValue({ ok: true });
+
+    // Prevent jsdom navigation errors
+    vi.spyOn(window.location, "replace").mockImplementation(() => {});
+
+    renderAt(<LoginPage />, "/login?returnTo=%2Ffiles");
+
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "secret123");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await flushPromises();
+
+    expect(mockSignInWithEmailPassword).toHaveBeenCalledWith("test@example.com", "secret123");
+    expect(mockPostJSON).toHaveBeenCalledWith("/auth/session", { id_token: "ID_TOKEN" });
+    expect(window.location.replace).toHaveBeenCalledWith("/files");
+  });
+
+  it("shows email verification gate if user is not verified", async () => {
+    const user = userEvent.setup();
+
+    setCurrentUser({
+      emailVerified: false,
+      getIdToken: vi.fn().mockResolvedValue("ID_TOKEN"),
+    });
+    mockSignInWithEmailPassword.mockResolvedValue({});
+
+    renderAt(<LoginPage />, "/login?returnTo=%2Ffiles");
+
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "secret123");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(await screen.findByText(/Please verify your email/i)).toBeInTheDocument();
+    expect(mockPostJSON).not.toHaveBeenCalled();
+  });
+
+  it("renders friendly error message on login failure", async () => {
+    const user = userEvent.setup();
+
+    mockSignInWithEmailPassword.mockRejectedValue({ code: "auth/invalid-credential" });
+
+    renderAt(<LoginPage />, "/login");
+
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "wrong");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(await screen.findByText(/Email or password is incorrect/i)).toBeInTheDocument();
+  });
+
+  it("calls Google sign-in when clicking Continue with Google", async () => {
+    const user = userEvent.setup();
+    mockLoginWithGoogle.mockResolvedValue({});
+
+    renderAt(<LoginPage />, "/login");
+
+    await user.click(screen.getByRole("button", { name: /Continue with Google/i }));
+    expect(mockLoginWithGoogle).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/auth/mockModules.ts
+import { vi } from "vitest";
+import {
+  mockAuth,
+  mockCreateRecaptchaVerifier,
+  mockLoginWithGoogle,
+  mockLogoutFirebase,
+  mockSendVerificationEmail,
+  mockSignInWithEmailPassword,
+  mockSignInWithPhone,
+  mockSignUpWithEmailPassword,
+} from "./mocks";
+
+// Mock Firebase wrapper used by our app code.
+vi.mock("@/features/auth/firebase", async () => {
+  return {
+    auth: mockAuth,
+    signInWithEmailPassword: mockSignInWithEmailPassword,
+    signUpWithEmailPassword: mockSignUpWithEmailPassword,
+    loginWithGoogle: mockLoginWithGoogle,
+    sendVerificationEmail: mockSendVerificationEmail,
+    logoutFirebase: mockLogoutFirebase,
+    createRecaptchaVerifier: mockCreateRecaptchaVerifier,
+    signInWithPhone: mockSignInWithPhone,
+  };
+});
+
+// Mock API helpers used by AuthProvider + LoginPage.
+export const mockGetJSON = vi.fn();
+export const mockPostJSON = vi.fn();
+vi.mock("@/shared/api", async () => {
+  return {
+    getJSON: mockGetJSON,
+    postJSON: mockPostJSON,
+  };
+});
+
+// Mock Ads conversion tracking so tests don't touch gtag
+export const mockTrackSignupConversion = vi.fn();
+vi.mock("@/lib/gtag", async () => {
+  return {
+    trackSignupConversion: mockTrackSignupConversion,
+  };
+});
+
+// For most page tests, we don't want to run the real AuthProvider effect logic.
+export function mockUseAuthContext(user: any = null) {
+  vi.doMock("@/features/auth/AuthProvider", async () => {
+    return {
+      AuthProvider: ({ children }: any) => children,
+      useAuthContext: () => ({
+        user,
+        loading: false,
+        refresh: async () => {},
+        clear: () => {},
+      }),
+    };
+  });
+}
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/auth/mockModules.ts
+import { vi } from "vitest";
+import {
+  mockAuth,
+  mockCreateRecaptchaVerifier,
+  mockLoginWithGoogle,
+  mockLogoutFirebase,
+  mockSendVerificationEmail,
+  mockSignInWithEmailPassword,
+  mockSignInWithPhone,
+  mockSignUpWithEmailPassword,
+} from "./mocks";
+
+// Mock Firebase wrapper used by our app code.
+vi.mock("@/features/auth/firebase", async () => {
+  return {
+    auth: mockAuth,
+    signInWithEmailPassword: mockSignInWithEmailPassword,
+    signUpWithEmailPassword: mockSignUpWithEmailPassword,
+    loginWithGoogle: mockLoginWithGoogle,
+    sendVerificationEmail: mockSendVerificationEmail,
+    logoutFirebase: mockLogoutFirebase,
+    createRecaptchaVerifier: mockCreateRecaptchaVerifier,
+    signInWithPhone: mockSignInWithPhone,
+  };
+});
+
+// Mock API helpers used by AuthProvider + LoginPage.
+export const mockGetJSON = vi.fn();
+export const mockPostJSON = vi.fn();
+vi.mock("@/shared/api", async () => {
+  return {
+    getJSON: mockGetJSON,
+    postJSON: mockPostJSON,
+  };
+});
+
+// Mock Ads conversion tracking so tests don't touch gtag
+export const mockTrackSignupConversion = vi.fn();
+vi.mock("@/lib/gtag", async () => {
+  return {
+    trackSignupConversion: mockTrackSignupConversion,
+  };
+});
+
+// For most page tests, we don't want to run the real AuthProvider effect logic.
+export function mockUseAuthContext(user: any = null) {
+  vi.doMock("@/features/auth/AuthProvider", async () => {
+    return {
+      AuthProvider: ({ children }: any) => children,
+      useAuthContext: () => ({
+        user,
+        loading: false,
+        refresh: async () => {},
+        clear: () => {},
+      }),
+    };
+  });
+}
+
+
+C:/code2/lbpr/static/spa/tests/unit/auth/mocks.ts
+import { vi } from "vitest";
+
+/**
+ * Shared mocks used across auth component tests.
+ * Each test file can import and call `resetAuthMocks()`.
+ */
+
+export const mockSignInWithEmailPassword = vi.fn();
+export const mockSignUpWithEmailPassword = vi.fn();
+export const mockLoginWithGoogle = vi.fn();
+export const mockSendVerificationEmail = vi.fn();
+export const mockLogoutFirebase = vi.fn();
+export const mockCreateRecaptchaVerifier = vi.fn();
+export const mockSignInWithPhone = vi.fn();
+
+export const mockAuth = {
+  currentUser: null as any,
+};
+
+export function setCurrentUser(user: any) {
+  mockAuth.currentUser = user;
+}
+
+export function resetAuthMocks() {
+  mockSignInWithEmailPassword.mockReset();
+  mockSignUpWithEmailPassword.mockReset();
+  mockLoginWithGoogle.mockReset();
+  mockSendVerificationEmail.mockReset();
+  mockLogoutFirebase.mockReset();
+  mockCreateRecaptchaVerifier.mockReset();
+  mockSignInWithPhone.mockReset();
+  mockAuth.currentUser = null;
+}
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/auth/mocks.ts
+import { vi } from "vitest";
+
+/**
+ * Shared mocks used across auth component tests.
+ * Each test file can import and call `resetAuthMocks()`.
+ */
+
+export const mockSignInWithEmailPassword = vi.fn();
+export const mockSignUpWithEmailPassword = vi.fn();
+export const mockLoginWithGoogle = vi.fn();
+export const mockSendVerificationEmail = vi.fn();
+export const mockLogoutFirebase = vi.fn();
+export const mockCreateRecaptchaVerifier = vi.fn();
+export const mockSignInWithPhone = vi.fn();
+
+export const mockAuth = {
+  currentUser: null as any,
+};
+
+export function setCurrentUser(user: any) {
+  mockAuth.currentUser = user;
+}
+
+export function resetAuthMocks() {
+  mockSignInWithEmailPassword.mockReset();
+  mockSignUpWithEmailPassword.mockReset();
+  mockLoginWithGoogle.mockReset();
+  mockSendVerificationEmail.mockReset();
+  mockLogoutFirebase.mockReset();
+  mockCreateRecaptchaVerifier.mockReset();
+  mockSignInWithPhone.mockReset();
+  mockAuth.currentUser = null;
+}
+
+
+C:/code2/lbpr/static/spa/tests/unit/auth/PhoneLoginPage.test.tsx
+import React from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+import { renderAt } from "../helpers/renderAt";
+
+import {
+  resetAuthMocks,
+  mockCreateRecaptchaVerifier,
+  mockSignInWithPhone,
+} from "./mocks";
+
+import "./mockModules";
+
+// Logged out for this page
+import { vi as _vi } from "vitest";
+_vi.doMock("@/features/auth/AuthProvider", async () => {
+  return {
+    AuthProvider: ({ children }: any) => children,
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+  };
+});
+
+import PhoneLoginPage from "@/features/auth/PhoneLoginPage";
+
+describe("PhoneLoginPage", () => {
+  beforeEach(() => {
+    resetAuthMocks();
+  });
+
+  it("validates phone number format", async () => {
+    const user = userEvent.setup();
+
+    renderAt(<PhoneLoginPage />, "/phone");
+
+    // default is '+'; attempt submit should show error
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+    expect(await screen.findByText(/Please enter your phone number/i)).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText(/phone number/i));
+    await user.type(screen.getByLabelText(/phone number/i), "40712345678");
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+    expect(await screen.findByText(/must start with \+/i)).toBeInTheDocument();
+  });
+
+  it("sends SMS code and transitions to code step", async () => {
+    const user = userEvent.setup();
+
+    const verifier = { clear: vi.fn() };
+    mockCreateRecaptchaVerifier.mockReturnValue(verifier);
+
+    const confirmation = { confirm: vi.fn().mockResolvedValue({}) };
+    mockSignInWithPhone.mockResolvedValue(confirmation);
+
+    renderAt(<PhoneLoginPage />, "/phone?returnTo=%2Ffiles");
+
+    await user.clear(screen.getByLabelText(/phone number/i));
+    await user.type(screen.getByLabelText(/phone number/i), "+40 712 345 678");
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+
+    expect(mockCreateRecaptchaVerifier).toHaveBeenCalledWith("recaptcha-container", { size: "invisible" });
+    expect(mockSignInWithPhone).toHaveBeenCalledWith("+40712345678", verifier);
+
+    expect(await screen.findByText(/We sent a code to/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/sms code/i)).toBeInTheDocument();
+  });
+
+  it("verifies code via confirmation.confirm", async () => {
+    const user = userEvent.setup();
+
+    const verifier = { clear: vi.fn() };
+    mockCreateRecaptchaVerifier.mockReturnValue(verifier);
+
+    const confirmation = { confirm: vi.fn().mockResolvedValue({}) };
+    mockSignInWithPhone.mockResolvedValue(confirmation);
+
+    renderAt(<PhoneLoginPage />, "/phone");
+
+    await user.clear(screen.getByLabelText(/phone number/i));
+    await user.type(screen.getByLabelText(/phone number/i), "+40712345678");
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+
+    await user.type(await screen.findByLabelText(/sms code/i), "123456");
+    await user.click(screen.getByRole("button", { name: /verify & sign in/i }));
+
+    expect(confirmation.confirm).toHaveBeenCalledWith("123456");
+  });
+
+  it("shows friendly message on verify failure", async () => {
+    const user = userEvent.setup();
+
+    const verifier = { clear: vi.fn() };
+    mockCreateRecaptchaVerifier.mockReturnValue(verifier);
+
+    const confirmation = { confirm: vi.fn().mockRejectedValue({ code: "auth/invalid-verification-code" }) };
+    mockSignInWithPhone.mockResolvedValue(confirmation);
+
+    renderAt(<PhoneLoginPage />, "/phone");
+
+    await user.clear(screen.getByLabelText(/phone number/i));
+    await user.type(screen.getByLabelText(/phone number/i), "+40712345678");
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+
+    await user.type(await screen.findByLabelText(/sms code/i), "000000");
+    await user.click(screen.getByRole("button", { name: /verify & sign in/i }));
+
+    expect(await screen.findByText(/code is incorrect/i)).toBeInTheDocument();
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/auth/PhoneLoginPage.test.tsx
+import React from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+import { renderAt } from "../helpers/renderAt";
+
+import {
+  resetAuthMocks,
+  mockCreateRecaptchaVerifier,
+  mockSignInWithPhone,
+} from "./mocks";
+
+import "./mockModules";
+
+// Logged out for this page
+import { vi as _vi } from "vitest";
+_vi.doMock("@/features/auth/AuthProvider", async () => {
+  return {
+    AuthProvider: ({ children }: any) => children,
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+  };
+});
+
+import PhoneLoginPage from "@/features/auth/PhoneLoginPage";
+
+describe("PhoneLoginPage", () => {
+  beforeEach(() => {
+    resetAuthMocks();
+  });
+
+  it("validates phone number format", async () => {
+    const user = userEvent.setup();
+
+    renderAt(<PhoneLoginPage />, "/phone");
+
+    // default is '+'; attempt submit should show error
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+    expect(await screen.findByText(/Please enter your phone number/i)).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText(/phone number/i));
+    await user.type(screen.getByLabelText(/phone number/i), "40712345678");
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+    expect(await screen.findByText(/must start with \+/i)).toBeInTheDocument();
+  });
+
+  it("sends SMS code and transitions to code step", async () => {
+    const user = userEvent.setup();
+
+    const verifier = { clear: vi.fn() };
+    mockCreateRecaptchaVerifier.mockReturnValue(verifier);
+
+    const confirmation = { confirm: vi.fn().mockResolvedValue({}) };
+    mockSignInWithPhone.mockResolvedValue(confirmation);
+
+    renderAt(<PhoneLoginPage />, "/phone?returnTo=%2Ffiles");
+
+    await user.clear(screen.getByLabelText(/phone number/i));
+    await user.type(screen.getByLabelText(/phone number/i), "+40 712 345 678");
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+
+    expect(mockCreateRecaptchaVerifier).toHaveBeenCalledWith("recaptcha-container", { size: "invisible" });
+    expect(mockSignInWithPhone).toHaveBeenCalledWith("+40712345678", verifier);
+
+    expect(await screen.findByText(/We sent a code to/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/sms code/i)).toBeInTheDocument();
+  });
+
+  it("verifies code via confirmation.confirm", async () => {
+    const user = userEvent.setup();
+
+    const verifier = { clear: vi.fn() };
+    mockCreateRecaptchaVerifier.mockReturnValue(verifier);
+
+    const confirmation = { confirm: vi.fn().mockResolvedValue({}) };
+    mockSignInWithPhone.mockResolvedValue(confirmation);
+
+    renderAt(<PhoneLoginPage />, "/phone");
+
+    await user.clear(screen.getByLabelText(/phone number/i));
+    await user.type(screen.getByLabelText(/phone number/i), "+40712345678");
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+
+    await user.type(await screen.findByLabelText(/sms code/i), "123456");
+    await user.click(screen.getByRole("button", { name: /verify & sign in/i }));
+
+    expect(confirmation.confirm).toHaveBeenCalledWith("123456");
+  });
+
+  it("shows friendly message on verify failure", async () => {
+    const user = userEvent.setup();
+
+    const verifier = { clear: vi.fn() };
+    mockCreateRecaptchaVerifier.mockReturnValue(verifier);
+
+    const confirmation = { confirm: vi.fn().mockRejectedValue({ code: "auth/invalid-verification-code" }) };
+    mockSignInWithPhone.mockResolvedValue(confirmation);
+
+    renderAt(<PhoneLoginPage />, "/phone");
+
+    await user.clear(screen.getByLabelText(/phone number/i));
+    await user.type(screen.getByLabelText(/phone number/i), "+40712345678");
+    await user.click(screen.getByRole("button", { name: /send code/i }));
+
+    await user.type(await screen.findByLabelText(/sms code/i), "000000");
+    await user.click(screen.getByRole("button", { name: /verify & sign in/i }));
+
+    expect(await screen.findByText(/code is incorrect/i)).toBeInTheDocument();
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/auth/ProtectedRoute.test.tsx
+import React from "react";
+import { describe, expect, it, vi } from "vitest";
+import { render } from "@testing-library/react";
+
+// Mock react-router-dom parts so we can assert redirects without needing a full router.
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    Navigate: (props: any) => (
+      <div data-testid="navigate" data-to={props.to} data-replace={String(!!props.replace)} />
+    ),
+    Outlet: () => <div data-testid="outlet" />,
+    useLocation: () => ({ pathname: "/chat", search: "?x=1", hash: "#h" }),
+  };
+});
+
+// Default: logged out
+vi.mock("@/features/auth/AuthProvider", async () => {
+  return {
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+  };
+});
+
+import ProtectedRoute from "@/features/auth/ProtectedRoute";
+
+describe("ProtectedRoute", () => {
+  it("redirects to /login with returnTo when logged out", () => {
+    const { getByTestId } = render(<ProtectedRoute />);
+    const nav = getByTestId("navigate");
+    const to = nav.getAttribute("data-to") || "";
+
+    // returnTo should include pathname+search+hash
+    expect(to).toMatch(/^\/login\?returnTo=/);
+    expect(decodeURIComponent(to.split("returnTo=")[1] || "")).toBe("/chat?x=1#h");
+  });
+
+  it("shows loading state", async () => {
+    vi.resetModules();
+    vi.doMock("@/features/auth/AuthProvider", async () => ({
+      useAuthContext: () => ({ user: null, loading: true, refresh: async () => {}, clear: () => {} }),
+    }));
+
+    const { default: ProtectedRoute2 } = await import("@/features/auth/ProtectedRoute");
+    const { getByText } = render(<ProtectedRoute2 />);
+    expect(getByText(/Loading/i)).toBeInTheDocument();
+  });
+
+  it("renders outlet when user is present", async () => {
+    vi.resetModules();
+    vi.doMock("@/features/auth/AuthProvider", async () => ({
+      useAuthContext: () => ({ user: { uid: "u1" }, loading: false, refresh: async () => {}, clear: () => {} }),
+    }));
+
+    const { default: ProtectedRoute2 } = await import("@/features/auth/ProtectedRoute");
+    const { getByTestId } = render(<ProtectedRoute2 />);
+    expect(getByTestId("outlet")).toBeInTheDocument();
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/auth/ProtectedRoute.test.tsx
+import React from "react";
+import { describe, expect, it, vi } from "vitest";
+import { render } from "@testing-library/react";
+
+// Mock react-router-dom parts so we can assert redirects without needing a full router.
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    Navigate: (props: any) => (
+      <div data-testid="navigate" data-to={props.to} data-replace={String(!!props.replace)} />
+    ),
+    Outlet: () => <div data-testid="outlet" />,
+    useLocation: () => ({ pathname: "/chat", search: "?x=1", hash: "#h" }),
+  };
+});
+
+// Default: logged out
+vi.mock("@/features/auth/AuthProvider", async () => {
+  return {
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+  };
+});
+
+import ProtectedRoute from "@/features/auth/ProtectedRoute";
+
+describe("ProtectedRoute", () => {
+  it("redirects to /login with returnTo when logged out", () => {
+    const { getByTestId } = render(<ProtectedRoute />);
+    const nav = getByTestId("navigate");
+    const to = nav.getAttribute("data-to") || "";
+
+    // returnTo should include pathname+search+hash
+    expect(to).toMatch(/^\/login\?returnTo=/);
+    expect(decodeURIComponent(to.split("returnTo=")[1] || "")).toBe("/chat?x=1#h");
+  });
+
+  it("shows loading state", async () => {
+    vi.resetModules();
+    vi.doMock("@/features/auth/AuthProvider", async () => ({
+      useAuthContext: () => ({ user: null, loading: true, refresh: async () => {}, clear: () => {} }),
+    }));
+
+    const { default: ProtectedRoute2 } = await import("@/features/auth/ProtectedRoute");
+    const { getByText } = render(<ProtectedRoute2 />);
+    expect(getByText(/Loading/i)).toBeInTheDocument();
+  });
+
+  it("renders outlet when user is present", async () => {
+    vi.resetModules();
+    vi.doMock("@/features/auth/AuthProvider", async () => ({
+      useAuthContext: () => ({ user: { uid: "u1" }, loading: false, refresh: async () => {}, clear: () => {} }),
+    }));
+
+    const { default: ProtectedRoute2 } = await import("@/features/auth/ProtectedRoute");
+    const { getByTestId } = render(<ProtectedRoute2 />);
+    expect(getByTestId("outlet")).toBeInTheDocument();
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/README.md
+# Auth tests (unit-level) for LBP-REACT
+
+This adds **Vitest + Testing Library** unit tests to cover the cases from `auth_tests.txt`:
+- login
+- signup
+- verification email send
+- verification confirmation page
+- signup page has a "return to login page" button
+- user friendly error messages for all cases
+- autocomplete on email input, not on password (both login and signup)
+
+## Install (from `static/spa`)
+
+```bash
+# from the SPA root
+pnpm add -D vitest @testing-library/react @testing-library/jest-dom jsdom @testing-library/user-event
+# or: npm i -D vitest @testing-library/react @testing-library/jest-dom jsdom @testing-library/user-event
+```
+
+> Tested with: Vitest 3.x, React Testing Library 16.x, jsdom 27.x.
+
+## Run
+```bash
+pnpm vitest
+# or: npx vitest
+```
+
+## Notes
+- Firebase SDK calls are **module-mocked** so tests run offline and deterministically.
+- We assert `autocomplete="email"` on email fields and `autocomplete="off"` on passwords to match requirements.
+
+
+C:/code2/lbpr/static/spa/tests/unit/helpers/renderAt.tsx
+import React from "react";
+import { render } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+
+export function renderAt(ui: React.ReactElement, route: string = "/") {
+  return render(<MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>);
+}
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/helpers/renderAt.tsx
+import React from "react";
+import { render } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+
+export function renderAt(ui: React.ReactElement, route: string = "/") {
+  return render(<MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>);
+}
+
+
 C:/code2/lbpr/static/spa/tests/unit/setupTests.ts
 import '@testing-library/jest-dom';
+
+
+C:/code2/lbpr/static/spa/tests/unit/auth/SignupPage.test.tsx
+import React from "react";
+import { beforeEach, describe, expect, it } from "vitest";
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+import { renderAt } from "../helpers/renderAt";
+
+import {
+  resetAuthMocks,
+  mockSignUpWithEmailPassword,
+  mockSendVerificationEmail,
+} from "./mocks";
+
+import "./mockModules";
+import { mockTrackSignupConversion } from "./mockModules";
+
+// Logged out for this page
+import { vi as _vi } from "vitest";
+_vi.doMock("@/features/auth/AuthProvider", async () => {
+  return {
+    AuthProvider: ({ children }: any) => children,
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+  };
+});
+
+import SignupPage from "@/features/auth/SignupPage";
+
+describe("SignupPage", () => {
+  beforeEach(() => {
+    resetAuthMocks();
+    mockTrackSignupConversion.mockReset();
+  });
+
+  it("blocks submit when passwords don't match", async () => {
+    const user = userEvent.setup();
+
+    renderAt(<SignupPage />, "/signup");
+
+    await user.type(screen.getByLabelText(/^email$/i), "new@example.com");
+    await user.type(screen.getByLabelText(/^password$/i), "secret123");
+    await user.type(screen.getByLabelText(/confirm password/i), "secret124");
+    await user.click(screen.getByRole("button", { name: /Create account/i }));
+
+    expect(await screen.findByText(/Passwords do not match/i)).toBeInTheDocument();
+    expect(mockSignUpWithEmailPassword).not.toHaveBeenCalled();
+  });
+
+  it("creates account, tracks conversion, and sends verification email", async () => {
+    const user = userEvent.setup();
+
+    mockSignUpWithEmailPassword.mockResolvedValue({ user: { uid: "u1" } });
+    mockSendVerificationEmail.mockResolvedValue(undefined);
+
+    renderAt(<SignupPage />, "/signup");
+
+    await user.type(screen.getByLabelText(/^email$/i), "new@example.com");
+    await user.type(screen.getByLabelText(/^password$/i), "secret123");
+    await user.type(screen.getByLabelText(/confirm password/i), "secret123");
+    await user.click(screen.getByRole("button", { name: /Create account/i }));
+
+    expect(mockSignUpWithEmailPassword).toHaveBeenCalledWith("new@example.com", "secret123");
+    expect(mockTrackSignupConversion).toHaveBeenCalled();
+    expect(mockSendVerificationEmail).toHaveBeenCalled();
+
+    expect(await screen.findByText(/Check your inbox/i)).toBeInTheDocument();
+    expect(screen.getByText(/We sent a verification link to/i)).toBeInTheDocument();
+  });
+
+  it("shows friendly error on signup failure", async () => {
+    const user = userEvent.setup();
+
+    mockSignUpWithEmailPassword.mockRejectedValue({ code: "auth/email-already-in-use" });
+
+    renderAt(<SignupPage />, "/signup");
+
+    await user.type(screen.getByLabelText(/^email$/i), "exists@example.com");
+    await user.type(screen.getByLabelText(/^password$/i), "secret123");
+    await user.type(screen.getByLabelText(/confirm password/i), "secret123");
+    await user.click(screen.getByRole("button", { name: /Create account/i }));
+
+    expect(await screen.findByText(/already exists/i)).toBeInTheDocument();
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/auth/SignupPage.test.tsx
+import React from "react";
+import { beforeEach, describe, expect, it } from "vitest";
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+import { renderAt } from "../helpers/renderAt";
+
+import {
+  resetAuthMocks,
+  mockSignUpWithEmailPassword,
+  mockSendVerificationEmail,
+} from "./mocks";
+
+import "./mockModules";
+import { mockTrackSignupConversion } from "./mockModules";
+
+// Logged out for this page
+import { vi as _vi } from "vitest";
+_vi.doMock("@/features/auth/AuthProvider", async () => {
+  return {
+    AuthProvider: ({ children }: any) => children,
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+  };
+});
+
+import SignupPage from "@/features/auth/SignupPage";
+
+describe("SignupPage", () => {
+  beforeEach(() => {
+    resetAuthMocks();
+    mockTrackSignupConversion.mockReset();
+  });
+
+  it("blocks submit when passwords don't match", async () => {
+    const user = userEvent.setup();
+
+    renderAt(<SignupPage />, "/signup");
+
+    await user.type(screen.getByLabelText(/^email$/i), "new@example.com");
+    await user.type(screen.getByLabelText(/^password$/i), "secret123");
+    await user.type(screen.getByLabelText(/confirm password/i), "secret124");
+    await user.click(screen.getByRole("button", { name: /Create account/i }));
+
+    expect(await screen.findByText(/Passwords do not match/i)).toBeInTheDocument();
+    expect(mockSignUpWithEmailPassword).not.toHaveBeenCalled();
+  });
+
+  it("creates account, tracks conversion, and sends verification email", async () => {
+    const user = userEvent.setup();
+
+    mockSignUpWithEmailPassword.mockResolvedValue({ user: { uid: "u1" } });
+    mockSendVerificationEmail.mockResolvedValue(undefined);
+
+    renderAt(<SignupPage />, "/signup");
+
+    await user.type(screen.getByLabelText(/^email$/i), "new@example.com");
+    await user.type(screen.getByLabelText(/^password$/i), "secret123");
+    await user.type(screen.getByLabelText(/confirm password/i), "secret123");
+    await user.click(screen.getByRole("button", { name: /Create account/i }));
+
+    expect(mockSignUpWithEmailPassword).toHaveBeenCalledWith("new@example.com", "secret123");
+    expect(mockTrackSignupConversion).toHaveBeenCalled();
+    expect(mockSendVerificationEmail).toHaveBeenCalled();
+
+    expect(await screen.findByText(/Check your inbox/i)).toBeInTheDocument();
+    expect(screen.getByText(/We sent a verification link to/i)).toBeInTheDocument();
+  });
+
+  it("shows friendly error on signup failure", async () => {
+    const user = userEvent.setup();
+
+    mockSignUpWithEmailPassword.mockRejectedValue({ code: "auth/email-already-in-use" });
+
+    renderAt(<SignupPage />, "/signup");
+
+    await user.type(screen.getByLabelText(/^email$/i), "exists@example.com");
+    await user.type(screen.getByLabelText(/^password$/i), "secret123");
+    await user.type(screen.getByLabelText(/confirm password/i), "secret123");
+    await user.click(screen.getByRole("button", { name: /Create account/i }));
+
+    expect(await screen.findByText(/already exists/i)).toBeInTheDocument();
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/auth/testUtils.tsx
+import { ReactNode } from "react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+
+export function withRouter(ui: ReactNode, initialEntries: string[] = ["/"]) {
+  return (
+    <MemoryRouter initialEntries={initialEntries}>
+      <Routes>
+        <Route path="*" element={ui} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+
+C:/code2/lbpr/static/spa/tests/unit/auth/VerifyEmailPage.test.tsx
+import React from "react";
+import { describe, expect, it } from "vitest";
+import { screen } from "@testing-library/react";
+
+import { renderAt } from "../helpers/renderAt";
+
+import VerifyEmailPage from "@/features/auth/VerifyEmailPage";
+
+describe("VerifyEmailPage", () => {
+  it("shows error when params missing", async () => {
+    renderAt(<VerifyEmailPage />, "/verify-email");
+
+    expect(await screen.findByText(/Invalid or missing verification link parameters/i)).toBeInTheDocument();
+  });
+
+  it("shows success when params present", async () => {
+    renderAt(<VerifyEmailPage />, "/verify-email?mode=verifyEmail&oobCode=abc");
+
+    expect(await screen.findByText(/Email verified/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Continue to sign in/i })).toHaveAttribute("href", "/login");
+  });
+});
+
+
+C:/code2/lbpr/static/spa/tests/unit/unit/auth/VerifyEmailPage.test.tsx
+import React from "react";
+import { describe, expect, it } from "vitest";
+import { screen } from "@testing-library/react";
+
+import { renderAt } from "../helpers/renderAt";
+
+import VerifyEmailPage from "@/features/auth/VerifyEmailPage";
+
+describe("VerifyEmailPage", () => {
+  it("shows error when params missing", async () => {
+    renderAt(<VerifyEmailPage />, "/verify-email");
+
+    expect(await screen.findByText(/Invalid or missing verification link parameters/i)).toBeInTheDocument();
+  });
+
+  it("shows success when params present", async () => {
+    renderAt(<VerifyEmailPage />, "/verify-email?mode=verifyEmail&oobCode=abc");
+
+    expect(await screen.findByText(/Email verified/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Continue to sign in/i })).toHaveAttribute("href", "/login");
+  });
+});
 
 

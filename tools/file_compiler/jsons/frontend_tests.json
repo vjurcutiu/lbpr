@@ -1,6 +1,6 @@
  {
    "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_tests.txt",
-   "folders": ["C:\\code2\\lbpr\\static\\spa\\tests\\unit"
+   "recurse_folders": ["C:\\code2\\lbpr\\static\\spa\\tests"
             ],
    "include_glob": "*",
    "dedup": "path"

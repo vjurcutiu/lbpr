@@ -46,6 +46,9 @@ export function friendlyAuthMessage(
 
 
   if (context === "phone") {
+    if (c.includes("operation-not-allowed") || msg.toLowerCase().includes("region enabled")) {
+      return "SMS can't be sent to this phone number's region yet. In Firebase Console -> Authentication -> Settings -> SMS region policy, allow the country/region for this number (e.g. +40). If you're testing, add a test phone number/code under Authentication -> Sign-in method -> Phone -> Phone numbers for testing.";
+    }
     if (c.includes("invalid-phone-number")) {
       return "That phone number looks invalid. Use international format, e.g. +40 712 345 678.";
     }
@@ -146,3 +149,5 @@ export function friendlyAuthMessage(
   // Fallback
   return "Something went wrong. Please try again.";
 }
+
+
