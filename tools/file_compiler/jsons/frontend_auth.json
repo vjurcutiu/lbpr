@@ -1,6 +1,6 @@
  {
    "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_auth_context.txt",
-   "folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\auth"
+   "recurse_folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\auth"
             ],
    "include_glob": "*",
    "dedup": "path"

@@ -2,29 +2,52 @@ import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
-// Mock deps used by AuthProvider
-const mockGetJSON = vi.fn();
-const mockPostJSON = vi.fn();
-vi.mock("@/shared/api", async () => ({ getJSON: mockGetJSON, postJSON: mockPostJSON }));
-
-let authCb: ((u: any) => Promise<void>) | null = null;
-
-const mockLogoutFirebase = vi.fn();
-const mockAuth: any = { currentUser: null };
-const mockOnAuth = vi.fn((cb: any) => {
-  authCb = cb;
-  return () => {
-    authCb = null;
+// Mock deps used by AuthProvider.
+// IMPORTANT: vi.mock(...) is hoisted, so keep all state inside the factory.
+vi.mock("@/shared/api", () => {
+  const mockGetJSON = vi.fn();
+  const mockPostJSON = vi.fn();
+  return {
+    getJSON: mockGetJSON,
+    postJSON: mockPostJSON,
+    __mock: {
+      mockGetJSON,
+      mockPostJSON,
+    },
   };
 });
 
-vi.mock("@/features/auth/firebase", async () => ({
-  onAuth: (cb: any) => mockOnAuth(cb),
-  auth: mockAuth,
-  logoutFirebase: mockLogoutFirebase,
-}));
+vi.mock("@/features/auth/firebase", () => {
+  let authCb: ((u: any) => Promise<void>) | null = null;
+
+  const mockLogoutFirebase = vi.fn();
+  const mockAuth: any = { currentUser: null };
+  const mockOnAuth = vi.fn((cb: any) => {
+    authCb = cb;
+    return () => {
+      authCb = null;
+    };
+  });
+
+  return {
+    onAuth: (cb: any) => mockOnAuth(cb),
+    auth: mockAuth,
+    logoutFirebase: mockLogoutFirebase,
+    __mock: {
+      mockOnAuth,
+      mockAuth,
+      mockLogoutFirebase,
+      getAuthCb: () => authCb,
+      clearAuthCb: () => {
+        authCb = null;
+      },
+    },
+  };
+});
 
 import { AuthProvider, useAuthContext } from "@/features/auth/AuthProvider";
+import { __mock as apiMock } from "@/shared/api";
+import { __mock as fbMock } from "@/features/auth/firebase";
 
 function Consumer() {
   const { user, loading } = useAuthContext();
@@ -46,15 +69,17 @@ function renderProvider() {
 
 describe("AuthProvider", () => {
   beforeEach(() => {
-    mockGetJSON.mockReset();
-    mockPostJSON.mockReset();
-    mockLogoutFirebase.mockReset();
-    mockAuth.currentUser = null;
-    authCb = null;
+    apiMock.mockGetJSON.mockReset();
+    apiMock.mockPostJSON.mockReset();
+
+    fbMock.mockLogoutFirebase.mockReset();
+    fbMock.mockOnAuth.mockReset();
+    fbMock.mockAuth.currentUser = null;
+    fbMock.clearAuthCb();
   });
 
   it("loads server session on mount", async () => {
-    mockGetJSON.mockResolvedValueOnce({ user: { uid: "server-user" } });
+    apiMock.mockGetJSON.mockResolvedValueOnce({ user: { uid: "server-user" } });
 
     renderProvider();
 
@@ -62,11 +87,11 @@ describe("AuthProvider", () => {
       expect(screen.getByTestId("uid")).toHaveTextContent("server-user");
     });
     expect(screen.getByTestId("loading")).toHaveTextContent("false");
-    expect(mockOnAuth).toHaveBeenCalledTimes(1);
+    expect(fbMock.mockOnAuth).toHaveBeenCalledTimes(1);
   });
 
   it("keeps user null if server session fetch fails", async () => {
-    mockGetJSON.mockRejectedValueOnce(new Error("nope"));
+    apiMock.mockGetJSON.mockRejectedValueOnce(new Error("nope"));
 
     renderProvider();
 
@@ -77,10 +102,10 @@ describe("AuthProvider", () => {
   });
 
   it("does not exchange cookie for unverified email/password users", async () => {
-    mockGetJSON.mockResolvedValue({ user: null });
+    apiMock.mockGetJSON.mockResolvedValue({ user: null });
 
     renderProvider();
-    expect(authCb).toBeTypeOf("function");
+    expect(typeof fbMock.getAuthCb()).toBe("function");
 
     const fbUser = {
       email: "x@example.com",
@@ -88,20 +113,20 @@ describe("AuthProvider", () => {
       providerData: [{ providerId: "password" }],
     };
 
-    await authCb!(fbUser);
+    await fbMock.getAuthCb()!(fbUser);
 
-    expect(mockLogoutFirebase).toHaveBeenCalled();
-    expect(mockPostJSON).not.toHaveBeenCalled();
+    expect(fbMock.mockLogoutFirebase).toHaveBeenCalled();
+    expect(apiMock.mockPostJSON).not.toHaveBeenCalled();
     expect(screen.getByTestId("uid")).toHaveTextContent("");
   });
 
   it("exchanges cookie for phone users even if emailVerified is false", async () => {
-    mockGetJSON.mockResolvedValueOnce({ user: null });
+    apiMock.mockGetJSON.mockResolvedValueOnce({ user: null });
     // After cookie exchange, AuthProvider calls load() again
-    mockGetJSON.mockResolvedValueOnce({ user: { uid: "server-after" } });
+    apiMock.mockGetJSON.mockResolvedValueOnce({ user: { uid: "server-after" } });
 
     const getIdToken = vi.fn().mockResolvedValue("ID_TOKEN");
-    mockAuth.currentUser = { getIdToken };
+    fbMock.mockAuth.currentUser = { getIdToken };
 
     renderProvider();
 
@@ -111,23 +136,23 @@ describe("AuthProvider", () => {
       providerData: [{ providerId: "phone" }],
     };
 
-    await authCb!(fbUser);
+    await fbMock.getAuthCb()!(fbUser);
 
     await waitFor(() => {
       expect(screen.getByTestId("uid")).toHaveTextContent("server-after");
     });
 
     expect(getIdToken).toHaveBeenCalled();
-    expect(mockPostJSON).toHaveBeenCalledWith("/auth/session", { id_token: "ID_TOKEN" });
+    expect(apiMock.mockPostJSON).toHaveBeenCalledWith("/auth/session", { id_token: "ID_TOKEN" });
   });
 
   it("sets user null when cookie exchange fails", async () => {
-    mockGetJSON.mockResolvedValue({ user: null });
+    apiMock.mockGetJSON.mockResolvedValue({ user: null });
 
     const getIdToken = vi.fn().mockResolvedValue("ID_TOKEN");
-    mockAuth.currentUser = { getIdToken };
+    fbMock.mockAuth.currentUser = { getIdToken };
 
-    mockPostJSON.mockRejectedValueOnce(new Error("bad"));
+    apiMock.mockPostJSON.mockRejectedValueOnce(new Error("bad"));
 
     renderProvider();
 
@@ -137,10 +162,10 @@ describe("AuthProvider", () => {
       providerData: [{ providerId: "password" }],
     };
 
-    await authCb!(fbUser);
+    await fbMock.getAuthCb()!(fbUser);
 
     await waitFor(() => {
-      expect(mockPostJSON).toHaveBeenCalled();
+      expect(apiMock.mockPostJSON).toHaveBeenCalled();
     });
     expect(screen.getByTestId("uid")).toHaveTextContent("");
   });

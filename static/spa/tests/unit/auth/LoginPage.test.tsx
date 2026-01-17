@@ -1,5 +1,5 @@
 import React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -29,9 +29,24 @@ _vi.doMock("@/features/auth/AuthProvider", async () => {
 import LoginPage from "@/features/auth/LoginPage";
 
 describe("LoginPage", () => {
+  let originalLocation: Location;
   beforeEach(() => {
     resetAuthMocks();
     mockPostJSON.mockReset();
+
+    // Prevent jsdom navigation errors by stubbing location.replace with a writable mock.
+    originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, replace: vi.fn() },
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
   });
 
   it("submits email/password and exchanges session when email is verified", async () => {
@@ -46,7 +61,6 @@ describe("LoginPage", () => {
     mockPostJSON.mockResolvedValue({ ok: true });
 
     // Prevent jsdom navigation errors
-    vi.spyOn(window.location, "replace").mockImplementation(() => {});
 
     renderAt(<LoginPage />, "/login?returnTo=%2Ffiles");
 
@@ -104,3 +118,5 @@ describe("LoginPage", () => {
     expect(mockLoginWithGoogle).toHaveBeenCalledTimes(1);
   });
 });
+
+

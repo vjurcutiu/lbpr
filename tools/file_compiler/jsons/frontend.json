@@ -22,5 +22,5 @@
             "C:\\code2\\lbpr\\static\\spa\\src\\lib\\initCookiebot.ts",
             "C:\\code2\\lbpr\\static\\spa\\src\\pages\\TryLandingPage.tsx"
         ],
-  "folders": ["C:\\code2\\lbpr\\static\\spa\\src\\lib"]
+  "recurse_folders": ["C:\\code2\\lbpr\\static\\spa\\src\\lib"]
 }

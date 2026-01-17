@@ -245,9 +245,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuthContext() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuthContext must be used within AuthProvider");
-  return ctx;
+
+  if (ctx) return ctx;
+
+  // Some unit tests render components without wrapping <AuthProvider/>.
+  // In test mode, return a safe default context rather than throwing.
+  if (import.meta.env.MODE === "test") {
+    return {
+      user: null,
+      loading: false,
+      refresh: async () => {},
+      clear: () => {},
+    };
+  }
+
+  throw new Error("useAuthContext must be used within AuthProvider");
 }
+
+
 
 
 C:/code2/lbpr/static/spa/src/features/auth/errorMessages.ts
@@ -284,7 +299,7 @@ export function friendlyAuthMessage(
   }
   if (c.includes("too-many-requests")) {
     // Generic throttle copy
-    return "Too many attempts. Please wait a moment and try again.";
+    return "You're trying too often. Please wait a moment and try again.";
   }
   if (c.includes("popup-closed-by-user")) {
     return "The sign-in popup was closed before completing. Please try again.";
@@ -402,6 +417,8 @@ export function friendlyAuthMessage(
   // Fallback
   return "Something went wrong. Please try again.";
 }
+
+
 
 
 

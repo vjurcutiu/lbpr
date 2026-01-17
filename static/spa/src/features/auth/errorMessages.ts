@@ -31,7 +31,7 @@ export function friendlyAuthMessage(
   }
   if (c.includes("too-many-requests")) {
     // Generic throttle copy
-    return "Too many attempts. Please wait a moment and try again.";
+    return "You're trying too often. Please wait a moment and try again.";
   }
   if (c.includes("popup-closed-by-user")) {
     return "The sign-in popup was closed before completing. Please try again.";
@@ -149,5 +149,7 @@ export function friendlyAuthMessage(
   // Fallback
   return "Something went wrong. Please try again.";
 }
+
+
 
 
