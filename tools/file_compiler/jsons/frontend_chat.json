@@ -2,5 +2,6 @@
   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_chat_context.txt",
   "files": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\chat\\api.ts",
             "C:\\code2\\lbpr\\static\\spa\\src\\features\\chat\\ChatPage.tsx"
-        ]
+        ],
+  "recurse_folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\chat"]
 }

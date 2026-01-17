@@ -1,4 +1,4 @@
 {
   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_billing_context.txt",
-  "folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\billing"]
+  "recurse_folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\billing"]
 }

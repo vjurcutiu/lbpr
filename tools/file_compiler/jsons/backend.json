@@ -5,7 +5,7 @@
           "C:\\code2\\lbpr\\backend\\core\\firebase.py",
           "C:\\code2\\lbpr\\backend\\.env"
       ],
-   "folders": ["C:\\code2\\lbpr\\backend\\core",
+   "recurse_folders": ["C:\\code2\\lbpr\\backend\\core",
               "C:\\code2\\lbpr\\backend\\routers"
             ],
    "include_glob": "*",

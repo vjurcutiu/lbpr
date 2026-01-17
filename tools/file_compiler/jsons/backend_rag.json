@@ -1,0 +1,8 @@
+ {
+   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\backend_rag_context.txt",
+   "recurse_folders": ["C:\\code2\\lbpr\\backend\\features\\rag",
+                "C:\\code2\\lbpr\\backend\\features\\files"
+            ],
+   "include_glob": "*",
+   "dedup": "path"
+ }

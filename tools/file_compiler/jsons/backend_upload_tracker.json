@@ -2,7 +2,7 @@
    "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\backend_upload_tracker_context.txt",
     "files": ["C:\\code2\\lbpr\\backend\\core\\tracker.py"
       ],
-   "folders": ["C:\\code2\\lbpr\\backend\\features\\upload_tracker"
+   "recurse_folders": ["C:\\code2\\lbpr\\backend\\features\\upload_tracker"
             ],
    "include_glob": "*",
    "dedup": "path"

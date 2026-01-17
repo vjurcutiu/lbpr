@@ -7,5 +7,6 @@
             "C:\\code2\\lbpr\\backend\\features\\auth\\routes.py",
             "C:\\code2\\lbpr\\backend\\features\\auth\\service.py",
             "C:\\code2\\lbpr\\backend\\features\\auth\\sessions.py"
-        ]
+        ],
+  "recurse_folders":["C:\\code2\\lbpr\\backend\\features\\auth"]
 }

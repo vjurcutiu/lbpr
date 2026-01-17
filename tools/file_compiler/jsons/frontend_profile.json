@@ -1,6 +1,6 @@
  {
    "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_profile_context.txt",
-   "folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\profile"
+   "recurse_folders": ["C:\\code2\\lbpr\\static\\spa\\src\\features\\profile"
             ],
    "include_glob": "*",
    "dedup": "path"
