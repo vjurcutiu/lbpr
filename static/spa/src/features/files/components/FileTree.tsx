@@ -56,7 +56,7 @@ function FolderRow({
   return (
     <div className="mb-0.5">
       <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-muted/40 rounded text-left"
+        className="w-full flex items-center gap-1.5 px-2 py-2 hover:bg-muted/40 rounded text-left"
         onClick={() => setOpen((v) => !v)}
         title={node.path}
       >
@@ -97,7 +97,7 @@ function FileRow({
     <div className="group flex items-center justify-between rounded hover:bg-muted/40">
       {/* LEFT: clickable filename - ensure truncation */}
       <button
-        className="min-w-0 flex-1 flex items-center gap-2 px-2 py-1.5 rounded text-left"
+        className="min-w-0 flex-1 flex items-center gap-2 px-2 py-2 rounded text-left"
         title={`${f.name}`}
         onClick={() => onOpen(f)}
       >
@@ -106,20 +106,22 @@ function FileRow({
       </button>
 
       {/* RIGHT: actions - always visible and fixed-area so text never overlaps */}
-      <div className="shrink-0 w-[3.75rem] flex items-center justify-end gap-0.5 pr-1">
+      <div className="shrink-0 w-[4.25rem] flex items-center justify-end gap-0.5 pr-1">
         <a
           href={href}
           title="Download"
-          className="p-1 rounded hover:bg-muted"
-          onClick={() =>
-            console.debug("[files] click sidebar download", { id: f.id, href })
-          }
+          className="p-2 rounded hover:bg-muted"
+          onClick={(e) => {
+            e.stopPropagation();
+            console.debug("[files] click sidebar download", { id: f.id, href });
+          }}
         >
+          <Download className="h-4 w-4" />
         </a>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="p-1 rounded hover:bg-muted" title="More">
+            <button className="p-2 rounded hover:bg-muted" title="More">
               <MoreVertical className="h-4 w-4" />
             </button>
           </DropdownMenuTrigger>
