@@ -19,7 +19,18 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   type ConfirmationResult,
+  sendSignInLinkToEmail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
+  type ActionCodeSettings,
 } from "firebase/auth";
+
+import {
+  buildMagicLinkActionCodeSettings,
+  storeEmailForMagicLink,
+  getStoredEmailForMagicLink,
+  clearStoredEmailForMagicLink,
+} from "./magicLink";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -29,7 +40,7 @@ const firebaseConfig = {
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
 };
 
-// 🔍 Debug: what does the SPA actually see at runtime?
+// Debug: what does the SPA actually see at runtime?
 declare global {
   interface Window {
     __LEXBOT_SPA_ENV__?: {
@@ -128,8 +139,10 @@ export function signInWithEmailPassword(email: string, password: string) {
   return signInWithEmailAndPassword(auth, email, password);
 }
 
-export async function sendVerificationEmail(user: User) {
-  await sendEmailVerification(user);
+export async function sendVerificationEmail(user?: User) {
+  const u = user ?? auth.currentUser;
+  if (!u) throw new Error("No signed-in user");
+  await sendEmailVerification(u);
 }
 
 export async function startEmailChangeVerification(user: User, newEmail: string) {
@@ -154,6 +167,29 @@ export async function reauthWithGoogle() {
   await reauthenticateWithPopup(user, new GoogleAuthProvider());
   await reload(user);
 }
+
+// ---- Email link ("magic link") helpers ----
+// Infrastructure only. These will be used by landing pages later.
+//
+// Firebase docs recommend storing the email locally so the callback page can
+// complete sign-in without re-prompting on the same device.
+export async function sendMagicLink(email: string, settings?: ActionCodeSettings) {
+  const actionCodeSettings = settings ?? buildMagicLinkActionCodeSettings();
+  await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+  storeEmailForMagicLink(email);
+}
+
+export function isMagicLink(href?: string): boolean {
+  const link = href ?? (typeof window !== "undefined" ? window.location.href : "");
+  return isSignInWithEmailLink(auth, link);
+}
+
+export async function signInWithMagicLink(email: string, href?: string) {
+  const link = href ?? (typeof window !== "undefined" ? window.location.href : "");
+  return signInWithEmailLink(auth, email, link);
+}
+
+export { buildMagicLinkActionCodeSettings, storeEmailForMagicLink, getStoredEmailForMagicLink, clearStoredEmailForMagicLink };
 
 // ---- Phone auth helpers ----
 // Firebase docs show (auth, containerOrId, params) for RecaptchaVerifier, but some SDK builds expose

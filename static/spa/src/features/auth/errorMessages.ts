@@ -10,6 +10,7 @@ export function friendlyAuthMessage(
     | "verify"
     | "phone"
     | "phone-verify"
+    | "magic-link"
     | "generic"
     | "profile-email"
     | "profile-password" = "generic"
@@ -40,10 +41,30 @@ export function friendlyAuthMessage(
     return "Something went wrong on our side. Please try again.";
   }
   if (c.includes("captcha-check-failed")) {
-    return "reCAPTCHA check failed. If you're running locally, make sure your domain is whitelisted in Firebase Authentication → Settings → Authorized domains.";
+    return "reCAPTCHA check failed. If you're running locally, make sure your domain is whitelisted in Firebase Authentication -> Settings -> Authorized domains.";
   }
 
-
+  if (context === "magic-link") {
+    if (c.includes("invalid-email")) {
+      return "Please enter a valid email address.";
+    }
+    if (c.includes("missing-email")) {
+      return "Please enter your email address.";
+    }
+    if (c.includes("user-disabled")) {
+      return "This account has been disabled. Contact support if this is unexpected.";
+    }
+    if (c.includes("invalid-action-code") || c.includes("invalid-oob-code")) {
+      return "This sign-in link is invalid. Please request a new one.";
+    }
+    if (c.includes("expired-action-code")) {
+      return "This sign-in link has expired. Please request a new one.";
+    }
+    if (c.includes("argument-error") || c.includes("invalid-continue-uri") || c.includes("unauthorized-continue-uri")) {
+      return "Magic link is misconfigured. Ensure the continue URL is allowed in Firebase Authentication -> Settings -> Authorized domains, and that your actionCodeSettings.url matches an authorized domain.";
+    }
+    return "Couldn't sign you in with that link. Please request a new magic link.";
+  }
 
   if (context === "phone") {
     if (c.includes("operation-not-allowed") || msg.toLowerCase().includes("region enabled")) {
@@ -126,7 +147,7 @@ export function friendlyAuthMessage(
       return "Please enter a valid email address.";
     }
     if (c.includes("requires-recent-login")) {
-      return "Please re‑authenticate to continue.";
+      return "Please re-authenticate to continue.";
     }
     // Some projects with Email Enumeration Protection enabled may surface "operation-not-allowed"
     // when verifyBeforeUpdateEmail can't disclose the email's existence.
@@ -141,7 +162,7 @@ export function friendlyAuthMessage(
       return "Password is too weak. Use at least 8 characters with letters and numbers.";
     }
     if (c.includes("requires-recent-login")) {
-      return "Please re‑authenticate to continue.";
+      return "Please re-authenticate to continue.";
     }
     return "Couldn't update your password. Please try again.";
   }
@@ -149,7 +170,3 @@ export function friendlyAuthMessage(
   // Fallback
   return "Something went wrong. Please try again.";
 }
-
-
-
-
