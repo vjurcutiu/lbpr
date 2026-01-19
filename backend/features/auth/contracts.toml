@@ -12,3 +12,21 @@ request.json.id_token = "string (Firebase ID token)"
 
 [POST./auth/logout]
 200.ok = true
+
+[POST./auth/magic/create]
+# Admin-only (guarded by MAGIC_LINK_ADMIN_KEY if set)
+request.json.uid = "string?"
+request.json.phone_number = "string? (E.164, e.g. +407...)"
+request.json.return_to = "string? (path or URL)"
+request.json.ttl_seconds = "int?"
+request.json.base_url = "string? (e.g. https://app.lexbot.pro)"
+200.code = "string"
+200.link = "string"
+200.expires_in_seconds = "int"
+400.detail = "Provide uid or phone_number" # or "Unknown phone number"
+403.detail = "Forbidden"
+
+[POST./auth/magic/exchange]
+request.json.code = "string"
+200.custom_token = "string (Firebase custom token)"
+400.detail = "Invalid or expired code"

@@ -21,6 +21,7 @@ import {
   reauthenticateWithPopup,
   RecaptchaVerifier,
   signInWithPhoneNumber,
+  signInWithCustomToken as _signInWithCustomToken,
   linkWithPhoneNumber,
   PhoneAuthProvider,
   type ConfirmationResult,
@@ -247,6 +248,11 @@ export function createRecaptchaVerifier(
 
 export function signInWithPhone(phoneNumber: string, verifier: RecaptchaVerifier): Promise<ConfirmationResult> {
   return signInWithPhoneNumber(auth, phoneNumber, verifier);
+}
+
+// ---- Custom-token helper (used by SMS magic-link flow) ----
+export function signInWithCustomToken(customToken: string) {
+  return _signInWithCustomToken(auth, customToken);
 }
 
 /** Link phone number to the currently signed-in user (account linking). */

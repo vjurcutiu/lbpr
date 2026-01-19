@@ -6,6 +6,8 @@ from core.config import settings
 class AuthService(Protocol):
     def verify_id_token(self, id_token: str) -> SessionOut: ...
     def revoke_user(self, uid: str) -> None: ...
+    def create_custom_token(self, uid: str) -> str: ...
+    def get_uid_by_phone_number(self, phone_number: str) -> str: ...
 
 class FirebaseAuthService:
     def __init__(self):
@@ -27,6 +29,18 @@ class FirebaseAuthService:
     def revoke_user(self, uid: str) -> None:
         self._auth.revoke_refresh_tokens(uid)
 
+    def create_custom_token(self, uid: str) -> str:
+        """Create a Firebase custom token for the given UID."""
+        tok = self._auth.create_custom_token(uid)
+        # firebase_admin returns bytes
+        if isinstance(tok, bytes):
+            return tok.decode("utf-8")
+        return str(tok)
+
+    def get_uid_by_phone_number(self, phone_number: str) -> str:
+        user = self._auth.get_user_by_phone_number(phone_number)
+        return user.uid
+
 # --- NEW: deterministic fake for tests ---
 class FakeAuthService:
     def verify_id_token(self, id_token: str) -> SessionOut:
@@ -36,6 +50,14 @@ class FakeAuthService:
 
     def revoke_user(self, uid: str) -> None:
         return  # no-op in tests
+
+    def create_custom_token(self, uid: str) -> str:
+        # Deterministic and obviously fake.
+        return f"fake-custom-token::{uid}"
+
+    def get_uid_by_phone_number(self, phone_number: str) -> str:
+        # Minimal fake: always resolve to the same UID.
+        return "u_test"
 
 def cookie_settings() -> dict:
     return {
