@@ -15,9 +15,14 @@ import {
   type User,
   GoogleAuthProvider,
   signInWithPopup,
+  linkWithPopup,
+  linkWithCredential,
+  unlink,
   reauthenticateWithPopup,
   RecaptchaVerifier,
   signInWithPhoneNumber,
+  linkWithPhoneNumber,
+  PhoneAuthProvider,
   type ConfirmationResult,
 } from "firebase/auth";
 
@@ -155,6 +160,32 @@ export async function reauthWithGoogle() {
   await reload(user);
 }
 
+// ---- Account linking helpers (Profile -> Sign-in methods) ----
+export async function linkGoogleToCurrentUser() {
+  const user = auth.currentUser;
+  if (!user) throw new Error("No signed-in user");
+  const res = await linkWithPopup(user, new GoogleAuthProvider());
+  await reload(user);
+  return res;
+}
+
+export async function linkEmailPasswordToCurrentUser(email: string, password: string) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("No signed-in user");
+  const cred = EmailAuthProvider.credential(email, password);
+  const res = await linkWithCredential(user, cred);
+  await reload(user);
+  return res;
+}
+
+export async function unlinkProviderFromCurrentUser(providerId: string) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("No signed-in user");
+  const res = await unlink(user, providerId);
+  await reload(user);
+  return res;
+}
+
 // ---- Phone auth helpers ----
 // Firebase docs show (auth, containerOrId, params) for RecaptchaVerifier, but some SDK builds expose
 // (containerOrId, params, auth). We support both to avoid version-specific breakage.
@@ -176,6 +207,30 @@ export function createRecaptchaVerifier(
 
 export function signInWithPhone(phoneNumber: string, verifier: RecaptchaVerifier): Promise<ConfirmationResult> {
   return signInWithPhoneNumber(auth, phoneNumber, verifier);
+}
+
+/** Link phone number to the currently signed-in user (account linking). */
+export function startPhoneLink(phoneNumber: string, verifier: RecaptchaVerifier): Promise<ConfirmationResult> {
+  const user = auth.currentUser;
+  if (!user) return Promise.reject(new Error("No signed-in user"));
+  return linkWithPhoneNumber(user, phoneNumber, verifier);
+}
+
+/**
+ * Start phone re-authentication by requesting an SMS code.
+ * Returns a verificationId that can be used with reauthWithPhone().
+ */
+export async function startPhoneReauth(phoneNumber: string, verifier: RecaptchaVerifier): Promise<string> {
+  const provider = new PhoneAuthProvider(auth);
+  return provider.verifyPhoneNumber(phoneNumber, verifier);
+}
+
+export async function reauthWithPhone(verificationId: string, smsCode: string) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("No signed-in user");
+  const cred = PhoneAuthProvider.credential(verificationId, smsCode);
+  await reauthenticateWithCredential(user, cred);
+  await reload(user);
 }
 
 export type { ConfirmationResult };

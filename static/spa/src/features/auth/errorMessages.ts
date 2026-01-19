@@ -12,7 +12,9 @@ export function friendlyAuthMessage(
     | "phone-verify"
     | "generic"
     | "profile-email"
-    | "profile-password" = "generic"
+    | "profile-password"
+    | "profile-google"
+    | "profile-phone" = "generic"
 ): string {
   // Extract best-effort code/message
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -146,10 +148,33 @@ export function friendlyAuthMessage(
     return "Couldn't update your password. Please try again.";
   }
 
+  if (context === "profile-google") {
+    if (c.includes("credential-already-in-use") || msg.toLowerCase().includes("already associated")) {
+      return "That Google account is already linked to a different user.";
+    }
+    if (c.includes("provider-already-linked")) {
+      return "Google is already linked to this account.";
+    }
+    if (c.includes("requires-recent-login")) {
+      return "Please re‑authenticate to continue.";
+    }
+    return "Couldn't link Google. Please try again.";
+  }
+
+  if (context === "profile-phone") {
+    if (c.includes("credential-already-in-use") || c.includes("phone-number-already-exists")) {
+      return "That phone number is already linked to a different user.";
+    }
+    if (c.includes("provider-already-linked")) {
+      return "Phone is already linked to this account.";
+    }
+    if (c.includes("requires-recent-login")) {
+      return "Please re‑authenticate to continue.";
+    }
+    // Reuse the more specific phone/verify contexts when possible
+    return "Couldn't link your phone number. Please try again.";
+  }
+
   // Fallback
   return "Something went wrong. Please try again.";
 }
-
-
-
-
