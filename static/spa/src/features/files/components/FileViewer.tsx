@@ -17,7 +17,7 @@ function escapeHtml(s: string) {
 function highlightHtml(raw: string, q: string, selectedIndex: number) {
   const safe = (v: string) => escapeHtml(v);
   const trimmed = (q ?? "").trim();
-  if (!trimmed) return `<pre class="whitespace-pre-wrap leading-6">${safe(raw)}</pre>`;
+  if (!trimmed) return `<pre class="whitespace-pre-wrap leading-5 md:leading-6">${safe(raw)}</pre>`;
   const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(`(${escaped})`, "gi");
   const parts = raw.split(pattern);
@@ -35,7 +35,7 @@ function highlightHtml(raw: string, q: string, selectedIndex: number) {
       out.push(safe(part));
     }
   }
-  return `<pre class="whitespace-pre-wrap leading-6">${out.join("")}</pre>`;
+  return `<pre class="whitespace-pre-wrap leading-5 md:leading-6">${out.join("")}</pre>`;
 }
 
 export function FileViewer({
@@ -76,29 +76,31 @@ export function FileViewer({
     const html = highlightHtml(raw, searchTerm ?? "", selectedIndex);
     return (
       <div ref={containerRef} className="w-full">
-        <div
-          className="font-mono text-sm"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        <div className="font-mono text-[13px] md:text-sm" dangerouslySetInnerHTML={{ __html: html }} />
       </div>
     );
   }
 
   if (payload.kind === "image" && payload.url) {
     return (
-      <div className="w-full h-full grid place-items-center" ref={containerRef}>
+      <div className="w-full grid place-items-center" ref={containerRef}>
         <img
           src={payload.url}
           alt={file.name}
-          className="max-w-full max-h-full object-contain"
+          className="max-w-full max-h-[70vh] md:max-h-full object-contain"
         />
       </div>
     );
   }
 
   if (payload.kind === "pdf" && payload.url) {
+    // On mobile, give the iframe an explicit height; h-full often collapses.
     return (
-      <iframe src={payload.url} title={file.name} className="w-full h-full border rounded" />
+      <iframe
+        src={payload.url}
+        title={file.name}
+        className="w-full h-[70vh] md:h-full border rounded"
+      />
     );
   }
 

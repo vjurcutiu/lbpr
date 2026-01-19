@@ -216,7 +216,9 @@ export function UploadTrackerPanel({
   return (
     <div
       className={cn(
-        "fixed right-4 bottom-4 w-[460px] max-w-[95vw] border rounded-lg shadow-xl bg-background",
+        "fixed z-50 border rounded-lg shadow-xl bg-background",
+        "left-2 right-2 bottom-2 md:left-auto md:right-4 md:bottom-4 md:w-[460px]",
+        "max-w-[95vw]",
         "transition-transform duration-200",
         open ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0 pointer-events-none"
       )}
@@ -247,7 +249,7 @@ export function UploadTrackerPanel({
         </Button>
         <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
       </div>
-      <div className="max-h-[50vh] overflow-auto p-2 space-y-2">
+      <div className="max-h-[60vh] md:max-h-[50vh] overflow-auto p-2 space-y-2">
         {mergedJobs.length === 0 && (
           <div className="text-sm text-muted-foreground px-2 py-6 text-center">
             {batchFilenames.length > 0 && !showHistory

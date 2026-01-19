@@ -9,8 +9,8 @@ import {
   Activity,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
-  ChevronDown,
+  ChevronUp,  ChevronDown,
+  Folder,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,31 @@ const LS_TRACKER_OPEN = "files:trackerOpen";
 const LS_OPTIMISTIC = "files:optimisticJobs";
 const LS_BATCH = "files:batchFilenames";
 
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia(query);
+    const onChange = (e: MediaQueryListEvent) => setMatches(e.matches);
+    // Safari < 14 uses addListener/removeListener
+    if ("addEventListener" in mql) {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    // @ts-expect-error legacy
+    mql.addListener(onChange);
+    // @ts-expect-error legacy
+    return () => mql.removeListener(onChange);
+  }, [query]);
+
+  return matches;
+}
+
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [tree, setTree] = useState<TreeNode | null>(null);
@@ -69,6 +94,15 @@ export default function FilesPage() {
   const [isResizing, setIsResizing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
+
+
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
+
+  // Close mobile explorer automatically when switching to desktop.
+  useEffect(() => {
+    if (!isMobile) setMobileExplorerOpen(false);
+  }, [isMobile]);
 
   // delete modal
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -145,8 +179,9 @@ export default function FilesPage() {
   useEffect(() => { saveJSON(LS_OPTIMISTIC, optimisticJobs); }, [optimisticJobs]);
   useEffect(() => { saveJSON(LS_BATCH, batchFilenames); }, [batchFilenames]);
 
-  // Resize logic
+  // Resize logic (desktop only)
   useEffect(() => {
+    if (isMobile) return;
     const onMove = (e: MouseEvent) => {
       if (!isResizing) return;
       const min = 220;
@@ -160,7 +195,7 @@ export default function FilesPage() {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [isResizing]);
+  }, [isResizing, isMobile]);
 
   const onPick = () => inputRef.current?.click();
 
@@ -295,6 +330,7 @@ export default function FilesPage() {
       return [...prev, { id: file.id, title: file.name, contentType: file.content_type }];
     });
     setActiveId(file.id);
+    if (isMobile) setMobileExplorerOpen(false);
     if (!content[file.id]) {
       try {
         const payload = await getFileContent(file.id);
@@ -467,13 +503,25 @@ export default function FilesPage() {
   return (
     <div className="h-full min-h-0 flex flex-col relative">
       {/* Top bar */}
-      <div className="sticky top-0 z-10 flex items-center gap-3 px-3 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 px-3 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <Button
+          variant="outline"
+          size="sm"
+          className="md:hidden"
+          onClick={() => setMobileExplorerOpen(true)}
+          title="Browse files"
+        >
+          <Folder className="h-4 w-4" />
+          <span className="ml-1.5">Files</span>
+        </Button>
+
         <Button onClick={onPick} disabled={uploading} size="sm">
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
         </Button>
         <Input ref={inputRef} type="file" className="hidden" onChange={onChange} multiple />
-        <div className="relative max-w-sm w-full">
+
+        <div className="relative w-full md:max-w-sm md:w-full md:order-none order-last">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Filter files…"
@@ -492,16 +540,23 @@ export default function FilesPage() {
             </button>
           )}
         </div>
-        <div className="flex-1" />
+
+        <div className="flex-1 hidden md:block" />
         <div className="hidden md:flex items-center text-xs text-muted-foreground mr-2">
           <span className="mr-3">{files.length} file{files.length === 1 ? "" : "s"}</span>
           <span>• {fmtSize(totalSize)}</span>
         </div>
         <Button variant="outline" onClick={refresh} disabled={busy} size="sm">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1.5" />}
-          Refresh
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 md:mr-1.5" />}
+          <span className="hidden md:inline">Refresh</span>
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => setTrackerOpen(v => !v)} title="Show transfers" className="relative">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setTrackerOpen((v) => !v)}
+          title="Show transfers"
+          className="relative"
+        >
           <Activity className="h-4 w-4" />
           <span className="ml-1 hidden sm:inline">Transfers</span>
           {(uploading || runningUploads) && (
@@ -516,7 +571,7 @@ export default function FilesPage() {
       {/* Main split */}
       <div className="flex min-h-0 flex-1">
         {/* LEFT: File tree */}
-        <aside className="shrink-0 overflow-hidden border-r bg-muted/20" style={{ width: sidebarWidth }}>
+        <aside className="hidden md:block shrink-0 overflow-hidden border-r bg-muted/20" style={{ width: sidebarWidth }}>
           <div className="h-9 flex items-center px-3 text-xs uppercase tracking-wide text-muted-foreground border-b">Explorer</div>
           <div className="h-full overflow-auto px-1 py-2">
             <FileTree
@@ -532,7 +587,7 @@ export default function FilesPage() {
         <div
           ref={resizeRef}
           onMouseDown={() => setIsResizing(true)}
-          className={cn("w-1 cursor-col-resize bg-transparent hover:bg-primary/20 transition-colors", isResizing && "bg-primary/30")}
+          className={cn("hidden md:block w-1 cursor-col-resize bg-transparent hover:bg-primary/20 transition-colors", isResizing && "bg-primary/30")}
           title="Drag to resize"
         />
 
@@ -605,14 +660,13 @@ export default function FilesPage() {
           </div>
 
           {/* Title + in-file search controls */}
-{/* Title + in-file search controls */}
-          <div className="flex items-center gap-2 px-3 py-2 border-b bg-background">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 px-3 py-2 border-b bg-background">
             <div className="flex-1 min-w-0">
               <div className="text-xs text-muted-foreground truncate">
                 {activeId ? (files.find((f) => f.id === activeId)?.name || "Unknown") : "Ready."}
               </div>
             </div>
-            <div className="relative w-[26rem] max-w-[60vw]">
+            <div className="relative w-full md:w-[26rem] md:max-w-[60vw]">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder={activeId ? "Search in this file…" : "Open a file to search…"}
@@ -668,18 +722,18 @@ export default function FilesPage() {
           </div>
 
           {/* Viewer */}
-          <div className="flex-1 min-h-0 overflow-auto p-4">
+          <div className="flex-1 min-h-0 overflow-auto p-2 md:p-4">
             <div className="rounded-lg border bg-background shadow-sm p-4">
               {activeId ? (
                 <FileViewer payload={content[activeId]} file={files.find((f) => f.id === activeId) || null} searchTerm={infileQuery} selectedIndex={matchCount > 0 ? infileIdx : -1} />
               ) : (
-                <EmptyState onUploadClick={onPick} />
+                <EmptyState onUploadClick={onPick} onBrowseClick={isMobile ? () => setMobileExplorerOpen(true) : undefined} />
               )}
             </div>
           </div>
 
           {/* Status bar */}
-          <div className="h-8 border-t text-xs px-3 flex items-center justify-between text-muted-foreground bg-muted/10">
+          <div className="hidden md:flex h-8 border-t text-xs px-3 items-center justify-between text-muted-foreground bg-muted/10">
             <div className="flex items-center gap-3">
               <span>{files.length} file{files.length === 1 ? "" : "s"} • {fmtSize(totalSize)}</span>
             </div>
@@ -755,6 +809,56 @@ export default function FilesPage() {
       </Dialog>
 
       {/* Upload tracker floating panel */}
+      {/* Mobile explorer */}
+      <Dialog open={mobileExplorerOpen} onOpenChange={setMobileExplorerOpen}>
+        <DialogContent className="md:hidden p-0 gap-0 w-[calc(100vw-1rem)] max-w-none h-[calc(100vh-1rem)] flex flex-col">
+          <div className="px-3 py-2 border-b flex items-center gap-2">
+            <div className="text-sm font-medium">Explorer</div>
+            <div className="flex-1" />
+            <Button variant="outline" size="sm" onClick={refresh} disabled={busy} title="Refresh">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            </Button>
+            <Button size="sm" onClick={onPick} disabled={uploading} title="Upload">
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setMobileExplorerOpen(false)} title="Close">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="px-3 py-2 border-b">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Filter files…"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                className="pl-8 pr-7"
+              />
+              {filter && (
+                <button
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setFilter("")}
+                  aria-label="Clear filter"
+                  title="Clear"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto px-1 py-2 bg-muted/10">
+            <FileTree
+              loading={busy && (!tree || files.length === 0)}
+              node={filteredTree}
+              onOpen={(f) => openFile(f)}
+              onDelete={(f) => requestDelete(f)}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <UploadTrackerPanel
         open={trackerOpen}
         onClose={() => setTrackerOpen(false)}
