@@ -23,6 +23,7 @@ type AppRoute = {
 const LoginPage = lazy(() => import("@/features/auth/LoginPage"));
 const SignupPage = lazy(() => import("@/features/auth/SignupPage"));
 const PhoneLoginPage = lazy(() => import("@/features/auth/PhoneLoginPage"));
+const MagicLinkPage = lazy(() => import("@/features/auth/MagicLinkPage"));
 const ForbiddenPage = lazy(() => import("@/features/auth/ForbiddenPage"));
 const VerifyEmailPage = lazy(() => import("@/features/auth/VerifyEmailPage")); // NEW
 
@@ -49,6 +50,7 @@ const ROUTES: AppRoute[] = [
   { path: "/", element: <Navigate to="/login" replace />, nav: "none", hidden: true },
   { path: "/login", element: <LoginPage />, nav: "none", hidden: true },
   { path: "/phone", element: <PhoneLoginPage />, nav: "none", hidden: true },
+  { path: "/magic", element: <MagicLinkPage />, nav: "none", hidden: true },
   { path: "/signup", element: <SignupPage />, nav: "none", hidden: true },
   { path: "/forbidden", element: <ForbiddenPage />, nav: "none", hidden: true },
   { path: "/verify-email", element: <VerifyEmailPage />, nav: "none", hidden: true }, // NEW
@@ -107,6 +109,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/phone" element={<PhoneLoginPage />} />
+          <Route path="/magic" element={<MagicLinkPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/forbidden" element={<ForbiddenPage />} />
           <Route path="/verify-email" element={<VerifyEmailPage />} />

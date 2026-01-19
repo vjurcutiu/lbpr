@@ -27,6 +27,7 @@ const NotFound     = lazy(() => import("@/pages/NotFound"));
 const LoginPage     = lazy(() => import("@/features/auth/LoginPage"));
 const SignupPage    = lazy(() => import("@/features/auth/SignupPage"));
 const PhoneLoginPage = lazy(() => import("@/features/auth/PhoneLoginPage"));
+const MagicLinkPage = lazy(() => import("@/features/auth/MagicLinkPage"));
 const ForbiddenPage = lazy(() => import("@/features/auth/ForbiddenPage"));
 const VerifyEmailPage = lazy(() => import("@/features/auth/VerifyEmailPage")); // NEW
 
@@ -34,6 +35,7 @@ export const routes: AppRoute[] = [
   { path: "/",          element: <Navigate to="/login" replace />, label: "Home", nav: "none", hidden: true },
   { path: "/login",     element: <LoginPage />,                    nav: "none", hidden: true },
   { path: "/phone",     element: <PhoneLoginPage />,               nav: "none", hidden: true },
+  { path: "/magic",     element: <MagicLinkPage />,                nav: "none", hidden: true },
   { path: "/signup",    element: <SignupPage />,                   nav: "none", hidden: true },
   { path: "/forbidden", element: <ForbiddenPage />,                nav: "none", hidden: true },
   { path: "/verify-email", element: <VerifyEmailPage />,           nav: "none", hidden: true }, // NEW

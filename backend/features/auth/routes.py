@@ -1,12 +1,46 @@
 # features/auth/routes.py
+import os
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, Response, Request, HTTPException
-from features.auth.models import CreateSessionIn, EnvelopeOut, SessionOut
+
+from features.auth.invites import invites
+from features.auth.models import (
+    CreateSessionIn,
+    EnvelopeOut,
+    SessionOut,
+    MagicCreateIn,
+    MagicCreateOut,
+    MagicExchangeIn,
+    MagicExchangeOut,
+)
 from features.auth.deps import get_current_user, get_auth_service
 from features.auth.service import AuthService, cookie_settings
 from features.auth.sessions import sessions
 from core.config import settings
 
 router = APIRouter(tags=["auth"])
+
+
+def _require_admin_key(req: Request):
+    """Optional guard for admin-only endpoints.
+
+    If MAGIC_LINK_ADMIN_KEY is set, requests must provide header:
+      x-admin-key: <MAGIC_LINK_ADMIN_KEY>
+    """
+
+    admin_key = os.getenv("MAGIC_LINK_ADMIN_KEY", "").strip()
+    if not admin_key:
+        return
+    if req.headers.get("x-admin-key") != admin_key:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+def _default_magic_ttl_seconds() -> int:
+    try:
+        return int(os.getenv("MAGIC_LINK_TTL_SECONDS", "86400"))
+    except Exception:
+        return 86400
 
 @router.get("/session", response_model=EnvelopeOut)
 def read_session(user: SessionOut = Depends(get_current_user)) -> EnvelopeOut:
@@ -45,3 +79,73 @@ def logout(resp: Response, req: Request, svc: AuthService = Depends(get_auth_ser
     cs = cookie_settings()
     resp.delete_cookie(settings.COOKIE_NAME, path=cs["path"], domain=cs.get("domain"), samesite=cs["samesite"])
     return {"ok": True}
+
+
+# --- Magic-link (SMS) sign-in -------------------------------------------------
+
+
+@router.post("/auth/magic/create", response_model=MagicCreateOut)
+def create_magic_link(
+    payload: MagicCreateIn,
+    req: Request,
+    svc: AuthService = Depends(get_auth_service),
+) -> MagicCreateOut:
+    """Create a one-time code and return a link (intended to be sent via SMS).
+
+    Security:
+    - If MAGIC_LINK_ADMIN_KEY is set, requires `x-admin-key` header.
+
+    Provide either payload.uid or payload.phone_number.
+    """
+
+    _require_admin_key(req)
+
+    uid = (payload.uid or "").strip()
+    phone = (payload.phone_number or "").strip()
+    if not uid and not phone:
+        raise HTTPException(status_code=400, detail="Provide uid or phone_number")
+
+    if not uid:
+        try:
+            uid = svc.get_uid_by_phone_number(phone)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Unknown phone number")
+
+    ttl = int(payload.ttl_seconds or _default_magic_ttl_seconds())
+    code, ttl_used = invites.create(uid, ttl_seconds=ttl)
+
+    base = (payload.base_url or os.getenv("PUBLIC_APP_URL", "") or "").strip().rstrip("/")
+    # Fall back to Origin for local/dev tooling if base isn't provided.
+    if not base:
+        origin = (req.headers.get("origin") or "").strip().rstrip("/")
+        if origin:
+            base = origin
+
+    params = {"code": code}
+    if payload.return_to:
+        params["returnTo"] = payload.return_to
+
+    path = f"/magic?{urlencode(params)}"
+    link = f"{base}{path}" if base else path
+
+    return MagicCreateOut(code=code, link=link, expires_in_seconds=ttl_used)
+
+
+@router.post("/auth/magic/exchange", response_model=MagicExchangeOut)
+def exchange_magic_code(
+    payload: MagicExchangeIn,
+    svc: AuthService = Depends(get_auth_service),
+) -> MagicExchangeOut:
+    """Exchange a one-time code for a Firebase custom token."""
+
+    code = (payload.code or "").strip()
+    uid = invites.consume(code)
+    if not uid:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    try:
+        custom_token = svc.create_custom_token(uid)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Failed to create custom token")
+
+    return MagicExchangeOut(custom_token=custom_token)
