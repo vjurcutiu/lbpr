@@ -2,15 +2,26 @@ import { API_BASE, getJSON } from "@/shared/api";
 
 export type FileItem = {
   id: string;
-  name: string;          // may include path-like slashes e.g. "folder/sub/file.txt"
+  name: string; // may include path-like slashes e.g. "folder/sub/file.txt"
   size: number;
   created_at?: string;
   content_type?: string;
 };
 
+export type UpdateFilePayload = {
+  folder?: string; // folder path, no leading/trailing slash
+  name?: string; // base filename (no '/')
+  display_name?: string; // full display path
+};
+
 export async function listFiles(): Promise<FileItem[]> {
   // GET /v1/files -> [FileItem]
   return getJSON<FileItem[]>("/v1/files");
+}
+
+export async function listFolders(): Promise<string[]> {
+  // GET /v1/files/folders -> ["folder/sub", ...]
+  return getJSON<string[]>("/v1/files/folders");
 }
 
 function extractMessage(text: string): string {
@@ -25,6 +36,43 @@ function extractMessage(text: string): string {
   return trimmed || "Unexpected server error";
 }
 
+function withFolderQuery(url: string, folder?: string): string {
+  const f = (folder || "").trim();
+  if (!f) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}folder=${encodeURIComponent(f)}`;
+}
+
+export async function createFolder(path: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/v1/files/folders`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  try {
+    return await res.json();
+  } catch {
+    return { ok: true, path };
+  }
+}
+
+export async function updateFile(id: string, payload: UpdateFilePayload): Promise<any> {
+  const res = await fetch(`${API_BASE}/v1/files/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  try {
+    return await res.json();
+  } catch {
+    return { ok: true };
+  }
+}
+
 export async function deleteFile(id: string): Promise<{ ok: boolean }> {
   const res = await fetch(`${API_BASE}/v1/files/${encodeURIComponent(id)}`, {
     method: "DELETE",
@@ -34,10 +82,11 @@ export async function deleteFile(id: string): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
-export async function uploadFile(file: File): Promise<{ job_id: string }> {
+export async function uploadFile(file: File, folder?: string): Promise<{ job_id: string }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_BASE}/v1/files`, {
+  const url = withFolderQuery(`${API_BASE}/v1/files`, folder);
+  const res = await fetch(url, {
     method: "POST",
     body: form,
     credentials: "include",
@@ -46,13 +95,14 @@ export async function uploadFile(file: File): Promise<{ job_id: string }> {
   return res.json();
 }
 
-export async function uploadFiles(files: File[]): Promise<{ jobs: string[] }> {
+export async function uploadFiles(files: File[], folder?: string): Promise<{ jobs: string[] }> {
   if (files.length === 0) return { jobs: [] };
   // Try the batch endpoint first for efficiency
   const form = new FormData();
   for (const f of files) form.append("files", f);
+  const batchUrl = withFolderQuery(`${API_BASE}/v1/files/batch`, folder);
   try {
-    const res = await fetch(`${API_BASE}/v1/files/batch`, {
+    const res = await fetch(batchUrl, {
       method: "POST",
       body: form,
       credentials: "include",
@@ -65,7 +115,7 @@ export async function uploadFiles(files: File[]): Promise<{ jobs: string[] }> {
   }
   const jobs: string[] = [];
   for (const f of files) {
-    const { job_id } = await uploadFile(f);
+    const { job_id } = await uploadFile(f, folder);
     jobs.push(job_id);
   }
   return { jobs };
@@ -81,7 +131,7 @@ export function fileDownloadUrl(id: string) {
 export async function getFileContent(id: string): Promise<{
   kind: "text" | "image" | "pdf" | "other";
   text?: string;
-  url?: string;          // blob URL for image/pdf/other
+  url?: string; // blob URL for image/pdf/other
   contentType?: string;
 }> {
   const url = `${API_BASE}/v1/files/${encodeURIComponent(id)}`;

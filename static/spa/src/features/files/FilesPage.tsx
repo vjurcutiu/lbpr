@@ -37,9 +37,12 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   listFiles,
+  listFolders,
   uploadFile,
   uploadFiles,
   deleteFile,
+  createFolder,
+  updateFile,
   getFileContent,
   type FileItem,
 } from "./api";
@@ -86,6 +89,7 @@ function useMediaQuery(query: string) {
 
 export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [folders, setFolders] = useState<string[]>([]);
   const [tree, setTree] = useState<TreeNode | null>(null);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -93,6 +97,7 @@ export default function FilesPage() {
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadFolderRef = useRef<string>("");
   const resizeRef = useRef<HTMLDivElement>(null);
 
 
@@ -108,6 +113,22 @@ export default function FilesPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
+
+  // Folder + move/rename dialogs
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderBusy, setNewFolderBusy] = useState(false);
+  const [newFolderParent, setNewFolderParent] = useState<string>("");
+  const [newFolderName, setNewFolderName] = useState<string>("");
+
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [fileToMove, setFileToMove] = useState<FileItem | null>(null);
+  const [moveTargetFolder, setMoveTargetFolder] = useState<string>("");
+
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [fileToRename, setFileToRename] = useState<FileItem | null>(null);
+  const [renameValue, setRenameValue] = useState<string>("");
 
   const [content, setContent] = useState<
     Record<string, Awaited<ReturnType<typeof getFileContent>>>
@@ -143,9 +164,38 @@ export default function FilesPage() {
   const refresh = useCallback(async () => {
     setBusy(true);
     try {
-      const data = await listFiles();
-      setFiles(data);
-      setTree(buildTree(data));
+      const [fileData, folderData] = await Promise.all([
+        listFiles(),
+        listFolders().catch((e) => {
+          console.debug("[files] listFolders failed (non-fatal)", e);
+          return [] as string[];
+        }),
+      ]);
+
+      // Normalize folders and ensure parents exist so the tree can display empties.
+      const folderSet = new Set<string>();
+      for (const raw of folderData || []) {
+        const p = (raw || "").trim().replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/{2,}/g, "/");
+        if (!p) continue;
+        const parts = p.split("/").filter(Boolean);
+        for (let i = 1; i <= parts.length; i++) folderSet.add(parts.slice(0, i).join("/"));
+      }
+      const folderList = Array.from(folderSet).sort((a, b) => a.localeCompare(b));
+
+      setFolders(folderList);
+      setFiles(fileData);
+      setTree(buildTree(fileData, folderList));
+
+      // keep open tabs in sync with any renames/moves
+      setTabs((prev) => {
+        const byId = new Map(fileData.map((f) => [f.id, f] as const));
+        return prev
+          .filter((t) => byId.has(t.id))
+          .map((t) => {
+            const f = byId.get(t.id)!;
+            return { ...t, title: f.name, contentType: f.content_type };
+          });
+      });
       setLastRefreshed(Date.now());
     } catch (err) {
       console.error("[files] listFiles error", err);
@@ -197,7 +247,10 @@ export default function FilesPage() {
     };
   }, [isResizing, isMobile]);
 
-  const onPick = () => inputRef.current?.click();
+  const onPick = (folderPath: string = "") => {
+    uploadFolderRef.current = folderPath;
+    inputRef.current?.click();
+  };
 
   function makeTempJob(file: File): UploadJob {
     const now = Math.floor(Date.now() / 1000);
@@ -219,7 +272,7 @@ export default function FilesPage() {
   }
 
   // Shared handler for traditional file input and drag&drop
-  const handleFiles = async (fs: File[]) => {
+  const handleFiles = async (fs: File[], folderPath: string = "") => {
     if (fs.length === 0) return;
     setUploading(true);
     try {
@@ -242,14 +295,14 @@ export default function FilesPage() {
 
       // 4) Kick the uploads
       if (fs.length === 1) {
-        const { job_id } = await uploadFile(fs[0]);
+        const { job_id } = await uploadFile(fs[0], folderPath);
         const tempId = temps[0].job_id;
         const now = Math.floor(Date.now() / 1000);
         setOptimisticJobs((list) =>
           list.map((j) => (j.job_id === tempId ? { ...j, job_id, updated_at: now } : j))
         );
       } else {
-        const { jobs } = await uploadFiles(fs);
+        const { jobs } = await uploadFiles(fs, folderPath);
         const now = Math.floor(Date.now() / 1000);
         const idMap = new Map<string, string>(); // temp -> real
         for (let i = 0; i < temps.length; i++) {
@@ -279,7 +332,9 @@ export default function FilesPage() {
 
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fs = Array.from(e.target.files || []);
-    await handleFiles(fs);
+    const folderPath = uploadFolderRef.current || "";
+    uploadFolderRef.current = "";
+    await handleFiles(fs, folderPath);
   };
 
   // Global drag & drop overlay
@@ -364,10 +419,14 @@ export default function FilesPage() {
     setDeleting(true);
     try {
       await deleteFile(fileToDelete.id);
-      setFiles((prev) => prev.filter((f) => f.id !== fileToDelete.id));
-      setTree((t) => t ? buildTree(files.filter((f) => f.id !== fileToDelete.id)) : t);
       closeTab(fileToDelete.id);
+      setContent((m) => {
+        const next = { ...m };
+        delete next[fileToDelete.id];
+        return next;
+      });
       toast.success("File deleted", { description: `"${fileToDelete.name}" removed.` });
+      await refresh();
     } catch (err) {
       console.error(err);
       toast.error("Delete failed", { description: parseErr(err) });
@@ -377,6 +436,156 @@ export default function FilesPage() {
       setFileToDelete(null);
     }
   };
+
+  // ---- Folder helpers + actions ----
+  const normPath = (p: string) =>
+    (p || "")
+      .trim()
+      .replace(/^\/+/g, "")
+      .replace(/\/+$/g, "")
+      .replace(/\/{2,}/g, "/");
+
+  const fileFolder = (fullName: string) => {
+    const parts = (fullName || "").split("/").filter(Boolean);
+    if (parts.length <= 1) return "";
+    return parts.slice(0, -1).join("/");
+  };
+  const fileBase = (fullName: string) => {
+    const parts = (fullName || "").split("/").filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : fullName;
+  };
+  const joinPath = (folderPath: string, baseName: string) =>
+    folderPath ? `${folderPath}/${baseName}` : baseName;
+
+  const requestNewFolder = (parentPath: string) => {
+    setNewFolderParent(parentPath || "");
+    setNewFolderName("");
+    setNewFolderOpen(true);
+  };
+
+  const doCreateFolder = async () => {
+    const parent = normPath(newFolderParent);
+    const name = normPath(newFolderName);
+    if (name.includes("/")) {
+      toast.error("Folder name can't include '/'", { description: "Create nested folders one level at a time." });
+      return;
+    }
+    const full = normPath([parent, name].filter(Boolean).join("/"));
+    if (!full) {
+      toast.error("Folder name required");
+      return;
+    }
+    setNewFolderBusy(true);
+    try {
+      await createFolder(full);
+      toast.success("Folder created", { description: full });
+      setNewFolderOpen(false);
+      setNewFolderName("");
+      await refresh();
+    } catch (e) {
+      console.error(e);
+      toast.error("Create folder failed", { description: parseErr(e) });
+    } finally {
+      setNewFolderBusy(false);
+    }
+  };
+
+  const requestRename = (f: FileItem) => {
+    setFileToRename(f);
+    setRenameValue(fileBase(f.name));
+    setRenameOpen(true);
+  };
+
+  const doRename = async () => {
+    if (!fileToRename) return;
+    const base = (renameValue || "").trim();
+    if (!base) {
+      toast.error("Name required");
+      return;
+    }
+    if (base.includes("/")) {
+      toast.error("Rename can't include '/'", { description: "Use Move to… for folders." });
+      return;
+    }
+
+    const folder = fileFolder(fileToRename.name);
+    const display = joinPath(folder, base);
+
+    setRenameBusy(true);
+    try {
+      await updateFile(fileToRename.id, { folder, name: base, display_name: display });
+      toast.success("Renamed", { description: display });
+      setRenameOpen(false);
+      setFileToRename(null);
+      await refresh();
+    } catch (e) {
+      console.error(e);
+      toast.error("Rename failed", { description: parseErr(e) });
+    } finally {
+      setRenameBusy(false);
+    }
+  };
+
+  const requestMove = (f: FileItem) => {
+    setFileToMove(f);
+    setMoveTargetFolder(fileFolder(f.name));
+    setMoveOpen(true);
+  };
+
+  const doMove = async () => {
+    if (!fileToMove) return;
+    const target = normPath(moveTargetFolder);
+    const current = fileFolder(fileToMove.name);
+    if (target === current) {
+      setMoveOpen(false);
+      setFileToMove(null);
+      return;
+    }
+
+    const base = fileBase(fileToMove.name);
+    const display = joinPath(target, base);
+
+    setMoveBusy(true);
+    try {
+      await updateFile(fileToMove.id, { folder: target, name: base, display_name: display });
+      toast.success("Moved", { description: display });
+      setMoveOpen(false);
+      setFileToMove(null);
+      await refresh();
+    } catch (e) {
+      console.error(e);
+      toast.error("Move failed", { description: parseErr(e) });
+    } finally {
+      setMoveBusy(false);
+    }
+  };
+
+  const moveFileToFolder = (fileId: string, folderPath: string) => {
+    const target = normPath(folderPath);
+    void (async () => {
+      const f = files.find((x) => x.id === fileId) || null;
+      const current = f ? fileFolder(f.name) : null;
+      if (current !== null && target === current) return;
+
+      const base = f ? fileBase(f.name) : null;
+      const display = base ? joinPath(target, base) : null;
+      try {
+        await updateFile(fileId, {
+          folder: target,
+          ...(base ? { name: base } : {}),
+          ...(display ? { display_name: display } : {}),
+        });
+        toast.success("Moved", { description: display || target || "root" });
+        await refresh();
+      } catch (e) {
+        console.error(e);
+        toast.error("Move failed", { description: parseErr(e) });
+      }
+    })();
+  };
+
+  const clearGlobalDrag = () => setDragActive(false);
+
 
   const filteredTree = useMemo(() => {
     if (!tree || !filter.trim()) return tree;
@@ -515,7 +724,7 @@ export default function FilesPage() {
           <span className="ml-1.5">Files</span>
         </Button>
 
-        <Button onClick={onPick} disabled={uploading} size="sm">
+        <Button onClick={() => onPick("")} disabled={uploading} size="sm">
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
         </Button>
@@ -579,6 +788,13 @@ export default function FilesPage() {
               node={filteredTree}
               onOpen={(f) => openFile(f)}
               onDelete={(f) => requestDelete(f)}
+              onRequestRename={(f) => requestRename(f)}
+              onRequestMove={(f) => requestMove(f)}
+              onMoveToFolder={(fileId, folderPath) => moveFileToFolder(fileId, folderPath)}
+              onUploadToFolder={(folderPath) => onPick(folderPath)}
+              onUploadFilesToFolder={(fs, folderPath) => void handleFiles(fs, folderPath)}
+              onCreateFolder={(parentPath) => requestNewFolder(parentPath)}
+              onClearGlobalDragActive={clearGlobalDrag}
             />
           </div>
         </aside>
@@ -808,6 +1024,130 @@ export default function FilesPage() {
         </DialogContent>
       </Dialog>
 
+      {/* New folder modal */}
+      <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New folder</DialogTitle>
+            <DialogDescription>
+              Create a folder{newFolderParent ? ` inside ${newFolderParent}` : " in Root"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            {newFolderParent ? (
+              <div className="text-xs text-muted-foreground">
+                Parent: <span className="font-mono">{newFolderParent}</span>
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                Parent: <span className="font-mono">Root</span>
+              </div>
+            )}
+            <Input
+              autoFocus
+              placeholder="Folder name"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void doCreateFolder();
+              }}
+              disabled={newFolderBusy}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNewFolderOpen(false)} disabled={newFolderBusy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void doCreateFolder()} disabled={newFolderBusy}>
+              {newFolderBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              <span className={cn(newFolderBusy ? "ml-2" : "")}>Create</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename modal */}
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename file</DialogTitle>
+            <DialogDescription>
+              Renaming keeps the file in the same folder. Use “Move to…” to change folders.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            {fileToRename && (
+              <div className="text-xs text-muted-foreground">
+                Current: <span className="font-mono break-all">{fileToRename.name}</span>
+              </div>
+            )}
+            <Input
+              autoFocus
+              placeholder="New filename"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void doRename();
+              }}
+              disabled={renameBusy}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)} disabled={renameBusy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void doRename()} disabled={renameBusy}>
+              {renameBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              <span className={cn(renameBusy ? "ml-2" : "")}>Rename</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move modal */}
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Move file</DialogTitle>
+            <DialogDescription>
+              Move the file to another folder. Leave blank for Root.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            {fileToMove && (
+              <div className="text-xs text-muted-foreground">
+                File: <span className="font-mono break-all">{fileToMove.name}</span>
+              </div>
+            )}
+            <Input
+              autoFocus
+              placeholder="Destination folder (blank = Root)"
+              value={moveTargetFolder}
+              onChange={(e) => setMoveTargetFolder(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void doMove();
+              }}
+              list="lbp-folder-options"
+              disabled={moveBusy}
+            />
+            <datalist id="lbp-folder-options">
+              {folders.map((p) => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoveOpen(false)} disabled={moveBusy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void doMove()} disabled={moveBusy}>
+              {moveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              <span className={cn(moveBusy ? "ml-2" : "")}>Move</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Upload tracker floating panel */}
       {/* Mobile explorer */}
       <Dialog open={mobileExplorerOpen} onOpenChange={setMobileExplorerOpen}>
@@ -818,7 +1158,7 @@ export default function FilesPage() {
             <Button variant="outline" size="sm" onClick={refresh} disabled={busy} title="Refresh">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             </Button>
-            <Button size="sm" onClick={onPick} disabled={uploading} title="Upload">
+            <Button size="sm" onClick={() => onPick("")} disabled={uploading} title="Upload">
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setMobileExplorerOpen(false)} title="Close">
@@ -854,6 +1194,13 @@ export default function FilesPage() {
               node={filteredTree}
               onOpen={(f) => openFile(f)}
               onDelete={(f) => requestDelete(f)}
+              onRequestRename={(f) => requestRename(f)}
+              onRequestMove={(f) => requestMove(f)}
+              onMoveToFolder={(fileId, folderPath) => moveFileToFolder(fileId, folderPath)}
+              onUploadToFolder={(folderPath) => onPick(folderPath)}
+              onUploadFilesToFolder={(fs, folderPath) => void handleFiles(fs, folderPath)}
+              onCreateFolder={(parentPath) => requestNewFolder(parentPath)}
+              onClearGlobalDragActive={clearGlobalDrag}
             />
           </div>
         </DialogContent>
