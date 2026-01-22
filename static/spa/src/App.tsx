@@ -70,8 +70,8 @@ const ROUTES: AppRoute[] = [
       // Chat is already full-bleed
       { path: "/chat", element: <AppShell fullBleed children={<ChatPage />} />, label: "Chat", nav: "both" },
       { path: "/billing", element: <AppShell children={<BillingPage />} />, label: "Billing", nav: "both" },
+      { path: "/profile", element: <AppShell children={<ProfilePage />} />, label: "Profile", nav: "both" },
       { path: "/support", element: <AppShell children={<SupportPage />} />, label: "Support", nav: "mobile" },
-      { path: "/profile", element: <AppShell children={<ProfilePage />} />, nav: "none", hidden: true },
     ],
   },
 

@@ -1,10 +1,12 @@
 // src/features/profile/ProfilePage.tsx
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 import { getJSON, postJSON } from "@/shared/api";
 import { useAuthContext } from "@/features/auth/AuthProvider";
 import {
   auth,
+  logoutFirebase,
   changePassword,
   createRecaptchaVerifier,
   linkEmailPasswordToCurrentUser,
@@ -28,7 +30,8 @@ import { friendlyAuthMessage } from "@/features/auth/errorMessages";
 type Profile = { uid: string; email?: string };
 
 export default function ProfilePage() {
-  const { refresh } = useAuthContext();
+  const { refresh, clear } = useAuthContext();
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [form, setForm] = useState<{ email: string; password: string; confirm: string }>({
     email: "",
@@ -80,6 +83,18 @@ export default function ProfilePage() {
       // best-effort; the server will refresh on next full auth state change
     }
     await refresh();
+  }
+
+
+  async function signOut() {
+    try {
+      await postJSON("/auth/logout", {});
+    } catch {}
+    try {
+      await logoutFirebase();
+    } catch {}
+    clear();
+    navigate("/login", { replace: true });
   }
 
   async function reloadProfile() {
@@ -327,6 +342,10 @@ export default function ProfilePage() {
           <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">Account</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage your account and sign-in methods.</p>
         </div>
+
+        <Button variant="secondary" onClick={signOut} disabled={busy !== null}>
+          Sign out
+        </Button>
       </div>
 
       <Separator />

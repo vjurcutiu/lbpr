@@ -13,7 +13,6 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
-import ProfileMenu from "@/features/profile/ProfileMenu"
 import { RiRobotLine } from "react-icons/ri";
 
 type NavItem = { to: string; label: string; where?: "top" | "mobile" | "both" }
@@ -86,7 +85,6 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
         {/* Actions */}
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <ProfileMenu />
         </div>
       </div>
     </header>
