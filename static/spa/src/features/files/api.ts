@@ -20,8 +20,34 @@ export async function listFiles(): Promise<FileItem[]> {
 }
 
 export async function listFolders(): Promise<string[]> {
-  // GET /v1/files/folders -> ["folder/sub", ...]
-  return getJSON<string[]>("/v1/files/folders");
+  // GET /v1/files/folders
+  // Backend may return either:
+  //   ["folder/sub", ...]
+  // or
+  //   [{ path: "folder/sub", ... }, ...]
+  // Keep the frontend resilient across backend shape changes.
+  const data = await getJSON<any>("/v1/files/folders");
+  const arr: any[] = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.folders)
+      ? data.folders
+      : Array.isArray(data?.items)
+        ? data.items
+        : [];
+
+  const out: string[] = [];
+  for (const item of arr) {
+    if (typeof item === "string") {
+      out.push(item);
+      continue;
+    }
+    const p = item?.path;
+    if (typeof p === "string") {
+      out.push(p);
+      continue;
+    }
+  }
+  return out;
 }
 
 function extractMessage(text: string): string {

@@ -11,6 +11,7 @@ import {
   ChevronRight,
   ChevronUp,  ChevronDown,
   Folder,
+  FolderPlus,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,13 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import {
   listFiles,
   listFolders,
   uploadFile,
@@ -46,6 +54,7 @@ import {
   getFileContent,
   type FileItem,
 } from "./api";
+
 
 import { buildTree, type TreeNode } from "./utils/fileTree";
 import { fmtSize, parseErr } from "./utils/formatters";
@@ -175,7 +184,12 @@ export default function FilesPage() {
       // Normalize folders and ensure parents exist so the tree can display empties.
       const folderSet = new Set<string>();
       for (const raw of folderData || []) {
-        const p = (raw || "").trim().replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/{2,}/g, "/");
+        const rawStr = typeof raw === "string" ? raw : (raw as any)?.path;
+        const p = String(rawStr || "")
+          .trim()
+          .replace(/^\/+/, "")
+          .replace(/\/+$/, "")
+          .replace(/\/{2,}/g, "/");
         if (!p) continue;
         const parts = p.split("/").filter(Boolean);
         for (let i = 1; i <= parts.length; i++) folderSet.add(parts.slice(0, i).join("/"));
@@ -710,7 +724,9 @@ export default function FilesPage() {
   );
 
   return (
-    <div className="h-full min-h-0 flex flex-col relative">
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="h-full min-h-0 flex flex-col relative">
       {/* Top bar */}
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 px-3 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <Button
@@ -1216,6 +1232,21 @@ export default function FilesPage() {
         showHistory={true}
         seedFetched={seedFetched}
       />
-    </div>
+        </div>
+      </ContextMenuTrigger>
+
+      <ContextMenuContent className="min-w-[12rem]">
+        <ContextMenuItem onClick={() => onPick("")}> 
+          <Upload className="h-4 w-4" /> Upload…
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => requestNewFolder("")}> 
+          <FolderPlus className="h-4 w-4" /> New folder…
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={refresh} disabled={busy}>
+          <RefreshCw className="h-4 w-4" /> Refresh
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

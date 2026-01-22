@@ -150,6 +150,7 @@ function RootRow({
             over && "bg-muted/60"
           )}
           title="root"
+          onContextMenu={(e) => e.stopPropagation()}
           onDragOver={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -240,6 +241,7 @@ function FolderRow({
             )}
             onClick={() => setOpen((v) => !v)}
             title={node.path}
+            onContextMenu={(e) => e.stopPropagation()}
             onDragOver={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -337,6 +339,7 @@ function FileRow({
         <div
           className="group flex items-center justify-between rounded hover:bg-muted/40"
           draggable
+          onContextMenu={(e) => e.stopPropagation()}
           onDragStart={(e) => {
             e.dataTransfer.setData(DND_FILE_ID, f.id);
             e.dataTransfer.effectAllowed = "move";
