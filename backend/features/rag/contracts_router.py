@@ -1,8 +1,9 @@
 from __future__ import annotations
 import logging
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Set
 from fastapi import APIRouter, Request, Depends, HTTPException
 from pydantic import BaseModel, Field
+import re
 
 try:
     from features.auth.deps import get_current_user  # type: ignore
@@ -45,8 +46,37 @@ class ChatRequest(BaseModel):
     k: int = 5
     with_sources: bool = True
 
+class CitationFile(BaseModel):
+    """Source file metadata for a citation.
+
+    These fields are best-effort and depend on what was captured at ingestion time.
+    """
+
+    file_id: str
+    filename: Optional[str] = None
+    display_name: Optional[str] = None
+    folder_path: Optional[str] = None
+    content_type: Optional[str] = None
+    checksum: Optional[str] = None
+
+
 class Citation(BaseModel):
+    """A single evidence snippet used (or available) to support an answer.
+
+    `index` is 1-based and matches bracket citations like [1], [2] in the answer.
+    """
+
+    index: int
     doc_id: str
+    chunk_id: Optional[str] = None
+    score: Optional[float] = None
+    snippet: str = ""
+    span_start: Optional[int] = None
+    span_end: Optional[int] = None
+    file: Optional[CitationFile] = None
+    used_in_answer: bool = False
+
+    # Backwards-compatible fields
     title: Optional[str] = None
     span: Optional[str] = None
 
@@ -60,7 +90,7 @@ def _build_context_from_sources(sources: List[Source]) -> Tuple[str, List[Citati
     cites: List[Citation] = []
     for i, s in enumerate(sources or []):
         meta: Dict[str, Any] = s.metadata or {}
-        label = meta.get("filename") or meta.get("title") or s.doc_id
+        label = meta.get("display_name") or meta.get("filename") or meta.get("title") or s.doc_id
         span_start = meta.get("span_start")
         span_end = meta.get("span_end")
         span = ""
@@ -69,8 +99,58 @@ def _build_context_from_sources(sources: List[Source]) -> Tuple[str, List[Citati
         head = f"[{i+1}] {label}{span}"
         text = (s.text or "").strip()
         blocks.append(f"{head}\n{text}" if text else head)
-        cites.append(Citation(doc_id=s.doc_id, title=str(label), span=(f"{span_start}-{span_end}" if (isinstance(span_start, int) and isinstance(span_end, int)) else None)))
+
+        # Best-effort file identity (for UI)
+        file_id = str(meta.get("file_id") or s.doc_id or "")
+        filename = meta.get("filename") or meta.get("title")
+        display_name = meta.get("display_name")
+        folder_path = meta.get("folder_path")
+        content_type = meta.get("content_type")
+        checksum = meta.get("checksum")
+
+        cites.append(
+            Citation(
+                index=i + 1,
+                doc_id=s.doc_id,
+                chunk_id=s.chunk_id,
+                score=float(getattr(s, "score", 0.0) or 0.0) if getattr(s, "score", None) is not None else None,
+                snippet=text,
+                span_start=span_start if isinstance(span_start, int) else None,
+                span_end=span_end if isinstance(span_end, int) else None,
+                file=(
+                    CitationFile(
+                        file_id=file_id,
+                        filename=str(filename) if filename is not None else None,
+                        display_name=str(display_name) if display_name is not None else None,
+                        folder_path=str(folder_path) if folder_path is not None else None,
+                        content_type=str(content_type) if content_type is not None else None,
+                        checksum=str(checksum) if checksum is not None else None,
+                    )
+                    if file_id
+                    else None
+                ),
+                title=str(label) if label is not None else None,
+                span=(
+                    f"{span_start}-{span_end}"
+                    if (isinstance(span_start, int) and isinstance(span_end, int))
+                    else None
+                ),
+            )
+        )
     return "\n\n".join(blocks).strip(), cites
+
+
+def _extract_used_citation_indices(answer: str) -> Set[int]:
+    """Parse bracket citations like [1] from an LLM answer."""
+    if not answer:
+        return set()
+    out: Set[int] = set()
+    for m in re.finditer(r"\[(\d{1,3})\]", answer):
+        try:
+            out.add(int(m.group(1)))
+        except Exception:
+            continue
+    return out
 
 def _history_hint(history: Optional[List[ChatTurn]], max_turns: int = 8, max_chars: int = 1200) -> str:
     if not history:
@@ -191,6 +271,13 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
         user_msg = _compose_user_message(req.message, context_text or "(no context)")
         answer = await llm.simple_answer(message=user_msg, history=history, system=system)
         if answer and answer.strip():
+            used = _extract_used_citation_indices(answer)
+            if used and citations:
+                for c in citations:
+                    c.used_in_answer = c.index in used
+                citations = [c for c in citations if c.index in used]
+            else:
+                citations = []
             return ChatResponse(answer=answer, citations=citations, usage={})
     except Exception:
         log.exception("chat_llm_error")
