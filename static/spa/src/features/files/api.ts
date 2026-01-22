@@ -2,16 +2,15 @@ import { API_BASE, getJSON } from "@/shared/api";
 
 export type FileItem = {
   id: string;
-  name: string; // may include path-like slashes e.g. "folder/sub/file.txt"
+  name: string;          // may include path-like slashes e.g. "folder/sub/file.txt"
   size: number;
   created_at?: string;
   content_type?: string;
 };
 
-export type UpdateFilePayload = {
-  folder?: string; // folder path, no leading/trailing slash
-  name?: string; // base filename (no '/')
-  display_name?: string; // full display path
+export type FolderItem = {
+  path: string;
+  name?: string;
 };
 
 export async function listFiles(): Promise<FileItem[]> {
@@ -19,35 +18,48 @@ export async function listFiles(): Promise<FileItem[]> {
   return getJSON<FileItem[]>("/v1/files");
 }
 
+/**
+ * GET /v1/files/folders
+ * Backend may return either string[] (paths) or FolderItem[] objects.
+ */
 export async function listFolders(): Promise<string[]> {
-  // GET /v1/files/folders
-  // Backend may return either:
-  //   ["folder/sub", ...]
-  // or
-  //   [{ path: "folder/sub", ... }, ...]
-  // Keep the frontend resilient across backend shape changes.
-  const data = await getJSON<any>("/v1/files/folders");
-  const arr: any[] = Array.isArray(data)
-    ? data
-    : Array.isArray(data?.folders)
-      ? data.folders
-      : Array.isArray(data?.items)
-        ? data.items
-        : [];
+  const raw = await getJSON<any>("/v1/files/folders");
+  if (!Array.isArray(raw)) return [];
+  // string[]
+  if (raw.length === 0) return [];
+  if (typeof raw[0] === "string") return raw.filter((x: any) => typeof x === "string");
+  // object[]
+  return raw
+    .map((x: any) => (typeof x?.path === "string" ? x.path : ""))
+    .filter((p: string) => !!p);
+}
 
-  const out: string[] = [];
-  for (const item of arr) {
-    if (typeof item === "string") {
-      out.push(item);
-      continue;
-    }
-    const p = item?.path;
-    if (typeof p === "string") {
-      out.push(p);
-      continue;
-    }
-  }
-  return out;
+export async function createFolder(path: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`${API_BASE}/v1/files/folders`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  return { ok: true };
+}
+
+export type UpdateFileRequest = {
+  folder?: string | null;
+  name?: string | null;
+  display_name?: string | null;
+};
+
+export async function updateFile(id: string, payload: UpdateFileRequest): Promise<{ ok: boolean }> {
+  const res = await fetch(`${API_BASE}/v1/files/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  return { ok: true };
 }
 
 function extractMessage(text: string): string {
@@ -62,43 +74,6 @@ function extractMessage(text: string): string {
   return trimmed || "Unexpected server error";
 }
 
-function withFolderQuery(url: string, folder?: string): string {
-  const f = (folder || "").trim();
-  if (!f) return url;
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}folder=${encodeURIComponent(f)}`;
-}
-
-export async function createFolder(path: string): Promise<any> {
-  const res = await fetch(`${API_BASE}/v1/files/folders`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
-  });
-  if (!res.ok) throw new Error(extractMessage(await res.text()));
-  try {
-    return await res.json();
-  } catch {
-    return { ok: true, path };
-  }
-}
-
-export async function updateFile(id: string, payload: UpdateFilePayload): Promise<any> {
-  const res = await fetch(`${API_BASE}/v1/files/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(extractMessage(await res.text()));
-  try {
-    return await res.json();
-  } catch {
-    return { ok: true };
-  }
-}
-
 export async function deleteFile(id: string): Promise<{ ok: boolean }> {
   const res = await fetch(`${API_BASE}/v1/files/${encodeURIComponent(id)}`, {
     method: "DELETE",
@@ -108,11 +83,10 @@ export async function deleteFile(id: string): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
-export async function uploadFile(file: File, folder?: string): Promise<{ job_id: string }> {
+export async function uploadFile(file: File): Promise<{ job_id: string }> {
   const form = new FormData();
   form.append("file", file);
-  const url = withFolderQuery(`${API_BASE}/v1/files`, folder);
-  const res = await fetch(url, {
+  const res = await fetch(`${API_BASE}/v1/files`, {
     method: "POST",
     body: form,
     credentials: "include",
@@ -121,14 +95,26 @@ export async function uploadFile(file: File, folder?: string): Promise<{ job_id:
   return res.json();
 }
 
-export async function uploadFiles(files: File[], folder?: string): Promise<{ jobs: string[] }> {
+export async function uploadFileToFolder(file: File, folder?: string): Promise<{ job_id: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  const qs = folder ? `?folder=${encodeURIComponent(folder)}` : "";
+  const res = await fetch(`${API_BASE}/v1/files${qs}`, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  return res.json();
+}
+
+export async function uploadFiles(files: File[]): Promise<{ jobs: string[] }> {
   if (files.length === 0) return { jobs: [] };
   // Try the batch endpoint first for efficiency
   const form = new FormData();
   for (const f of files) form.append("files", f);
-  const batchUrl = withFolderQuery(`${API_BASE}/v1/files/batch`, folder);
   try {
-    const res = await fetch(batchUrl, {
+    const res = await fetch(`${API_BASE}/v1/files/batch`, {
       method: "POST",
       body: form,
       credentials: "include",
@@ -141,7 +127,31 @@ export async function uploadFiles(files: File[], folder?: string): Promise<{ job
   }
   const jobs: string[] = [];
   for (const f of files) {
-    const { job_id } = await uploadFile(f, folder);
+    const { job_id } = await uploadFile(f);
+    jobs.push(job_id);
+  }
+  return { jobs };
+}
+
+export async function uploadFilesToFolder(files: File[], folder?: string): Promise<{ jobs: string[] }> {
+  if (files.length === 0) return { jobs: [] };
+  const form = new FormData();
+  for (const f of files) form.append("files", f);
+  const qs = folder ? `?folder=${encodeURIComponent(folder)}` : "";
+  try {
+    const res = await fetch(`${API_BASE}/v1/files/batch${qs}`, {
+      method: "POST",
+      body: form,
+      credentials: "include",
+    });
+    if (res.ok) return res.json();
+    console.warn("[files] batch upload not available, falling back to single uploads", res.status);
+  } catch (e) {
+    console.warn("[files] batch upload failed, falling back to single uploads", e);
+  }
+  const jobs: string[] = [];
+  for (const f of files) {
+    const { job_id } = await uploadFileToFolder(f, folder);
     jobs.push(job_id);
   }
   return { jobs };
@@ -157,7 +167,7 @@ export function fileDownloadUrl(id: string) {
 export async function getFileContent(id: string): Promise<{
   kind: "text" | "image" | "pdf" | "other";
   text?: string;
-  url?: string; // blob URL for image/pdf/other
+  url?: string;          // blob URL for image/pdf/other
   contentType?: string;
 }> {
   const url = `${API_BASE}/v1/files/${encodeURIComponent(id)}`;

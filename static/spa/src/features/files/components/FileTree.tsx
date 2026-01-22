@@ -1,21 +1,7 @@
 import { useMemo, useState } from "react";
-import {
-  ChevronRight,
-  Download,
-  Folder,
-  Loader2,
-  Pencil,
-  Trash2,
-  ArrowRightLeft,
-  Copy,
-  Upload,
-  FolderPlus,
-} from "lucide-react";
-import type { TreeNode } from "../utils/fileTree";
-import type { FileItem } from "../api";
-import { fileDownloadUrl } from "../api";
+import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { FileIconByName } from "./FileIconByName";
+import type { TreeNode } from "../utils/fileTree";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -24,209 +10,115 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 
-const DND_FILE_ID = "application/x-lbp-file-id";
+const DT_INTERNAL_FILE = "application/x-lbpr-file";
 
-type Props = {
-  node: TreeNode | null | undefined;
-  onOpen: (f: FileItem) => void;
-  onDelete: (f: FileItem) => void;
-  loading?: boolean;
-
-  // Context menu actions
-  onRequestRename?: (f: FileItem) => void;
-  onRequestMove?: (f: FileItem) => void;
-
-  // Drag/drop + folder actions
-  onMoveToFolder?: (fileId: string, folderPath: string) => void;
-  onUploadToFolder?: (folderPath: string) => void;
-  onUploadFilesToFolder?: (files: File[], folderPath: string) => void;
-  onCreateFolder?: (parentPath: string) => void;
-  onClearGlobalDragActive?: () => void;
-};
+function readInternalFileId(dt: DataTransfer | null): string | null {
+  if (!dt) return null;
+  const raw = dt.getData(DT_INTERNAL_FILE);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const id = parsed?.id;
+    return typeof id === "string" && id ? id : null;
+  } catch {
+    return null;
+  }
+}
 
 export function FileTree({
   node,
-  onOpen,
-  onDelete,
   loading = false,
-  onRequestRename,
-  onRequestMove,
-  onMoveToFolder,
-  onUploadToFolder,
-  onUploadFilesToFolder,
-  onCreateFolder,
-  onClearGlobalDragActive,
-}: Props) {
+  selectedPath,
+  onSelectFolder,
+  onUploadTo,
+  onNewFolder,
+  onMoveFileTo,
+  onDropFilesTo,
+}: {
+  node: TreeNode | null | undefined;
+  loading?: boolean;
+  selectedPath: string;
+  onSelectFolder: (path: string) => void;
+  onUploadTo: (path: string) => void;
+  onNewFolder: (parentPath: string) => void;
+  onMoveFileTo: (fileId: string, folderPath: string) => void;
+  onDropFilesTo: (folderPath: string, files: File[]) => void;
+}) {
+  const children = useMemo(() => {
+    const kids = (node?.children || []).filter((c) => c.type === "folder");
+    return kids;
+  }, [node]);
+
   if (loading) {
     return (
       <div className="text-sm text-muted-foreground p-3 flex items-center gap-2">
         <Loader2 className="h-4 w-4 animate-spin" />
-        <span>Loading files…</span>
+        <span>Loading folders…</span>
       </div>
     );
   }
-  if (!node) return <div className="text-sm text-muted-foreground p-2">No files.</div>;
 
   return (
     <div className="text-sm">
-      <RootRow
-        onUploadToFolder={onUploadToFolder}
-        onUploadFilesToFolder={onUploadFilesToFolder}
-        onCreateFolder={onCreateFolder}
-        onMoveToFolder={onMoveToFolder}
-        onClearGlobalDragActive={onClearGlobalDragActive}
+      <FolderRow
+        node={{ type: "folder", name: "Files", path: "", children }}
+        isRoot
+        selectedPath={selectedPath}
+        onSelectFolder={onSelectFolder}
+        onUploadTo={onUploadTo}
+        onNewFolder={onNewFolder}
+        onMoveFileTo={onMoveFileTo}
+        onDropFilesTo={onDropFilesTo}
       />
-
-      {(node.children || []).map((child) =>
-        child.type === "folder" ? (
-          <FolderRow
-            key={child.path}
-            node={child}
-            onOpen={onOpen}
-            onDelete={onDelete}
-            onRequestRename={onRequestRename}
-            onRequestMove={onRequestMove}
-            onMoveToFolder={onMoveToFolder}
-            onUploadToFolder={onUploadToFolder}
-            onUploadFilesToFolder={onUploadFilesToFolder}
-            onCreateFolder={onCreateFolder}
-            onClearGlobalDragActive={onClearGlobalDragActive}
-          />
-        ) : (
-          <FileRow
-            key={child.path}
-            node={child}
-            onOpen={onOpen}
-            onDelete={onDelete}
-            onRequestRename={onRequestRename}
-            onRequestMove={onRequestMove}
-          />
-        )
-      )}
     </div>
-  );
-}
-
-function RootRow({
-  onUploadToFolder,
-  onUploadFilesToFolder,
-  onCreateFolder,
-  onMoveToFolder,
-  onClearGlobalDragActive,
-}: {
-  onUploadToFolder?: (folderPath: string) => void;
-  onUploadFilesToFolder?: (files: File[], folderPath: string) => void;
-  onCreateFolder?: (parentPath: string) => void;
-  onMoveToFolder?: (fileId: string, folderPath: string) => void;
-  onClearGlobalDragActive?: () => void;
-}) {
-  const [over, setOver] = useState(false);
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onClearGlobalDragActive?.();
-    setOver(false);
-
-    const dt = e.dataTransfer;
-    const internalId = dt.getData(DND_FILE_ID);
-    if (internalId && onMoveToFolder) {
-      onMoveToFolder(internalId, "");
-      return;
-    }
-
-    if (dt.files && dt.files.length && onUploadFilesToFolder) {
-      onUploadFilesToFolder(Array.from(dt.files), "");
-    }
-  };
-
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div
-          className={cn(
-            "mb-1 flex items-center gap-2 px-2 py-2 rounded text-left select-none",
-            "hover:bg-muted/40",
-            over && "bg-muted/60"
-          )}
-          title="root"
-          onContextMenu={(e) => e.stopPropagation()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onClearGlobalDragActive?.();
-            setOver(true);
-            if (e.dataTransfer.types.includes(DND_FILE_ID)) e.dataTransfer.dropEffect = "move";
-          }}
-          onDragLeave={() => setOver(false)}
-          onDrop={handleDrop}
-        >
-          <Folder className="h-4 w-4" />
-          <span className="font-medium">Root</span>
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent className="min-w-[12rem]">
-        <ContextMenuItem onClick={() => onUploadToFolder?.("")}> 
-          <Upload className="h-4 w-4" /> Upload here
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => onCreateFolder?.("")}> 
-          <FolderPlus className="h-4 w-4" /> New folder…
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
   );
 }
 
 function FolderRow({
   node,
-  onOpen,
-  onDelete,
-  onRequestRename,
-  onRequestMove,
-  onMoveToFolder,
-  onUploadToFolder,
-  onUploadFilesToFolder,
-  onCreateFolder,
-  onClearGlobalDragActive,
+  isRoot = false,
+  depth = 0,
+  selectedPath,
+  onSelectFolder,
+  onUploadTo,
+  onNewFolder,
+  onMoveFileTo,
+  onDropFilesTo,
 }: {
   node: TreeNode;
-  onOpen: (f: FileItem) => void;
-  onDelete: (f: FileItem) => void;
-  onRequestRename?: (f: FileItem) => void;
-  onRequestMove?: (f: FileItem) => void;
-  onMoveToFolder?: (fileId: string, folderPath: string) => void;
-  onUploadToFolder?: (folderPath: string) => void;
-  onUploadFilesToFolder?: (files: File[], folderPath: string) => void;
-  onCreateFolder?: (parentPath: string) => void;
-  onClearGlobalDragActive?: () => void;
+  isRoot?: boolean;
+  depth?: number;
+  selectedPath: string;
+  onSelectFolder: (path: string) => void;
+  onUploadTo: (path: string) => void;
+  onNewFolder: (parentPath: string) => void;
+  onMoveFileTo: (fileId: string, folderPath: string) => void;
+  onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
   const [open, setOpen] = useState(true);
-  const [over, setOver] = useState(false);
+  const folderChildren = (node.children || []).filter((c) => c.type === "folder");
+  const caretClass = cn(
+    "h-4 w-4 transition-transform opacity-80",
+    open ? "rotate-90" : "rotate-0",
+    folderChildren.length === 0 && "opacity-0"
+  );
 
-  const caretClass = cn("h-4 w-4 transition-transform", open ? "rotate-90" : "rotate-0");
+  const selected = (selectedPath || "") === (node.path || "");
 
-  const childCount = useMemo(() => (node.children ? node.children.length : 0), [node.children]);
-
-  const handleDrop = (e: React.DragEvent) => {
+  const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    onClearGlobalDragActive?.();
-    setOver(false);
 
-    const dt = e.dataTransfer;
-
-    // Internal file move
-    const internalId = dt.getData(DND_FILE_ID);
-    if (internalId && onMoveToFolder) {
-      onMoveToFolder(internalId, node.path);
+    // 1) Internal move
+    const movedId = readInternalFileId(e.dataTransfer);
+    if (movedId) {
+      onMoveFileTo(movedId, node.path);
       return;
     }
 
-    // OS file drop => upload into this folder
-    if (dt.files && dt.files.length && onUploadFilesToFolder) {
-      onUploadFilesToFolder(Array.from(dt.files), node.path);
-      return;
-    }
+    // 2) External OS files
+    const fs = Array.from(e.dataTransfer.files || []);
+    if (fs.length) onDropFilesTo(node.path, fs);
   };
 
   return (
@@ -237,43 +129,46 @@ function FolderRow({
             className={cn(
               "w-full flex items-center gap-1.5 px-2 py-2 rounded text-left",
               "hover:bg-muted/40",
-              over && "bg-muted/60"
+              selected && "bg-muted/50"
             )}
-            onClick={() => setOpen((v) => !v)}
-            title={node.path}
-            onContextMenu={(e) => e.stopPropagation()}
-            onDragOver={(e) => {
-              e.preventDefault();
+            style={{ paddingLeft: 8 + depth * 14 }}
+            onClick={(e) => {
               e.stopPropagation();
-              onClearGlobalDragActive?.();
-              setOver(true);
-              if (e.dataTransfer.types.includes(DND_FILE_ID)) e.dataTransfer.dropEffect = "move";
-              else if (Array.from(e.dataTransfer.types).includes("Files")) e.dataTransfer.dropEffect = "copy";
+              onSelectFolder(node.path);
             }}
-            onDragLeave={() => setOver(false)}
-            onDrop={handleDrop}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (folderChildren.length > 0) setOpen((v) => !v);
+            }}
+            onDragOver={(e) => {
+              // Allow drop for move/upload
+              e.preventDefault();
+              e.dataTransfer.dropEffect = readInternalFileId(e.dataTransfer) ? "move" : "copy";
+            }}
+            onDrop={onDrop}
+            title={node.path || "Root"}
           >
             <ChevronRight className={caretClass} />
             <Folder className="h-4 w-4" />
-            <span className="font-medium">{node.name || "root"}</span>
-            {childCount > 0 && <span className="ml-2 text-[11px] text-muted-foreground">({childCount})</span>}
+            <span className={cn("truncate", isRoot && "font-medium")}>{node.name || "Root"}</span>
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent className="min-w-[12rem]">
-          <ContextMenuItem onClick={() => onUploadToFolder?.(node.path)}>
+          <ContextMenuItem
+            onSelect={() => onUploadTo(node.path)}
+          >
             <Upload className="h-4 w-4" /> Upload here
           </ContextMenuItem>
-          <ContextMenuItem onClick={() => onCreateFolder?.(node.path)}>
+          <ContextMenuItem
+            onSelect={() => onNewFolder(node.path)}
+          >
             <FolderPlus className="h-4 w-4" /> New folder…
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(node.path);
-              } catch {
-                // ignore
-              }
+            onSelect={() => {
+              const p = node.path || "";
+              if (navigator?.clipboard?.writeText) navigator.clipboard.writeText(p);
             }}
           >
             <Copy className="h-4 w-4" /> Copy path
@@ -281,134 +176,23 @@ function FolderRow({
         </ContextMenuContent>
       </ContextMenu>
 
-      {open && (
-        <div className="ml-5">
-          {(node.children || []).map((child) =>
-            child.type === "folder" ? (
-              <FolderRow
-                key={child.path}
-                node={child}
-                onOpen={onOpen}
-                onDelete={onDelete}
-                onRequestRename={onRequestRename}
-                onRequestMove={onRequestMove}
-                onMoveToFolder={onMoveToFolder}
-                onUploadToFolder={onUploadToFolder}
-                onUploadFilesToFolder={onUploadFilesToFolder}
-                onCreateFolder={onCreateFolder}
-                onClearGlobalDragActive={onClearGlobalDragActive}
-              />
-            ) : (
-              <FileRow
-                key={child.path}
-                node={child}
-                onOpen={onOpen}
-                onDelete={onDelete}
-                onRequestRename={onRequestRename}
-                onRequestMove={onRequestMove}
-              />
-            )
-          )}
+      {open && folderChildren.length > 0 && (
+        <div>
+          {folderChildren.map((child) => (
+            <FolderRow
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              selectedPath={selectedPath}
+              onSelectFolder={onSelectFolder}
+              onUploadTo={onUploadTo}
+              onNewFolder={onNewFolder}
+              onMoveFileTo={onMoveFileTo}
+              onDropFilesTo={onDropFilesTo}
+            />
+          ))}
         </div>
       )}
     </div>
-  );
-}
-
-function FileRow({
-  node,
-  onOpen,
-  onDelete,
-  onRequestRename,
-  onRequestMove,
-}: {
-  node: TreeNode;
-  onOpen: (f: FileItem) => void;
-  onDelete: (f: FileItem) => void;
-  onRequestRename?: (f: FileItem) => void;
-  onRequestMove?: (f: FileItem) => void;
-}) {
-  const f = node.file!;
-  const href = fileDownloadUrl(f.id);
-
-  const displayName = node.name;
-
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div
-          className="group flex items-center justify-between rounded hover:bg-muted/40"
-          draggable
-          onContextMenu={(e) => e.stopPropagation()}
-          onDragStart={(e) => {
-            e.dataTransfer.setData(DND_FILE_ID, f.id);
-            e.dataTransfer.effectAllowed = "move";
-            try {
-              e.dataTransfer.setData("text/plain", f.name);
-            } catch {
-              // ignore
-            }
-          }}
-        >
-          <button
-            className="min-w-0 flex-1 flex items-center gap-2 px-2 py-2 rounded text-left"
-            title={f.name}
-            onClick={() => onOpen(f)}
-          >
-            <FileIconByName name={displayName} className="h-4 w-4 shrink-0" />
-            <span className="truncate">{displayName}</span>
-          </button>
-
-          <div className="shrink-0 w-[2.25rem] flex items-center justify-end pr-1">
-            <a
-              href={href}
-              title="Download"
-              className="p-2 rounded hover:bg-muted"
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
-            >
-              <Download className="h-4 w-4" />
-            </a>
-          </div>
-        </div>
-      </ContextMenuTrigger>
-
-      <ContextMenuContent className="min-w-[13rem]">
-        <ContextMenuItem onClick={() => onOpen(f)}>
-          <ArrowRightLeft className="h-4 w-4" /> Open
-        </ContextMenuItem>
-        <ContextMenuItem
-          onClick={() => {
-            window.open(href, "_self");
-          }}
-        >
-          <Download className="h-4 w-4" /> Download
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => onRequestRename?.(f)}>
-          <Pencil className="h-4 w-4" /> Rename…
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => onRequestMove?.(f)}>
-          <ArrowRightLeft className="h-4 w-4" /> Move to…
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(f.name);
-            } catch {
-              // ignore
-            }
-          }}
-        >
-          <Copy className="h-4 w-4" /> Copy path
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem className="text-destructive focus:text-destructive" onClick={() => onDelete(f)}>
-          <Trash2 className="h-4 w-4" /> Delete
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
   );
 }
