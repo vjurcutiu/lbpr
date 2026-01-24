@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from core.tracker import get_job, list_jobs, clear_jobs
+from core.pii import detokenize_text
 from .schemas import Job, JobsResponse
 
 # Auth deps (use same pattern as other features)
@@ -30,6 +31,9 @@ class ClearResponse(BaseModel):
 async def jobs(user: SessionOut = Depends(get_current_user)):
     try:
         items = await list_jobs(user.uid, limit=100)
+        for it in items:
+            if it.get("filename"):
+                it["filename"] = detokenize_text(user.uid, str(it["filename"]))
         log.info("ut_api_list_jobs_ok", uid=user.uid, items=len(items))
         return JobsResponse(items=[Job(**it) for it in items])  # type: ignore[arg-type]
     except Exception as e:
@@ -47,6 +51,8 @@ async def job(job_id: str, user: SessionOut = Depends(get_current_user)):
         if m.get("uid") != user.uid:
             log.warning("ut_api_get_job_forbidden", uid=user.uid, job_uid=m.get("uid"), job_id=job_id)
             raise HTTPException(status_code=404, detail="Job not found")
+        if m.get("filename"):
+            m["filename"] = detokenize_text(user.uid, str(m["filename"]))
         log.debug("ut_api_get_job_ok", uid=user.uid, job_id=job_id, phase=m.get("phase"), pct=m.get("pct"))
         return Job(**m)  # type: ignore[arg-type]
     except HTTPException:

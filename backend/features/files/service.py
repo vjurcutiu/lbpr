@@ -24,6 +24,9 @@ from core.tokenizer import count_tokens
 from core.rate_limit import add_upload_tokens
 from core.plan import sync_caps_and_plan
 
+# PII pseudonymization (optional)
+from core.pii import tokenize_text, detokenize_text, detokenize_many
+
 log = logging.getLogger("files.service")
 
 
@@ -45,7 +48,9 @@ def _assert_user_owns(uid: str, file_id: str) -> None:
 
 def _object_path(uid: str, filename: str, file_id: Optional[str] = None) -> str:
     fid = file_id or str(uuid.uuid4())
-    return f"{_user_prefix(uid)}/uploads/{fid}/{filename}"
+    # Keep storage object names free of user-provided strings (which may contain PII).
+    # The user-facing filename is stored in metadata and Firestore.
+    return f"{_user_prefix(uid)}/uploads/{fid}/content"
 
 
 def _folder_marker_object(uid: str, folder_path: str) -> str:
@@ -140,11 +145,21 @@ async def upload_file(
 ) -> UploadResponse:
     """Upload a single file; store folder/display_name metadata; index into Firestore (Phase 3)."""
 
-    filename = file.filename or "file"
-    folder_path = index_store.normalize_folder_path(folder)
+    # Raw user-provided values (may contain PII)
+    raw_filename = file.filename or "file"
+    raw_folder_path = index_store.normalize_folder_path(folder)
+    raw_display_name = index_store.build_display_name(raw_folder_path, raw_filename)
+
+    # Stored values (tokenized when PII is enabled)
+    if settings.PII_TOKENIZE_FILENAMES:
+        filename = tokenize_text(uid, raw_filename)
+        folder_path = tokenize_text(uid, raw_folder_path) if raw_folder_path else ""
+    else:
+        filename = raw_filename
+        folder_path = raw_folder_path
     display_name = index_store.build_display_name(folder_path, filename)
 
-    object_name = _object_path(uid, filename)  # storage object path, used as stable doc_id
+    object_name = _object_path(uid, raw_filename)  # storage object path, used as stable doc_id
     bkt = _bucket()
     blob = bkt.blob(object_name)
 
@@ -235,6 +250,10 @@ async def upload_file(
         except Exception:
             log.exception("usage_upload_tokens_error", uid=uid, object=object_name)
 
+    # Tokenize extracted text BEFORE it is sent to embedding/vector store.
+    # We still do usage accounting on the raw extracted text above.
+    tokenized_text = tokenize_text(uid, text) if text else text
+
     # Store in Firebase
     try:
         await uptrack.set_phase(object_name, "upload", pct=60)
@@ -285,14 +304,14 @@ async def upload_file(
 
     # If we have text, embed & ingest (we already charged tokens above).
     try:
-        if text:
-            log.info("upload_extract_ok", object=object_name, chars=len(text))
+        if tokenized_text:
+            log.info("upload_extract_ok", object=object_name, chars=len(tokenized_text))
             await uptrack.set_phase(object_name, "embed", pct=85)
             try:
                 orchestrator.ingest_request(
                     IngestRequest(
                         dataset=dataset,
-                        text=text,
+                        text=str(tokenized_text),
                         doc_id=object_name,  # stable per file
                         metadata={
                             "owner_uid": uid,
@@ -364,6 +383,25 @@ def _fileitem_from_index_row(row: dict) -> FileItem:
     )
 
 
+def _detokenize_fileitems(uid: str, items: List[FileItem]) -> List[FileItem]:
+    """Detokenize file names/folder paths for user-facing API responses."""
+    if not items:
+        return items
+    flat: List[str] = []
+    for it in items:
+        flat.append(it.name or "")
+        flat.append(it.folder_path or "")
+        flat.append(it.original_name or "")
+    det = detokenize_many(uid, flat)
+    i = 0
+    for it in items:
+        it.name = det[i] or it.name
+        it.folder_path = det[i + 1] or it.folder_path
+        it.original_name = det[i + 2] or it.original_name
+        i += 3
+    return items
+
+
 def list_files(uid: str) -> List[FileItem]:
     """List files for a user.
 
@@ -377,7 +415,7 @@ def list_files(uid: str) -> List[FileItem]:
         if rows:
             items = [_fileitem_from_index_row(r) for r in rows]
             log.info("files_list_ok", uid=uid, count=len(items), source="firestore")
-            return items
+            return _detokenize_fileitems(uid, items)
     except Exception as e:
         log.debug("files_list_firestore_failed", uid=uid, error=str(e))
 
@@ -446,6 +484,23 @@ def list_files(uid: str) -> List[FileItem]:
         pass
 
     log.info("files_list_ok", uid=uid, count=len(items), source="storage")
+    return _detokenize_fileitems(uid, items)
+
+
+def _detokenize_folderitems(uid: str, items: List[FolderItem]) -> List[FolderItem]:
+    if not items:
+        return items
+    flat: List[str] = []
+    for it in items:
+        flat.append(it.path or "")
+        flat.append(it.parent_path or "")
+    det = detokenize_many(uid, flat)
+    i = 0
+    for it in items:
+        it.path = det[i] or it.path
+        it.parent_path = (det[i + 1] or it.parent_path) or None
+        it.name = (it.path.split("/")[-1] if it.path else it.name)
+        i += 2
     return items
 
 
@@ -476,12 +531,16 @@ def list_folders(uid: str) -> List[FolderItem]:
         log.debug("folders_list_firestore_failed", uid=uid, error=str(e))
 
     if out:
-        return out
+        return _detokenize_folderitems(uid, out)
 
-    # 2) Derive from files (best-effort)
+    # 2) Derive from files (best-effort) without detokenizing stored paths.
     seen = set()
-    for f in list_files(uid):
-        fp = (f.folder_path or "").strip("/")
+    try:
+        file_rows = index_store.list_files(uid, limit=5000)
+    except Exception:
+        file_rows = []
+    for r in file_rows:
+        fp = str(r.get("folder_path") or "").strip("/")
         if not fp:
             continue
         parts = fp.split("/")
@@ -501,7 +560,7 @@ def list_folders(uid: str) -> List[FolderItem]:
                 )
             )
 
-    # Also backfill to Firestore best-effort
+    # Also backfill to Firestore best-effort (store tokenized path)
     try:
         for f in out:
             index_store.upsert_folder(uid, f.path)
@@ -509,13 +568,15 @@ def list_folders(uid: str) -> List[FolderItem]:
         pass
 
     out.sort(key=lambda x: x.path)
-    return out
+    return _detokenize_folderitems(uid, out)
 
 
 def create_folder(uid: str, path: str) -> FolderItem:
-    folder_path = index_store.normalize_folder_path(path)
-    if not folder_path:
+    raw_path = index_store.normalize_folder_path(path)
+    if not raw_path:
         raise ValueError("Folder path required")
+
+    folder_path = tokenize_text(uid, raw_path) if settings.PII_TOKENIZE_FILENAMES else raw_path
 
     index_store.upsert_folder(uid, folder_path)
 
@@ -534,7 +595,12 @@ def create_folder(uid: str, path: str) -> FolderItem:
     except Exception as e:
         log.debug("folder_marker_create_failed", uid=uid, path=folder_path, error=str(e))
 
-    return FolderItem(path=folder_path, name=folder_path.split("/")[-1], parent_path=index_store.parent_path(folder_path) or None)
+    visible_path = detokenize_text(uid, folder_path)
+    return FolderItem(
+        path=visible_path,
+        name=visible_path.split("/")[-1],
+        parent_path=(detokenize_text(uid, index_store.parent_path(folder_path) or "") or None),
+    )
 
 
 def update_file(
@@ -568,12 +634,19 @@ def update_file(
         current_folder, current_base = (md.get("folder_path") or ""), current_display.split("/")[-1]
 
     if display_name:
-        new_folder, new_base = index_store.split_display_name(display_name)
+        # Store tokenized display_name in metadata/index to keep PII out of other stores.
+        dn = tokenize_text(uid, display_name) if settings.PII_TOKENIZE_FILENAMES else display_name
+        new_folder, new_base = index_store.split_display_name(dn)
         if not new_base:
             raise ValueError("Invalid display_name")
     else:
-        new_folder = index_store.normalize_folder_path(folder) if folder is not None else current_folder
-        new_base = (name or "").strip() if name is not None else current_base
+        nf = index_store.normalize_folder_path(folder) if folder is not None else current_folder
+        nb = (name or "").strip() if name is not None else current_base
+        if settings.PII_TOKENIZE_FILENAMES:
+            nf = tokenize_text(uid, nf) if nf else ""
+            nb = tokenize_text(uid, nb) if nb else nb
+        new_folder = nf
+        new_base = nb
 
     new_display = index_store.build_display_name(new_folder, new_base)
 
@@ -608,7 +681,7 @@ def update_file(
         log.debug("files_index_update_failed", uid=uid, file_id=file_id, error=str(e))
 
     created_iso = blob.time_created.isoformat() if getattr(blob, "time_created", None) else None
-    return FileItem(
+    item = FileItem(
         id=file_id,
         name=new_display,
         size=int(blob.size or 0),
@@ -617,6 +690,7 @@ def update_file(
         folder_path=new_folder or None,
         original_name=new_base or None,
     )
+    return _detokenize_fileitems(uid, [item])[0]
 
 
 def delete_file(uid: str, file_id: str) -> bool:
@@ -661,6 +735,8 @@ def get_signed_download_url(uid: str, file_id: str, minutes: int = 10) -> str:
             filename = (md.get("original_name") or file_id.split("/")[-1])
     except Exception:
         filename = file_id.split("/")[-1]
+
+    filename = detokenize_text(uid, str(filename))
 
     url = blob.generate_signed_url(
         expiration=timedelta(minutes=minutes),

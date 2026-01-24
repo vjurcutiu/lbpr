@@ -33,3 +33,7 @@ redis>=6.4.0,<7.0.0
 
 # Tokenization aligned with OpenAI usage
 tiktoken==0.11.0
+
+# PII pseudonymization (Google Cloud)
+google-cloud-dlp==3.34.0
+google-cloud-kms==3.10.0

@@ -68,6 +68,28 @@ class Settings(BaseSettings):
     PINECONE_INDEX_DENSE: str | None = None
     PINECONE_INDEX_SPARSE: str | None = None
 
+    # -------- PII Pseudonymization (Google Sensitive Data Protection/DLP + Cloud KMS) --------
+    # Off by default so dev/test can run without Google Cloud credentials.
+    PII_ENABLED: bool = False
+
+    # DLP project/location. If empty, falls back to FIREBASE_PROJECT_ID.
+    PII_DLP_PROJECT_ID: str | None = None
+    PII_DLP_LOCATION: str = "global"
+
+    # Comma-separated DLP infoTypes to detect (examples: EMAIL_ADDRESS, PHONE_NUMBER).
+    # NOTE: Some detectors (PERSON_NAME, LOCATION, STREET_ADDRESS, etc.) can add latency.
+    PII_DLP_INFOTYPES: str = "EMAIL_ADDRESS,PHONE_NUMBER"
+
+    # Min likelihood: VERY_UNLIKELY|UNLIKELY|POSSIBLE|LIKELY|VERY_LIKELY
+    PII_DLP_MIN_LIKELIHOOD: str = "LIKELY"
+
+    # Full KMS cryptoKey resource name:
+    # projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>
+    PII_KMS_KEY_NAME: str | None = None
+
+    # Tokenize file/folder names & upload-tracker filenames as well as document text.
+    PII_TOKENIZE_FILENAMES: bool = True
+
 settings = Settings()
 
 def safe_settings_snapshot() -> dict:
