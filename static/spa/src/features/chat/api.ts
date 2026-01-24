@@ -15,8 +15,29 @@ export type ChatRequest = {
   stream?: boolean;
 };
 
+export type CitationFile = {
+  /** Backend file_id (preferred stable identifier for opening the source file). */
+  file_id: string;
+  filename?: string;
+  display_name?: string;
+  folder_path?: string;
+  content_type?: string;
+  checksum?: string;
+};
+
 export type Citation = {
+  /** 1-based index that matches bracket citations like [1] in the answer. */
+  index: number;
   doc_id: string;
+  chunk_id?: string | null;
+  score?: number | null;
+  snippet?: string;
+  span_start?: number | null;
+  span_end?: number | null;
+  file?: CitationFile | null;
+  used_in_answer?: boolean;
+
+  // Backwards-compatible fields
   title?: string;
   span?: string;
 };
@@ -72,7 +93,7 @@ export async function sendChat(req: ChatRequest, traceId?: string) {
       const ct = res.headers.get("content-type") || "";
       if (ct.includes("application/json")) {
         const j = await res.json();
-        bodyText = typeof j?.detail === "string" ? j.detail : JSON.stringify(j);
+        bodyText = typeof (j as any)?.detail === "string" ? (j as any).detail : JSON.stringify(j);
       } else {
         bodyText = await res.text();
       }

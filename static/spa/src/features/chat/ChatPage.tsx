@@ -1,9 +1,10 @@
 // src/features/chat/ChatPage.tsx
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from "react";
 import { Send, Loader2, PlusCircle, MessageSquare, MoreVertical, Pencil, Trash2, Info, AlertCircle, Crown, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import * as chatApi from "./api";
 import { ApiError } from "./api";
@@ -17,7 +18,7 @@ import {
   subscribeMessages,
   deleteConversation,
 } from "./chatStore";
-import type { ChatTurn, ConversationMeta } from "./types";
+import type { ChatTurn, ConversationMeta, Citation as TurnCitation } from "./types";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import { loadBool, saveBool } from "@/shared/persist";
@@ -306,7 +307,7 @@ export default function ChatPage() {
                   key={m.id || String(idx)}
                   role={m.role}
                   content={m.content}
-                  // citations removed from UI
+                  citations={(m as any).citations}
                 />
               ))}
               {isAssistantTyping && <AssistantThinkingRow />}
@@ -519,9 +520,11 @@ function LeftSidebar({
 function MessageRow({
   role,
   content,
+  citations,
 }: {
   role: "user" | "assistant" | "system";
   content: string;
+  citations?: TurnCitation[];
 }) {
   const isUser = role === "user";
   const isSystem = role === "system";
@@ -568,9 +571,27 @@ function MessageRow({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  a: ({node, className, ...props}) => (
-                    <a {...props} className={["underline", className].filter(Boolean).join(" ")} target="_blank" rel="noopener noreferrer" />
-                  ),
+                  a: ({ node, className, href, children, ...props }) => {
+                    if (href && href.startsWith("#cite-")) {
+                      const n = parseInt(href.replace("#cite-", ""), 10);
+                      return (
+                        <CitationPopover index={Number.isFinite(n) ? n : 0} citations={citations}>
+                          {children}
+                        </CitationPopover>
+                      );
+                    }
+                    return (
+                      <a
+                        {...props}
+                        href={href}
+                        className={["underline", className].filter(Boolean).join(" ")}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {children}
+                      </a>
+                    );
+                  },
                   p: ({node, className, ...props}) => (
                     <p {...props} className={["my-3", className].filter(Boolean).join(" ")} />
                   ),
@@ -611,7 +632,7 @@ function MessageRow({
                   hr: ({node, className, ...props}) => <hr {...props} className={["my-4 border-muted", className].filter(Boolean).join(" ")} />,
                 }}
               >
-                {content}
+                {linkifyCitationsMarkdown(content)}
               </ReactMarkdown>
             )}
           </div>
@@ -619,6 +640,89 @@ function MessageRow({
       </div>
     </div>
   );
+
+
+function CitationPopover({
+  index,
+  citations,
+  children,
+}: {
+  index: number;
+  citations?: TurnCitation[];
+  children: ReactNode;
+}) {
+  const c = pickCitationByIndex(index, citations);
+  const fileLabel =
+    c?.file?.display_name || c?.file?.filename || c?.title || c?.doc_id || (index ? `Source ${index}` : "Source");
+  const folderPath = c?.file?.folder_path;
+  const snippet = (c?.snippet || "").trim() || (c?.span ? `Span: ${c.span}` : "");
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center align-baseline text-[12px] font-medium text-muted-foreground hover:text-foreground px-0.5"
+          aria-label={index ? `Open citation ${index}` : "Open citation"}
+          onClick={(e) => {
+            // prevent markdown default link navigation
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          {children}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-80">
+        <div className="space-y-2">
+          <div className="text-xs font-semibold">
+            {index ? `Source [${index}]` : "Source"}
+          </div>
+          <div className="text-xs">
+            <div className="font-medium break-words">{fileLabel}</div>
+            {folderPath ? <div className="text-muted-foreground break-words">{folderPath}</div> : null}
+          </div>
+
+          <div className="rounded-md border bg-muted/40 p-2 max-h-64 overflow-auto">
+            <div className="text-xs whitespace-pre-wrap leading-5">
+              {snippet || "No snippet available."}
+            </div>
+          </div>
+
+          {c?.score != null ? (
+            <div className="text-[11px] text-muted-foreground">Similarity: {Number(c.score).toFixed(3)}</div>
+          ) : null}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function pickCitationByIndex(index: number, citations?: TurnCitation[]) {
+  if (!index || !citations || citations.length === 0) return undefined;
+  // Prefer explicit index match (new backend)
+  const direct = citations.find((x: any) => Number((x as any).index) === index);
+  if (direct) return direct as any;
+  // Fallback: assume array order matches indices
+  return citations[index - 1];
+}
+
+function linkifyCitationsMarkdown(md: string) {
+  if (!md) return md;
+
+  // Avoid rewriting inside fenced code blocks and inline code spans.
+  const fenceParts = md.split("```");
+  for (let i = 0; i < fenceParts.length; i++) {
+    if (i % 2 === 1) continue; // inside fenced code
+    const inlineParts = fenceParts[i].split("`");
+    for (let j = 0; j < inlineParts.length; j++) {
+      if (j % 2 === 1) continue; // inside inline code
+      inlineParts[j] = inlineParts[j].replace(/\[(\d{1,3})\]/g, (_m, n) => `[\\[${n}\\]](#cite-${n})`);
+    }
+    fenceParts[i] = inlineParts.join("`");
+  }
+  return fenceParts.join("```");
+}
 }
 function AssistantThinkingRow() {
   return (
