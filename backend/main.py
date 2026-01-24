@@ -10,6 +10,7 @@ from core.config import settings, safe_settings_snapshot
 from core.firebase import init_firebase
 from core.logging import setup_logging
 from core import redis_utils
+from core.request_context import set_request_context, reset_request_context
 
 from routers import health
 from routers.limits import router as limits_router
@@ -35,6 +36,8 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         request.state.trace_id = trace_id
         request.state.request_id = request_id
         request.state.tenant_id = tenant
+
+        ctx_tokens = set_request_context(trace_id=trace_id, request_id=request_id, tenant_id=tenant)
 
         log.info(
             "http_request",
@@ -74,6 +77,9 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                 tenant_id=tenant,
             )
             raise
+
+        finally:
+            reset_request_context(ctx_tokens)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -90,6 +90,22 @@ class Settings(BaseSettings):
     # Tokenize file/folder names & upload-tracker filenames as well as document text.
     PII_TOKENIZE_FILENAMES: bool = True
 
+    # -------- PII Audit Logging (debugging/verification) --------
+    # Off by default. When enabled, emits structured logs about tokenization/detokenization.
+    PII_AUDIT_ENABLED: bool = False
+
+    # Re-scan tokenized output with DLP to verify no raw PII remains (extra API calls/cost).
+    PII_AUDIT_VERIFY_POST: bool = False
+
+    # Include plaintext previews (VERY sensitive). Only honored when ENV=dev.
+    PII_AUDIT_PLAINTEXT: bool = False
+
+    # Max number of replacements to include in audit logs (prevents huge payloads).
+    PII_AUDIT_MAX_ITEMS: int = 25
+
+    # Max preview characters for before/after when PII_AUDIT_PLAINTEXT=1.
+    PII_AUDIT_PREVIEW_CHARS: int = 240
+
 settings = Settings()
 
 def safe_settings_snapshot() -> dict:

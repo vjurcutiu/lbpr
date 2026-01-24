@@ -11,10 +11,12 @@ from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from core.config import settings
+from core.request_context import get_request_context
 
 from firebase_admin import firestore
 
 log = logging.getLogger("pii")
+audit_log = logging.getLogger("pii.audit")
 
 
 # Token format is intentionally filename/path-safe (no slashes/spaces).
@@ -29,8 +31,46 @@ class PiiFinding:
     info_type: str
 
 
+
 def _is_enabled() -> bool:
     return bool(settings.PII_ENABLED)
+
+
+def _audit_enabled() -> bool:
+    return _is_enabled() and bool(getattr(settings, "PII_AUDIT_ENABLED", False))
+
+
+def _audit_plaintext() -> bool:
+    # Plaintext audit logs are only allowed in local dev and must be explicitly enabled.
+    return _audit_enabled() and settings.ENV == "dev" and bool(getattr(settings, "PII_AUDIT_PLAINTEXT", False))
+
+
+def _audit_preview_chars() -> int:
+    try:
+        return int(getattr(settings, "PII_AUDIT_PREVIEW_CHARS", 240) or 240)
+    except Exception:
+        return 240
+
+
+def _audit_max_items() -> int:
+    try:
+        return int(getattr(settings, "PII_AUDIT_MAX_ITEMS", 25) or 25)
+    except Exception:
+        return 25
+
+
+def _sha256_short(s: str, n: int = 12) -> str:
+    if s is None:
+        return ""
+    h = hashlib.sha256(s.encode("utf-8", errors="replace")).hexdigest()
+    return h[:n]
+
+
+def _preview(s: str) -> str:
+    if not s:
+        return ""
+    m = _audit_preview_chars()
+    return s[:m]
 
 
 def _dlp_project() -> str:
@@ -171,25 +211,20 @@ def _kms_decrypt(uid: str, info_type: str, ciphertext_b64: str) -> str:
     return resp.plaintext.decode("utf-8", errors="replace")
 
 
-def get_or_create_token(uid: str, info_type: str, value: str) -> str:
-    """Return a stable token for the (uid, info_type, value) triple.
+def _get_or_create_token_internal(uid: str, info_type: str, value: str) -> tuple[str, bool]:
+    """Return (token, created).
 
-    - Stores a hash -> token index (customers/<uid>/pii_hash/<hash>)
-    - Stores token -> ciphertext mapping (customers/<uid>/pii_tokens/<token>)
-
-    This is deterministic per-user via the hash index, while keeping the token
-    itself random (harder to guess).
+    created=True means we created a new mapping (hash doc did not exist at time of call).
     """
     if not _is_enabled():
-        return ""
-
+        return ("", False)
     if not uid:
         raise RuntimeError("uid required")
 
     info_type = (info_type or "UNKNOWN").upper()
     raw = (value or "")
     if not raw.strip():
-        return ""
+        return ("", False)
 
     h = _value_hash(uid, info_type, raw)
     href = _hash_ref(uid, h)
@@ -197,8 +232,9 @@ def get_or_create_token(uid: str, info_type: str, value: str) -> str:
     if snap.exists:
         tok = str((snap.to_dict() or {}).get("token") or "")
         if tok:
-            return tok
+            return (tok, False)
 
+    created = True
     token = _new_token_id()
 
     # Try to create the hash doc; if it already exists, use the existing token.
@@ -210,6 +246,7 @@ def get_or_create_token(uid: str, info_type: str, value: str) -> str:
             tok = str((snap2.to_dict() or {}).get("token") or "")
             if tok:
                 token = tok
+                created = False
 
     # Ensure token doc exists (idempotent).
     tref = _token_ref(uid, token)
@@ -226,7 +263,19 @@ def get_or_create_token(uid: str, info_type: str, value: str) -> str:
             merge=True,
         )
 
-    return token
+    return (token, created)
+
+
+def get_or_create_token_meta(uid: str, info_type: str, value: str) -> tuple[str, bool]:
+    """Return (token, created)."""
+    return _get_or_create_token_internal(uid, info_type, value)
+
+
+def get_or_create_token(uid: str, info_type: str, value: str) -> str:
+    """Return a stable token for the (uid, info_type, value) triple."""
+    tok, _created = _get_or_create_token_internal(uid, info_type, value)
+    return tok
+
 
 
 def resolve_tokens(uid: str, tokens: Sequence[str]) -> Dict[str, str]:
@@ -269,12 +318,12 @@ def resolve_tokens(uid: str, tokens: Sequence[str]) -> Dict[str, str]:
 
 # ------------------------------- DLP scan ----------------------------------
 
-def _dlp_findings(text: str) -> List[PiiFinding]:
+def _dlp_findings(text: str, *, allow_tokens: bool = False) -> List[PiiFinding]:
     """Use Google Sensitive Data Protection (DLP API) to find PII spans."""
     if not _is_enabled() or not text:
         return []
-    if _has_tokens(text):
-        # Avoid double-tokenization.
+    if _has_tokens(text) and not allow_tokens:
+        # Avoid double-tokenization in normal flows.
         return []
 
     from google.cloud import dlp_v2  # imported lazily
@@ -334,41 +383,128 @@ def _dlp_findings(text: str) -> List[PiiFinding]:
 
 
 def tokenize_text(uid: str, text: str) -> str:
-    """Tokenize PII in text using DLP spans and the vault."""
+    """Tokenize PII in text using DLP spans and the vault.
+
+    When audit logging is enabled, emits a structured log containing counts, hashes, and (optionally)
+    plaintext previews in dev only.
+    """
     if not _is_enabled() or not text:
         return text
     spans = _dlp_findings(text)
     if not spans:
         return text
 
+    before = text
     out = text
+    replacements = []
+    created_count = 0
     # Replace from end to start to preserve offsets.
     for f in sorted(spans, key=lambda x: x.start, reverse=True):
         raw = out[f.start : f.end]
-        tok = get_or_create_token(uid, f.info_type, raw)
+        tok, created = get_or_create_token_meta(uid, f.info_type, raw)
         if not tok:
             continue
-        out = out[: f.start] + f"__PII_{f.info_type}_{tok}__" + out[f.end :]
+        created_count += 1 if created else 0
+        token_str = f"__PII_{f.info_type}_{tok}__"
+        replacements.append({
+            'type': f.info_type,
+            'start': f.start,
+            'end': f.end,
+            'raw_len': len(raw),
+            'raw_sha256_8': hashlib.sha256(raw.encode('utf-8')).hexdigest()[:8],
+            'token': tok,
+        })
+        out = out[: f.start] + token_str + out[f.end :]
+
+    if _audit_enabled():
+        ctx = get_request_context()
+        # By default we only log hashes/lengths. Plaintext previews are dev-only and require explicit opt-in.
+        include_plain = _audit_plaintext()
+        max_items = _audit_max_items()
+        preview_n = _audit_preview_chars()
+        post_findings = []
+        post_count = None
+        try:
+            if bool(settings.PII_AUDIT_VERIFY_POST):
+                post_findings = _dlp_findings(out, allow_tokens=True)
+                post_count = len(post_findings)
+        except Exception as e:
+            audit_log.warning('pii_post_verify_failed', error=str(e), trace_id=ctx.trace_id, request_id=ctx.request_id, tenant_id=ctx.tenant_id, uid=uid)
+        # Aggregate types
+        types = {}
+        for r in replacements:
+            types[r['type']] = types.get(r['type'], 0) + 1
+        extra = {
+            'event': 'pii_tokenize_audit',
+            'uid': uid,
+            'trace_id': ctx.trace_id,
+            'request_id': ctx.request_id,
+            'tenant_id': ctx.tenant_id,
+            'before_len': len(before),
+            'after_len': len(out),
+            'finding_count': len(spans),
+            'types': types,
+            'created_mappings': created_count,
+            'before_sha256_12': hashlib.sha256(before.encode('utf-8')).hexdigest()[:12],
+            'after_sha256_12': hashlib.sha256(out.encode('utf-8')).hexdigest()[:12],
+            'post_findings_count': post_count,
+            'replacements': list(reversed(replacements))[:max_items],
+        }
+        if include_plain:
+            extra['before_preview'] = before[:preview_n]
+            extra['after_preview'] = out[:preview_n]
+        audit_log.info('pii_tokenize', **extra)
+
     return out
 
 
 def detokenize_text(uid: str, text: str) -> str:
-    """Replace tokens back to plaintext for user-facing output."""
+    """Replace tokens back to plaintext for user-facing output.
+
+    When audit logging is enabled, emits a structured log about detokenization.
+    """
     if not _is_enabled() or not text:
         return text
-    if "__PII_" not in text:
+    if '__PII_' not in text:
         return text
 
+    before = text
     token_ids = extract_tokens(text)
     if not token_ids:
         return text
     mapping = resolve_tokens(uid, list(token_ids))
 
     def _repl(m: re.Match) -> str:
-        tok = m.group("token")
+        tok = m.group('token')
         return mapping.get(tok, m.group(0))
 
-    return TOKEN_RE.sub(_repl, text)
+    out = TOKEN_RE.sub(_repl, text)
+
+    if _audit_enabled():
+        ctx = get_request_context()
+        include_plain = _audit_plaintext()
+        preview_n = _audit_preview_chars()
+        unresolved = len(token_ids) - len(mapping)
+        extra = {
+            'event': 'pii_detokenize_audit',
+            'uid': uid,
+            'trace_id': ctx.trace_id,
+            'request_id': ctx.request_id,
+            'tenant_id': ctx.tenant_id,
+            'token_count': len(token_ids),
+            'resolved_count': len(mapping),
+            'unresolved_count': unresolved,
+            'before_len': len(before),
+            'after_len': len(out),
+            'before_sha256_12': hashlib.sha256(before.encode('utf-8')).hexdigest()[:12],
+            'after_sha256_12': hashlib.sha256(out.encode('utf-8')).hexdigest()[:12],
+        }
+        if include_plain:
+            extra['before_preview'] = before[:preview_n]
+            extra['after_preview'] = out[:preview_n]
+        audit_log.info('pii_detokenize', **extra)
+
+    return out
 
 
 def detokenize_many(uid: str, texts: Sequence[str]) -> List[str]:
