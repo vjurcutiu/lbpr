@@ -17,13 +17,16 @@ NET  := $(PROJECT)_appnet
 -include .env.local
 export
 
-.PHONY: help dev dev-down dev-logs up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check
+.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check
 
 help:
 	@echo "Targets:"
 	@echo "  dev                  - bring up local dev stack (docker-compose.dev.yml, app.localhost)"
 	@echo "  dev-down             - stop local dev stack"
 	@echo "  dev-logs             - follow dev logs (nginx, spa, api)"
+	@echo "  dev-logs-api         - follow dev logs (api only)"
+	@echo "  dev-logs-spa         - follow dev logs (spa only)"
+	@echo "  dev-logs-nginx       - follow dev logs (nginx only)"
 	@echo "  up-dev               - bring up base stack (docker-compose.yml, no SSL override)"
 	@echo "  staging / up-staging - bring up stack with Cloudflare SSL override"
 	@echo "  prod / up-prod       - bring up stack with Cloudflare SSL override"
@@ -62,6 +65,15 @@ dev-down:
 
 dev-logs:
 	$(DC) -p $(PROJECT)-dev $(DEV) logs -f nginx spa api
+
+dev-logs-api:
+	$(DC) -p $(PROJECT)-dev $(DEV) logs -f api
+
+dev-logs-spa:
+	$(DC) -p $(PROJECT)-dev $(DEV) logs -f spa
+
+dev-logs-nginx:
+	$(DC) -p $(PROJECT)-dev $(DEV) logs -f nginx
 
 # ----- Base / prod-style stack (docker-compose.yml) -----
 
