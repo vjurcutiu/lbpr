@@ -13,14 +13,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { getJSON } from "@/shared/api";
 import { useAuthContext } from "@/features/auth/AuthProvider";
-import { Check, Crown, MessageSquare, UploadCloud, AlertTriangle, Loader2, Info, Mic } from "lucide-react";
+import { Check, Crown, MessageSquare, UploadCloud, AlertTriangle, Loader2, Info, Mic, ScanText } from "lucide-react";
 
 /* ------------------------------- Types ------------------------------- */
 type LimitsResp = {
   plan: "FREE" | "PRO";
   window: string; // YYYYMM
-  caps: { messages: number; upload_tokens: number; transcribe_seconds?: number };
-  usage: { messages: number; upload_tokens: number; transcribe_seconds?: number };
+  caps: { messages: number; upload_tokens: number; transcribe_seconds?: number; ocr_images?: number };
+  usage: { messages: number; upload_tokens: number; transcribe_seconds?: number; ocr_images?: number };
 };
 
 /* ------------------------------ Helpers ----------------------------- */
@@ -263,7 +263,7 @@ export default function BillingPage() {
             <PlanBadge onPro={onPro} />
           </div>
 
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <QuickStat
               icon={<MessageSquare className="h-4 w-4" />}
               label="Messages used"
@@ -285,6 +285,17 @@ export default function BillingPage() {
                 const uMin = Math.round(u / 60);
                 const cMin = Math.round(c / 60);
                 return `${fmtInt(uMin)}/${fmtInt(cMin)} min`;
+              })()}
+            />
+            <QuickStat
+              icon={<ScanText className="h-4 w-4" />}
+              label="OCR images"
+              value={(() => {
+                if (!limits) return "—";
+                const u = limits.usage.ocr_images;
+                const c = limits.caps.ocr_images;
+                if (u == null || c == null) return "—";
+                return `${fmtInt(u)}/${fmtInt(c)}`;
               })()}
             />
             <QuickStat

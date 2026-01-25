@@ -17,6 +17,7 @@ import {
   Copy,
   ArrowUp,
   Mic,
+  ScanText,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -67,6 +68,7 @@ import {
 } from "./api";
 
 import { transcribeAudio, type TranscribeResponse } from "@/features/transcription/api";
+import { runOcr, type OcrResponse, type OcrMode } from "@/features/ocr/api";
 
 import { buildTree, findNode, type TreeNode } from "./utils/fileTree";
 import { fmtSize, parseErr } from "./utils/formatters";
@@ -82,6 +84,9 @@ const LS_TRACKER_OPEN = "files:trackerOpen";
 const LS_OPTIMISTIC = "files:optimisticJobs";
 const LS_BATCH = "files:batchFilenames";
 const LS_LAST_FOLDER = "files:lastFolder";
+
+const LS_OCR_LANGUAGES = "files:ocrLanguages";
+const LS_OCR_DOCMODE = "files:ocrDocMode";
 
 const DT_INTERNAL_FILE = "application/x-lbpr-file";
 
@@ -186,6 +191,18 @@ export default function FilesPage() {
   const [transcribeModel, setTranscribeModel] = useState<string>("");
   const [savingTranscript, setSavingTranscript] = useState(false);
 
+  // OCR input + modal
+  const ocrInputRef = useRef<HTMLInputElement>(null);
+  const [ocrOpen, setOcrOpen] = useState(false);
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrFile, setOcrFile] = useState<File | null>(null);
+  const [ocrText, setOcrText] = useState<string>("");
+  const [ocrErr, setOcrErr] = useState<string | null>(null);
+  const [ocrLanguages, setOcrLanguages] = useState<string>(() => loadJSON<string>(LS_OCR_LANGUAGES, "en,cs,it"));
+  const [ocrDocMode, setOcrDocMode] = useState<boolean>(() => loadBool(LS_OCR_DOCMODE, true));
+  const [ocrMeta, setOcrMeta] = useState<Pick<OcrResponse, "mode" | "language_hints" | "images_charged"> | null>(null);
+  const [savingOcr, setSavingOcr] = useState(false);
+
   // Drag overlay (OS files only)
   const rootRef = useRef<HTMLDivElement>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -253,6 +270,10 @@ export default function FilesPage() {
   useEffect(() => saveBool(LS_TRACKER_OPEN, trackerOpen), [trackerOpen]);
   useEffect(() => saveJSON(LS_OPTIMISTIC, optimisticJobs), [optimisticJobs]);
   useEffect(() => saveJSON(LS_BATCH, batchFilenames), [batchFilenames]);
+
+  // Persist OCR settings
+  useEffect(() => saveJSON(LS_OCR_LANGUAGES, ocrLanguages), [ocrLanguages]);
+  useEffect(() => saveBool(LS_OCR_DOCMODE, ocrDocMode), [ocrDocMode]);
 
   const refresh = useCallback(async () => {
     setBusy(true);
@@ -606,6 +627,128 @@ export default function FilesPage() {
     }
   };
 
+  // --- OCR helpers
+  const openOcr = () => {
+    setOcrOpen(true);
+    setOcrErr(null);
+    setOcrText("");
+    setOcrMeta(null);
+  };
+
+  const pickOcrFile = () => {
+    ocrInputRef.current?.click();
+  };
+
+  const onPickOcrFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null;
+    if (f) {
+      setOcrFile(f);
+      setOcrErr(null);
+      setOcrText("");
+      setOcrMeta(null);
+    }
+    // reset input so picking the same file again triggers onChange
+    if (ocrInputRef.current) ocrInputRef.current.value = "";
+  };
+
+  const runOcrWithFile = async (file: File) => {
+    if (!file || ocrBusy) return;
+    setOcrBusy(true);
+    setOcrErr(null);
+    setOcrText("");
+    setOcrMeta(null);
+    setOcrFile(file);
+    setOcrOpen(true);
+
+    const tempBase = makeTempJob(file, "ocr");
+    const temp: UploadJob = { ...tempBase, phase: "ocr" };
+
+    try {
+      // Prefetch existing jobs so the tracker opens populated
+      try {
+        const existing = await listUploadJobs();
+        setSeedFetched(existing);
+      } catch {}
+
+      setOptimisticJobs((list) => [temp, ...list]);
+      setBatchFilenames([file.name]);
+      setTrackerOpen(true);
+      setTrackerRefreshKey(Date.now());
+
+      const mode: OcrMode = ocrDocMode ? "document" : "text";
+      const resp = await runOcr(file, {
+        languages: parseLanguageCodes(ocrLanguages),
+        mode,
+      });
+
+      setOcrText(resp.text || "");
+      setOcrMeta({ mode: resp.mode, language_hints: resp.language_hints, images_charged: resp.images_charged });
+
+      const now = Math.floor(Date.now() / 1000);
+      setOptimisticJobs((list) =>
+        list.map((j) =>
+          j.job_id === temp.job_id
+            ? {
+                ...j,
+                job_id: resp.job_id || j.job_id,
+                status: "done",
+                phase: "complete",
+                pct: 100,
+                bytes: j.total_bytes,
+                updated_at: now,
+              }
+            : j
+        )
+      );
+
+      toast.success("OCR ready", {
+        description:
+          typeof resp.images_charged === "number"
+            ? `Charged ${Math.max(0, resp.images_charged)} image${resp.images_charged === 1 ? "" : "s"}.`
+            : "",
+      });
+
+      setTrackerRefreshKey(Date.now());
+    } catch (err) {
+      console.error(err);
+      const msg = parseErr(err);
+      setOcrErr(msg);
+      const now = Math.floor(Date.now() / 1000);
+      setOptimisticJobs((list) =>
+        list.map((j) => (j.job_id === temp.job_id ? { ...j, status: "error", phase: "error", updated_at: now, error: msg } : j))
+      );
+      toast.error("OCR failed", { description: msg });
+    } finally {
+      setOcrBusy(false);
+    }
+  };
+
+  const runOcrFromPicker = async () => {
+    if (!ocrFile || ocrBusy) return;
+    await runOcrWithFile(ocrFile);
+  };
+
+  const saveOcrToFiles = async () => {
+    if (!ocrFile || !ocrText.trim() || savingOcr) return;
+    setSavingOcr(true);
+    try {
+      const base = ocrFile.name.replace(/\.[^/.]+$/, "") || "ocr";
+      const filename = `${base}.ocr.txt`;
+      const blob = new Blob([ocrText], { type: "text/plain;charset=utf-8" });
+      const out = new File([blob], filename, { type: "text/plain" });
+      await uploadFileToFolder(out, selectedFolder || undefined);
+      toast.success("Saved OCR text", {
+        description: selectedFolder ? `Saved into “${selectedFolder}”.` : "Saved into Root.",
+      });
+      setTrackerRefreshKey(Date.now());
+      await refresh();
+    } catch (e) {
+      toast.error("Save failed", { description: parseErr(e) });
+    } finally {
+      setSavingOcr(false);
+    }
+  };
+
   // --- Folder & file actions
   const requestDelete = (file: FileItem) => {
     setFileToDelete(file);
@@ -799,12 +942,23 @@ export default function FilesPage() {
           <Mic className="h-4 w-4" />
           <span className="ml-1.5 hidden sm:inline">Transcribe</span>
         </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={openOcr}
+          title="Extract text from an image (OCR)"
+        >
+          <ScanText className="h-4 w-4" />
+          <span className="ml-1.5 hidden sm:inline">OCR</span>
+        </Button>
         <Button variant="outline" size="sm" onClick={() => requestNewFolder(selectedFolder)} title="New folder">
           <FolderPlus className="h-4 w-4" />
           <span className="ml-1.5 hidden sm:inline">New folder</span>
         </Button>
         <Input ref={inputRef} type="file" className="hidden" onChange={onChange} multiple />
         <Input ref={transcribeInputRef} type="file" accept="audio/*,video/*" className="hidden" onChange={onPickTranscribeFile} />
+        <Input ref={ocrInputRef} type="file" accept="image/*" className="hidden" onChange={onPickOcrFile} />
 
         <div className="relative w-full md:max-w-sm md:w-full md:order-none order-last">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1134,6 +1288,9 @@ export default function FilesPage() {
             <Button variant="outline" size="sm" onClick={openTranscribe} title="Transcribe">
               <Mic className="h-4 w-4" />
             </Button>
+            <Button variant="outline" size="sm" onClick={openOcr} title="OCR">
+              <ScanText className="h-4 w-4" />
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => setMobileFoldersOpen(false)} title="Close">
               <X className="h-4 w-4" />
             </Button>
@@ -1311,6 +1468,126 @@ export default function FilesPage() {
         </DialogContent>
       </Dialog>
 
+      {/* OCR modal */}
+      <Dialog
+        open={ocrOpen}
+        onOpenChange={(open) => {
+          setOcrOpen(open);
+          if (!open) {
+            setOcrBusy(false);
+            setOcrFile(null);
+            setOcrText("");
+            setOcrMeta(null);
+            setOcrErr(null);
+            setSavingOcr(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>OCR (image → text)</DialogTitle>
+            <DialogDescription>
+              Choose an image and extract its text using Google OCR. You can copy the result or save it back into this folder.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 min-h-0 overflow-auto space-y-4 pr-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={pickOcrFile} disabled={ocrBusy}>
+                Choose image
+              </Button>
+              <div className="min-w-0 text-sm">
+                {ocrFile ? (
+                  <div className="truncate">
+                    <span className="font-medium">{ocrFile.name}</span>
+                    <span className="ml-2 text-muted-foreground">({fmtSize(ocrFile.size)})</span>
+                  </div>
+                ) : (
+                  <div className="text-muted-foreground">No image selected.</div>
+                )}
+              </div>
+              <div className="flex-1" />
+              <Button onClick={runOcrFromPicker} disabled={!ocrFile || ocrBusy} size="sm">
+                {ocrBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanText className="h-4 w-4" />}
+                <span className="ml-1.5">{ocrBusy ? "Running…" : ocrText ? "Re-run OCR" : "Run OCR"}</span>
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Language hints (comma-separated)</Label>
+                <Input
+                  value={ocrLanguages}
+                  onChange={(e) => setOcrLanguages(e.target.value)}
+                  placeholder="en,cs,it"
+                  disabled={ocrBusy}
+                />
+                <div className="text-xs text-muted-foreground">Tip: include likely languages for better accuracy.</div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-md border p-3">
+                <div className="space-y-0.5">
+                  <div className="text-sm font-medium">Document mode</div>
+                  <div className="text-xs text-muted-foreground">Better for dense documents; off is faster for short snippets.</div>
+                </div>
+                <Switch checked={ocrDocMode} onCheckedChange={setOcrDocMode} disabled={ocrBusy} />
+              </div>
+            </div>
+
+            {ocrErr && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                <div className="font-medium text-destructive">Error</div>
+                <div className="text-muted-foreground mt-1 break-words">{ocrErr}</div>
+              </div>
+            )}
+
+            {ocrText && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-sm font-medium">Extracted text</div>
+                  <div className="flex-1" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(ocrText);
+                        toast.success("Copied");
+                      } catch {
+                        toast.error("Copy failed");
+                      }
+                    }}
+                    disabled={!ocrText}
+                    title="Copy to clipboard"
+                  >
+                    <Copy className="h-4 w-4" />
+                    <span className="ml-1.5">Copy</span>
+                  </Button>
+                  <Button size="sm" onClick={saveOcrToFiles} disabled={savingOcr || !ocrText.trim()}>
+                    {savingOcr ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+                    <span className="ml-1.5">Save to files</span>
+                  </Button>
+                </div>
+
+                <Textarea value={ocrText} readOnly className="min-h-[16rem] resize-none" />
+
+                <div className="text-xs text-muted-foreground flex flex-wrap gap-2">
+                  {ocrMeta?.language_hints?.length ? <span>Hints: {ocrMeta.language_hints.join(", ")}</span> : null}
+                  {typeof ocrMeta?.images_charged === "number" ? <span>• Charged: {Math.max(0, ocrMeta.images_charged)}</span> : null}
+                  {ocrMeta?.mode ? <span>• Mode: {ocrMeta.mode}</span> : null}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOcrOpen(false)} disabled={ocrBusy}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* File viewer modal */}
       <Dialog
         open={viewerOpen}
@@ -1342,6 +1619,30 @@ export default function FilesPage() {
                   <span className="ml-1.5 hidden sm:inline">Download</span>
                 </Button>
               </a>
+            )}
+
+            {viewerFile && viewerPayload?.kind === "image" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const url = (viewerPayload as any)?.url;
+                    if (!url) throw new Error("Preview not ready");
+                    const blob = await fetch(url).then((r) => r.blob());
+                    const type = viewerFile.content_type || blob.type || "application/octet-stream";
+                    const f = new File([blob], basename(viewerFile.name) || "image", { type });
+                    await runOcrWithFile(f);
+                  } catch (e) {
+                    toast.error("OCR failed", { description: parseErr(e) });
+                  }
+                }}
+                disabled={ocrBusy}
+                title="Extract text from this image"
+              >
+                <ScanText className="h-4 w-4" />
+                <span className="ml-1.5 hidden sm:inline">OCR</span>
+              </Button>
             )}
             <Button
               variant="outline"
