@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     LIMITS_FREE_TRANSCRIBE_SECONDS: int = 3600
     LIMITS_PRO_TRANSCRIBE_SECONDS: int = 360000
 
+    # OCR usage (images/pages processed)
+    LIMITS_FREE_OCR_IMAGES: int = 500
+    LIMITS_PRO_OCR_IMAGES: int = 200000
+
     # Google Speech-to-Text (V2)
     STT_LOCATION: str = "eu"  # e.g. eu, us, global
     STT_MODEL: str = "chirp_3"
@@ -75,6 +79,14 @@ class Settings(BaseSettings):
     STT_ENABLE_DIARIZATION_DEFAULT: bool = False
     STT_DIARIZATION_MIN_SPEAKERS: int = 2
     STT_DIARIZATION_MAX_SPEAKERS: int = 6
+
+    # OCR (Google Cloud Vision)
+    OCR_ENABLE: bool = True
+    OCR_MAX_BYTES: int = 20_000_000
+    # Comma-separated BCP-47 language hints (optional). Example: en,cs,it
+    OCR_DEFAULT_LANGUAGE_HINTS: str = ""
+    # Which OCR method to prefer for images: "document" is usually best for dense text.
+    OCR_MODE: Literal["document", "text"] = "document"
 
     # Optional override: count upload tokens using this tokenizer/model id.
     TOKENIZER_MODEL: str | None = None  # if None, auto-pick based on RAG_EMBED_MODEL

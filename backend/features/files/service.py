@@ -8,7 +8,8 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from firebase_admin import storage
 
 from core.config import settings
@@ -67,10 +68,13 @@ def _is_folder_marker(blob_name: str, metadata: Optional[dict]) -> bool:
     return False
 
 
-def _ocr_image(data: bytes) -> Optional[str]:
-    """Best-effort OCR for common images if pytesseract is available and OCR is enabled."""
+def _ocr_image_local(data: bytes) -> Optional[str]:
+    """Best-effort local OCR for images (optional dev fallback).
+
+    Enable with OCR_LOCAL_ENABLE=1 and ensure pytesseract + system tesseract are installed.
+    """
     import os
-    if os.getenv("OCR_ENABLE", "1") != "1":
+    if os.getenv("OCR_LOCAL_ENABLE", "0") != "1":
         return None
     try:
         from PIL import Image  # type: ignore
@@ -80,11 +84,26 @@ def _ocr_image(data: bytes) -> Optional[str]:
         text = (text or "").strip()
         return text or None
     except Exception as e:
-        log.debug("ocr_skip", reason=str(e))
+        log.debug("ocr_local_skip", reason=str(e))
         return None
 
 
-def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Optional[str]:
+async def _ocr_image_google(uid: str, job_id: str, data: bytes) -> Optional[str]:
+    """OCR image via Google Cloud Vision (preferred)."""
+    if not settings.OCR_ENABLE:
+        return None
+    try:
+        from features.ocr import service as ocr_service  # lazy import
+        return await ocr_service.ocr_image_bytes(uid=uid, job_id=job_id, image_bytes=data, charge_usage=True)
+    except HTTPException:
+        # Preserve status (e.g., 402 cap reached)
+        raise
+    except Exception as e:
+        log.warning("ocr_google_skip", uid=uid, error=str(e))
+        return None
+
+
+async def _extract_text(uid: str, job_id: str, name: str, content_type: Optional[str], data: bytes) -> Optional[str]:
     """Extract text from a variety of formats; falls back to OCR for images; skips heavy PDF OCR."""
     ct = (content_type or "").lower()
     name_lower = (name or "").lower()
@@ -99,16 +118,18 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
         if ct == "application/pdf" or name_lower.endswith(".pdf"):
             # Try text-layer extraction first
             try:
-                from pypdf import PdfReader  # type: ignore
+                def _read_pdf() -> str:
+                    from pypdf import PdfReader  # type: ignore
+                    reader = PdfReader(io.BytesIO(data))
+                    pages = []
+                    for p in reader.pages:
+                        try:
+                            pages.append(p.extract_text() or "")
+                        except Exception:
+                            pages.append("")
+                    return "\n".join(pages).strip()
 
-                reader = PdfReader(io.BytesIO(data))
-                pages = []
-                for p in reader.pages:
-                    try:
-                        pages.append(p.extract_text() or "")
-                    except Exception:
-                        pages.append("")
-                text = "\n".join(pages).strip()
+                text = await run_in_threadpool(_read_pdf)
                 if text:
                     return text
             except Exception as e:
@@ -119,18 +140,25 @@ def _extract_text(name: str, content_type: Optional[str], data: bytes) -> Option
             ".docx"
         ):
             try:
-                import docx  # type: ignore
+                def _read_docx() -> str:
+                    import docx  # type: ignore
+                    f = io.BytesIO(data)
+                    d = docx.Document(f)  # type: ignore
+                    paragraphs = [para.text for para in d.paragraphs if para.text]
+                    return "\n".join(paragraphs)
 
-                f = io.BytesIO(data)
-                d = docx.Document(f)  # type: ignore
-                paragraphs = [para.text for para in d.paragraphs if para.text]
-                return "\n".join(paragraphs) or None
+                text = await run_in_threadpool(_read_docx)
+                return text or None
             except Exception as e:
                 log.debug("docx_extract_fail", error=str(e))
                 return None
         # Images → OCR (best-effort)
         if ct.startswith("image/") or name_lower.endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
-            return _ocr_image(data)
+            text = await _ocr_image_google(uid, job_id, data)
+            if text:
+                return text
+            # optional local fallback
+            return _ocr_image_local(data)
     except Exception as e:
         log.warning("extract_text_error", name=name, content_type=content_type, error=str(e))
         return None
@@ -224,7 +252,7 @@ async def upload_file(
 
     # Enforce limits BEFORE storing
     await uptrack.set_phase(object_name, "extract", pct=30)
-    text = _extract_text(filename, file.content_type, data)
+    text = await _extract_text(uid, object_name, filename, file.content_type, data)
 
     if text:
         tokens = count_tokens(text or "")

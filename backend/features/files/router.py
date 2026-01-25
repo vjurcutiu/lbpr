@@ -77,6 +77,8 @@ async def create_file(
     """Upload a single file into user-based storage and auto-ingest to the user's RAG namespace."""
     try:
         return await service.upload_file(user.uid, file, dataset=dataset, folder=folder)
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(status_code=413, detail=str(ve))
     except Exception as e:
@@ -100,6 +102,8 @@ async def create_files_batch(
             try:
                 resp = await service.upload_file(user.uid, f, dataset=dataset, folder=folder)
                 jobs.append(resp.job_id)
+            except HTTPException:
+                raise
             except ValueError as ve:
                 raise HTTPException(status_code=413, detail=str(ve))
             except Exception:
