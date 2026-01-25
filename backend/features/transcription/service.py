@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import io
+import wave
+import audioop
 import logging
 from typing import List, Optional, Tuple, Iterable
 
@@ -18,8 +21,9 @@ log = logging.getLogger("transcription.service")
 # Docs: 10 MiB or ~1 minute of audio (whichever comes first).
 STT_SYNC_MAX_BYTES = 10 * 1024 * 1024
 
-# StreamingRecognize: each StreamingRecognizeRequest.audio chunk is limited to 15 KB.
-STT_STREAMING_MAX_CHUNK_BYTES = 15 * 1024
+# StreamingRecognize: each StreamingRecognizeRequest.audio chunk is limited to 25 KB.
+# Ref: https://docs.cloud.google.com/speech-to-text/docs/quotas#content_limits
+STT_STREAMING_MAX_CHUNK_BYTES = 25 * 1024
 
 
 def _file_ext(filename: Optional[str]) -> str:
@@ -103,6 +107,18 @@ def _speech_credentials():
     return None
 
 
+def _build_speech_client(location: str):
+    """Create a SpeechClient using the configured location + ADC/service-account fallback."""
+    SpeechClient, cloud_speech, ClientOptions = _speech_client_and_types()
+    endpoint = _endpoint_for_location(location)
+    creds = _speech_credentials()
+    if endpoint:
+        client = SpeechClient(credentials=creds, client_options=ClientOptions(api_endpoint=endpoint))
+    else:
+        client = SpeechClient(credentials=creds)
+    return client, cloud_speech
+
+
 def _endpoint_for_location(location: str) -> Optional[str]:
     loc = (location or "").strip()
     if not loc or loc.lower() == "global":
@@ -120,6 +136,121 @@ def _chunk_audio(audio: bytes, chunk_bytes: int) -> Iterable[bytes]:
     size = len(audio)
     for i in range(0, size, chunk_bytes):
         yield audio[i : i + chunk_bytes]
+
+
+def _maybe_normalize_wav(audio_bytes: bytes, filename: Optional[str], content_type: Optional[str]) -> Tuple[bytes, Optional[dict]]:
+    """Best-effort WAV normalization to formats supported by AutoDetectDecodingConfig.
+
+    AutoDetectDecodingConfig supports WAV containers only for specific encodings
+    (notably 16-bit PCM, mu-law, a-law). In practice many tools export WAV as
+    24-bit PCM or 32-bit float, which results in STT INVALID_ARGUMENT.
+
+    To make uploads more robust, we:
+    - validate the WAV container is uncompressed
+    - down-mix stereo WAV to mono (common STT requirement)
+    - convert 8/24/32-bit integer PCM -> 16-bit PCM
+
+    If we can't safely normalize (e.g. float WAV or >2 channels), we raise a
+    clear 415 so the user can re-export.
+    """
+    ext = _file_ext(filename)
+    ct = (content_type or "").lower().strip()
+    is_wav = ext == ".wav" or ct in {"audio/wav", "audio/x-wav", "audio/wave"}
+    if not is_wav:
+        return audio_bytes, None
+
+    try:
+        with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
+            nch = int(wf.getnchannels())
+            sw = int(wf.getsampwidth())
+            fr = int(wf.getframerate())
+            nframes = int(wf.getnframes())
+            comptype = (wf.getcomptype() or "").upper()
+            compname = (wf.getcompname() or "").strip()
+            frames = wf.readframes(nframes)
+    except Exception as e:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                "We couldn't read this WAV file. Please convert it to an uncompressed PCM WAV (16-bit, mono) or FLAC and try again. "
+                f"(Parser error: {e})"
+            ),
+        )
+
+    info = {
+        "container": "wav",
+        "channels": nch,
+        "sample_width_bytes": sw,
+        "sample_rate_hz": fr,
+        "frames": nframes,
+        "duration_seconds": (float(nframes) / float(fr)) if fr else None,
+        "comptype": comptype,
+        "compname": compname,
+        "normalized": False,
+    }
+
+    if comptype not in {"NONE", ""}:
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                "This WAV appears to be compressed (not PCM). Please convert it to an uncompressed PCM WAV (16-bit, mono) or FLAC and try again."
+            ),
+        )
+
+    changed = False
+
+    # Down-mix stereo to mono. (We don't attempt >2 channels.)
+    if nch == 2:
+        try:
+            frames = audioop.tomono(frames, sw, 0.5, 0.5)
+        except Exception as e:
+            raise HTTPException(
+                status_code=415,
+                detail=(
+                    "This WAV has 2 channels but couldn't be down-mixed. Please export it as mono PCM WAV (16-bit) or FLAC and try again. "
+                    f"(Down-mix error: {e})"
+                ),
+            )
+        nch = 1
+        changed = True
+    elif nch != 1:
+        raise HTTPException(
+            status_code=415,
+            detail="This WAV has more than 2 channels. Please export it as mono PCM WAV (16-bit) or FLAC and try again.",
+        )
+
+    # Convert integer PCM sample widths to 16-bit.
+    if sw != 2:
+        try:
+            frames = audioop.lin2lin(frames, sw, 2)
+        except Exception as e:
+            # Common case: 32-bit float WAV is not integer PCM.
+            raise HTTPException(
+                status_code=415,
+                detail=(
+                    "This WAV isn't in a supported PCM integer format (often 32-bit float). Please export as 16-bit PCM WAV or FLAC and try again. "
+                    f"(Convert error: {e})"
+                ),
+            )
+        sw = 2
+        changed = True
+
+    if not changed:
+        return audio_bytes, info
+
+    out = io.BytesIO()
+    with wave.open(out, "wb") as wo:
+        wo.setnchannels(nch)
+        wo.setsampwidth(sw)
+        wo.setframerate(fr)
+        wo.writeframes(frames)
+
+    out_bytes = out.getvalue()
+    info["normalized"] = True
+    info["out_bytes_len"] = len(out_bytes)
+    info["channels"] = nch
+    info["sample_width_bytes"] = sw
+    return out_bytes, info
 
 
 def _billed_seconds_from_metadata(md) -> int:
@@ -142,6 +273,86 @@ def _supports_diarization_for_model(model_id: str) -> bool:
     return True
 
 
+async def _transcribe_recognize_inline(
+    *,
+    uid: str,
+    job_id: str,
+    audio_bytes: bytes,
+    filename: Optional[str],
+    content_type: Optional[str],
+    language_codes: List[str],
+    model_id: str,
+    features_kwargs: dict,
+) -> Tuple[str, List[str], List[str], int]:
+    """Synchronous Recognize with inline audio bytes.
+
+    This is recommended for uploaded files when within inline limits (<= 10 MiB and ~<= 1 minute).
+    """
+    _, cloud_speech, _ = _speech_client_and_types()
+
+    project_id = settings.FIREBASE_PROJECT_ID
+    location = settings.STT_LOCATION
+    client, cloud_speech = _build_speech_client(location)
+
+    config_kwargs = dict(
+        auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
+        language_codes=language_codes,
+        model=model_id,
+    )
+    if features_kwargs:
+        config_kwargs["features"] = cloud_speech.RecognitionFeatures(**features_kwargs)
+
+    config = cloud_speech.RecognitionConfig(**config_kwargs)
+    request = cloud_speech.RecognizeRequest(
+        recognizer=_recognizer_name(project_id, location, settings.STT_RECOGNIZER_ID),
+        config=config,
+        content=audio_bytes,
+    )
+
+    await uptrack.set_phase(job_id, "transcribe", pct=70)
+    try:
+        response = await run_in_threadpool(client.recognize, request=request)
+    except Exception as e:
+        hint = ""
+        try:
+            from google.api_core.exceptions import InvalidArgument  # type: ignore
+            if isinstance(e, InvalidArgument):
+                hint = _hint_for_invalid_argument(audio_bytes_len=len(audio_bytes), filename=filename, content_type=content_type)
+        except Exception:
+            hint = _hint_for_invalid_argument(audio_bytes_len=len(audio_bytes), filename=filename, content_type=content_type)
+
+        log.exception(
+            "stt_recognize_error",
+            uid=uid,
+            error=str(e),
+            filename=filename,
+            content_type=content_type,
+            bytes_len=len(audio_bytes),
+            language_codes=language_codes,
+            location=location,
+            model=model_id,
+        )
+        raise HTTPException(status_code=502, detail=f"Speech-to-Text recognize failed: {e}.{hint}")
+
+    segments: List[str] = []
+    detected: List[str] = []
+    for res in getattr(response, "results", []) or []:
+        try:
+            if getattr(res, "alternatives", None):
+                seg = (res.alternatives[0].transcript or "").strip()
+                if seg:
+                    segments.append(seg)
+            lc = getattr(res, "language_code", "") or ""
+            if lc and lc not in detected:
+                detected.append(lc)
+        except Exception:
+            continue
+
+    text = " ".join(segments).strip()
+    billed_seconds = _billed_seconds_from_metadata(getattr(response, "metadata", None))
+    return text, segments, detected, billed_seconds
+
+
 async def _transcribe_streaming(
     *,
     uid: str,
@@ -155,19 +366,12 @@ async def _transcribe_streaming(
 ) -> Tuple[str, List[str], List[str], int]:
     """StreamingRecognize for longer-than-1-minute audio and to avoid inline payload limits.
 
-    Each audio chunk must be <= 15 KB (server-enforced).
+    Each audio chunk must be <= 25 KB (server-enforced).
     """
-    SpeechClient, cloud_speech, ClientOptions = _speech_client_and_types()
-
     project_id = settings.FIREBASE_PROJECT_ID
     location = settings.STT_LOCATION
 
-    endpoint = _endpoint_for_location(location)
-    creds = _speech_credentials()
-    if endpoint:
-        client = SpeechClient(credentials=creds, client_options=ClientOptions(api_endpoint=endpoint))
-    else:
-        client = SpeechClient(credentials=creds)
+    client, cloud_speech = _build_speech_client(location)
 
     config_kwargs = dict(
         auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
@@ -240,12 +444,93 @@ async def _transcribe_streaming(
             filename=filename,
             content_type=content_type,
             bytes_len=len(audio_bytes),
+            language_codes=language_codes,
             location=location,
             model=model_id,
             chunk_bytes=chunk_bytes,
         )
         raise HTTPException(status_code=502, detail=f"Speech-to-Text streaming failed: {e}.{hint}")
 
+    return text, segments, detected, billed_seconds
+
+
+async def _transcribe_recognize_inline(
+    *,
+    uid: str,
+    job_id: str,
+    audio_bytes: bytes,
+    filename: Optional[str],
+    content_type: Optional[str],
+    language_codes: List[str],
+    model_id: str,
+    features_kwargs: dict,
+) -> Tuple[str, List[str], List[str], int]:
+    """Synchronous Recognize for short audio (inline content).
+
+    This is recommended for transcribing uploaded files when possible. StreamingRecognize is primarily
+    meant for real-time audio.
+    """
+    project_id = settings.FIREBASE_PROJECT_ID
+    location = settings.STT_LOCATION
+
+    client, cloud_speech = _build_speech_client(location)
+
+    config_kwargs = dict(
+        auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
+        language_codes=language_codes,
+        model=model_id,
+    )
+    if features_kwargs:
+        config_kwargs["features"] = cloud_speech.RecognitionFeatures(**features_kwargs)
+
+    config = cloud_speech.RecognitionConfig(**config_kwargs)
+    request = cloud_speech.RecognizeRequest(
+        recognizer=_recognizer_name(project_id, location, settings.STT_RECOGNIZER_ID),
+        config=config,
+        content=audio_bytes,
+    )
+
+    await uptrack.set_phase(job_id, "transcribe", pct=70)
+    try:
+        response = await run_in_threadpool(client.recognize, request=request)
+    except Exception as e:
+        hint = ""
+        try:
+            from google.api_core.exceptions import InvalidArgument  # type: ignore
+            if isinstance(e, InvalidArgument):
+                hint = _hint_for_invalid_argument(audio_bytes_len=len(audio_bytes), filename=filename, content_type=content_type)
+        except Exception:
+            hint = _hint_for_invalid_argument(audio_bytes_len=len(audio_bytes), filename=filename, content_type=content_type)
+
+        log.exception(
+            "stt_recognize_error",
+            uid=uid,
+            error=str(e),
+            filename=filename,
+            content_type=content_type,
+            bytes_len=len(audio_bytes),
+            language_codes=language_codes,
+            location=location,
+            model=model_id,
+        )
+        raise HTTPException(status_code=502, detail=f"Speech-to-Text recognize failed: {e}.{hint}")
+
+    segments: List[str] = []
+    detected: List[str] = []
+    for res in getattr(response, "results", []) or []:
+        try:
+            if getattr(res, "alternatives", None):
+                seg = (res.alternatives[0].transcript or "").strip()
+                if seg:
+                    segments.append(seg)
+            lc = getattr(res, "language_code", "") or ""
+            if lc and lc not in detected:
+                detected.append(lc)
+        except Exception:
+            continue
+
+    text = " ".join(segments).strip()
+    billed_seconds = _billed_seconds_from_metadata(getattr(response, "metadata", None))
     return text, segments, detected, billed_seconds
 
 
@@ -264,20 +549,41 @@ async def transcribe_bytes(
 ) -> Tuple[str, List[str], List[str], int]:
     """Transcribe an audio upload.
 
-    Default path is StreamingRecognize (more robust for >1 minute audio and avoids inline payload limits).
+    For uploaded files, we prefer synchronous Recognize when within inline limits (fast + recommended by Google).
+    If inline recognize fails (often because the audio exceeds the ~1 minute limit), we fall back to streaming
+    when enabled.
     """
     unsupported_hint = _looks_like_unsupported_container(filename, content_type)
     if unsupported_hint and not settings.STT_ALLOW_M4A_MP4:
         raise HTTPException(status_code=415, detail=unsupported_hint)
 
+    model_id = model or settings.STT_MODEL
+
     # App-level safety cap (memory / abuse protection)
     if len(audio_bytes) > int(settings.STT_MAX_BYTES):
         raise HTTPException(status_code=413, detail=f"Audio too large for transcribe (max {int(settings.STT_MAX_BYTES)} bytes).")
 
-    model_id = model or settings.STT_MODEL
+    # Best-effort WAV normalization (24-bit/float WAV is a very common INVALID_ARGUMENT cause).
+    wav_info: Optional[dict] = None
+    try:
+        audio_bytes, wav_info = _maybe_normalize_wav(audio_bytes, filename, content_type)
+        if wav_info and wav_info.get("normalized"):
+            log.info("stt_wav_normalized", uid=uid, filename=filename, info=wav_info)
+    except HTTPException:
+        # Pass through friendly 415 messages.
+        raise
 
     defaults = _parse_language_codes(settings.STT_DEFAULT_LANGUAGE_CODES)
-    codes = (language_codes if (language_codes is not None and len(language_codes) > 0) else defaults) or defaults
+
+    # The UI uses a comma-separated input ("en-US,cs-CZ,it-IT"), but FastAPI will parse that as a
+    # List[str] with a *single* element unless the query is repeated (?languages=en-US&languages=cs-CZ).
+    # If we pass the unsplit value to STT it becomes an invalid BCP-47 language code -> INVALID_ARGUMENT.
+    user_codes: List[str] = []
+    if language_codes:
+        # Support both formats: repeated query params OR a single comma/space-separated string.
+        user_codes = _parse_language_codes(",".join([c for c in language_codes if c is not None]))
+
+    codes = user_codes or defaults
     if not codes:
         raise HTTPException(status_code=400, detail="No language codes provided (and STT_DEFAULT_LANGUAGE_CODES is empty).")
 
@@ -299,14 +605,56 @@ async def transcribe_bytes(
             int(max_speakers or settings.STT_DIARIZATION_MAX_SPEAKERS),
         )
 
-    # Prefer streaming unless explicitly disabled.
-    if bool(getattr(settings, "STT_USE_STREAMING", True)):
-        if diar_tuple is not None:
-            # Need cloud_speech types to set diarization config.
-            _, cloud_speech, _ = _speech_client_and_types()
-            features_kwargs["diarization_config"] = cloud_speech.SpeakerDiarizationConfig(
-                min_speaker_count=diar_tuple[0],
-                max_speaker_count=diar_tuple[1],
+    use_streaming = bool(getattr(settings, "STT_USE_STREAMING", True))
+
+    # Hard limit for inline recognize payloads
+    effective_inline_max = min(int(settings.STT_MAX_BYTES), STT_SYNC_MAX_BYTES)
+    can_inline = len(audio_bytes) <= effective_inline_max
+
+    if diar_tuple is not None:
+        # Need cloud_speech types to set diarization config.
+        _, cloud_speech, _ = _speech_client_and_types()
+        features_kwargs["diarization_config"] = cloud_speech.SpeakerDiarizationConfig(
+            min_speaker_count=diar_tuple[0],
+            max_speaker_count=diar_tuple[1],
+        )
+
+    inline_error: Optional[HTTPException] = None
+    if can_inline:
+        try:
+            text, segments, detected, billed_seconds = await _transcribe_recognize_inline(
+                uid=uid,
+                job_id=job_id,
+                audio_bytes=audio_bytes,
+                filename=filename,
+                content_type=content_type,
+                language_codes=codes,
+                model_id=model_id,
+                features_kwargs=features_kwargs,
+            )
+        except HTTPException as e:
+            inline_error = e
+            if not use_streaming:
+                raise
+            log.warning(
+                "stt_inline_failed_fallback_to_streaming",
+                uid=uid,
+                error=str(e.detail),
+                filename=filename,
+                content_type=content_type,
+                bytes_len=len(audio_bytes),
+                location=settings.STT_LOCATION,
+                model=model_id,
+            )
+
+    if not can_inline or inline_error is not None:
+        if not use_streaming:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Audio too large for inline Recognize (max {effective_inline_max} bytes). "
+                    "Enable streaming (STT_USE_STREAMING=true) or use batch/async transcription."
+                ),
             )
 
         text, segments, detected, billed_seconds = await _transcribe_streaming(
@@ -319,91 +667,6 @@ async def transcribe_bytes(
             model_id=model_id,
             features_kwargs=features_kwargs,
         )
-    else:
-        SpeechClient, cloud_speech, ClientOptions = _speech_client_and_types()
-
-        project_id = settings.FIREBASE_PROJECT_ID
-        location = settings.STT_LOCATION
-
-        endpoint = _endpoint_for_location(location)
-        creds = _speech_credentials()
-        if endpoint:
-            client = SpeechClient(credentials=creds, client_options=ClientOptions(api_endpoint=endpoint))
-        else:
-            client = SpeechClient(credentials=creds)
-
-        # Hard limit for inline recognize payloads
-        effective_max = min(int(settings.STT_MAX_BYTES), STT_SYNC_MAX_BYTES)
-        if len(audio_bytes) > effective_max:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"Audio too large for inline Recognize (max {effective_max} bytes). "
-                    "Enable streaming (STT_USE_STREAMING=true) or use batch/async transcription."
-                ),
-            )
-
-        if diar_tuple is not None:
-            features_kwargs["diarization_config"] = cloud_speech.SpeakerDiarizationConfig(
-                min_speaker_count=diar_tuple[0],
-                max_speaker_count=diar_tuple[1],
-            )
-
-        config_kwargs = dict(
-            auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
-            language_codes=codes,
-            model=model_id,
-        )
-        if features_kwargs:
-            config_kwargs["features"] = cloud_speech.RecognitionFeatures(**features_kwargs)
-
-        config = cloud_speech.RecognitionConfig(**config_kwargs)
-        request = cloud_speech.RecognizeRequest(
-            recognizer=_recognizer_name(project_id, location, settings.STT_RECOGNIZER_ID),
-            config=config,
-            content=audio_bytes,
-        )
-
-        await uptrack.set_phase(job_id, "transcribe", pct=70)
-        try:
-            response = await run_in_threadpool(client.recognize, request=request)
-        except Exception as e:
-            hint = ""
-            try:
-                from google.api_core.exceptions import InvalidArgument  # type: ignore
-                if isinstance(e, InvalidArgument):
-                    hint = _hint_for_invalid_argument(audio_bytes_len=len(audio_bytes), filename=filename, content_type=content_type)
-            except Exception:
-                hint = _hint_for_invalid_argument(audio_bytes_len=len(audio_bytes), filename=filename, content_type=content_type)
-
-            log.exception(
-                "stt_recognize_error",
-                uid=uid,
-                error=str(e),
-                filename=filename,
-                content_type=content_type,
-                bytes_len=len(audio_bytes),
-                location=location,
-                model=model_id,
-            )
-            raise HTTPException(status_code=502, detail=f"Speech-to-Text recognize failed: {e}.{hint}")
-
-        segments: List[str] = []
-        detected: List[str] = []
-        for res in getattr(response, "results", []) or []:
-            try:
-                if getattr(res, "alternatives", None):
-                    seg = (res.alternatives[0].transcript or "").strip()
-                    if seg:
-                        segments.append(seg)
-                lc = getattr(res, "language_code", "") or ""
-                if lc and lc not in detected:
-                    detected.append(lc)
-            except Exception:
-                continue
-
-        text = " ".join(segments).strip()
-        billed_seconds = _billed_seconds_from_metadata(getattr(response, "metadata", None))
 
     # Usage accounting (best-effort)
     try:

@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     STT_MAX_BYTES: int = 10 * 1024 * 1024
     # Prefer StreamingRecognize (more robust for >1 minute audio).
     STT_USE_STREAMING: bool = True
-    # StreamingRecognizeRequest.audio has a max size of 15 KB per request; keep chunk size under that.
+    # StreamingRecognizeRequest.audio has a max size of 25 KB per request; keep chunk size under that.
     STT_STREAMING_CHUNK_BYTES: int = 15000
     # If false, reject M4A/MP4/AAC/CAF uploads with a clear 415 error (common INVALID_ARGUMENT source).
     STT_ALLOW_M4A_MP4: bool = False
