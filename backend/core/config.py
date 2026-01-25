@@ -64,29 +64,26 @@ class Settings(BaseSettings):
     # Transcription usage (billed audio seconds)
     LIMITS_FREE_TRANSCRIBE_SECONDS: int = 3600
     LIMITS_PRO_TRANSCRIBE_SECONDS: int = 360000
-
-    # OCR usage (images/pages processed)
     LIMITS_FREE_OCR_IMAGES: int = 500
     LIMITS_PRO_OCR_IMAGES: int = 200000
-
     # Google Speech-to-Text (V2)
     STT_LOCATION: str = "eu"  # e.g. eu, us, global
     STT_MODEL: str = "chirp_3"
     STT_RECOGNIZER_ID: str = "_"
     STT_DEFAULT_LANGUAGE_CODES: str = "en-US,cs-CZ,it-IT"
-    STT_MAX_BYTES: int = 15000000
+    # Cloud Speech-to-Text synchronous Recognize requests are limited to 10 MiB inline audio.
+    # Keep our default aligned with the API limit to avoid opaque INVALID_ARGUMENT errors.
+    STT_MAX_BYTES: int = 10 * 1024 * 1024
+    # Prefer StreamingRecognize (more robust for >1 minute audio).
+    STT_USE_STREAMING: bool = True
+    # StreamingRecognizeRequest.audio has a max size of 15 KB per request; keep chunk size under that.
+    STT_STREAMING_CHUNK_BYTES: int = 15000
+    # If false, reject M4A/MP4/AAC/CAF uploads with a clear 415 error (common INVALID_ARGUMENT source).
+    STT_ALLOW_M4A_MP4: bool = False
     STT_ENABLE_PUNCTUATION: bool = True
     STT_ENABLE_DIARIZATION_DEFAULT: bool = False
     STT_DIARIZATION_MIN_SPEAKERS: int = 2
     STT_DIARIZATION_MAX_SPEAKERS: int = 6
-
-    # OCR (Google Cloud Vision)
-    OCR_ENABLE: bool = True
-    OCR_MAX_BYTES: int = 20_000_000
-    # Comma-separated BCP-47 language hints (optional). Example: en,cs,it
-    OCR_DEFAULT_LANGUAGE_HINTS: str = ""
-    # Which OCR method to prefer for images: "document" is usually best for dense text.
-    OCR_MODE: Literal["document", "text"] = "document"
 
     # Optional override: count upload tokens using this tokenizer/model id.
     TOKENIZER_MODEL: str | None = None  # if None, auto-pick based on RAG_EMBED_MODEL

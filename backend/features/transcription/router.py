@@ -54,6 +54,8 @@ async def transcribe(
             uid=user.uid,
             job_id=job_id,
             audio_bytes=audio_bytes,
+            filename=file.filename,
+            content_type=file.content_type,
             language_codes=languages,
             model=model,
             diarization=bool(diarization) if diarization is not None else False,
