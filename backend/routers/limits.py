@@ -21,10 +21,12 @@ async def get_limits_me(user: SessionOut = Depends(get_current_user)):
     usage = {
         "messages": int(snap.get("messages_used", 0)),
         "upload_tokens": int(snap.get("upload_tokens_used", 0)),
+        "transcribe_seconds": int(snap.get("transcribe_seconds_used", 0)),
     }
     remaining = {
         "messages": max(0, int(caps["messages"]) - usage["messages"]),
         "upload_tokens": max(0, int(caps["upload_tokens"]) - usage["upload_tokens"]),
+        "transcribe_seconds": max(0, int(caps["transcribe_seconds"]) - usage["transcribe_seconds"]),
     }
 
     return {

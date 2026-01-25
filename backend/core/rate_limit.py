@@ -13,6 +13,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 DEFAULT_CAP_MESSAGES = _env_int("LIMITS_DEFAULT_MESSAGES", 1000)
 DEFAULT_CAP_UPLOAD_TOKENS = _env_int("LIMITS_DEFAULT_UPLOAD_TOKENS", 200_000)
+DEFAULT_CAP_TRANSCRIBE_SECONDS = _env_int("LIMITS_DEFAULT_TRANSCRIBE_SECONDS", 3600)
 WINDOW_DAYS = _env_int("LIMITS_WINDOW_DAYS", 30)
 FREE_NO_REFRESH_DEFAULT = os.getenv("LIMITS_FREE_NO_REFRESH", "1") == "1"
 def _now() -> int: return int(time.time())
@@ -49,6 +50,7 @@ async def _load_meta(uid: str) -> Dict[str, str]:
             "plan": "free",
             "cap_messages": str(DEFAULT_CAP_MESSAGES),
             "cap_upload_tokens": str(DEFAULT_CAP_UPLOAD_TOKENS),
+            "cap_transcribe_seconds": str(DEFAULT_CAP_TRANSCRIBE_SECONDS),
             "billing_anchor_ts": "0",
             "free_no_refresh": "1" if FREE_NO_REFRESH_DEFAULT else "0",
         }
@@ -87,7 +89,7 @@ async def _check_and_add(uid: str, metric: str, inc: int, cap: int, pstart: int,
     except Exception as e:
         log.warning("limits_eval_failed_fail_open", extra={"uid": uid, "metric": metric, "error": str(e)})
         return True, -1
-async def set_caps(uid: str, *, cap_messages: Optional[int] = None, cap_upload_tokens: Optional[int] = None) -> None:
+async def set_caps(uid: str, *, cap_messages: Optional[int] = None, cap_upload_tokens: Optional[int] = None, cap_transcribe_seconds: Optional[int] = None) -> None:
     r = await _redis()
     key = f"rl:{uid}:meta"
     mapping = {}
@@ -95,6 +97,8 @@ async def set_caps(uid: str, *, cap_messages: Optional[int] = None, cap_upload_t
         mapping["cap_messages"] = str(int(cap_messages))
     if cap_upload_tokens is not None:
         mapping["cap_upload_tokens"] = str(int(cap_upload_tokens))
+    if cap_transcribe_seconds is not None:
+        mapping["cap_transcribe_seconds"] = str(int(cap_transcribe_seconds))
     if mapping:
         await r.hset(key, mapping=mapping)
 async def set_billing_anchor(uid: str, anchor_ts: int) -> None:
@@ -121,6 +125,16 @@ async def add_upload_tokens(uid: str, n_tokens: int):
     inc = max(0, int(n_tokens))
     ok, newv = await _check_and_add(uid, "upload_tokens", inc, cap, start, end, period_id)
     return ok, newv, cap
+
+async def add_transcribe_seconds(uid: str, n_seconds: float):
+    """Track billed audio seconds for transcription."""
+    meta = await _load_meta(uid)
+    cap = int(meta.get("cap_transcribe_seconds") or DEFAULT_CAP_TRANSCRIBE_SECONDS)
+    period_id, start, end = _period_id_for_user(meta)
+    inc = max(0, int(round(float(n_seconds))))
+    ok, newv = await _check_and_add(uid, "transcribe_seconds", inc, cap, start, end, period_id)
+    return ok, newv, cap
+
 async def reset_usage_current_window(uid: str) -> None:
     r = await _redis()
     meta = await _load_meta(uid)
@@ -131,6 +145,7 @@ async def reset_usage_current_window(uid: str) -> None:
     await r.hset(key, mapping={
         "messages": "0",
         "upload_tokens": "0",
+        "transcribe_seconds": "0",
         "period_start_ts": str(start),
         "period_end_ts": str(end),
     })
@@ -146,9 +161,11 @@ async def usage_snapshot(uid: str):
         "free_no_refresh": meta.get("free_no_refresh", "1") == "1",
         "cap_messages": int(meta.get("cap_messages") or DEFAULT_CAP_MESSAGES),
         "cap_upload_tokens": int(meta.get("cap_upload_tokens") or DEFAULT_CAP_UPLOAD_TOKENS),
+        "cap_transcribe_seconds": int(meta.get("cap_transcribe_seconds") or DEFAULT_CAP_TRANSCRIBE_SECONDS),
         "period_id": period_id,
         "period_start_ts": int(start),
         "period_end_ts": int(end),
         "messages_used": int(usage.get("messages") or 0),
         "upload_tokens_used": int(usage.get("upload_tokens") or 0),
+        "transcribe_seconds_used": int(usage.get("transcribe_seconds") or 0),
     }

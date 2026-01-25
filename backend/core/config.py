@@ -61,6 +61,21 @@ class Settings(BaseSettings):
     LIMITS_PRO_MESSAGES: int = 10000
     LIMITS_PRO_UPLOAD_TOKENS: int = 20_000_000
 
+    # Transcription usage (billed audio seconds)
+    LIMITS_FREE_TRANSCRIBE_SECONDS: int = 3600
+    LIMITS_PRO_TRANSCRIBE_SECONDS: int = 360000
+
+    # Google Speech-to-Text (V2)
+    STT_LOCATION: str = "eu"  # e.g. eu, us, global
+    STT_MODEL: str = "chirp_3"
+    STT_RECOGNIZER_ID: str = "_"
+    STT_DEFAULT_LANGUAGE_CODES: str = "en-US,cs-CZ,it-IT"
+    STT_MAX_BYTES: int = 15000000
+    STT_ENABLE_PUNCTUATION: bool = True
+    STT_ENABLE_DIARIZATION_DEFAULT: bool = False
+    STT_DIARIZATION_MIN_SPEAKERS: int = 2
+    STT_DIARIZATION_MAX_SPEAKERS: int = 6
+
     # Optional override: count upload tokens using this tokenizer/model id.
     TOKENIZER_MODEL: str | None = None  # if None, auto-pick based on RAG_EMBED_MODEL
 

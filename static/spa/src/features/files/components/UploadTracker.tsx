@@ -10,6 +10,7 @@ function phaseLabel(p: UploadJob["phase"]) {
   switch (p) {
     case "receive": return "Receiving";
     case "upload": return "Storing";
+    case "transcribe": return "Transcribing";
     case "ocr": return "OCR";
     case "extract": return "Extracting";
     case "embed": return "Embedding";

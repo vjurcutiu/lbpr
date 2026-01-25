@@ -37,3 +37,6 @@ tiktoken==0.11.0
 # PII pseudonymization (Google Cloud)
 google-cloud-dlp==3.34.0
 google-cloud-kms==3.10.0
+
+# Transcription (Google Cloud Speech-to-Text)
+google-cloud-speech==2.36.0

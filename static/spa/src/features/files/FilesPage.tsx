@@ -16,11 +16,16 @@ import {
   FolderPlus,
   Copy,
   ArrowUp,
+  Mic,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,6 +65,8 @@ import {
   getFileContent,
   type FileItem,
 } from "./api";
+
+import { transcribeAudio, type TranscribeResponse } from "@/features/transcription/api";
 
 import { buildTree, findNode, type TreeNode } from "./utils/fileTree";
 import { fmtSize, parseErr } from "./utils/formatters";
@@ -162,6 +169,22 @@ export default function FilesPage() {
   // File input
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<string>("");
+
+  // Transcription input + modal
+  const transcribeInputRef = useRef<HTMLInputElement>(null);
+  const [transcribeOpen, setTranscribeOpen] = useState(false);
+  const [transcribeBusy, setTranscribeBusy] = useState(false);
+  const [transcribeFile, setTranscribeFile] = useState<File | null>(null);
+  const [transcribeText, setTranscribeText] = useState<string>("");
+  const [transcribeSegments, setTranscribeSegments] = useState<string[]>([]);
+  const [transcribeDetected, setTranscribeDetected] = useState<string[]>([]);
+  const [transcribeBilledSeconds, setTranscribeBilledSeconds] = useState<number | null>(null);
+  const [transcribeMeta, setTranscribeMeta] = useState<Pick<TranscribeResponse, "model" | "location"> | null>(null);
+  const [transcribeErr, setTranscribeErr] = useState<string | null>(null);
+  const [transcribeLanguages, setTranscribeLanguages] = useState<string>("en-US,cs-CZ,it-IT");
+  const [transcribeDiarization, setTranscribeDiarization] = useState<boolean>(false);
+  const [transcribeModel, setTranscribeModel] = useState<string>("");
+  const [savingTranscript, setSavingTranscript] = useState(false);
 
   // Drag overlay (OS files only)
   const rootRef = useRef<HTMLDivElement>(null);
@@ -362,14 +385,14 @@ export default function FilesPage() {
   }, [selectedFolder]);
 
   // --- Upload helpers
-  const makeTempJob = (file: File): UploadJob => {
+  const makeTempJob = (file: File, dataset: string = "default"): UploadJob => {
     const now = Math.floor(Date.now() / 1000);
     const tempId = `temp:${(globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2))}`;
     return {
       job_id: tempId,
       uid: "me",
       filename: file.name,
-      dataset: "default",
+      dataset,
       total_bytes: file.size,
       bytes: 0,
       phase: "receive",
@@ -444,6 +467,143 @@ export default function FilesPage() {
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fs = Array.from(e.target.files || []);
     await handleFiles(fs, uploadTargetRef.current || selectedFolder || "");
+  };
+
+  // --- Transcription helpers
+  const parseLanguageCodes = (raw: string): string[] => {
+    const parts = (raw || "")
+      .split(/[,\s]+/g)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    // de-dup while preserving order
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const p of parts) {
+      if (!seen.has(p)) {
+        out.push(p);
+        seen.add(p);
+      }
+    }
+    return out;
+  };
+
+  const openTranscribe = () => {
+    setTranscribeOpen(true);
+    setTranscribeErr(null);
+    setTranscribeText("");
+    setTranscribeSegments([]);
+    setTranscribeDetected([]);
+    setTranscribeBilledSeconds(null);
+    setTranscribeMeta(null);
+  };
+
+  const pickTranscribeFile = () => {
+    transcribeInputRef.current?.click();
+  };
+
+  const onPickTranscribeFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null;
+    if (f) {
+      setTranscribeFile(f);
+      setTranscribeErr(null);
+    }
+    // reset input so picking the same file again triggers onChange
+    if (transcribeInputRef.current) transcribeInputRef.current.value = "";
+  };
+
+  const runTranscription = async () => {
+    if (!transcribeFile || transcribeBusy) return;
+    setTranscribeBusy(true);
+    setTranscribeErr(null);
+    setTranscribeText("");
+    setTranscribeSegments([]);
+    setTranscribeDetected([]);
+    setTranscribeBilledSeconds(null);
+    setTranscribeMeta(null);
+
+    const temp = makeTempJob(transcribeFile, "transcription");
+    try {
+      // Prefetch existing jobs so the tracker opens populated
+      try {
+        const existing = await listUploadJobs();
+        setSeedFetched(existing);
+      } catch {}
+
+      setOptimisticJobs((list) => [temp, ...list]);
+      setBatchFilenames([transcribeFile.name]);
+      setTrackerOpen(true);
+      setTrackerRefreshKey(Date.now());
+
+      const resp = await transcribeAudio(transcribeFile, {
+        languages: parseLanguageCodes(transcribeLanguages),
+        diarization: transcribeDiarization,
+        model: (transcribeModel || "").trim() || undefined,
+      });
+
+      setTranscribeText(resp.text || "");
+      setTranscribeSegments(resp.segments || []);
+      setTranscribeDetected(resp.detected_languages || []);
+      setTranscribeBilledSeconds(typeof resp.billed_seconds === "number" ? resp.billed_seconds : null);
+      setTranscribeMeta({ model: resp.model, location: resp.location });
+
+      const now = Math.floor(Date.now() / 1000);
+      setOptimisticJobs((list) =>
+        list.map((j) =>
+          j.job_id === temp.job_id
+            ? {
+                ...j,
+                job_id: resp.job_id || j.job_id,
+                status: "done",
+                phase: "complete",
+                pct: 100,
+                bytes: j.total_bytes,
+                updated_at: now,
+              }
+            : j
+        )
+      );
+
+      toast.success("Transcription ready", {
+        description:
+          typeof resp.billed_seconds === "number"
+            ? `Billed ${Math.max(0, Math.round(resp.billed_seconds))}s.`
+            : "",
+      });
+
+      setTrackerRefreshKey(Date.now());
+    } catch (err) {
+      console.error(err);
+      const msg = parseErr(err);
+      setTranscribeErr(msg);
+      const now = Math.floor(Date.now() / 1000);
+      setOptimisticJobs((list) =>
+        list.map((j) => (j.job_id === temp.job_id ? { ...j, status: "error", phase: "error", updated_at: now, error: msg } : j))
+      );
+      toast.error("Transcription failed", { description: msg });
+    } finally {
+      setTranscribeBusy(false);
+    }
+  };
+
+  const saveTranscriptToFiles = async () => {
+    if (!transcribeFile || !transcribeText.trim() || savingTranscript) return;
+    setSavingTranscript(true);
+    try {
+      const base = transcribeFile.name.replace(/\.[^/.]+$/, "") || "transcript";
+      const filename = `${base}.transcript.txt`;
+      const blob = new Blob([transcribeText], { type: "text/plain;charset=utf-8" });
+      const out = new File([blob], filename, { type: "text/plain" });
+      await uploadFileToFolder(out, selectedFolder || undefined);
+      toast.success("Saved transcript", {
+        description: selectedFolder ? `Saved into “${selectedFolder}”.` : "Saved into Root.",
+      });
+      setTrackerRefreshKey(Date.now());
+      await refresh();
+    } catch (e) {
+      toast.error("Save failed", { description: parseErr(e) });
+    } finally {
+      setSavingTranscript(false);
+    }
   };
 
   // --- Folder & file actions
@@ -630,11 +790,21 @@ export default function FilesPage() {
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={openTranscribe}
+          title="Transcribe an audio/video file"
+        >
+          <Mic className="h-4 w-4" />
+          <span className="ml-1.5 hidden sm:inline">Transcribe</span>
+        </Button>
         <Button variant="outline" size="sm" onClick={() => requestNewFolder(selectedFolder)} title="New folder">
           <FolderPlus className="h-4 w-4" />
           <span className="ml-1.5 hidden sm:inline">New folder</span>
         </Button>
         <Input ref={inputRef} type="file" className="hidden" onChange={onChange} multiple />
+        <Input ref={transcribeInputRef} type="file" accept="audio/*,video/*" className="hidden" onChange={onPickTranscribeFile} />
 
         <div className="relative w-full md:max-w-sm md:w-full md:order-none order-last">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -961,6 +1131,9 @@ export default function FilesPage() {
             <Button size="sm" onClick={() => startUploadTo(selectedFolder)} disabled={uploading} title="Upload">
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
             </Button>
+            <Button variant="outline" size="sm" onClick={openTranscribe} title="Transcribe">
+              <Mic className="h-4 w-4" />
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => setMobileFoldersOpen(false)} title="Close">
               <X className="h-4 w-4" />
             </Button>
@@ -980,6 +1153,161 @@ export default function FilesPage() {
               onDropFilesTo={(folderPath, fs) => handleFiles(fs, folderPath)}
             />
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Transcription modal */}
+      <Dialog
+        open={transcribeOpen}
+        onOpenChange={(open) => {
+          setTranscribeOpen(open);
+          if (!open) {
+            setTranscribeBusy(false);
+            setTranscribeFile(null);
+            setTranscribeText("");
+            setTranscribeSegments([]);
+            setTranscribeDetected([]);
+            setTranscribeBilledSeconds(null);
+            setTranscribeMeta(null);
+            setTranscribeErr(null);
+            setSavingTranscript(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Transcribe audio</DialogTitle>
+            <DialogDescription>
+              Upload an audio/video file and generate a text transcript. You can optionally save the transcript back into this folder.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 min-h-0 overflow-auto space-y-4 pr-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={pickTranscribeFile} disabled={transcribeBusy}>
+                Choose file
+              </Button>
+              <div className="min-w-0 text-sm">
+                {transcribeFile ? (
+                  <div className="truncate">
+                    <span className="font-medium">{transcribeFile.name}</span>
+                    <span className="ml-2 text-muted-foreground">({fmtSize(transcribeFile.size)})</span>
+                  </div>
+                ) : (
+                  <div className="text-muted-foreground">No file selected.</div>
+                )}
+              </div>
+              <div className="flex-1" />
+              <Button
+                onClick={runTranscription}
+                disabled={!transcribeFile || transcribeBusy}
+                size="sm"
+              >
+                {transcribeBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mic className="h-4 w-4" />}
+                <span className="ml-1.5">{transcribeBusy ? "Transcribing…" : transcribeText ? "Re-transcribe" : "Transcribe"}</span>
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>Languages (comma-separated)</Label>
+                <Input
+                  value={transcribeLanguages}
+                  onChange={(e) => setTranscribeLanguages(e.target.value)}
+                  placeholder="en-US,cs-CZ,it-IT"
+                  disabled={transcribeBusy}
+                />
+                <div className="text-xs text-muted-foreground">
+                  Tip: include the most likely languages for better accuracy.
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Model (optional)</Label>
+                <Input
+                  value={transcribeModel}
+                  onChange={(e) => setTranscribeModel(e.target.value)}
+                  placeholder="chirp_3"
+                  disabled={transcribeBusy}
+                />
+                <div className="text-xs text-muted-foreground">Leave empty to use the server default.</div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div className="space-y-0.5">
+                <div className="text-sm font-medium">Speaker diarization</div>
+                <div className="text-xs text-muted-foreground">Attempt to label different speakers (best effort).</div>
+              </div>
+              <Switch checked={transcribeDiarization} onCheckedChange={setTranscribeDiarization} disabled={transcribeBusy} />
+            </div>
+
+            {transcribeErr && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                <div className="font-medium text-destructive">Error</div>
+                <div className="text-muted-foreground mt-1 break-words">{transcribeErr}</div>
+              </div>
+            )}
+
+            {transcribeText && (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-sm font-medium">Transcript</div>
+                  <div className="flex-1" />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(transcribeText);
+                        toast.success("Copied");
+                      } catch {
+                        toast.error("Copy failed");
+                      }
+                    }}
+                    disabled={!transcribeText}
+                    title="Copy to clipboard"
+                  >
+                    <Copy className="h-4 w-4" />
+                    <span className="ml-1.5">Copy</span>
+                  </Button>
+                  <Button size="sm" onClick={saveTranscriptToFiles} disabled={savingTranscript || !transcribeText.trim()}>
+                    {savingTranscript ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+                    <span className="ml-1.5">Save to files</span>
+                  </Button>
+                </div>
+
+                <Textarea value={transcribeText} readOnly className="min-h-[16rem] resize-none" />
+
+                <div className="text-xs text-muted-foreground flex flex-wrap gap-2">
+                  {transcribeDetected.length > 0 && <span>Detected: {transcribeDetected.join(", ")}</span>}
+                  {transcribeBilledSeconds != null && <span>• Billed: {Math.max(0, Math.round(transcribeBilledSeconds))}s</span>}
+                  {transcribeMeta && <span>• Model: {transcribeMeta.model} ({transcribeMeta.location})</span>}
+                </div>
+
+                {transcribeSegments.length > 1 && (
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium">Segments</div>
+                    <ScrollArea className="h-40 rounded-md border p-2">
+                      <div className="space-y-1 text-sm">
+                        {transcribeSegments.map((s, i) => (
+                          <div key={i} className="whitespace-pre-wrap break-words">
+                            {s}
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTranscribeOpen(false)} disabled={transcribeBusy}>
+              Close
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -13,14 +13,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { getJSON } from "@/shared/api";
 import { useAuthContext } from "@/features/auth/AuthProvider";
-import { Check, Crown, MessageSquare, UploadCloud, AlertTriangle, Loader2, Info } from "lucide-react";
+import { Check, Crown, MessageSquare, UploadCloud, AlertTriangle, Loader2, Info, Mic } from "lucide-react";
 
 /* ------------------------------- Types ------------------------------- */
 type LimitsResp = {
   plan: "FREE" | "PRO";
   window: string; // YYYYMM
-  caps: { messages: number; upload_tokens: number };
-  usage: { messages: number; upload_tokens: number };
+  caps: { messages: number; upload_tokens: number; transcribe_seconds?: number };
+  usage: { messages: number; upload_tokens: number; transcribe_seconds?: number };
 };
 
 /* ------------------------------ Helpers ----------------------------- */
@@ -263,7 +263,7 @@ export default function BillingPage() {
             <PlanBadge onPro={onPro} />
           </div>
 
-          <div className="mt-6 grid grid-cols-1 sm-grid-cols-3 sm:grid-cols-3 gap-3">
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <QuickStat
               icon={<MessageSquare className="h-4 w-4" />}
               label="Messages used"
@@ -273,6 +273,19 @@ export default function BillingPage() {
               icon={<UploadCloud className="h-4 w-4" />}
               label="Upload tokens"
               value={limits ? `${fmtInt(limits.usage.upload_tokens)}/${fmtInt(limits.caps.upload_tokens)}` : "—"}
+            />
+            <QuickStat
+              icon={<Mic className="h-4 w-4" />}
+              label="Transcription"
+              value={(() => {
+                if (!limits) return "—";
+                const u = limits.usage.transcribe_seconds;
+                const c = limits.caps.transcribe_seconds;
+                if (u == null || c == null) return "—";
+                const uMin = Math.round(u / 60);
+                const cMin = Math.round(c / 60);
+                return `${fmtInt(uMin)}/${fmtInt(cMin)} min`;
+              })()}
             />
             <QuickStat
               icon={<Crown className="h-4 w-4" />}

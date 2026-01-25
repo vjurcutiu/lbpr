@@ -21,6 +21,7 @@ from features.rag.contracts_router import router as rag_contracts_router
 from features.files.router import router as files_router  # type: ignore
 # NEW
 from features.upload_tracker.router import router as upload_tracker_router  # type: ignore
+from features.transcription.router import router as transcription_router  # type: ignore
 
 log = logging.getLogger("app")
 
@@ -118,6 +119,7 @@ def create_app() -> FastAPI:
     app.include_router(files_router)
     # NEW
     app.include_router(upload_tracker_router)
+    app.include_router(transcription_router)
 
     # Versioned mirrors
     app.include_router(auth_routes.router, prefix="/v1")
