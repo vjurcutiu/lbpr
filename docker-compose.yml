@@ -46,6 +46,9 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
+      # Google client libraries (DLP/KMS/etc.) use Application Default Credentials (ADC).
+      # Point ADC at the same service account JSON we already mount for Firebase Admin.
+      - GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/firebase_sa.json
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
       redis:
