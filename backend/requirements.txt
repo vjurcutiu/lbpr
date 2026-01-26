@@ -20,7 +20,8 @@ httpx==0.28.1
 python-multipart==0.0.20
 
 # AI SDKs
-openai>=1.0,<2.0
+# v2.x is required for the latest Audio/Responses API surface.
+openai>=2.15.0,<3.0.0
 pinecone>=7.0.0
 
 pypdf>=6.1.0,<7.0.0
@@ -37,9 +38,6 @@ tiktoken==0.11.0
 # PII pseudonymization (Google Cloud)
 google-cloud-dlp==3.34.0
 google-cloud-kms==3.10.0
-
-# Transcription (Google Cloud Speech-to-Text)
-google-cloud-speech==2.36.0
 
 # OCR (Google Cloud Vision)
 google-cloud-vision==3.12.0

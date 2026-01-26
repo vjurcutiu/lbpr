@@ -30,9 +30,9 @@ log = logging.getLogger("transcription.router")
 
 @router.post("", response_model=TranscribeResponse)
 async def transcribe(
-    file: UploadFile = File(..., description="Audio file to transcribe (short audio; inline recognize)"),
+    file: UploadFile = File(..., description="Audio file to transcribe"),
     languages: Optional[List[str]] = Query(default=None, description="Expected BCP-47 language codes, e.g. en-US,cs-CZ,it-IT"),
-    model: Optional[str] = Query(default=None, description="Override model identifier, e.g. chirp_3"),
+    model: Optional[str] = Query(default=None, description="Override model identifier, e.g. gpt-4o-mini-transcribe"),
     diarization: Optional[bool] = Query(default=None, description="Enable speaker diarization"),
     min_speakers: Optional[int] = Query(default=None, ge=1, le=20),
     max_speakers: Optional[int] = Query(default=None, ge=1, le=20),
@@ -50,7 +50,7 @@ async def transcribe(
         await uptrack.incr_bytes(job_id, len(audio_bytes))
         await uptrack.set_phase(job_id, "upload", pct=30)
 
-        text, segments, detected, billed_seconds = await service.transcribe_bytes(
+        text, segments, detected, billed_seconds, used_model = await service.transcribe_bytes(
             uid=user.uid,
             job_id=job_id,
             audio_bytes=audio_bytes,
@@ -72,8 +72,8 @@ async def transcribe(
             segments=segments,
             detected_languages=detected,
             billed_seconds=billed_seconds,
-            model=model or service.settings.STT_MODEL,
-            location=service.settings.STT_LOCATION,
+            model=used_model,
+            location=getattr(service.settings, "STT_LOCATION", "openai") or "openai",
         )
     except HTTPException as e:
         try:

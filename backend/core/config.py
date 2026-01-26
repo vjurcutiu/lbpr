@@ -66,20 +66,26 @@ class Settings(BaseSettings):
     LIMITS_PRO_TRANSCRIBE_SECONDS: int = 360000
     LIMITS_FREE_OCR_IMAGES: int = 500
     LIMITS_PRO_OCR_IMAGES: int = 200000
-    # Google Speech-to-Text (V2)
-    STT_LOCATION: str = "eu"  # e.g. eu, us, global
-    STT_MODEL: str = "chirp_3"
-    STT_RECOGNIZER_ID: str = "_"
+    # Speech-to-text (OpenAI Audio API)
+    # Location is kept for API compatibility; OpenAI is a global API.
+    STT_LOCATION: str = "openai"
+    # Default model for transcription (overrideable via query param).
+    STT_MODEL: str = "gpt-4o-mini-transcribe"
+    # Default diarization-capable model used when diarization=true.
+    STT_MODEL_DIARIZE: str = "gpt-4o-transcribe-diarize"
+
+    # Comma-separated list used when client does not provide languages (BCP-47 accepted).
     STT_DEFAULT_LANGUAGE_CODES: str = "en-US,cs-CZ,it-IT"
-    # Cloud Speech-to-Text synchronous Recognize requests are limited to 10 MiB inline audio.
-    # Keep our default aligned with the API limit to avoid opaque INVALID_ARGUMENT errors.
-    STT_MAX_BYTES: int = 10 * 1024 * 1024
-    # Prefer StreamingRecognize (more robust for >1 minute audio).
-    STT_USE_STREAMING: bool = True
-    # StreamingRecognizeRequest.audio has a max size of 25 KB per request; keep chunk size under that.
+
+    # OpenAI transcriptions API supports uploads up to 25MB.
+    STT_MAX_BYTES: int = 25 * 1024 * 1024
+
+    # The remaining STT_* fields are legacy from the prior Google Speech-to-Text integration.
+    # They are kept to avoid breaking existing envs but are no longer used.
+    STT_RECOGNIZER_ID: str = "_"
+    STT_USE_STREAMING: bool = False
     STT_STREAMING_CHUNK_BYTES: int = 15000
-    # If false, reject M4A/MP4/AAC/CAF uploads with a clear 415 error (common INVALID_ARGUMENT source).
-    STT_ALLOW_M4A_MP4: bool = False
+    STT_ALLOW_M4A_MP4: bool = True
     STT_ENABLE_PUNCTUATION: bool = True
     STT_ENABLE_DIARIZATION_DEFAULT: bool = False
     STT_DIARIZATION_MIN_SPEAKERS: int = 2

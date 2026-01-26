@@ -1514,7 +1514,7 @@ export default function FilesPage() {
                 <Input
                   value={transcribeModel}
                   onChange={(e) => setTranscribeModel(e.target.value)}
-                  placeholder="chirp_3"
+                  placeholder="gpt-4o-mini-transcribe"
                   disabled={transcribeBusy}
                 />
                 <div className="text-xs text-muted-foreground">Leave empty to use the server default.</div>
