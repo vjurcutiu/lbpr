@@ -366,6 +366,124 @@ export default function FilesPage() {
     };
   }, [isResizing, isMobile]);
 
+  // -----------------------------
+  // Universal uploader helpers
+  // NOTE: Must be declared before any hook/effect that references them
+  // (e.g. drag-and-drop effect) to avoid TDZ runtime errors.
+  // -----------------------------
+
+  const refreshLimits = useCallback(async () => {
+    setLimitsLoading(true);
+    try {
+      const lim = await getJSON<LimitsResp>("/limits/me");
+      setLimits(lim);
+    } catch {
+      // Limits are best-effort; user may be signed out or backend unreachable.
+      setLimits(null);
+    } finally {
+      setLimitsLoading(false);
+    }
+  }, []);
+
+  const estimateTokensFromText = (text: string): number => {
+    // Conservative heuristic: tokens ~= chars/4 (typical English). Keep it simple.
+    const chars = (text || "").length;
+    return Math.max(0, Math.round(chars / 4));
+  };
+
+  const getAudioDurationSeconds = async (file: File): Promise<number> => {
+    // Uses browser decoding; best-effort (some formats may fail).
+    return await new Promise<number>((resolve) => {
+      try {
+        const url = URL.createObjectURL(file);
+        const audio = new Audio();
+        audio.preload = "metadata";
+        audio.src = url;
+        const cleanup = () => {
+          try {
+            URL.revokeObjectURL(url);
+          } catch {}
+        };
+        audio.onloadedmetadata = () => {
+          const d = Number.isFinite(audio.duration) ? audio.duration : 0;
+          cleanup();
+          resolve(Math.max(0, d));
+        };
+        audio.onerror = () => {
+          cleanup();
+          resolve(0);
+        };
+      } catch {
+        resolve(0);
+      }
+    });
+  };
+
+  const classifyFile = (f: File): PendingAction => {
+    const ct = (f.type || "").toLowerCase();
+    if (ct.startsWith("image/")) return "ocr";
+    if (ct.startsWith("audio/")) return "transcribe";
+    return "upload";
+  };
+
+  const preparePending = useCallback(
+    async (fs: File[], folder: string) => {
+      if (!fs.length) return;
+      setPendingComputing(true);
+      setPendingFolder(folder || "");
+      setPendingFiles([]);
+      setPendingSummary({ upload: 0, ocr: 0, transcribe: 0 });
+
+      // Refresh limits right before showing the prompt
+      refreshLimits();
+
+      const out: PendingFile[] = [];
+      for (const f of fs) {
+        const action = classifyFile(f);
+        let estTokens = 0;
+        let estSeconds = 0;
+        let estImages = 0;
+
+        if (action === "upload") {
+          // If it's a text file, read a bit more accurately; otherwise fall back to size heuristic.
+          const ct = (f.type || "").toLowerCase();
+          if (ct.startsWith("text/") || /\.(txt|md|markdown|csv|json|xml|yaml|yml)$/i.test(f.name)) {
+            try {
+              const t = await f.text();
+              estTokens = estimateTokensFromText(t);
+            } catch {
+              estTokens = Math.max(1, Math.round(f.size / 4));
+            }
+          } else {
+            estTokens = Math.max(1, Math.round(f.size / 4));
+          }
+        } else if (action === "ocr") {
+          // OCR quota is measured in images. Most image uploads will count as 1.
+          estImages = 1;
+          // Also estimate upload tokens for the produced .ocr.txt (very rough).
+          estTokens = 500;
+        } else if (action === "transcribe") {
+          estSeconds = Math.round(await getAudioDurationSeconds(f));
+          // Very rough transcript token estimate: ~3.25 tokens/sec (150 wpm-ish).
+          estTokens = Math.max(0, Math.round(estSeconds * 3.25));
+        }
+
+        out.push({ file: f, action, estTokens, estSeconds, estImages });
+      }
+
+      setPendingFiles(out);
+      setPendingSummary({
+        upload: out.filter((p) => p.action === "upload").length,
+        ocr: out.filter((p) => p.action === "ocr").length,
+        transcribe: out.filter((p) => p.action === "transcribe").length,
+      });
+
+      setPendingComputing(false);
+      setUploadConfirmOpen(true);
+    },
+    [refreshLimits]
+  );
+
   // Drag overlay (OS files only, within Files tab)
   useEffect(() => {
     const el = rootRef.current;
@@ -506,116 +624,6 @@ export default function FilesPage() {
     }
     return items;
   }, [selectedFolder]);
-
-  const refreshLimits = useCallback(async () => {
-    setLimitsLoading(true);
-    try {
-      const lim = await getJSON<LimitsResp>("/limits/me");
-      setLimits(lim);
-    } catch {
-      // Limits are best-effort; user may be signed out or backend unreachable.
-      setLimits(null);
-    } finally {
-      setLimitsLoading(false);
-    }
-  }, []);
-
-  const estimateTokensFromText = (text: string): number => {
-    // Conservative heuristic: tokens ~= chars/4 (typical English). Keep it simple.
-    const chars = (text || "").length;
-    return Math.max(0, Math.round(chars / 4));
-  };
-
-  const getAudioDurationSeconds = async (file: File): Promise<number> => {
-    // Uses browser decoding; best-effort (some formats may fail).
-    return await new Promise<number>((resolve) => {
-      try {
-        const url = URL.createObjectURL(file);
-        const audio = new Audio();
-        audio.preload = "metadata";
-        audio.src = url;
-        const cleanup = () => {
-          try { URL.revokeObjectURL(url); } catch {}
-        };
-        audio.onloadedmetadata = () => {
-          const d = Number.isFinite(audio.duration) ? audio.duration : 0;
-          cleanup();
-          resolve(Math.max(0, d));
-        };
-        audio.onerror = () => {
-          cleanup();
-          resolve(0);
-        };
-      } catch {
-        resolve(0);
-      }
-    });
-  };
-
-  const classifyFile = (f: File): PendingAction => {
-    const ct = (f.type || "").toLowerCase();
-    if (ct.startsWith("image/")) return "ocr";
-    if (ct.startsWith("audio/")) return "transcribe";
-    return "upload";
-  };
-
-  const preparePending = useCallback(
-    async (fs: File[], folder: string) => {
-      if (!fs.length) return;
-      setPendingComputing(true);
-      setPendingFolder(folder || "");
-      setPendingFiles([]);
-      setPendingSummary({ upload: 0, ocr: 0, transcribe: 0 });
-
-      // Refresh limits right before showing the prompt
-      refreshLimits();
-
-      const out: PendingFile[] = [];
-      for (const f of fs) {
-        const action = classifyFile(f);
-        let estTokens = 0;
-        let estSeconds = 0;
-        let estImages = 0;
-
-        if (action === "upload") {
-          // If it's a text file, read a bit more accurately; otherwise fall back to size heuristic.
-          const ct = (f.type || "").toLowerCase();
-          if (ct.startsWith("text/") || /\.(txt|md|markdown|csv|json|xml|yaml|yml)$/i.test(f.name)) {
-            try {
-              const t = await f.text();
-              estTokens = estimateTokensFromText(t);
-            } catch {
-              estTokens = Math.max(1, Math.round(f.size / 4));
-            }
-          } else {
-            estTokens = Math.max(1, Math.round(f.size / 4));
-          }
-        } else if (action === "ocr") {
-          // OCR quota is measured in images. Most image uploads will count as 1.
-          estImages = 1;
-          // Also estimate upload tokens for the produced .ocr.txt (very rough).
-          estTokens = 500;
-        } else if (action === "transcribe") {
-          estSeconds = Math.round(await getAudioDurationSeconds(f));
-          // Very rough transcript token estimate: ~3.25 tokens/sec (150 wpm-ish).
-          estTokens = Math.max(0, Math.round(estSeconds * 3.25));
-        }
-
-        out.push({ file: f, action, estTokens, estSeconds, estImages });
-      }
-
-      setPendingFiles(out);
-      setPendingSummary({
-        upload: out.filter((p) => p.action === "upload").length,
-        ocr: out.filter((p) => p.action === "ocr").length,
-        transcribe: out.filter((p) => p.action === "transcribe").length,
-      });
-
-      setPendingComputing(false);
-      setUploadConfirmOpen(true);
-    },
-    [refreshLimits]
-  );
 
   const pendingTotals = useMemo(() => {
     const totals = { tokens: 0, seconds: 0, images: 0 };
