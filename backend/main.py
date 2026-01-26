@@ -27,9 +27,11 @@ from features.ocr.router import router as ocr_router  # type: ignore
 log = logging.getLogger("app")
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):            
+    async def dispatch(self, request: Request, call_next):
+        # Skip noisy probes
         if request.url.path in ("/healthz", "/v1/healthz"):
             return await call_next(request)
+
         t0 = time.time()
         trace_id = request.headers.get("x-trace-id") or str(uuid.uuid4())
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
@@ -41,7 +43,11 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
         ctx_tokens = set_request_context(trace_id=trace_id, request_id=request_id, tenant_id=tenant)
 
-        log.info(
+        # These endpoints are frequently polled by the SPA and can spam logs.
+        noisy_paths = {"/session", "/auth/session", "/v1/files", "/v1/files/folders"}
+
+        # Request logs are DEBUG by default (enable with LOG_LEVEL=DEBUG)
+        log.debug(
             "http_request",
             method=request.method,
             path=request.url.path,
@@ -51,21 +57,70 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             request_id=request_id,
             tenant_id=tenant,
         )
+
         try:
             resp: Response = await call_next(request)
             dur_ms = int((time.time() - t0) * 1000)
             resp.headers["X-Trace-Id"] = trace_id
             resp.headers["X-Request-Id"] = request_id
-            log.info(
-                "http_response",
-                method=request.method,
-                path=request.url.path,
-                status=resp.status_code,
-                dur_ms=dur_ms,
-                trace_id=trace_id,
-                request_id=request_id,
-                tenant_id=tenant,
-            )
+
+            # Reduce noise: successful fast GETs (and common pollers) are DEBUG; keep slow/errors at INFO/WARN.
+            if resp.status_code >= 500:
+                log.error(
+                    "http_response",
+                    method=request.method,
+                    path=request.url.path,
+                    status=resp.status_code,
+                    dur_ms=dur_ms,
+                    trace_id=trace_id,
+                    request_id=request_id,
+                    tenant_id=tenant,
+                )
+            elif resp.status_code >= 400:
+                log.warning(
+                    "http_response",
+                    method=request.method,
+                    path=request.url.path,
+                    status=resp.status_code,
+                    dur_ms=dur_ms,
+                    trace_id=trace_id,
+                    request_id=request_id,
+                    tenant_id=tenant,
+                )
+            elif dur_ms >= 1500:
+                log.info(
+                    "http_response",
+                    method=request.method,
+                    path=request.url.path,
+                    status=resp.status_code,
+                    dur_ms=dur_ms,
+                    trace_id=trace_id,
+                    request_id=request_id,
+                    tenant_id=tenant,
+                )
+            elif request.url.path in noisy_paths or request.method == "GET":
+                log.debug(
+                    "http_response",
+                    method=request.method,
+                    path=request.url.path,
+                    status=resp.status_code,
+                    dur_ms=dur_ms,
+                    trace_id=trace_id,
+                    request_id=request_id,
+                    tenant_id=tenant,
+                )
+            else:
+                log.info(
+                    "http_response",
+                    method=request.method,
+                    path=request.url.path,
+                    status=resp.status_code,
+                    dur_ms=dur_ms,
+                    trace_id=trace_id,
+                    request_id=request_id,
+                    tenant_id=tenant,
+                )
+
             return resp
         except Exception:
             dur_ms = int((time.time() - t0) * 1000)
@@ -79,7 +134,6 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                 tenant_id=tenant,
             )
             raise
-
         finally:
             reset_request_context(ctx_tokens)
 
