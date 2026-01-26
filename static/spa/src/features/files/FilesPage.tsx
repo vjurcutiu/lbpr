@@ -78,6 +78,7 @@ import { FileViewer } from "./components/FileViewer";
 import { FileIconByName } from "./components/FileIconByName";
 import { UploadTrackerPanel } from "./components/UploadTracker";
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
+import { getJSON } from "@/shared/api";
 import { loadBool, saveBool, loadJSON, saveJSON } from "@/shared/persist";
 import "./styles.css";
 
@@ -194,6 +195,30 @@ export default function FilesPage() {
   // File input
   const inputRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<string>("");
+
+  // Universal uploader: preview how selected files will affect quotas
+  type LimitsResp = {
+    plan: "FREE" | "PRO";
+    window: string;
+    caps: { messages: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
+    usage: { messages: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
+    remaining: { messages: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
+  };
+  type PendingAction = "upload" | "ocr" | "transcribe";
+  type PendingFile = { file: File; action: PendingAction; estTokens: number; estSeconds: number; estImages: number };
+
+  const [limits, setLimits] = useState<LimitsResp | null>(null);
+  const [limitsLoading, setLimitsLoading] = useState(false);
+
+  const [uploadConfirmOpen, setUploadConfirmOpen] = useState(false);
+  const [pendingFolder, setPendingFolder] = useState<string>("");
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [pendingComputing, setPendingComputing] = useState(false);
+  const [pendingSummary, setPendingSummary] = useState<{ upload: number; ocr: number; transcribe: number }>({
+    upload: 0,
+    ocr: 0,
+    transcribe: 0,
+  });
 
   // Transcription input + modal
   const transcribeInputRef = useRef<HTMLInputElement>(null);
@@ -342,6 +367,124 @@ export default function FilesPage() {
     };
   }, [isResizing, isMobile]);
 
+  // -----------------------------
+  // Universal uploader helpers
+  // NOTE: Must be declared before any hook/effect that references them
+  // (e.g. drag-and-drop effect) to avoid TDZ runtime errors.
+  // -----------------------------
+
+  const refreshLimits = useCallback(async () => {
+    setLimitsLoading(true);
+    try {
+      const lim = await getJSON<LimitsResp>("/limits/me");
+      setLimits(lim);
+    } catch {
+      // Limits are best-effort; user may be signed out or backend unreachable.
+      setLimits(null);
+    } finally {
+      setLimitsLoading(false);
+    }
+  }, []);
+
+  const estimateTokensFromText = (text: string): number => {
+    // Conservative heuristic: tokens ~= chars/4 (typical English). Keep it simple.
+    const chars = (text || "").length;
+    return Math.max(0, Math.round(chars / 4));
+  };
+
+  const getAudioDurationSeconds = async (file: File): Promise<number> => {
+    // Uses browser decoding; best-effort (some formats may fail).
+    return await new Promise<number>((resolve) => {
+      try {
+        const url = URL.createObjectURL(file);
+        const audio = new Audio();
+        audio.preload = "metadata";
+        audio.src = url;
+        const cleanup = () => {
+          try {
+            URL.revokeObjectURL(url);
+          } catch {}
+        };
+        audio.onloadedmetadata = () => {
+          const d = Number.isFinite(audio.duration) ? audio.duration : 0;
+          cleanup();
+          resolve(Math.max(0, d));
+        };
+        audio.onerror = () => {
+          cleanup();
+          resolve(0);
+        };
+      } catch {
+        resolve(0);
+      }
+    });
+  };
+
+  const classifyFile = (f: File): PendingAction => {
+    const ct = (f.type || "").toLowerCase();
+    if (ct.startsWith("image/")) return "ocr";
+    if (ct.startsWith("audio/")) return "transcribe";
+    return "upload";
+  };
+
+  const preparePending = useCallback(
+    async (fs: File[], folder: string) => {
+      if (!fs.length) return;
+      setPendingComputing(true);
+      setPendingFolder(folder || "");
+      setPendingFiles([]);
+      setPendingSummary({ upload: 0, ocr: 0, transcribe: 0 });
+
+      // Refresh limits right before showing the prompt
+      refreshLimits();
+
+      const out: PendingFile[] = [];
+      for (const f of fs) {
+        const action = classifyFile(f);
+        let estTokens = 0;
+        let estSeconds = 0;
+        let estImages = 0;
+
+        if (action === "upload") {
+          // If it's a text file, read a bit more accurately; otherwise fall back to size heuristic.
+          const ct = (f.type || "").toLowerCase();
+          if (ct.startsWith("text/") || /\.(txt|md|markdown|csv|json|xml|yaml|yml)$/i.test(f.name)) {
+            try {
+              const t = await f.text();
+              estTokens = estimateTokensFromText(t);
+            } catch {
+              estTokens = Math.max(1, Math.round(f.size / 4));
+            }
+          } else {
+            estTokens = Math.max(1, Math.round(f.size / 4));
+          }
+        } else if (action === "ocr") {
+          // OCR quota is measured in images. Most image uploads will count as 1.
+          estImages = 1;
+          // Also estimate upload tokens for the produced .ocr.txt (very rough).
+          estTokens = 500;
+        } else if (action === "transcribe") {
+          estSeconds = Math.round(await getAudioDurationSeconds(f));
+          // Very rough transcript token estimate: ~3.25 tokens/sec (150 wpm-ish).
+          estTokens = Math.max(0, Math.round(estSeconds * 3.25));
+        }
+
+        out.push({ file: f, action, estTokens, estSeconds, estImages });
+      }
+
+      setPendingFiles(out);
+      setPendingSummary({
+        upload: out.filter((p) => p.action === "upload").length,
+        ocr: out.filter((p) => p.action === "ocr").length,
+        transcribe: out.filter((p) => p.action === "transcribe").length,
+      });
+
+      setPendingComputing(false);
+      setUploadConfirmOpen(true);
+    },
+    [refreshLimits]
+  );
+
   // Drag overlay (OS files only, within Files tab)
   useEffect(() => {
     const el = rootRef.current;
@@ -373,7 +516,7 @@ export default function FilesPage() {
         e.preventDefault();
         const fs = Array.from(e.dataTransfer.files || []);
         setDragActive(false);
-        handleFiles(fs, selectedFolder);
+        preparePending(fs, selectedFolder);
       }
     };
 
@@ -387,7 +530,7 @@ export default function FilesPage() {
       el.removeEventListener("dragleave", onDragLeave);
       el.removeEventListener("drop", onDrop);
     };
-  }, [selectedFolder]);
+  }, [selectedFolder, preparePending]);
 
   const totalSize = useMemo(() => files.reduce((acc, f) => acc + (f.size || 0), 0), [files]);
   const runningUploads = useMemo(() => optimisticJobs.some((j) => j.status === "running"), [optimisticJobs]);
@@ -485,6 +628,16 @@ export default function FilesPage() {
     return items;
   }, [selectedFolder]);
 
+  const pendingTotals = useMemo(() => {
+    const totals = { tokens: 0, seconds: 0, images: 0 };
+    for (const p of pendingFiles) {
+      totals.tokens += p.estTokens || 0;
+      totals.seconds += p.estSeconds || 0;
+      totals.images += p.estImages || 0;
+    }
+    return totals;
+  }, [pendingFiles]);
+
   // --- Upload helpers
   const makeTempJob = (file: File, dataset: string = "default"): UploadJob => {
     const now = Math.floor(Date.now() / 1000);
@@ -567,8 +720,89 @@ export default function FilesPage() {
 
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fs = Array.from(e.target.files || []);
-    await handleFiles(fs, uploadTargetRef.current || selectedFolder || "");
+    const folder = uploadTargetRef.current || selectedFolder || "";
+    await preparePending(fs, folder);
+    // Reset so picking the same file again triggers onChange
+    if (inputRef.current) inputRef.current.value = "";
   };
+
+  const executePending = useCallback(async () => {
+    if (!pendingFiles.length) {
+      setUploadConfirmOpen(false);
+      return;
+    }
+
+    setUploadConfirmOpen(false);
+
+    const folder = pendingFolder || "";
+    const uploads = pendingFiles.filter((p) => p.action === "upload").map((p) => p.file);
+    const images = pendingFiles.filter((p) => p.action === "ocr").map((p) => p.file);
+    const audios = pendingFiles.filter((p) => p.action === "transcribe").map((p) => p.file);
+
+    // 1) Regular file uploads
+    if (uploads.length) {
+      await handleFiles(uploads, folder);
+    }
+
+    // 2) OCR images -> save extracted text into files
+    for (const img of images) {
+      try {
+        const mode: OcrMode = ocrDocMode ? "document" : "text";
+        const resp = await runOcr(img, { languages: parseLanguageCodes(ocrLanguages), mode });
+        const base = img.name.replace(/\.[^/.]+$/, "") || "ocr";
+        const filename = `${base}.ocr.txt`;
+        const blob = new Blob([resp.text || ""], { type: "text/plain;charset=utf-8" });
+        const out = new File([blob], filename, { type: "text/plain" });
+        await uploadFileToFolder(out, folder || undefined);
+        toast.success("OCR saved", {
+          description: folder ? `Saved ${filename} into “${folder}”.` : `Saved ${filename} into Root.`,
+        });
+      } catch (e) {
+        toast.error("OCR failed", { description: parseErr(e) });
+      }
+    }
+
+    // 3) Transcribe audio -> save transcript into files
+    for (const au of audios) {
+      try {
+        const resp = await transcribeAudio(au, {
+          languages: parseLanguageCodes(transcribeLanguages),
+          diarization: transcribeDiarization,
+          model: (transcribeModel || "").trim() || undefined,
+        });
+        const base = au.name.replace(/\.[^/.]+$/, "") || "transcript";
+        const filename = `${base}.transcript.txt`;
+        const blob = new Blob([resp.text || ""], { type: "text/plain;charset=utf-8" });
+        const out = new File([blob], filename, { type: "text/plain" });
+        await uploadFileToFolder(out, folder || undefined);
+        toast.success("Transcript saved", {
+          description:
+            typeof resp.billed_seconds === "number"
+              ? `Saved ${filename}. Billed ${Math.max(0, Math.round(resp.billed_seconds))}s.`
+              : `Saved ${filename}.`,
+        });
+      } catch (e) {
+        toast.error("Transcription failed", { description: parseErr(e) });
+      }
+    }
+
+    // refresh file list + limits after batch
+    setTrackerRefreshKey(Date.now());
+    await refresh();
+    refreshLimits();
+    setPendingFiles([]);
+  }, [
+    pendingFiles,
+    pendingFolder,
+    handleFiles,
+    ocrDocMode,
+    ocrLanguages,
+    transcribeLanguages,
+    transcribeDiarization,
+    transcribeModel,
+    refresh,
+    refreshLimits,
+  ]);
 
   // --- Transcription helpers
   const parseLanguageCodes = (raw: string): string[] => {
@@ -1015,7 +1249,7 @@ export default function FilesPage() {
       return;
     }
     const fs = Array.from(e.dataTransfer.files || []);
-    if (fs.length) handleFiles(fs, selectedFolder);
+    if (fs.length) preparePending(fs, selectedFolder);
   };
 
   // --- Background context menu actions
@@ -1065,7 +1299,14 @@ export default function FilesPage() {
           <FolderPlus className="h-4 w-4" />
           <span className="ml-1.5 hidden sm:inline">New folder</span>
         </Button>
-        <Input ref={inputRef} type="file" className="hidden" onChange={onChange} multiple />
+        <Input
+          ref={inputRef}
+          type="file"
+          className="hidden"
+          onChange={onChange}
+          multiple
+          accept="image/*,audio/*,text/*,.txt,.md,.markdown,.csv,.json,.xml,.yaml,.yml,.pdf,.doc,.docx"
+        />
         <Input ref={transcribeInputRef} type="file" accept="audio/*,video/*" className="hidden" onChange={onPickTranscribeFile} />
         <Input ref={ocrInputRef} type="file" accept="image/*" className="hidden" onChange={onPickOcrFile} />
 
@@ -1143,7 +1384,7 @@ export default function FilesPage() {
                   onUploadTo={(p) => startUploadTo(p)}
                   onNewFolder={(p) => requestNewFolder(p)}
                   onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
-                  onDropFilesTo={(folderPath, fs) => handleFiles(fs, folderPath)}
+                  onDropFilesTo={(folderPath, fs) => preparePending(fs, folderPath)}
                 />
               </div>
             </aside>
@@ -1430,6 +1671,70 @@ export default function FilesPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Universal upload: quota preview */}
+      <AlertDialog open={uploadConfirmOpen} onOpenChange={setUploadConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm upload</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingComputing ? (
+                "Preparing quota preview…"
+              ) : (
+                <span>
+                  This action will upload files to {pendingFolder ? `“${pendingFolder}”` : "Root"}. Images will be OCR’d and saved as <span className="font-mono">.ocr.txt</span>. Audio will be transcribed and saved as <span className="font-mono">.transcript.txt</span>.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {!pendingComputing && (
+            <div className="space-y-3">
+              <div className="text-sm">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+                  {pendingSummary.upload > 0 && <span>Upload: <span className="text-foreground font-medium">{pendingSummary.upload}</span></span>}
+                  {pendingSummary.ocr > 0 && <span>OCR: <span className="text-foreground font-medium">{pendingSummary.ocr}</span></span>}
+                  {pendingSummary.transcribe > 0 && <span>Transcribe: <span className="text-foreground font-medium">{pendingSummary.transcribe}</span></span>}
+                </div>
+              </div>
+
+              <div className="rounded-md border p-3 text-sm space-y-2">
+                <div className="font-medium">Quota impact (estimates)</div>
+                <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-1 text-sm">
+                  <div className="text-muted-foreground">Upload tokens</div>
+                  <div className="text-muted-foreground">+{new Intl.NumberFormat().format(pendingTotals.tokens)}</div>
+                  <div className="text-muted-foreground">
+                    {limits ? `Remaining after: ${new Intl.NumberFormat().format(Math.max(0, (limits.caps.upload_tokens || 0) - (limits.usage.upload_tokens || 0) - pendingTotals.tokens))} / ${new Intl.NumberFormat().format(limits.caps.upload_tokens || 0)}` : "Remaining after: —"}
+                  </div>
+
+                  <div className="text-muted-foreground">Transcribe seconds</div>
+                  <div className="text-muted-foreground">+{new Intl.NumberFormat().format(pendingTotals.seconds)}</div>
+                  <div className="text-muted-foreground">
+                    {limits ? `Remaining after: ${new Intl.NumberFormat().format(Math.max(0, (limits.caps.transcribe_seconds || 0) - (limits.usage.transcribe_seconds || 0) - pendingTotals.seconds))} / ${new Intl.NumberFormat().format(limits.caps.transcribe_seconds || 0)}` : "Remaining after: —"}
+                  </div>
+
+                  <div className="text-muted-foreground">OCR images</div>
+                  <div className="text-muted-foreground">+{new Intl.NumberFormat().format(pendingTotals.images)}</div>
+                  <div className="text-muted-foreground">
+                    {limits ? `Remaining after: ${new Intl.NumberFormat().format(Math.max(0, (limits.caps.ocr_images || 0) - (limits.usage.ocr_images || 0) - pendingTotals.images))} / ${new Intl.NumberFormat().format(limits.caps.ocr_images || 0)}` : "Remaining after: —"}
+                  </div>
+                </div>
+
+                <div className="text-xs text-muted-foreground pt-2">
+                  Note: upload token usage is based on extracted text. Audio billing may round seconds. If you exceed your plan limits, the backend may reject some items.
+                </div>
+              </div>
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pendingComputing || uploading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={executePending} disabled={pendingComputing || uploading || limitsLoading}>
+              {limitsLoading ? "Checking…" : "Confirm"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Mobile folders drawer */}
       <Dialog open={mobileFoldersOpen} onOpenChange={setMobileFoldersOpen}>
         <DialogContent className="md:hidden p-0 gap-0 w-[calc(100vw-1rem)] max-w-none h-[calc(100vh-1rem)] flex flex-col">
@@ -1464,7 +1769,7 @@ export default function FilesPage() {
               onUploadTo={(p) => startUploadTo(p)}
               onNewFolder={(p) => requestNewFolder(p)}
               onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
-              onDropFilesTo={(folderPath, fs) => handleFiles(fs, folderPath)}
+              onDropFilesTo={(folderPath, fs) => preparePending(fs, folderPath)}
             />
           </div>
         </DialogContent>
