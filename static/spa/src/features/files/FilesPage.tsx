@@ -1,4 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useDroppable,
+  useDraggable,
+  useSensor,
+  useSensors,
+  type DragStartEvent,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
+
 import { flushSync } from "react-dom";
 import {
   Upload,
@@ -72,6 +85,7 @@ import { transcribeAudio, type TranscribeResponse } from "@/features/transcripti
 import { runOcr, type OcrResponse, type OcrMode } from "@/features/ocr/api";
 
 import { buildTree, findNode, type TreeNode } from "./utils/fileTree";
+import { fileDndId, folderDndId, normalizeFolderPath, parseDndId, isExternalFilesDrag } from "./utils/dnd";
 import { fmtSize, parseErr } from "./utils/formatters";
 import { FileTree } from "./components/FileTree";
 import { FileViewer } from "./components/FileViewer";
@@ -179,6 +193,16 @@ export default function FilesPage() {
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const selectionAnchorRef = useRef<string | null>(null);
   const selectedFileSet = useMemo(() => new Set(selectedFileIds), [selectedFileIds]);
+
+// Internal drag (dnd-kit)
+const suppressClickUntilRef = useRef<number>(0);
+const [activeInternalDrag, setActiveInternalDrag] = useState<{ count: number; label: string } | null>(null);
+const sensors = useSensors(
+  useSensor(PointerSensor, {
+    activationConstraint: { distance: 6 },
+  })
+);
+
 
   // UI
   const [busy, setBusy] = useState(false);
@@ -1237,17 +1261,11 @@ export default function FilesPage() {
       }
     }
   };
-
-  // --- Right panel drop target (move or upload into current folder)
+  // --- Right panel drop target (external OS file drops into current folder)
   const onDropIntoCurrent = (e: React.DragEvent) => {
+    if (!isExternalFilesDrag(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
-
-    const movedIds = readInternalFileIds(e.dataTransfer);
-    if (movedIds.length) {
-      moveFilesToFolder(movedIds, selectedFolder);
-      return;
-    }
     const fs = Array.from(e.dataTransfer.files || []);
     if (fs.length) preparePending(fs, selectedFolder);
   };
@@ -1357,7 +1375,39 @@ export default function FilesPage() {
         </Button>
       </div>
 
-      {/* Main split */}
+{/* Main split */}
+<DndContext
+  sensors={sensors}
+  onDragStart={(evt: DragStartEvent) => {
+    const a = parseDndId(evt.active.id);
+    if (!a || a.kind !== "file") return;
+    const fileId = a.value;
+    const alreadySelected = selectedFileSet.has(fileId);
+    const ids = alreadySelected ? selectedFileIds : [fileId];
+    if (!alreadySelected) {
+      setSelectedFileIds([fileId]);
+      selectionAnchorRef.current = fileId;
+    }
+    const name = files.find((f) => f.id === fileId)?.name || "File";
+    setActiveInternalDrag({
+      count: ids.length,
+      label: ids.length > 1 ? `${ids.length} items` : name,
+    });
+  }}
+  onDragEnd={(evt: DragEndEvent) => {
+    setActiveInternalDrag(null);
+    const a = parseDndId(evt.active.id);
+    const o = parseDndId(evt.over?.id);
+    if (!a || a.kind !== "file" || !o || o.kind !== "folder") return;
+    const fileId = a.value;
+    const dest = normalizeFolderPath(o.value);
+    const ids = selectedFileSet.has(fileId) ? selectedFileIds : [fileId];
+    if (!ids.length) return;
+    suppressClickUntilRef.current = Date.now() + 250;
+    moveFilesToFolder(ids, dest);
+  }}
+  onDragCancel={() => setActiveInternalDrag(null)}
+>
       <ContextMenu open={bgContextOpen} onOpenChange={setBgContextOpen}>
         <ContextMenuTrigger asChild>
           <div
@@ -1380,6 +1430,7 @@ export default function FilesPage() {
                   loading={busy && (!tree || files.length === 0)}
                   node={treeForFolders}
                   selectedPath={selectedFolder}
+                  suppressClickUntilRef={suppressClickUntilRef}
                   onSelectFolder={(p) => setSelectedFolder(p)}
                   onUploadTo={(p) => startUploadTo(p)}
                   onNewFolder={(p) => requestNewFolder(p)}
@@ -1401,15 +1452,18 @@ export default function FilesPage() {
             />
 
             {/* RIGHT: explorer list */}
-            <div
-              className="flex-1 min-w-0 flex flex-col"
-              onDragOver={(e) => {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = readInternalFileIds(e.dataTransfer).length ? "move" : "copy";
-              }}
-              onDrop={onDropIntoCurrent}
-            >
-              {/* Breadcrumb row */}
+<CurrentFolderDrop
+  folderPath={selectedFolder}
+  className="flex-1 min-w-0 flex flex-col"
+  onDragOver={(e) => {
+    if (!isExternalFilesDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }}
+  onDrop={onDropIntoCurrent}
+>
+  {/* Breadcrumb row */}
+
               <div className="h-10 border-b bg-background flex items-center gap-2 px-3">
                 <Button
                   variant="ghost"
@@ -1479,6 +1533,8 @@ export default function FilesPage() {
                             key={n.path}
                             node={n}
                             selected={selectedFolderRowPath === n.path}
+
+                            suppressClickUntilRef={suppressClickUntilRef}
                             onSelect={() => {
                               // Selecting a folder row clears file selection
                               setSelectedFileIds([]);
@@ -1502,19 +1558,6 @@ export default function FilesPage() {
                             onDelete={() => n.file && requestDelete(n.file)}
                             onRename={() => n.file && requestRename(n.file)}
                             onMove={() => n.file && requestMove(n.file)}
-                            onDragStart={(e) => {
-                              const f = n.file;
-                              if (!f) return;
-                              // Drag selected files if the dragged file is selected; otherwise drag only this one.
-                              const isSelected = selectedFileSet.has(f.id);
-                              const ids = isSelected ? selectedFileIds : [f.id];
-                              if (!isSelected) {
-                                setSelectedFileIds([f.id]);
-                                selectionAnchorRef.current = f.id;
-                              }
-                              e.dataTransfer.setData(DT_INTERNAL_FILE, JSON.stringify({ ids }));
-                              e.dataTransfer.effectAllowed = "move";
-                            }}
                           />
                         ))}
                       </div>
@@ -1522,7 +1565,7 @@ export default function FilesPage() {
                   </div>
                 </div>
               </div>
-            </div>
+            </CurrentFolderDrop>
           </div>
         </ContextMenuTrigger>
 
@@ -1538,9 +1581,19 @@ export default function FilesPage() {
             <RefreshCw className="h-4 w-4" /> Refresh
           </ContextMenuItem>
         </ContextMenuContent>
-      </ContextMenu>
+</ContextMenu>
 
-      {/* Drag overlay */}
+<DragOverlay>
+  {activeInternalDrag ? (
+    <div className="rounded-lg border bg-background shadow-lg px-4 py-2 text-sm">
+      Moving {activeInternalDrag.count} item{activeInternalDrag.count === 1 ? "" : "s"}
+    </div>
+  ) : null}
+</DragOverlay>
+
+</DndContext>
+
+{/* Drag overlay */}
       {dragActive && (
         <div className="pointer-events-none fixed inset-0 z-20 grid place-items-center bg-background/80 backdrop-blur border-2 border-dashed border-primary">
           <div className="pointer-events-auto rounded-xl border bg-background shadow-lg px-6 py-4 text-center">
@@ -1762,6 +1815,7 @@ export default function FilesPage() {
               loading={busy && (!tree || files.length === 0)}
               node={treeForFolders}
               selectedPath={selectedFolder}
+                  suppressClickUntilRef={suppressClickUntilRef}
               onSelectFolder={(p) => {
                 setSelectedFolder(p);
                 setMobileFoldersOpen(false);
@@ -2228,6 +2282,32 @@ export default function FilesPage() {
   );
 }
 
+function CurrentFolderDrop({
+  folderPath,
+  className,
+  children,
+  onDragOver,
+  onDrop,
+}: {
+  folderPath: string;
+  className?: string;
+  children: React.ReactNode;
+  onDragOver?: React.DragEventHandler<HTMLDivElement>;
+  onDrop?: React.DragEventHandler<HTMLDivElement>;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: folderDndId(folderPath) });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(className, isOver && "ring-2 ring-primary/40 ring-inset")}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+    >
+      {children}
+    </div>
+  );
+}
+
 function FolderRow({
   node,
   selected,
@@ -2237,6 +2317,7 @@ function FolderRow({
   onNewFolderHere,
   onMoveFilesTo,
   onDropFilesHere,
+  suppressClickUntilRef,
 }: {
   node: TreeNode;
   selected: boolean;
@@ -2246,18 +2327,23 @@ function FolderRow({
   onNewFolderHere: () => void;
   onMoveFilesTo: (fileIds: string[]) => void;
   onDropFilesHere: (files: File[]) => void;
+  suppressClickUntilRef: React.MutableRefObject<number>;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuKey, setMenuKey] = useState(0);
+
+  const { setNodeRef, isOver } = useDroppable({ id: folderDndId(node.path) });
 
   return (
     <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <ContextMenuTrigger asChild>
         <div
+          ref={setNodeRef}
           className={cn(
             "grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
             "hover:bg-muted/40",
-            selected && "bg-muted/60"
+            selected && "bg-muted/60",
+            isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5"
           )}
           onContextMenuCapture={() => {
             if (menuOpen) {
@@ -2271,29 +2357,31 @@ function FolderRow({
           }}
           onDoubleClick={(e) => {
             e.stopPropagation();
+            if (Date.now() < suppressClickUntilRef.current) return;
             onOpen();
           }}
           onClick={(e) => {
             e.stopPropagation();
+            if (Date.now() < suppressClickUntilRef.current) return;
             onSelect();
           }}
           onContextMenu={(e) => {
             e.stopPropagation();
+            if (Date.now() < suppressClickUntilRef.current) return;
             onSelect();
           }}
           onDragOver={(e) => {
+            // External OS file drop only
+            if (!isExternalFilesDrag(e.dataTransfer)) return;
             e.preventDefault();
-            e.dataTransfer.dropEffect = readInternalFileIds(e.dataTransfer).length ? "move" : "copy";
+            e.dataTransfer.dropEffect = "copy";
           }}
           data-folder-row
           onDrop={(e) => {
+            // External OS file drop only
+            if (!isExternalFilesDrag(e.dataTransfer)) return;
             e.preventDefault();
             e.stopPropagation();
-            const movedIds = readInternalFileIds(e.dataTransfer);
-            if (movedIds.length) {
-              onMoveFilesTo(movedIds);
-              return;
-            }
             const fs = Array.from(e.dataTransfer.files || []);
             if (fs.length) onDropFilesHere(fs);
           }}
@@ -2358,14 +2446,22 @@ function FileRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuKey, setMenuKey] = useState(0);
 
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: fileDndId(f.id) });
+  const style = {
+    transform: CSS.Translate.toString(transform),
+  } as React.CSSProperties;
+
   return (
     <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <ContextMenuTrigger asChild>
         <div
+          ref={setNodeRef}
+          style={style}
           className={cn(
             "grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
             "hover:bg-muted/40",
-            selected && "bg-muted/60"
+            selected && "bg-muted/60",
+            isDragging && "opacity-60"
           )}
           onContextMenuCapture={() => {
             if (menuOpen) {
@@ -2387,8 +2483,9 @@ function FileRow({
             // Right-click selects the file if it isn't already selected
             if (!selected) onSelect(e);
           }}
-          draggable
-          onDragStart={onDragStart}
+          // dnd-kit
+          {...attributes}
+          {...listeners}
           data-file-row
           title={f.name}
         >
@@ -2414,23 +2511,15 @@ function FileRow({
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onRename}>
-          <Info className="h-4 w-4" /> Rename…
+          <Copy className="h-4 w-4" /> Rename…
         </ContextMenuItem>
         <ContextMenuItem onSelect={onMove}>
-          <Folder className="h-4 w-4" /> Move to…
+          <Folder className="h-4 w-4" /> Move…
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
-          onSelect={() => {
-            const p = f.name || "";
-            if (navigator?.clipboard?.writeText) navigator.clipboard.writeText(p);
-          }}
-        >
-          <Copy className="h-4 w-4" /> Copy path
-        </ContextMenuItem>
-        <ContextMenuItem
-          className="text-destructive focus:text-destructive"
           onSelect={onDelete}
+          className="text-destructive focus:text-destructive"
         >
           <Trash2 className="h-4 w-4" /> Delete
         </ContextMenuItem>

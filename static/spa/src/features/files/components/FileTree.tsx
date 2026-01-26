@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy } from "lucide-react";
+import { useDroppable } from "@dnd-kit/core";
+
 import { cn } from "@/lib/utils";
 import type { TreeNode } from "../utils/fileTree";
+import { folderDndId, isExternalFilesDrag } from "../utils/dnd";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -11,30 +14,11 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 
-const DT_INTERNAL_FILE = "application/x-lbpr-file";
-
-function readInternalFileIds(dt: DataTransfer | null): string[] {
-  if (!dt) return [];
-  const raw = dt.getData(DT_INTERNAL_FILE);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    // New shape: { ids: string[] }
-    if (Array.isArray(parsed?.ids)) {
-      return parsed.ids.filter((x: any) => typeof x === "string" && x);
-    }
-    // Back-compat: { id: string }
-    const id = parsed?.id;
-    return typeof id === "string" && id ? [id] : [];
-  } catch {
-    return [];
-  }
-}
-
 export function FileTree({
   node,
   loading = false,
   selectedPath,
+  suppressClickUntilRef,
   onSelectFolder,
   onUploadTo,
   onNewFolder,
@@ -44,6 +28,7 @@ export function FileTree({
   node: TreeNode | null | undefined;
   loading?: boolean;
   selectedPath: string;
+  suppressClickUntilRef?: React.MutableRefObject<number>;
   onSelectFolder: (path: string) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
@@ -70,6 +55,7 @@ export function FileTree({
         node={{ type: "folder", name: "Files", path: "", children }}
         isRoot
         selectedPath={selectedPath}
+        suppressClickUntilRef={suppressClickUntilRef}
         onSelectFolder={onSelectFolder}
         onUploadTo={onUploadTo}
         onNewFolder={onNewFolder}
@@ -85,6 +71,7 @@ function FolderRow({
   isRoot = false,
   depth = 0,
   selectedPath,
+  suppressClickUntilRef,
   onSelectFolder,
   onUploadTo,
   onNewFolder,
@@ -95,6 +82,7 @@ function FolderRow({
   isRoot?: boolean;
   depth?: number;
   selectedPath: string;
+  suppressClickUntilRef?: React.MutableRefObject<number>;
   onSelectFolder: (path: string) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
@@ -105,6 +93,9 @@ function FolderRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuKey, setMenuKey] = useState(0);
   const folderChildren = (node.children || []).filter((c) => c.type === "folder");
+
+  const { setNodeRef, isOver } = useDroppable({ id: folderDndId(node.path) });
+
   const caretClass = cn(
     "h-4 w-4 transition-transform opacity-80",
     open ? "rotate-90" : "rotate-0",
@@ -113,20 +104,9 @@ function FolderRow({
 
   const selected = (selectedPath || "") === (node.path || "");
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    // 1) Internal move
-    const movedIds = readInternalFileIds(e.dataTransfer);
-    if (movedIds.length) {
-      onMoveFilesTo(movedIds, node.path);
-      return;
-    }
-
-    // 2) External OS files
-    const fs = Array.from(e.dataTransfer.files || []);
-    if (fs.length) onDropFilesTo(node.path, fs);
+  const ignoreClick = () => {
+    const until = suppressClickUntilRef?.current ?? 0;
+    return Date.now() < until;
   };
 
   return (
@@ -134,10 +114,12 @@ function FolderRow({
       <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <ContextMenuTrigger asChild>
           <button
+            ref={setNodeRef}
             className={cn(
               "w-full flex items-center gap-1.5 px-2 py-2 rounded text-left",
               "hover:bg-muted/40",
-              selected && "bg-muted/50"
+              selected && "bg-muted/50",
+              isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5"
             )}
             style={{ paddingLeft: 8 + depth * 14 }}
             onContextMenuCapture={() => {
@@ -152,23 +134,33 @@ function FolderRow({
             }}
             onClick={(e) => {
               e.stopPropagation();
+              if (ignoreClick()) return;
               onSelectFolder(node.path);
             }}
             onDoubleClick={(e) => {
               e.stopPropagation();
+              if (ignoreClick()) return;
               if (folderChildren.length > 0) setOpen((v) => !v);
             }}
             onContextMenu={(e) => {
-              // Prevent the background context menu from also opening
               e.stopPropagation();
+              if (ignoreClick()) return;
               onSelectFolder(node.path);
             }}
             onDragOver={(e) => {
-              // Allow drop for move/upload
+              // Allow external OS file drops only (upload)
+              if (!isExternalFilesDrag(e.dataTransfer)) return;
               e.preventDefault();
-              e.dataTransfer.dropEffect = readInternalFileIds(e.dataTransfer).length ? "move" : "copy";
+              e.dataTransfer.dropEffect = "copy";
             }}
-            onDrop={onDrop}
+            onDrop={(e) => {
+              // External OS file drops only (upload)
+              if (!isExternalFilesDrag(e.dataTransfer)) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const fs = Array.from(e.dataTransfer.files || []);
+              if (fs.length) onDropFilesTo(node.path, fs);
+            }}
             title={node.path || "Root"}
           >
             <ChevronRight className={caretClass} />
@@ -177,14 +169,10 @@ function FolderRow({
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent key={menuKey} className="min-w-[12rem]">
-          <ContextMenuItem
-            onSelect={() => onUploadTo(node.path)}
-          >
+          <ContextMenuItem onSelect={() => onUploadTo(node.path)}>
             <Upload className="h-4 w-4" /> Upload here
           </ContextMenuItem>
-          <ContextMenuItem
-            onSelect={() => onNewFolder(node.path)}
-          >
+          <ContextMenuItem onSelect={() => onNewFolder(node.path)}>
             <FolderPlus className="h-4 w-4" /> New folder…
           </ContextMenuItem>
           <ContextMenuSeparator />
@@ -207,6 +195,7 @@ function FolderRow({
               node={child}
               depth={depth + 1}
               selectedPath={selectedPath}
+              suppressClickUntilRef={suppressClickUntilRef}
               onSelectFolder={onSelectFolder}
               onUploadTo={onUploadTo}
               onNewFolder={onNewFolder}
