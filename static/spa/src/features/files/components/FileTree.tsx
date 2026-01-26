@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TreeNode } from "../utils/fileTree";
@@ -101,6 +102,7 @@ function FolderRow({
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
   const [open, setOpen] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
   const folderChildren = (node.children || []).filter((c) => c.type === "folder");
   const caretClass = cn(
     "h-4 w-4 transition-transform opacity-80",
@@ -128,7 +130,7 @@ function FolderRow({
 
   return (
     <div className="mb-0.5">
-      <ContextMenu>
+      <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <ContextMenuTrigger asChild>
           <button
             className={cn(
@@ -137,6 +139,9 @@ function FolderRow({
               selected && "bg-muted/50"
             )}
             style={{ paddingLeft: 8 + depth * 14 }}
+            onContextMenuCapture={() => {
+              if (menuOpen) flushSync(() => setMenuOpen(false));
+            }}
             onClick={(e) => {
               e.stopPropagation();
               onSelectFolder(node.path);
@@ -144,6 +149,11 @@ function FolderRow({
             onDoubleClick={(e) => {
               e.stopPropagation();
               if (folderChildren.length > 0) setOpen((v) => !v);
+            }}
+            onContextMenu={(e) => {
+              // Prevent the background context menu from also opening
+              e.stopPropagation();
+              onSelectFolder(node.path);
             }}
             onDragOver={(e) => {
               // Allow drop for move/upload

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   Upload,
   Loader2,
@@ -172,7 +173,8 @@ export default function FilesPage() {
     return loadJSON<string>(LS_LAST_FOLDER, "") || "";
   });
 
-  // Selection (right panel files)
+  // Selection (right panel)
+  const [selectedFolderRowPath, setSelectedFolderRowPath] = useState<string | null>(null);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const selectionAnchorRef = useRef<string | null>(null);
   const selectedFileSet = useMemo(() => new Set(selectedFileIds), [selectedFileIds]);
@@ -183,6 +185,9 @@ export default function FilesPage() {
   const [filter, setFilter] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
+
+  // Background context menu (right-click in files tab)
+  const [bgContextOpen, setBgContextOpen] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
 
   // File input
@@ -271,12 +276,7 @@ export default function FilesPage() {
   // Clear selection when navigating between folders
   useEffect(() => {
     setSelectedFileIds([]);
-    selectionAnchorRef.current = null;
-  }, [selectedFolder]);
-
-  // Clear selection when navigating
-  useEffect(() => {
-    setSelectedFileIds([]);
+    setSelectedFolderRowPath(null);
     selectionAnchorRef.current = null;
   }, [selectedFolder]);
 
@@ -428,6 +428,7 @@ export default function FilesPage() {
 
   const clearSelection = useCallback(() => {
     setSelectedFileIds([]);
+    setSelectedFolderRowPath(null);
     selectionAnchorRef.current = null;
   }, []);
 
@@ -436,6 +437,7 @@ export default function FilesPage() {
       const isMeta = e.metaKey || e.ctrlKey;
       const isShift = e.shiftKey;
       const anchor = selectionAnchorRef.current;
+      setSelectedFolderRowPath(null);
 
       // Shift range select (based on current filtered list ordering)
       if (isShift && anchor && anchor !== fileId) {
@@ -1114,9 +1116,14 @@ export default function FilesPage() {
       </div>
 
       {/* Main split */}
-      <ContextMenu>
-      <ContextMenuTrigger asChild>
-          <div className="flex min-h-0 flex-1">
+      <ContextMenu open={bgContextOpen} onOpenChange={setBgContextOpen}>
+        <ContextMenuTrigger asChild>
+          <div
+            className="flex min-h-0 flex-1"
+            onContextMenuCapture={() => {
+              if (bgContextOpen) flushSync(() => setBgContextOpen(false));
+            }}
+          >
             {/* LEFT: folders */}
             <aside className="hidden md:block shrink-0 overflow-hidden border-r bg-muted/20" style={{ width: sidebarWidth }}>
               <div className="h-full overflow-auto px-1 py-2">
@@ -1199,6 +1206,11 @@ export default function FilesPage() {
                   </div>
                   <div
                     className="border rounded-md overflow-hidden"
+                    onContextMenu={(e) => {
+                      const el = e.target as HTMLElement | null;
+                      if (el && (el.closest("[data-file-row]") || el.closest("[data-folder-row]"))) return;
+                      clearSelection();
+                    }}
                     onMouseDown={(e) => {
                       // Click on blank space clears current file selection
                       if (e.button !== 0) return;
@@ -1217,6 +1229,13 @@ export default function FilesPage() {
                           <FolderRow
                             key={n.path}
                             node={n}
+                            selected={selectedFolderRowPath === n.path}
+                            onSelect={() => {
+                              // Selecting a folder row clears file selection
+                              setSelectedFileIds([]);
+                              selectionAnchorRef.current = null;
+                              setSelectedFolderRowPath(n.path);
+                            }}
                             onOpen={() => setSelectedFolder(n.path)}
                             onUploadHere={() => startUploadTo(n.path)}
                             onNewFolderHere={() => requestNewFolder(n.path)}
@@ -1898,6 +1917,8 @@ export default function FilesPage() {
 
 function FolderRow({
   node,
+  selected,
+  onSelect,
   onOpen,
   onUploadHere,
   onNewFolderHere,
@@ -1905,27 +1926,45 @@ function FolderRow({
   onDropFilesHere,
 }: {
   node: TreeNode;
+  selected: boolean;
+  onSelect: () => void;
   onOpen: () => void;
   onUploadHere: () => void;
   onNewFolderHere: () => void;
   onMoveFilesTo: (fileIds: string[]) => void;
   onDropFilesHere: (files: File[]) => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
-    <ContextMenu>
+    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <ContextMenuTrigger asChild>
         <div
           className={cn(
             "grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
-            "hover:bg-muted/40"
+            "hover:bg-muted/40",
+            selected && "bg-muted/60"
           )}
-          onDoubleClick={onOpen}
-          onClick={onOpen}
-          onContextMenu={(e) => e.stopPropagation()}
+          onContextMenuCapture={() => {
+            if (menuOpen) flushSync(() => setMenuOpen(false));
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            onOpen();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect();
+          }}
+          onContextMenu={(e) => {
+            e.stopPropagation();
+            onSelect();
+          }}
           onDragOver={(e) => {
             e.preventDefault();
             e.dataTransfer.dropEffect = readInternalFileIds(e.dataTransfer).length ? "move" : "copy";
           }}
+          data-folder-row
           onDrop={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -1995,8 +2034,10 @@ function FileRow({
   if (!f) return null;
   const href = fileDownloadUrl(f.id);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
-    <ContextMenu>
+    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <ContextMenuTrigger asChild>
         <div
           className={cn(
@@ -2004,12 +2045,19 @@ function FileRow({
             "hover:bg-muted/40",
             selected && "bg-muted/60"
           )}
+          onContextMenuCapture={() => {
+            if (menuOpen) flushSync(() => setMenuOpen(false));
+          }}
           onDoubleClick={onOpen}
           onClick={(e) => {
             e.stopPropagation();
             onSelect(e);
           }}
-          onContextMenu={(e) => e.stopPropagation()}
+          onContextMenu={(e) => {
+            e.stopPropagation();
+            // Right-click selects the file if it isn't already selected
+            if (!selected) onSelect(e);
+          }}
           draggable
           onDragStart={onDragStart}
           data-file-row
