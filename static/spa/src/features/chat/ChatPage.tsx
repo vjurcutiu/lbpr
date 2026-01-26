@@ -665,8 +665,8 @@ function CitationPopover({
           className="inline-flex items-center align-baseline text-[12px] font-medium text-muted-foreground hover:text-foreground px-0.5"
           aria-label={index ? `Open citation ${index}` : "Open citation"}
           onClick={(e) => {
-            // prevent markdown default link navigation
-            e.preventDefault();
+            // Keep the click local to the citation trigger.
+            // NOTE: do NOT call preventDefault() here — Radix Popover relies on the click event.
             e.stopPropagation();
           }}
         >
