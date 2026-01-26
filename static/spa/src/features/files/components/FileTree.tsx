@@ -12,16 +12,21 @@ import {
 
 const DT_INTERNAL_FILE = "application/x-lbpr-file";
 
-function readInternalFileId(dt: DataTransfer | null): string | null {
-  if (!dt) return null;
+function readInternalFileIds(dt: DataTransfer | null): string[] {
+  if (!dt) return [];
   const raw = dt.getData(DT_INTERNAL_FILE);
-  if (!raw) return null;
+  if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
+    // New shape: { ids: string[] }
+    if (Array.isArray(parsed?.ids)) {
+      return parsed.ids.filter((x: any) => typeof x === "string" && x);
+    }
+    // Back-compat: { id: string }
     const id = parsed?.id;
-    return typeof id === "string" && id ? id : null;
+    return typeof id === "string" && id ? [id] : [];
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -32,7 +37,7 @@ export function FileTree({
   onSelectFolder,
   onUploadTo,
   onNewFolder,
-  onMoveFileTo,
+  onMoveFilesTo,
   onDropFilesTo,
 }: {
   node: TreeNode | null | undefined;
@@ -41,7 +46,7 @@ export function FileTree({
   onSelectFolder: (path: string) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
-  onMoveFileTo: (fileId: string, folderPath: string) => void;
+  onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
   const children = useMemo(() => {
@@ -67,7 +72,7 @@ export function FileTree({
         onSelectFolder={onSelectFolder}
         onUploadTo={onUploadTo}
         onNewFolder={onNewFolder}
-        onMoveFileTo={onMoveFileTo}
+        onMoveFilesTo={onMoveFilesTo}
         onDropFilesTo={onDropFilesTo}
       />
     </div>
@@ -82,7 +87,7 @@ function FolderRow({
   onSelectFolder,
   onUploadTo,
   onNewFolder,
-  onMoveFileTo,
+  onMoveFilesTo,
   onDropFilesTo,
 }: {
   node: TreeNode;
@@ -92,7 +97,7 @@ function FolderRow({
   onSelectFolder: (path: string) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
-  onMoveFileTo: (fileId: string, folderPath: string) => void;
+  onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -110,9 +115,9 @@ function FolderRow({
     e.stopPropagation();
 
     // 1) Internal move
-    const movedId = readInternalFileId(e.dataTransfer);
-    if (movedId) {
-      onMoveFileTo(movedId, node.path);
+    const movedIds = readInternalFileIds(e.dataTransfer);
+    if (movedIds.length) {
+      onMoveFilesTo(movedIds, node.path);
       return;
     }
 
@@ -143,7 +148,7 @@ function FolderRow({
             onDragOver={(e) => {
               // Allow drop for move/upload
               e.preventDefault();
-              e.dataTransfer.dropEffect = readInternalFileId(e.dataTransfer) ? "move" : "copy";
+              e.dataTransfer.dropEffect = readInternalFileIds(e.dataTransfer).length ? "move" : "copy";
             }}
             onDrop={onDrop}
             title={node.path || "Root"}
@@ -187,7 +192,7 @@ function FolderRow({
               onSelectFolder={onSelectFolder}
               onUploadTo={onUploadTo}
               onNewFolder={onNewFolder}
-              onMoveFileTo={onMoveFileTo}
+              onMoveFilesTo={onMoveFilesTo}
               onDropFilesTo={onDropFilesTo}
             />
           ))}

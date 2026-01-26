@@ -137,17 +137,26 @@ function collectFolderPaths(root: TreeNode | null | undefined): string[] {
   return out;
 }
 
-function readInternalFileId(dt: DataTransfer | null): string | null {
-  if (!dt) return null;
+function readInternalFileIds(dt: DataTransfer | null): string[] {
+  if (!dt) return [];
   const raw = dt.getData(DT_INTERNAL_FILE);
-  if (!raw) return null;
+  if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
+    // New shape: { ids: string[] }
+    if (Array.isArray(parsed?.ids)) {
+      return parsed.ids.filter((x: any) => typeof x === "string" && x);
+    }
+    // Back-compat: { id: string }
     const id = parsed?.id;
-    return typeof id === "string" && id ? id : null;
+    return typeof id === "string" && id ? [id] : [];
   } catch {
-    return null;
+    return [];
   }
+}
+
+function uniqStrings(ids: string[]): string[] {
+  return Array.from(new Set(ids.filter((x) => typeof x === "string" && x)));
 }
 
 export default function FilesPage() {
@@ -162,6 +171,11 @@ export default function FilesPage() {
   const [selectedFolder, setSelectedFolder] = useState<string>(() => {
     return loadJSON<string>(LS_LAST_FOLDER, "") || "";
   });
+
+  // Selection (right panel files)
+  const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
+  const selectionAnchorRef = useRef<string | null>(null);
+  const selectedFileSet = useMemo(() => new Set(selectedFileIds), [selectedFileIds]);
 
   // UI
   const [busy, setBusy] = useState(false);
@@ -252,6 +266,18 @@ export default function FilesPage() {
 
   useEffect(() => {
     saveJSON(LS_LAST_FOLDER, selectedFolder || "");
+  }, [selectedFolder]);
+
+  // Clear selection when navigating between folders
+  useEffect(() => {
+    setSelectedFileIds([]);
+    selectionAnchorRef.current = null;
+  }, [selectedFolder]);
+
+  // Clear selection when navigating
+  useEffect(() => {
+    setSelectedFileIds([]);
+    selectionAnchorRef.current = null;
   }, [selectedFolder]);
 
   // Rehydrate tracker state
@@ -393,6 +419,57 @@ export default function FilesPage() {
     if (!q) return currentFiles;
     return currentFiles.filter((c) => (c.file?.name || c.name).toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
   }, [currentFiles, filter]);
+
+  const filteredFileIdOrder = useMemo(() => {
+    return filteredCurrentFiles
+      .map((n) => n.file?.id)
+      .filter((x): x is string => typeof x === "string" && !!x);
+  }, [filteredCurrentFiles]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedFileIds([]);
+    selectionAnchorRef.current = null;
+  }, []);
+
+  const selectFile = useCallback(
+    (fileId: string, e: React.MouseEvent) => {
+      const isMeta = e.metaKey || e.ctrlKey;
+      const isShift = e.shiftKey;
+      const anchor = selectionAnchorRef.current;
+
+      // Shift range select (based on current filtered list ordering)
+      if (isShift && anchor && anchor !== fileId) {
+        const a = filteredFileIdOrder.indexOf(anchor);
+        const b = filteredFileIdOrder.indexOf(fileId);
+        if (a !== -1 && b !== -1) {
+          const lo = Math.min(a, b);
+          const hi = Math.max(a, b);
+          const range = filteredFileIdOrder.slice(lo, hi + 1);
+          setSelectedFileIds((prev) => {
+            if (isMeta) return uniqStrings([...prev, ...range]);
+            return range;
+          });
+          return;
+        }
+        // If anchor/click not in list, fall through to single/toggle
+      }
+
+      if (isMeta) {
+        setSelectedFileIds((prev) => {
+          const set = new Set(prev);
+          if (set.has(fileId)) set.delete(fileId);
+          else set.add(fileId);
+          return Array.from(set);
+        });
+        selectionAnchorRef.current = fileId;
+        return;
+      }
+
+      setSelectedFileIds([fileId]);
+      selectionAnchorRef.current = fileId;
+    },
+    [filteredFileIdOrder]
+  );
 
   const breadcrumb = useMemo(() => {
     const parts = (selectedFolder || "").split("/").filter(Boolean);
@@ -797,14 +874,43 @@ export default function FilesPage() {
     }
   };
 
-  const moveFileToFolder = async (fileId: string, folder: string) => {
+  const moveFilesToFolder = async (fileIds: string[], folder: string) => {
+    const ids = uniqStrings(fileIds);
+    if (ids.length === 0) return;
+    const dest = (folder || "").split("/").filter(Boolean).join("/");
+
     try {
-      await updateFile(fileId, { folder: folder ? folder : null });
-      toast.success("Moved", { description: folder ? `Moved into “${folder}”` : "Moved to Root" });
+      const results = await Promise.allSettled(
+        ids.map((id) => updateFile(id, { folder: dest ? dest : null }))
+      );
+      const failed = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+
+      if (failed.length) {
+        const first = failed[0]?.reason;
+        toast.error("Move failed", {
+          description: failed.length === 1
+            ? parseErr(first)
+            : `${failed.length} of ${ids.length} failed. ${parseErr(first)}`,
+        });
+      } else {
+        toast.success("Moved", {
+          description:
+            ids.length === 1
+              ? dest ? `Moved into “${dest}”` : "Moved to Root"
+              : dest ? `Moved ${ids.length} files into “${dest}”` : `Moved ${ids.length} files to Root`,
+        });
+      }
+
+      setSelectedFileIds([]);
+      selectionAnchorRef.current = null;
       await refresh();
     } catch (err) {
       toast.error("Move failed", { description: parseErr(err) });
     }
+  };
+
+  const moveFileToFolder = async (fileId: string, folder: string) => {
+    return moveFilesToFolder([fileId], folder);
   };
 
   const requestMove = (file: FileItem) => {
@@ -900,9 +1006,9 @@ export default function FilesPage() {
     e.preventDefault();
     e.stopPropagation();
 
-    const movedId = readInternalFileId(e.dataTransfer);
-    if (movedId) {
-      moveFileToFolder(movedId, selectedFolder);
+    const movedIds = readInternalFileIds(e.dataTransfer);
+    if (movedIds.length) {
+      moveFilesToFolder(movedIds, selectedFolder);
       return;
     }
     const fs = Array.from(e.dataTransfer.files || []);
@@ -1021,7 +1127,7 @@ export default function FilesPage() {
                   onSelectFolder={(p) => setSelectedFolder(p)}
                   onUploadTo={(p) => startUploadTo(p)}
                   onNewFolder={(p) => requestNewFolder(p)}
-                  onMoveFileTo={(fileId, folderPath) => moveFileToFolder(fileId, folderPath)}
+                  onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
                   onDropFilesTo={(folderPath, fs) => handleFiles(fs, folderPath)}
                 />
               </div>
@@ -1043,7 +1149,7 @@ export default function FilesPage() {
               className="flex-1 min-w-0 flex flex-col"
               onDragOver={(e) => {
                 e.preventDefault();
-                e.dataTransfer.dropEffect = readInternalFileId(e.dataTransfer) ? "move" : "copy";
+                e.dataTransfer.dropEffect = readInternalFileIds(e.dataTransfer).length ? "move" : "copy";
               }}
               onDrop={onDropIntoCurrent}
             >
@@ -1091,7 +1197,16 @@ export default function FilesPage() {
                     <div>Type</div>
                     <div>Created</div>
                   </div>
-                  <div className="border rounded-md overflow-hidden">
+                  <div
+                    className="border rounded-md overflow-hidden"
+                    onMouseDown={(e) => {
+                      // Click on blank space clears current file selection
+                      if (e.button !== 0) return;
+                      const el = e.target as HTMLElement | null;
+                      if (el && el.closest("[data-file-row]")) return;
+                      clearSelection();
+                    }}
+                  >
                     {filteredCurrentFolders.length === 0 && filteredCurrentFiles.length === 0 ? (
                       <div className="p-6 text-sm text-muted-foreground">
                         This folder is empty. Right-click to create a folder or upload files.
@@ -1105,7 +1220,7 @@ export default function FilesPage() {
                             onOpen={() => setSelectedFolder(n.path)}
                             onUploadHere={() => startUploadTo(n.path)}
                             onNewFolderHere={() => requestNewFolder(n.path)}
-                            onMoveFileTo={(fileId) => moveFileToFolder(fileId, n.path)}
+                            onMoveFilesTo={(fileIds) => moveFilesToFolder(fileIds, n.path)}
                             onDropFilesHere={(fs) => handleFiles(fs, n.path)}
                           />
                         ))}
@@ -1113,10 +1228,25 @@ export default function FilesPage() {
                           <FileRow
                             key={n.file?.id || n.path}
                             node={n}
+                            selected={!!(n.file?.id && selectedFileSet.has(n.file.id))}
+                            onSelect={(e) => n.file && selectFile(n.file.id, e)}
                             onOpen={() => n.file && openViewer(n.file)}
                             onDelete={() => n.file && requestDelete(n.file)}
                             onRename={() => n.file && requestRename(n.file)}
                             onMove={() => n.file && requestMove(n.file)}
+                            onDragStart={(e) => {
+                              const f = n.file;
+                              if (!f) return;
+                              // Drag selected files if the dragged file is selected; otherwise drag only this one.
+                              const isSelected = selectedFileSet.has(f.id);
+                              const ids = isSelected ? selectedFileIds : [f.id];
+                              if (!isSelected) {
+                                setSelectedFileIds([f.id]);
+                                selectionAnchorRef.current = f.id;
+                              }
+                              e.dataTransfer.setData(DT_INTERNAL_FILE, JSON.stringify({ ids }));
+                              e.dataTransfer.effectAllowed = "move";
+                            }}
                           />
                         ))}
                       </div>
@@ -1306,7 +1436,7 @@ export default function FilesPage() {
               }}
               onUploadTo={(p) => startUploadTo(p)}
               onNewFolder={(p) => requestNewFolder(p)}
-              onMoveFileTo={(fileId, folderPath) => moveFileToFolder(fileId, folderPath)}
+              onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
               onDropFilesTo={(folderPath, fs) => handleFiles(fs, folderPath)}
             />
           </div>
@@ -1771,14 +1901,14 @@ function FolderRow({
   onOpen,
   onUploadHere,
   onNewFolderHere,
-  onMoveFileTo,
+  onMoveFilesTo,
   onDropFilesHere,
 }: {
   node: TreeNode;
   onOpen: () => void;
   onUploadHere: () => void;
   onNewFolderHere: () => void;
-  onMoveFileTo: (fileId: string) => void;
+  onMoveFilesTo: (fileIds: string[]) => void;
   onDropFilesHere: (files: File[]) => void;
 }) {
   return (
@@ -1794,14 +1924,14 @@ function FolderRow({
           onContextMenu={(e) => e.stopPropagation()}
           onDragOver={(e) => {
             e.preventDefault();
-            e.dataTransfer.dropEffect = readInternalFileId(e.dataTransfer) ? "move" : "copy";
+            e.dataTransfer.dropEffect = readInternalFileIds(e.dataTransfer).length ? "move" : "copy";
           }}
           onDrop={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            const movedId = readInternalFileId(e.dataTransfer);
-            if (movedId) {
-              onMoveFileTo(movedId);
+            const movedIds = readInternalFileIds(e.dataTransfer);
+            if (movedIds.length) {
+              onMoveFilesTo(movedIds);
               return;
             }
             const fs = Array.from(e.dataTransfer.files || []);
@@ -1844,16 +1974,22 @@ function FolderRow({
 
 function FileRow({
   node,
+  selected,
+  onSelect,
   onOpen,
   onDelete,
   onRename,
   onMove,
+  onDragStart,
 }: {
   node: TreeNode;
+  selected: boolean;
+  onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
   onDelete: () => void;
   onRename: () => void;
   onMove: () => void;
+  onDragStart?: (e: React.DragEvent<HTMLDivElement>) => void;
 }) {
   const f = node.file;
   if (!f) return null;
@@ -1865,16 +2001,18 @@ function FileRow({
         <div
           className={cn(
             "grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
-            "hover:bg-muted/40"
+            "hover:bg-muted/40",
+            selected && "bg-muted/60"
           )}
           onDoubleClick={onOpen}
-          onClick={onOpen}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(e);
+          }}
           onContextMenu={(e) => e.stopPropagation()}
           draggable
-          onDragStart={(e) => {
-            e.dataTransfer.setData(DT_INTERNAL_FILE, JSON.stringify({ id: f.id }));
-            e.dataTransfer.effectAllowed = "move";
-          }}
+          onDragStart={onDragStart}
+          data-file-row
           title={f.name}
         >
           <div className="min-w-0 flex items-center gap-2">
