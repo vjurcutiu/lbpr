@@ -352,6 +352,19 @@ const sensors = useSensors(
   useEffect(() => saveJSON(LS_OPTIMISTIC, optimisticJobs), [optimisticJobs]);
   useEffect(() => saveJSON(LS_BATCH, batchFilenames), [batchFilenames]);
 
+  const handleTrackerCleared = useCallback((scope: "done" | "all") => {
+    if (scope === "all") {
+      setOptimisticJobs([]);
+      setBatchFilenames([]);
+      setSeedFetched([]);
+      return;
+    }
+
+    // "done": keep any running optimistic items, drop completed/error.
+    setOptimisticJobs((prev) => prev.filter((j) => j.status === "running"));
+    setSeedFetched((prev) => prev.filter((j) => j.status === "running"));
+  }, []);
+
   // Persist OCR settings
   useEffect(() => saveJSON(LS_OCR_LANGUAGES, ocrLanguages), [ocrLanguages]);
   useEffect(() => saveBool(LS_OCR_DOCMODE, ocrDocMode), [ocrDocMode]);
@@ -582,16 +595,48 @@ const sensors = useSensors(
   const currentFolders = useMemo(() => (currentNode?.children || []).filter((c) => c.type === "folder"), [currentNode]);
   const currentFiles = useMemo(() => (currentNode?.children || []).filter((c) => c.type === "file"), [currentNode]);
 
+  // Global index for search (folders + files). Used when the search box has a query.
+  const allFolders = useMemo(() => {
+    const out: TreeNode[] = [];
+    const walk = (n: TreeNode) => {
+      if (n.type === "folder") {
+        if (n.path) out.push(n); // skip the synthetic root
+        for (const c of n.children || []) walk(c);
+      }
+    };
+    if (tree) walk(tree);
+    return out;
+  }, [tree]);
+
+  const allFiles = useMemo(() => {
+    const out: TreeNode[] = [];
+    const walk = (n: TreeNode) => {
+      if (n.type === "file") out.push(n);
+      else for (const c of n.children || []) walk(c);
+    };
+    if (tree) walk(tree);
+    return out;
+  }, [tree]);
+
   const filteredCurrentFolders = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return currentFolders;
-    return currentFolders.filter((c) => c.name.toLowerCase().includes(q));
-  }, [currentFolders, filter]);
+    return allFolders
+      .filter((c) => c.name.toLowerCase().includes(q) || c.path.toLowerCase().includes(q))
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }, [currentFolders, allFolders, filter]);
   const filteredCurrentFiles = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return currentFiles;
-    return currentFiles.filter((c) => (c.file?.name || c.name).toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
-  }, [currentFiles, filter]);
+    return allFiles
+      .filter((c) => {
+        const n = (c.name || "").toLowerCase();
+        const p = (c.path || "").toLowerCase();
+        const full = ((c.file?.name || "") as string).toLowerCase();
+        return n.includes(q) || p.includes(q) || full.includes(q);
+      })
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }, [currentFiles, allFiles, filter]);
 
   const visibleItemKeyOrder = useMemo(() => {
     const keys: string[] = [];
@@ -1101,16 +1146,6 @@ const sensors = useSensors(
     return out;
   };
 
-  const openTranscribe = () => {
-    setTranscribeOpen(true);
-    setTranscribeErr(null);
-    setTranscribeText("");
-    setTranscribeSegments([]);
-    setTranscribeDetected([]);
-    setTranscribeBilledSeconds(null);
-    setTranscribeMeta(null);
-  };
-
   const pickTranscribeFile = () => {
     transcribeInputRef.current?.click();
   };
@@ -1221,13 +1256,6 @@ const sensors = useSensors(
   };
 
   // --- OCR helpers
-  const openOcr = () => {
-    setOcrOpen(true);
-    setOcrErr(null);
-    setOcrText("");
-    setOcrMeta(null);
-  };
-
   const pickOcrFile = () => {
     ocrInputRef.current?.click();
   };
@@ -1550,25 +1578,6 @@ const sensors = useSensors(
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={openTranscribe}
-          title="Transcribe an audio/video file"
-        >
-          <Mic className="h-4 w-4" />
-          <span className="ml-1.5 hidden sm:inline">Transcribe</span>
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={openOcr}
-          title="Extract text from an image (OCR)"
-        >
-          <ScanText className="h-4 w-4" />
-          <span className="ml-1.5 hidden sm:inline">OCR</span>
-        </Button>
         <Button variant="outline" size="sm" onClick={() => requestNewFolder(selectedFolder)} title="New folder">
           <FolderPlus className="h-4 w-4" />
           <span className="ml-1.5 hidden sm:inline">New folder</span>
@@ -1587,7 +1596,7 @@ const sensors = useSensors(
         <div className="relative w-full md:max-w-sm md:w-full md:order-none order-last">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Filter this folder…"
+            placeholder="Search folders & files…"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             className="pl-8 pr-7"
@@ -1915,7 +1924,9 @@ const sensors = useSensors(
                     <div ref={listBoxRef} className="border rounded-md overflow-hidden relative">
                     {filteredCurrentFolders.length === 0 && filteredCurrentFiles.length === 0 ? (
                       <div className="p-6 text-sm text-muted-foreground">
-                        This folder is empty. Right-click to create a folder or upload files.
+                        {filter.trim()
+                          ? <>No results for <span className="font-medium">“{filter.trim()}”</span>.</>
+                          : <>This folder is empty. Right-click to create a folder or upload files.</>}
                       </div>
                     ) : (
                       <div className="divide-y">
@@ -2196,12 +2207,6 @@ const sensors = useSensors(
             </Button>
             <Button size="sm" onClick={() => startUploadTo(selectedFolder)} disabled={uploading} title="Upload">
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            </Button>
-            <Button variant="outline" size="sm" onClick={openTranscribe} title="Transcribe">
-              <Mic className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={openOcr} title="OCR">
-              <ScanText className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setMobileFoldersOpen(false)} title="Close">
               <X className="h-4 w-4" />
@@ -2670,6 +2675,7 @@ const sensors = useSensors(
         onClose={() => setTrackerOpen(false)}
         refreshKey={trackerRefreshKey}
         onAnyComplete={refresh}
+        onCleared={handleTrackerCleared}
         optimistic={optimisticJobs}
         batchFilenames={batchFilenames}
         showHistory={true}
