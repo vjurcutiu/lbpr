@@ -14,6 +14,8 @@ from .schemas import (
     FolderItem,
     CreateFolderRequest,
     CreateFolderResponse,
+    RenameFolderRequest,
+    RenameFolderResponse,
     UpdateFileRequest,
     UpdateFileResponse,
 )
@@ -61,6 +63,25 @@ async def create_folder(req: CreateFolderRequest, user: SessionOut = Depends(get
     try:
         folder = service.create_folder(user.uid, req.path)
         return CreateFolderResponse(ok=True, folder=folder)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/folders/rename", response_model=RenameFolderResponse)
+async def rename_folder(req: RenameFolderRequest, user: SessionOut = Depends(get_current_user)):
+    """Rename (or move) a folder path.
+
+    This updates folder records and rewrites the folder_path/display_name metadata for all files under the folder.
+    """
+    try:
+        res = service.rename_folder(user.uid, req.old_path, req.new_path)
+        return RenameFolderResponse(ok=True, **res)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    except FileNotFoundError as fe:
+        raise HTTPException(status_code=404, detail=str(fe))
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:

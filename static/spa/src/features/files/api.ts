@@ -45,6 +45,23 @@ export async function createFolder(path: string): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
+export async function renameFolder(old_path: string, new_path: string): Promise<{
+  ok: boolean;
+  old_path: string;
+  new_path: string;
+  files_updated?: number;
+  folders_updated?: number;
+}> {
+  const res = await fetch(`${API_BASE}/v1/files/folders/rename`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ old_path, new_path }),
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  return res.json();
+}
+
 export type UpdateFileRequest = {
   folder?: string | null;
   name?: string | null;

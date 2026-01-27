@@ -32,6 +32,7 @@ import {
   ArrowUp,
   Mic,
   ScanText,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -72,6 +73,7 @@ import {
   listFiles,
   listFolders,
   createFolder,
+  renameFolder,
   updateFile,
   uploadFileToFolder,
   uploadFilesToFolder,
@@ -309,6 +311,12 @@ const sensors = useSensors(
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameFile, setRenameFile] = useState<FileItem | null>(null);
   const [renameValue, setRenameValue] = useState<string>("");
+
+  // Rename folder modal
+  const [renameFolderOpen, setRenameFolderOpen] = useState(false);
+  const [renameFolderPath, setRenameFolderPath] = useState<string>("");
+  const [renameFolderValue, setRenameFolderValue] = useState<string>("");
+  const [renamingFolder, setRenamingFolder] = useState(false);
 
   // Viewer modal (with search + metadata)
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -1526,6 +1534,64 @@ const sensors = useSensors(
     }
   };
 
+  // --- Folder rename
+  const remapFolderPath = (cur: string, oldP: string, newP: string) => {
+    const c = (cur || "").split("/").filter(Boolean).join("/");
+    const o = (oldP || "").split("/").filter(Boolean).join("/");
+    const n = (newP || "").split("/").filter(Boolean).join("/");
+    if (!c || !o || !n) return cur;
+    if (c === o) return n;
+    if (c.startsWith(o + "/")) return n + c.slice(o.length);
+    return cur;
+  };
+
+  const requestRenameFolder = (path: string) => {
+    const p = (path || "").split("/").filter(Boolean).join("/");
+    if (!p) return;
+    setRenameFolderPath(p);
+    setRenameFolderValue(basename(p));
+    setRenameFolderOpen(true);
+  };
+
+  const performRenameFolder = async () => {
+    const oldP = (renameFolderPath || "").split("/").filter(Boolean).join("/");
+    if (!oldP) return;
+    const newName = (renameFolderValue || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!newName || newName.includes("/")) {
+      toast.error("Rename failed", { description: "Folder name cannot contain '/'" });
+      return;
+    }
+    const parent = parentPath(oldP);
+    const newP = parent ? `${parent}/${newName}` : newName;
+
+    try {
+      setRenamingFolder(true);
+      await renameFolder(oldP, newP);
+      toast.success("Folder renamed", { description: `“${oldP}” → “${newP}”` });
+
+      // Remap current selection to keep the user anchored in the same place.
+      setSelectedFolder((cur) => remapFolderPath(cur, oldP, newP));
+      setSelectedFolderRowPaths((arr) => arr.map((p) => remapFolderPath(p, oldP, newP)));
+      setTreeSelectedKey((k) => {
+        if (k.startsWith("d:")) {
+          const p = k.slice(2);
+          return `d:${remapFolderPath(p, oldP, newP)}`;
+        }
+        return k;
+      });
+
+      setRenameFolderOpen(false);
+      setRenameFolderPath("");
+      setRenameFolderValue("");
+
+      await refresh();
+    } catch (err) {
+      toast.error("Rename folder failed", { description: parseErr(err) });
+    } finally {
+      setRenamingFolder(false);
+    }
+  };
+
   // --- Viewer modal
   const viewerFile = useMemo(() => (viewerId ? files.find((f) => f.id === viewerId) || null : null), [viewerId, files]);
   const viewerPayload = viewerId ? content[viewerId] : undefined;
@@ -1761,6 +1827,7 @@ const sensors = useSensors(
                   }}
                   onUploadTo={(p) => startUploadTo(p)}
                   onNewFolder={(p) => requestNewFolder(p)}
+                  onRenameFolder={(p) => requestRenameFolder(p)}
                   onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
                   onDropFilesTo={(folderPath, fs) => preparePending(fs, folderPath)}
                 />
@@ -1999,6 +2066,7 @@ const sensors = useSensors(
                             suppressClickUntilRef={suppressClickUntilRef}
                             onSelect={(e) => selectFolderRow(n.path, e)}
                             onOpen={() => setSelectedFolder(n.path)}
+                            onRename={() => requestRenameFolder(n.path)}
                             onUploadHere={() => startUploadTo(n.path)}
                             onNewFolderHere={() => requestNewFolder(n.path)}
                             onMoveFilesTo={(fileIds) => moveFilesToFolder(fileIds, n.path)}
@@ -2193,6 +2261,53 @@ const sensors = useSensors(
         </DialogContent>
       </Dialog>
 
+      {/* Rename folder */}
+      <Dialog
+        open={renameFolderOpen}
+        onOpenChange={(open) => {
+          setRenameFolderOpen(open);
+          if (!open) {
+            setRenameFolderPath("");
+            setRenameFolderValue("");
+            setRenamingFolder(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename folder</DialogTitle>
+            <DialogDescription>
+              Rename the folder. All files/subfolders inside will move with it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              autoFocus
+              placeholder="New folder name"
+              value={renameFolderValue}
+              onChange={(e) => setRenameFolderValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") performRenameFolder();
+              }}
+            />
+            <div className="text-xs text-muted-foreground">
+              Folder: <span className="font-mono">{renameFolderPath || ""}</span>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameFolderOpen(false)} disabled={renamingFolder}>
+              Cancel
+            </Button>
+            <Button
+              onClick={performRenameFolder}
+              disabled={renamingFolder || !renameFolderPath || !renameFolderValue.trim()}
+            >
+              {renamingFolder ? "Renaming…" : "Rename"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Universal upload: quota preview */}
       <AlertDialog open={uploadConfirmOpen} onOpenChange={setUploadConfirmOpen}>
         <AlertDialogContent>
@@ -2316,6 +2431,7 @@ const sensors = useSensors(
               }}
               onUploadTo={(p) => startUploadTo(p)}
               onNewFolder={(p) => requestNewFolder(p)}
+              onRenameFolder={(p) => requestRenameFolder(p)}
               onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
               onDropFilesTo={(folderPath, fs) => preparePending(fs, folderPath)}
             />
@@ -2808,6 +2924,7 @@ function FolderRow({
   selected,
   onSelect,
   onOpen,
+  onRename,
   onUploadHere,
   onNewFolderHere,
   onMoveFilesTo,
@@ -2818,6 +2935,7 @@ function FolderRow({
   selected: boolean;
   onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
+  onRename: () => void;
   onUploadHere: () => void;
   onNewFolderHere: () => void;
   onMoveFilesTo: (fileIds: string[]) => void;
@@ -2895,6 +3013,9 @@ function FolderRow({
       <ContextMenuContent key={menuKey} className="min-w-[12rem]">
         <ContextMenuItem onSelect={onOpen}>
           <Folder className="h-4 w-4" /> Open
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onRename}>
+          <Pencil className="h-4 w-4" /> Rename…
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onUploadHere}>

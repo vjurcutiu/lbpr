@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
-import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy } from "lucide-react";
+import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy, Pencil } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 
 import { cn } from "@/lib/utils";
@@ -49,6 +49,7 @@ export function FileTree({
   onOpenFile,
   onUploadTo,
   onNewFolder,
+  onRenameFolder,
   onMoveFilesTo,
   onDropFilesTo,
 }: {
@@ -65,6 +66,7 @@ export function FileTree({
   onOpenFile: (file: FileItem) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
+  onRenameFolder: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
@@ -125,6 +127,7 @@ export function FileTree({
         onOpenFile={onOpenFile}
         onUploadTo={onUploadTo}
         onNewFolder={onNewFolder}
+        onRenameFolder={onRenameFolder}
         onMoveFilesTo={onMoveFilesTo}
         onDropFilesTo={onDropFilesTo}
       />
@@ -147,6 +150,7 @@ function FolderRow({
   onOpenFile,
   onUploadTo,
   onNewFolder,
+  onRenameFolder,
   onMoveFilesTo,
   onDropFilesTo,
 }: {
@@ -164,6 +168,7 @@ function FolderRow({
   onOpenFile: (file: FileItem) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
+  onRenameFolder: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
@@ -281,6 +286,11 @@ function FolderRow({
           <ContextMenuItem onSelect={() => onNewFolder(node.path)}>
             <FolderPlus className="h-4 w-4" /> New folder…
           </ContextMenuItem>
+          {!isRoot && !!normPath(node.path) && (
+            <ContextMenuItem onSelect={() => onRenameFolder(node.path)}>
+              <Pencil className="h-4 w-4" /> Rename…
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem
             onSelect={() => {
@@ -313,6 +323,7 @@ function FolderRow({
                 onOpenFile={onOpenFile}
                 onUploadTo={onUploadTo}
                 onNewFolder={onNewFolder}
+                onRenameFolder={onRenameFolder}
                 onMoveFilesTo={onMoveFilesTo}
                 onDropFilesTo={onDropFilesTo}
               />
