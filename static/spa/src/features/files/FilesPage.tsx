@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -2607,18 +2608,23 @@ const sensors = useSensors(
           }
         }}
       >
-        <DialogContent className="p-0 w-[84rem] max-w-[96vw] h-[calc(100vh-2rem)] sm:h-[calc(100vh-4rem)] flex flex-col">
+        <DialogContent
+          showCloseButton={false}
+          className="p-0 w-[84rem] max-w-[96vw] h-[calc(100vh-2rem)] sm:h-[calc(100vh-4rem)] flex flex-col"
+        >
           {/* Title + search + download */}
           <div className="px-3 sm:px-4 py-2 border-b bg-background">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
               <div className="min-w-0 sm:max-w-[22rem]">
                 <div className="font-medium truncate" title={viewerFile ? viewerFile.name : ""}>
                   {viewerFile ? basename(viewerFile.name) : ""}
                 </div>
               </div>
 
-              {/* In-file search */}
-              <div className="relative flex-1 min-w-0">
+              {/* Actions row (search + download + close) */}
+              <div className="flex items-center gap-2 min-w-0 sm:flex-1">
+                {/* In-file search */}
+                <div className="relative flex-1 min-w-0">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder={canSearchInFile ? "Search…" : "Search available for text files"}
@@ -2662,21 +2668,31 @@ const sensors = useSensors(
                     <X className="h-4 w-4" />
                   </button>
                 </div>
-              </div>
+                </div>
 
-              {/* Download */}
-              {viewerFile && (
-                <a
-                  className="inline-flex shrink-0"
-                  href={fileDownloadUrl(viewerFile.id)}
-                  title="Download"
-                  onClick={() => console.debug("[files] viewer download", { id: viewerFile.id })}
-                >
-                  <Button variant="outline" size="icon" aria-label="Download">
-                    <Download className="h-4 w-4" />
-                  </Button>
-                </a>
-              )}
+                {/* Download */}
+                {viewerFile && (
+                  <a
+                    className="inline-flex shrink-0"
+                    href={fileDownloadUrl(viewerFile.id)}
+                    title="Download"
+                    onClick={() => console.debug("[files] viewer download", { id: viewerFile.id })}
+                  >
+                    <Button variant="outline" size="icon" aria-label="Download">
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </a>
+                )}
+
+                {/* Close (reserved box so it never overlaps header content) */}
+                <div className="shrink-0 w-10 h-10 grid place-items-center">
+                  <DialogClose asChild>
+                    <Button variant="ghost" size="icon" aria-label="Close" title="Close">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </DialogClose>
+                </div>
+              </div>
             </div>
           </div>
 
