@@ -717,12 +717,23 @@ const sensors = useSensors(
         startY: number;
         lastX: number;
         lastY: number;
+        downAt: number;
+        started: boolean;
         moved: boolean;
+        cleared: boolean;
         mode: "replace" | "union";
         base: { files: Set<string>; folders: Set<string> };
       }
   >(null);
   const bodyStyleRef = useRef<{ userSelect: string; cursor: string }>({ userSelect: "", cursor: "" });
+
+  // Marquee UX tuning:
+  // - Start only after the pointer has moved a bit (prevents "click-to-deselect" from flashing the drag-box)
+  // - Add a tiny delay so quick clicks don’t feel like they trigger marquee instantly
+  const MARQUEE_START_DIST_PX = 6;
+  const MARQUEE_START_DELAY_MS = 90;
+  const MARQUEE_START_DIST_NO_DELAY_PX = 14;
+
 
   useEffect(() => {
     return () => {
@@ -776,7 +787,7 @@ const sensors = useSensors(
     const h = Math.max(0, bottom - top);
 
     // Track whether user actually dragged (vs click)
-    const moved = Math.hypot(cx - sx, cy - sy) >= 4;
+    const moved = Math.hypot(cx - sx, cy - sy) >= MARQUEE_START_DIST_PX;
     if (moved && !st.moved) st.moved = true;
 
     // Render box (coords relative to the list box)
@@ -1771,7 +1782,10 @@ const sensors = useSensors(
                     startY: e.clientY,
                     lastX: e.clientX,
                     lastY: e.clientY,
+                    downAt: Date.now(),
+                    started: false,
                     moved: false,
+                    cleared: false,
                     mode,
                     base: {
                       files: new Set(selectedFileIds),
@@ -1779,51 +1793,73 @@ const sensors = useSensors(
                     },
                   };
 
-                  // Explorer-like: clicking/dragging on empty space without Ctrl clears existing selection
-                  if (mode === "replace") {
-                    setSelectedFileIds([]);
-                    setSelectedFolderRowPaths([]);
-                  }
-
-                  // Prevent text selection while dragging
+                  // We'll only show the box / apply styles once the user actually moves far enough.
                   if (typeof document !== "undefined") {
                     bodyStyleRef.current = {
                       userSelect: document.body.style.userSelect,
                       cursor: document.body.style.cursor,
                     };
-                    document.body.style.userSelect = "none";
-                    document.body.style.cursor = "crosshair";
                   }
 
                   try {
                     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
                   } catch {}
-                  setMarqueeActive(true);
-                  startAutoScrollLoop();
-                  e.preventDefault();
                 }}
                 onPointerMove={(e) => {
                   const st = marqueeStateRef.current;
                   if (!st || st.pointerId !== e.pointerId) return;
                   st.lastX = e.clientX;
                   st.lastY = e.clientY;
+
+                  // Start marquee only after a small movement + slight delay (prevents "click-to-deselect" from feeling like it triggers the box).
+                  if (!st.started) {
+                    const dist = Math.hypot(st.lastX - st.startX, st.lastY - st.startY);
+                    const elapsed = Date.now() - st.downAt;
+
+                    if (dist < MARQUEE_START_DIST_PX) return;
+                    if (elapsed < MARQUEE_START_DELAY_MS && dist < MARQUEE_START_DIST_NO_DELAY_PX) return;
+
+                    st.started = true;
+                    st.moved = true;
+
+                    // Explorer-like: dragging on empty space without Ctrl replaces selection (clear once, when we truly start dragging).
+                    if (st.mode === "replace" && !st.cleared) {
+                      setSelectedFileIds([]);
+                      setSelectedFolderRowPaths([]);
+                      st.cleared = true;
+                    }
+
+                    // Prevent text selection while dragging (keep cursor unchanged)
+                    if (typeof document !== "undefined") {
+                      document.body.style.userSelect = "none";
+                    }
+
+                    setMarqueeActive(true);
+                    startAutoScrollLoop();
+                  }
+
                   scheduleMarqueeUpdate();
                   e.preventDefault();
                 }}
+                
                 onPointerUp={(e) => {
                   const st = marqueeStateRef.current;
                   if (!st || st.pointerId !== e.pointerId) return;
                   st.lastX = e.clientX;
                   st.lastY = e.clientY;
-                  computeAndApplyMarquee();
+
+                  // Only apply marquee selection if we actually started dragging.
+                  if (st.started) computeAndApplyMarquee();
+
                   const finished = endMarquee();
                   try {
                     (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
                   } catch {}
                   // Click on empty space (no drag) clears selection unless Ctrl/Cmd was held.
-                  if (finished && !finished.moved && finished.mode === "replace") clearSelection();
+                  if (finished && !finished.started && finished.mode === "replace") clearSelection();
                   e.preventDefault();
                 }}
+                
                 onPointerCancel={(e) => {
                   const st = marqueeStateRef.current;
                   if (!st || st.pointerId !== e.pointerId) return;
