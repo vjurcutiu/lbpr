@@ -28,6 +28,13 @@ class DeleteResponse(BaseModel):
     ok: bool = True
 
 
+class DeleteFolderResponse(BaseModel):
+    ok: bool = True
+    deleted_files: int = 0
+    deleted_folders: int = 0
+    deleted_markers: int = 0
+
+
 class FolderItem(BaseModel):
     path: str
     name: str

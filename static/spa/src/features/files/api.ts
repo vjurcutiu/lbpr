@@ -83,6 +83,43 @@ export async function deleteFile(id: string): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
+
+export type DeleteFolderResponse = {
+  ok: boolean;
+  deleted_files?: number;
+  deleted_folders?: number;
+};
+
+function encodePathPreserveSlashes(p: string) {
+  return (p || "")
+    .split("/")
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+}
+
+/**
+ * DELETE /v1/files/folders/{folder_path}?recursive=true
+ */
+export async function deleteFolder(
+  folderPath: string,
+  opts?: { recursive?: boolean }
+): Promise<DeleteFolderResponse> {
+  const recursive = opts?.recursive ?? true;
+  const qs = recursive ? "?recursive=true" : "";
+  const p = encodePathPreserveSlashes(folderPath);
+  const res = await fetch(`${API_BASE}/v1/files/folders/${p}${qs}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  try {
+    return await res.json();
+  } catch {
+    return { ok: true };
+  }
+}
+
+
 export async function uploadFile(file: File): Promise<{ job_id: string }> {
   const form = new FormData();
   form.append("file", file);

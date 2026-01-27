@@ -11,6 +11,7 @@ from .schemas import (
     UploadResponse,
     UploadBatchResponse,
     DeleteResponse,
+    DeleteFolderResponse,
     FolderItem,
     CreateFolderRequest,
     CreateFolderResponse,
@@ -63,6 +64,26 @@ async def create_folder(req: CreateFolderRequest, user: SessionOut = Depends(get
         return CreateFolderResponse(ok=True, folder=folder)
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/folders/{folder_path:path}", response_model=DeleteFolderResponse)
+async def delete_folder(
+    folder_path: str,
+    recursive: bool = Query(True, description="If true, delete contents recursively"),
+    user: SessionOut = Depends(get_current_user),
+):
+    """Delete a folder (and optionally its contents)."""
+    try:
+        res = service.delete_folder(user.uid, folder_path, recursive=recursive)
+        return DeleteFolderResponse(ok=True, **res)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Forbidden")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

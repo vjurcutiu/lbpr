@@ -740,6 +740,98 @@ def delete_file(uid: str, file_id: str) -> bool:
     log.info("files_delete_ok", uid=uid, id=file_id)
     return True
 
+def delete_folder(uid: str, folder_path: str, *, recursive: bool = True) -> dict:
+    """Delete a folder.
+
+    When recursive=True, deletes all files in the folder tree, all folder marker objects,
+    and all folder docs (the folder itself + descendants).
+
+    Returns counts: deleted_files, deleted_folders, deleted_markers.
+    """
+    raw_path = index_store.normalize_folder_path(folder_path)
+    if not raw_path:
+        raise ValueError("Folder path required")
+
+    # Stored form may be tokenized depending on config.
+    stored_path = tokenize_text(uid, raw_path) if settings.PII_TOKENIZE_FILENAMES else raw_path
+
+    deleted_files = 0
+    deleted_markers = 0
+
+    # Use Firestore as the source of truth for the folder tree (works even for empty folders).
+    try:
+        folder_rows = index_store.list_folders_in_tree(uid, stored_path, limit=20000)
+    except Exception:
+        folder_rows = []
+
+    try:
+        file_rows = index_store.list_files_in_folder_tree(uid, stored_path, limit=20000)
+    except Exception:
+        file_rows = []
+
+    if not folder_rows and not file_rows:
+        # Nothing to delete in Firestore.
+        raise FileNotFoundError("Folder not found")
+
+    if not recursive:
+        # Non-recursive deletes are allowed only when empty (no files and no subfolders).
+        if file_rows:
+            raise ValueError("Folder not empty; use recursive=true")
+        # Any descendant folder besides itself?
+        desc_prefix = stored_path + "/"
+        has_child_folder = any(str(r.get('path') or '').startswith(desc_prefix) for r in folder_rows)
+        if has_child_folder:
+            raise ValueError("Folder not empty; use recursive=true")
+
+    # 1) Delete files in the tree
+    if recursive and file_rows:
+        for r in file_rows:
+            sp = str(r.get("storage_path") or "").strip()
+            if not sp:
+                continue
+            try:
+                if delete_file(uid, sp):
+                    deleted_files += 1
+            except Exception as e:
+                log.debug("folder_delete_file_failed", uid=uid, folder=stored_path, file_id=sp, error=str(e))
+
+    # 2) Delete folder marker objects (optional)
+    try:
+        bkt = _bucket()
+        marker_prefix = f"{_user_prefix(uid)}/uploads/.folders/{stored_path}/"
+        for blob in bkt.list_blobs(prefix=marker_prefix):
+            try:
+                blob.delete()
+                deleted_markers += 1
+            except Exception:
+                pass
+    except Exception as e:
+        log.debug("folder_delete_markers_failed", uid=uid, folder=stored_path, error=str(e))
+
+    # 3) Delete folder docs (self + descendants)
+    deleted_folders = 0
+    try:
+        deleted_folders = index_store.delete_folders_in_tree(uid, stored_path, limit=20000)
+    except Exception as e:
+        log.debug("folder_delete_folderdocs_failed", uid=uid, folder=stored_path, error=str(e))
+
+    log.info(
+        "folder_delete_ok",
+        uid=uid,
+        folder=stored_path,
+        recursive=recursive,
+        deleted_files=deleted_files,
+        deleted_folders=deleted_folders,
+        deleted_markers=deleted_markers,
+    )
+
+    return {
+        "deleted_files": int(deleted_files),
+        "deleted_folders": int(deleted_folders),
+        "deleted_markers": int(deleted_markers),
+    }
+
+
 
 def get_signed_download_url(uid: str, file_id: str, minutes: int = 10) -> str:
     """Generate a signed URL forcing a download 'Save As' dialog."""

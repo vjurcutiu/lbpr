@@ -249,6 +249,172 @@ def delete_file(uid: str, storage_path: str) -> None:
         log.debug("file_index_delete_failed", extra={"uid": uid, "storage_path": storage_path, "error": str(e)})
 
 
+
+
+def list_files_in_folder_tree(uid: str, folder_path: str, *, limit: int = 20000) -> List[Dict[str, Any]]:
+    """Return file index rows whose folder_path is the given folder or a descendant.
+
+    Uses Firestore prefix-range queries when possible; falls back to listing and filtering.
+    """
+    folder_path = normalize_folder_path(folder_path)
+    if not folder_path:
+        raise ValueError("Folder path required")
+
+    db, fs = _db()
+    out: List[Dict[str, Any]] = []
+    desc_prefix = folder_path + "/"
+
+    try:
+        # Exact matches
+        q_eq = (
+            db.collection(ROOT_COLLECTION)
+            .document(uid)
+            .collection("files")
+            .where("folder_path", "==", folder_path)
+            .limit(int(limit))
+        )
+        for d in q_eq.stream():
+            out.append(d.to_dict() or {})
+
+        # Descendants (boundary-safe by using trailing slash)
+        q_pref = (
+            db.collection(ROOT_COLLECTION)
+            .document(uid)
+            .collection("files")
+            .where("folder_path", ">=", desc_prefix)
+            .where("folder_path", "<", desc_prefix + "\uf8ff")
+            .order_by("folder_path")
+            .limit(int(limit))
+        )
+        for d in q_pref.stream():
+            out.append(d.to_dict() or {})
+        return out
+    except Exception as e:
+        log.debug("files_index_folder_query_failed", extra={"uid": uid, "folder_path": folder_path, "error": str(e)})
+
+    # Fallback: list and filter
+    try:
+        rows = list_files(uid, limit=limit)
+    except Exception:
+        rows = []
+    for r in rows:
+        fp = str(r.get("folder_path") or "")
+        if fp == folder_path or fp.startswith(desc_prefix):
+            out.append(r)
+    return out
+
+
+def list_folders_in_tree(uid: str, folder_path: str, *, limit: int = 20000) -> List[Dict[str, Any]]:
+    """Return folder index rows whose path is the given folder or a descendant."""
+    folder_path = normalize_folder_path(folder_path)
+    if not folder_path:
+        raise ValueError("Folder path required")
+
+    db, fs = _db()
+    out: List[Dict[str, Any]] = []
+    desc_prefix = folder_path + "/"
+
+    try:
+        q_eq = (
+            db.collection(ROOT_COLLECTION)
+            .document(uid)
+            .collection("folders")
+            .where("path", "==", folder_path)
+            .limit(int(limit))
+        )
+        for d in q_eq.stream():
+            out.append(d.to_dict() or {})
+
+        q_pref = (
+            db.collection(ROOT_COLLECTION)
+            .document(uid)
+            .collection("folders")
+            .where("path", ">=", desc_prefix)
+            .where("path", "<", desc_prefix + "\uf8ff")
+            .order_by("path")
+            .limit(int(limit))
+        )
+        for d in q_pref.stream():
+            out.append(d.to_dict() or {})
+        return out
+    except Exception as e:
+        log.debug("folders_index_tree_query_failed", extra={"uid": uid, "folder_path": folder_path, "error": str(e)})
+
+    # Fallback: list and filter
+    try:
+        rows = list_folders(uid)
+    except Exception:
+        rows = []
+    for r in rows:
+        p = str(r.get("path") or "")
+        if p == folder_path or p.startswith(desc_prefix):
+            out.append(r)
+    return out
+
+
+def delete_folders_in_tree(uid: str, folder_path: str, *, limit: int = 20000) -> int:
+    """Delete folder docs for the given folder path and all descendants. Returns count deleted."""
+    folder_path = normalize_folder_path(folder_path)
+    if not folder_path:
+        raise ValueError("Folder path required")
+
+    db, fs = _db()
+    count = 0
+    desc_prefix = folder_path + "/"
+
+    # Delete exact + descendants using the same boundary-safe approach
+    try:
+        # Exact doc id can be computed, but deleting via query keeps it robust.
+        q_eq = (
+            db.collection(ROOT_COLLECTION)
+            .document(uid)
+            .collection("folders")
+            .where("path", "==", folder_path)
+            .limit(int(limit))
+        )
+        for d in q_eq.stream():
+            try:
+                d.reference.delete()
+                count += 1
+            except Exception:
+                pass
+
+        q_pref = (
+            db.collection(ROOT_COLLECTION)
+            .document(uid)
+            .collection("folders")
+            .where("path", ">=", desc_prefix)
+            .where("path", "<", desc_prefix + "\uf8ff")
+            .order_by("path")
+            .limit(int(limit))
+        )
+        for d in q_pref.stream():
+            try:
+                d.reference.delete()
+                count += 1
+            except Exception:
+                pass
+    except Exception as e:
+        log.debug("folders_tree_delete_failed", extra={"uid": uid, "folder_path": folder_path, "error": str(e)})
+        # Fallback: list and delete by computed doc id
+        try:
+            rows = list_folders_in_tree(uid, folder_path, limit=limit)
+        except Exception:
+            rows = []
+        for r in rows:
+            p = str(r.get("path") or "")
+            if not p:
+                continue
+            try:
+                did = folder_doc_id(uid, p)
+                db.collection(ROOT_COLLECTION).document(uid).collection("folders").document(did).delete()
+                count += 1
+            except Exception:
+                pass
+
+    return count
+
+
 def backfill_from_storage(uid: str, items: Iterable[Dict[str, Any]]) -> None:
     """Best-effort index backfill when Firestore is empty."""
     for it in items:

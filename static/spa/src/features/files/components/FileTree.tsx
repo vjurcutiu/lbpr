@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
-import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy } from "lucide-react";
+import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy, Trash2 } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 
 import { cn } from "@/lib/utils";
@@ -49,6 +49,7 @@ export function FileTree({
   onOpenFile,
   onUploadTo,
   onNewFolder,
+  onDeleteFolder,
   onMoveFilesTo,
   onDropFilesTo,
 }: {
@@ -65,6 +66,7 @@ export function FileTree({
   onOpenFile: (file: FileItem) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
+  onDeleteFolder?: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
@@ -125,6 +127,7 @@ export function FileTree({
         onOpenFile={onOpenFile}
         onUploadTo={onUploadTo}
         onNewFolder={onNewFolder}
+        onDeleteFolder={onDeleteFolder}
         onMoveFilesTo={onMoveFilesTo}
         onDropFilesTo={onDropFilesTo}
       />
@@ -147,6 +150,7 @@ function FolderRow({
   onOpenFile,
   onUploadTo,
   onNewFolder,
+  onDeleteFolder,
   onMoveFilesTo,
   onDropFilesTo,
 }: {
@@ -164,6 +168,7 @@ function FolderRow({
   onOpenFile: (file: FileItem) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
+  onDeleteFolder?: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
@@ -290,6 +295,15 @@ function FolderRow({
           >
             <Copy className="h-4 w-4" /> Copy path
           </ContextMenuItem>
+
+          {onDeleteFolder && !isRoot && node.path ? (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem variant="destructive" onSelect={() => onDeleteFolder(node.path)}>
+                <Trash2 className="h-4 w-4" /> Delete folder…
+              </ContextMenuItem>
+            </>
+          ) : null}
         </ContextMenuContent>
       </ContextMenu>
 
@@ -313,6 +327,7 @@ function FolderRow({
                 onOpenFile={onOpenFile}
                 onUploadTo={onUploadTo}
                 onNewFolder={onNewFolder}
+                onDeleteFolder={onDeleteFolder}
                 onMoveFilesTo={onMoveFilesTo}
                 onDropFilesTo={onDropFilesTo}
               />
