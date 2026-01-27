@@ -32,6 +32,7 @@ export function UploadTrackerPanel({
   onClose,
   refreshKey,
   onAnyComplete,
+  onCleared,
   optimistic = [],
   /** NEW: filter panel to *this* batch only (by filename). */
   batchFilenames = [],
@@ -46,6 +47,8 @@ export function UploadTrackerPanel({
   refreshKey?: number | string;
   /** Called when one or more jobs transition to 'done' (or 'error'). */
   onAnyComplete?: (newlyCompleted: UploadJob[]) => void;
+  /** Called after a successful clear so the parent can also clear local optimistic rows. */
+  onCleared?: (scope: "done" | "all") => void;
   /** Optimistic jobs seeded by the Files page when files are *selected* (before the server creates jobs). */
   optimistic?: UploadJob[];
   batchFilenames?: string[];
@@ -206,6 +209,22 @@ export function UploadTrackerPanel({
         // @ts-ignore
         (toast as any).message("Nothing to clear", { description: "No matching entries." });
       }
+
+      // Immediately update UI (and let parent clear its optimistic rows) so the panel looks cleared right away.
+      if (scope === "all") {
+        setJobsFetched([]);
+        prevStatusRef.current = new Map();
+      } else {
+        setJobsFetched((prev) => {
+          const keep = prev.filter((j) => j.status === "running");
+          const nextMap = new Map<string, UploadJob["status"]>();
+          for (const j of keep) nextMap.set(j.job_id, j.status);
+          prevStatusRef.current = nextMap;
+          return keep;
+        });
+      }
+      onCleared?.(scope);
+
       await refresh();
     } catch (e: any) {
       console.error(e);
