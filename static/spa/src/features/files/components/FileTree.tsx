@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 
 import { cn } from "@/lib/utils";
+import type { FileItem } from "../api";
 import type { TreeNode } from "../utils/fileTree";
 import { folderDndId, isExternalFilesDrag } from "../utils/dnd";
 import {
@@ -13,13 +14,39 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { FileIconByName } from "./FileIconByName";
+
+const folderKey = (path: string) => `d:${path || ""}`;
+const fileKey = (id: string) => `f:${id || ""}`;
+
+function normPath(p: string) {
+  return (p || "").split("/").filter(Boolean).join("/");
+}
+
+function folderPrefixes(p: string) {
+  const norm = normPath(p);
+  if (!norm) return [""];
+  const parts = norm.split("/");
+  const out: string[] = [""];
+  let cur = "";
+  for (const part of parts) {
+    cur = cur ? `${cur}/${part}` : part;
+    out.push(cur);
+  }
+  return out;
+}
 
 export function FileTree({
   node,
   loading = false,
-  selectedPath,
+  selectedKey,
+  revealPaths,
   suppressClickUntilRef,
+  openFolderOnClick = false,
   onSelectFolder,
+  onOpenFolder,
+  onSelectFile,
+  onOpenFile,
   onUploadTo,
   onNewFolder,
   onMoveFilesTo,
@@ -27,24 +54,58 @@ export function FileTree({
 }: {
   node: TreeNode | null | undefined;
   loading?: boolean;
-  selectedPath: string;
+  selectedKey: string;
+  revealPaths?: string[];
   suppressClickUntilRef?: React.MutableRefObject<number>;
+  /** Useful for mobile (no double-click). */
+  openFolderOnClick?: boolean;
   onSelectFolder: (path: string) => void;
+  onOpenFolder: (path: string) => void;
+  onSelectFile: (file: FileItem) => void;
+  onOpenFile: (file: FileItem) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
-  const children = useMemo(() => {
-    const kids = (node?.children || []).filter((c) => c.type === "folder");
-    return kids;
-  }, [node]);
+  const children = useMemo(() => (node?.children || []) as TreeNode[], [node]);
+
+  // Track which folders are expanded.
+  const [openPaths, setOpenPaths] = useState<Set<string>>(() => new Set([""]));
+
+  useEffect(() => {
+    const paths = (revealPaths || []).filter(Boolean).map(normPath);
+    if (!paths.length) return;
+    setOpenPaths((prev) => {
+      const next = new Set(prev);
+      for (const p of paths) {
+        // Open ancestors so the target node is visible, but do not force-open the folder itself.
+        // This keeps "arrow click" expansion independent from selection.
+        const prefs = folderPrefixes(p);
+        prefs.pop();
+        for (const pref of prefs) next.add(pref);
+      }
+      next.add("");
+      return next;
+    });
+  }, [revealPaths?.join("|")]);
+
+  const toggleOpen = (path: string) => {
+    const p = normPath(path);
+    if (!p) return; // keep root always open
+    setOpenPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p);
+      else next.add(p);
+      return next;
+    });
+  };
 
   if (loading) {
     return (
       <div className="text-sm text-muted-foreground p-3 flex items-center gap-2">
         <Loader2 className="h-4 w-4 animate-spin" />
-        <span>Loading folders…</span>
+        <span>Loading…</span>
       </div>
     );
   }
@@ -54,9 +115,16 @@ export function FileTree({
       <FolderRow
         node={{ type: "folder", name: "Files", path: "", children }}
         isRoot
-        selectedPath={selectedPath}
+        depth={0}
+        selectedKey={selectedKey}
+        openPaths={openPaths}
+        toggleOpen={toggleOpen}
         suppressClickUntilRef={suppressClickUntilRef}
+        openFolderOnClick={openFolderOnClick}
         onSelectFolder={onSelectFolder}
+        onOpenFolder={onOpenFolder}
+        onSelectFile={onSelectFile}
+        onOpenFile={onOpenFile}
         onUploadTo={onUploadTo}
         onNewFolder={onNewFolder}
         onMoveFilesTo={onMoveFilesTo}
@@ -68,55 +136,68 @@ export function FileTree({
 
 function FolderRow({
   node,
-  isRoot = false,
-  depth = 0,
-  selectedPath,
+  isRoot,
+  depth,
+  selectedKey,
+  openPaths,
+  toggleOpen,
   suppressClickUntilRef,
+  openFolderOnClick,
   onSelectFolder,
+  onOpenFolder,
+  onSelectFile,
+  onOpenFile,
   onUploadTo,
   onNewFolder,
   onMoveFilesTo,
   onDropFilesTo,
 }: {
   node: TreeNode;
-  isRoot?: boolean;
-  depth?: number;
-  selectedPath: string;
+  isRoot: boolean;
+  depth: number;
+  selectedKey: string;
+  openPaths: Set<string>;
+  toggleOpen: (path: string) => void;
   suppressClickUntilRef?: React.MutableRefObject<number>;
+  openFolderOnClick: boolean;
   onSelectFolder: (path: string) => void;
+  onOpenFolder: (path: string) => void;
+  onSelectFile: (file: FileItem) => void;
+  onOpenFile: (file: FileItem) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
-  const [open, setOpen] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuKey, setMenuKey] = useState(0);
-  const folderChildren = (node.children || []).filter((c) => c.type === "folder");
+
+  const open = isRoot ? true : openPaths.has(normPath(node.path));
+  const children = (node.children || []) as TreeNode[];
+  const hasChildren = children.length > 0;
+  const selected = selectedKey === folderKey(node.path);
 
   const { setNodeRef, isOver } = useDroppable({ id: folderDndId(node.path) });
-
-  const caretClass = cn(
-    "h-4 w-4 transition-transform opacity-80",
-    open ? "rotate-90" : "rotate-0",
-    folderChildren.length === 0 && "opacity-0"
-  );
-
-  const selected = (selectedPath || "") === (node.path || "");
 
   const ignoreClick = () => {
     const until = suppressClickUntilRef?.current ?? 0;
     return Date.now() < until;
   };
 
+  const caretClass = cn(
+    "h-4 w-4 transition-transform opacity-80",
+    open ? "rotate-90" : "rotate-0",
+    !hasChildren && "opacity-0"
+  );
+
   return (
     <div className="mb-0.5">
       <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <ContextMenuTrigger asChild>
-          <button
+          <div
             ref={setNodeRef}
             className={cn(
-              "w-full flex items-center gap-1.5 px-2 py-2 rounded text-left",
+              "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left",
               "hover:bg-muted/40",
               selected && "bg-muted/50",
               isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5"
@@ -132,20 +213,11 @@ function FolderRow({
                 setMenuKey((k) => k + 1);
               }
             }}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (ignoreClick()) return;
-              onSelectFolder(node.path);
-            }}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              if (ignoreClick()) return;
-              if (folderChildren.length > 0) setOpen((v) => !v);
-            }}
             onContextMenu={(e) => {
               e.stopPropagation();
               if (ignoreClick()) return;
               onSelectFolder(node.path);
+              if (openFolderOnClick) onOpenFolder(node.path);
             }}
             onDragOver={(e) => {
               // Allow external OS file drops only (upload)
@@ -163,10 +235,44 @@ function FolderRow({
             }}
             title={node.path || "Root"}
           >
-            <ChevronRight className={caretClass} />
-            <Folder className="h-4 w-4" />
-            <span className={cn("truncate", isRoot && "font-medium")}>{node.name || "Root"}</span>
-          </button>
+            <button
+              type="button"
+              className={cn(
+                "p-0.5 rounded hover:bg-muted/60",
+                isRoot && "opacity-0 pointer-events-none",
+                !hasChildren && "opacity-0 pointer-events-none"
+              )}
+              aria-label={open ? "Collapse" : "Expand"}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (ignoreClick()) return;
+                if (!hasChildren) return;
+                toggleOpen(node.path);
+              }}
+            >
+              <ChevronRight className={caretClass} />
+            </button>
+
+            <button
+              type="button"
+              className="flex items-center gap-1.5 min-w-0 flex-1 text-left py-0.5"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (ignoreClick()) return;
+                onSelectFolder(node.path);
+                if (openFolderOnClick) onOpenFolder(node.path);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (ignoreClick()) return;
+                onSelectFolder(node.path);
+                onOpenFolder(node.path);
+              }}
+            >
+              <Folder className="h-4 w-4 shrink-0" />
+              <span className={cn("truncate", isRoot && "font-medium")}>{node.name || "Root"}</span>
+            </button>
+          </div>
         </ContextMenuTrigger>
         <ContextMenuContent key={menuKey} className="min-w-[12rem]">
           <ContextMenuItem onSelect={() => onUploadTo(node.path)}>
@@ -187,24 +293,96 @@ function FolderRow({
         </ContextMenuContent>
       </ContextMenu>
 
-      {open && folderChildren.length > 0 && (
+      {open && hasChildren && (
         <div>
-          {folderChildren.map((child) => (
-            <FolderRow
-              key={child.path}
-              node={child}
-              depth={depth + 1}
-              selectedPath={selectedPath}
-              suppressClickUntilRef={suppressClickUntilRef}
-              onSelectFolder={onSelectFolder}
-              onUploadTo={onUploadTo}
-              onNewFolder={onNewFolder}
-              onMoveFilesTo={onMoveFilesTo}
-              onDropFilesTo={onDropFilesTo}
-            />
-          ))}
+          {children.map((child) =>
+            child.type === "folder" ? (
+              <FolderRow
+                key={`d:${child.path}`}
+                node={child}
+                isRoot={false}
+                depth={depth + 1}
+                selectedKey={selectedKey}
+                openPaths={openPaths}
+                toggleOpen={toggleOpen}
+                suppressClickUntilRef={suppressClickUntilRef}
+                openFolderOnClick={openFolderOnClick}
+                onSelectFolder={onSelectFolder}
+                onOpenFolder={onOpenFolder}
+                onSelectFile={onSelectFile}
+                onOpenFile={onOpenFile}
+                onUploadTo={onUploadTo}
+                onNewFolder={onNewFolder}
+                onMoveFilesTo={onMoveFilesTo}
+                onDropFilesTo={onDropFilesTo}
+              />
+            ) : (
+              <FileRow
+                key={`f:${child.file?.id || child.path}`}
+                node={child}
+                depth={depth + 1}
+                selectedKey={selectedKey}
+                suppressClickUntilRef={suppressClickUntilRef}
+                onSelectFile={onSelectFile}
+                onOpenFile={onOpenFile}
+              />
+            )
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+function FileRow({
+  node,
+  depth,
+  selectedKey,
+  suppressClickUntilRef,
+  onSelectFile,
+  onOpenFile,
+}: {
+  node: TreeNode;
+  depth: number;
+  selectedKey: string;
+  suppressClickUntilRef?: React.MutableRefObject<number>;
+  onSelectFile: (file: FileItem) => void;
+  onOpenFile: (file: FileItem) => void;
+}) {
+  const file = node.file;
+  if (!file) return null;
+  const selected = selectedKey === fileKey(file.id);
+
+  const ignoreClick = () => {
+    const until = suppressClickUntilRef?.current ?? 0;
+    return Date.now() < until;
+  };
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left",
+        "hover:bg-muted/40",
+        selected && "bg-muted/50"
+      )}
+      style={{ paddingLeft: 8 + depth * 14 }}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (ignoreClick()) return;
+        onSelectFile(file);
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (ignoreClick()) return;
+        onSelectFile(file);
+        onOpenFile(file);
+      }}
+      title={file.name}
+    >
+      <span className="h-4 w-4 opacity-0" />
+      <FileIconByName name={file.name} className="h-4 w-4" />
+      <span className="truncate">{node.name}</span>
+    </button>
   );
 }

@@ -188,6 +188,15 @@ export default function FilesPage() {
     return loadJSON<string>(LS_LAST_FOLDER, "") || "";
   });
 
+  // LEFT TREE selection (separate from opened folder)
+  const [treeSelectedKey, setTreeSelectedKey] = useState<string>(() => {
+    const p = loadJSON<string>(LS_LAST_FOLDER, "") || "";
+    return `d:${p}`;
+  });
+
+  // When selecting a file in the tree, we may navigate to its parent folder but keep file selection.
+  const suppressNavClearRef = useRef<boolean>(false);
+
   // Selection (right panel)
   const [selectedFolderRowPaths, setSelectedFolderRowPaths] = useState<string[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
@@ -330,6 +339,10 @@ const sensors = useSensors(
 
   // Clear selection when navigating between folders
   useEffect(() => {
+    if (suppressNavClearRef.current) {
+      suppressNavClearRef.current = false;
+      return;
+    }
     setSelectedFileIds([]);
     setSelectedFolderRowPaths([]);
     selectionAnchorRef.current = null;
@@ -569,6 +582,22 @@ const sensors = useSensors(
     // tree already includes folders+files; FileTree filters to folders
     return tree;
   }, [tree]);
+
+  const treeRevealPaths = useMemo(() => {
+    if (!treeSelectedKey) return [] as string[];
+    if (treeSelectedKey.startsWith("d:")) {
+      // Reveal the selected folder (expand its ancestors, but not the folder itself).
+      return [treeSelectedKey.slice(2)];
+    }
+    if (treeSelectedKey.startsWith("f:")) {
+      const id = treeSelectedKey.slice(2);
+      const f = files.find((x) => x.id === id);
+      if (!f) return [];
+      // Reveal the file by expanding all ancestor folders.
+      return [f.name];
+    }
+    return [];
+  }, [treeSelectedKey, files]);
 
   const derivedFolderPaths = useMemo(() => {
     // union explicit folder paths + derived from tree to populate move targets
@@ -1686,9 +1715,37 @@ const sensors = useSensors(
                 <FileTree
                   loading={busy && (!tree || files.length === 0)}
                   node={treeForFolders}
-                  selectedPath={selectedFolder}
+                  selectedKey={treeSelectedKey}
+                  revealPaths={treeRevealPaths}
                   suppressClickUntilRef={suppressClickUntilRef}
-                  onSelectFolder={(p) => setSelectedFolder(p)}
+                  onSelectFolder={(p) => setTreeSelectedKey(`d:${p}`)}
+                  onOpenFolder={(p) => {
+                    setTreeSelectedKey(`d:${p}`);
+                    setSelectedFolder(p);
+                  }}
+                  onSelectFile={(file) => {
+                    setTreeSelectedKey(`f:${file.id}`);
+                    const folder = parentPath(file.name);
+                    if (folder !== selectedFolder) {
+                      suppressNavClearRef.current = true;
+                      setSelectedFolder(folder);
+                    }
+                    setSelectedFileIds([file.id]);
+                    setSelectedFolderRowPaths([]);
+                    selectionAnchorRef.current = `f:${file.id}`;
+                  }}
+                  onOpenFile={(file) => {
+                    setTreeSelectedKey(`f:${file.id}`);
+                    const folder = parentPath(file.name);
+                    if (folder !== selectedFolder) {
+                      suppressNavClearRef.current = true;
+                      setSelectedFolder(folder);
+                    }
+                    setSelectedFileIds([file.id]);
+                    setSelectedFolderRowPaths([]);
+                    selectionAnchorRef.current = `f:${file.id}`;
+                    openViewer(file);
+                  }}
                   onUploadTo={(p) => startUploadTo(p)}
                   onNewFolder={(p) => requestNewFolder(p)}
                   onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
@@ -2211,10 +2268,41 @@ const sensors = useSensors(
             <FileTree
               loading={busy && (!tree || files.length === 0)}
               node={treeForFolders}
-              selectedPath={selectedFolder}
-                  suppressClickUntilRef={suppressClickUntilRef}
-              onSelectFolder={(p) => {
+              selectedKey={treeSelectedKey}
+              revealPaths={treeRevealPaths}
+              openFolderOnClick={true}
+              suppressClickUntilRef={suppressClickUntilRef}
+              onSelectFolder={(p) => setTreeSelectedKey(`d:${p}`)}
+              onOpenFolder={(p) => {
+                setTreeSelectedKey(`d:${p}`);
                 setSelectedFolder(p);
+                setMobileFoldersOpen(false);
+              }}
+              onSelectFile={(file) => {
+                // On mobile, open files on tap.
+                setTreeSelectedKey(`f:${file.id}`);
+                const folder = parentPath(file.name);
+                if (folder !== selectedFolder) {
+                  suppressNavClearRef.current = true;
+                  setSelectedFolder(folder);
+                }
+                setSelectedFileIds([file.id]);
+                setSelectedFolderRowPaths([]);
+                selectionAnchorRef.current = `f:${file.id}`;
+                openViewer(file);
+                setMobileFoldersOpen(false);
+              }}
+              onOpenFile={(file) => {
+                setTreeSelectedKey(`f:${file.id}`);
+                const folder = parentPath(file.name);
+                if (folder !== selectedFolder) {
+                  suppressNavClearRef.current = true;
+                  setSelectedFolder(folder);
+                }
+                setSelectedFileIds([file.id]);
+                setSelectedFolderRowPaths([]);
+                selectionAnchorRef.current = `f:${file.id}`;
+                openViewer(file);
                 setMobileFoldersOpen(false);
               }}
               onUploadTo={(p) => startUploadTo(p)}
