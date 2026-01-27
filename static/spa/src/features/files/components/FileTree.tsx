@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy } from "lucide-react";
-import { useDroppable } from "@dnd-kit/core";
+import { useDroppable, useDraggable } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 
 import { cn } from "@/lib/utils";
 import type { FileItem } from "../api";
@@ -175,7 +176,23 @@ function FolderRow({
   const hasChildren = children.length > 0;
   const selected = selectedKey === folderKey(node.path);
 
-  const { setNodeRef, isOver } = useDroppable({ id: folderDndId(node.path) });
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+    transform,
+    isDragging,
+  } = useDraggable({ id: folderDndId(node.path), disabled: isRoot });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: folderDndId(node.path) });
+
+  const setNodeRef = (el: HTMLDivElement | null) => {
+    setDragRef(el);
+    setDropRef(el);
+  };
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+  } as React.CSSProperties;
 
   const ignoreClick = () => {
     const until = suppressClickUntilRef?.current ?? 0;
@@ -194,13 +211,14 @@ function FolderRow({
         <ContextMenuTrigger asChild>
           <div
             ref={setNodeRef}
+            style={{ ...style, paddingLeft: 8 + depth * 14 }}
             className={cn(
               "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left",
               "hover:bg-muted/40",
               selected && "bg-muted/50",
-              isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5"
+              isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5",
+              isDragging && "opacity-60"
             )}
-            style={{ paddingLeft: 8 + depth * 14 }}
             onContextMenuCapture={() => {
               if (menuOpen) {
                 flushSync(() => {
@@ -232,6 +250,8 @@ function FolderRow({
               if (fs.length) onDropFilesTo(node.path, fs);
             }}
             title={node.path || "Root"}
+            {...attributes}
+            {...listeners}
           >
             <button
               type="button"

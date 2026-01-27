@@ -72,6 +72,7 @@ import {
   listFiles,
   listFolders,
   createFolder,
+  moveFolder,
   updateFile,
   uploadFileToFolder,
   uploadFilesToFolder,
@@ -173,6 +174,25 @@ function readInternalFileIds(dt: DataTransfer | null): string[] {
 
 function uniqStrings(ids: string[]): string[] {
   return Array.from(new Set(ids.filter((x) => typeof x === "string" && x)));
+}
+
+function isDescendantPath(ancestor: string, maybeDescendant: string): boolean {
+  const a = (ancestor || "").split("/").filter(Boolean).join("/");
+  const b = (maybeDescendant || "").split("/").filter(Boolean).join("/");
+  if (!a || !b) return false;
+  if (a === b) return false;
+  return b.startsWith(a + "/");
+}
+
+function pickTopLevelFolders(paths: string[]): string[] {
+  const normed = uniqStrings(paths.map((p) => (p || "").split("/").filter(Boolean).join("/"))).filter(Boolean);
+  normed.sort((x, y) => x.length - y.length);
+  const out: string[] = [];
+  for (const p of normed) {
+    if (out.some((a) => isDescendantPath(a, p))) continue;
+    out.push(p);
+  }
+  return out;
 }
 
 export default function FilesPage() {
@@ -1487,6 +1507,55 @@ const sensors = useSensors(
     }
   };
 
+  const moveFoldersToFolder = async (folderPathsToMove: string[], destParent: string) => {
+    const paths = pickTopLevelFolders(folderPathsToMove);
+    if (!paths.length) return;
+
+    const dest = (destParent || "").split("/").filter(Boolean).join("/");
+
+    // Guardrail: prevent moving a folder into itself/child.
+    const invalid = paths.find((p) => p === dest || isDescendantPath(p, dest));
+    if (invalid) {
+      toast.error("Invalid move", {
+        description: "You can’t move a parent folder into itself or one of its children.",
+      });
+      return;
+    }
+
+    try {
+      const results = await Promise.allSettled(paths.map((p) => moveFolder(p, dest ? dest : null)));
+      const failed = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+
+      if (failed.length) {
+        const first = failed[0]?.reason;
+        toast.error("Move failed", {
+          description:
+            failed.length === 1
+              ? parseErr(first)
+              : `${failed.length} of ${paths.length} failed. ${parseErr(first)}`,
+        });
+      } else {
+        toast.success("Moved", {
+          description:
+            paths.length === 1
+              ? dest
+                ? `Moved into “${dest}”`
+                : "Moved to Root"
+              : dest
+              ? `Moved ${paths.length} folders into “${dest}”`
+              : `Moved ${paths.length} folders to Root`,
+        });
+      }
+
+      setSelectedFileIds([]);
+      setSelectedFolderRowPaths([]);
+      selectionAnchorRef.current = null;
+      await refresh();
+    } catch (err) {
+      toast.error("Move failed", { description: parseErr(err) });
+    }
+  };
+
   const moveFileToFolder = async (fileId: string, folder: string) => {
     return moveFilesToFolder([fileId], folder);
   };
@@ -1678,32 +1747,65 @@ const sensors = useSensors(
   sensors={sensors}
   onDragStart={(evt: DragStartEvent) => {
     const a = parseDndId(evt.active.id);
-    if (!a || a.kind !== "file") return;
-    const fileId = a.value;
-    const alreadySelected = selectedFileSet.has(fileId);
-    const ids = alreadySelected ? selectedFileIds : [fileId];
-    if (!alreadySelected) {
-      setSelectedFileIds([fileId]);
-      setSelectedFolderRowPaths([]);
-      selectionAnchorRef.current = `f:${fileId}`;
+    if (!a) return;
+
+    if (a.kind === "file") {
+      const fileId = a.value;
+      const alreadySelected = selectedFileSet.has(fileId);
+      const ids = alreadySelected ? selectedFileIds : [fileId];
+      if (!alreadySelected) {
+        setSelectedFileIds([fileId]);
+        setSelectedFolderRowPaths([]);
+        selectionAnchorRef.current = `f:${fileId}`;
+      }
+      const name = files.find((f) => f.id === fileId)?.name || "File";
+      setActiveInternalDrag({
+        count: ids.length,
+        label: ids.length > 1 ? `${ids.length} items` : name,
+      });
+      return;
     }
-    const name = files.find((f) => f.id === fileId)?.name || "File";
-    setActiveInternalDrag({
-      count: ids.length,
-      label: ids.length > 1 ? `${ids.length} items` : name,
-    });
+
+    if (a.kind === "folder") {
+      const folderPath = normalizeFolderPath(a.value);
+      if (!folderPath) return; // don't drag Root
+      const alreadySelected = selectedFolderRowSet.has(folderPath);
+      const paths = alreadySelected ? selectedFolderRowPaths : [folderPath];
+      if (!alreadySelected) {
+        setSelectedFolderRowPaths([folderPath]);
+        setSelectedFileIds([]);
+        selectionAnchorRef.current = `d:${folderPath}`;
+      }
+      setActiveInternalDrag({
+        count: paths.length,
+        label: paths.length > 1 ? `${paths.length} folders` : basename(folderPath) || "Folder",
+      });
+    }
   }}
   onDragEnd={(evt: DragEndEvent) => {
     setActiveInternalDrag(null);
     const a = parseDndId(evt.active.id);
     const o = parseDndId(evt.over?.id);
-    if (!a || a.kind !== "file" || !o || o.kind !== "folder") return;
-    const fileId = a.value;
+    if (!a || !o || o.kind !== "folder") return;
+
     const dest = normalizeFolderPath(o.value);
-    const ids = selectedFileSet.has(fileId) ? selectedFileIds : [fileId];
-    if (!ids.length) return;
     suppressClickUntilRef.current = Date.now() + 250;
-    moveFilesToFolder(ids, dest);
+
+    if (a.kind === "file") {
+      const fileId = a.value;
+      const ids = selectedFileSet.has(fileId) ? selectedFileIds : [fileId];
+      if (!ids.length) return;
+      moveFilesToFolder(ids, dest);
+      return;
+    }
+
+    if (a.kind === "folder") {
+      const folderPath = normalizeFolderPath(a.value);
+      if (!folderPath) return;
+      const paths = selectedFolderRowSet.has(folderPath) ? selectedFolderRowPaths : [folderPath];
+      if (!paths.length) return;
+      moveFoldersToFolder(paths, dest);
+    }
   }}
   onDragCancel={() => setActiveInternalDrag(null)}
 >
@@ -2827,18 +2929,36 @@ function FolderRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuKey, setMenuKey] = useState(0);
 
-  const { setNodeRef, isOver } = useDroppable({ id: folderDndId(node.path) });
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+    transform,
+    isDragging,
+  } = useDraggable({ id: folderDndId(node.path) });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: folderDndId(node.path) });
+
+  const setNodeRef = (el: HTMLDivElement | null) => {
+    setDragRef(el);
+    setDropRef(el);
+  };
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+  } as React.CSSProperties;
 
   return (
     <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <ContextMenuTrigger asChild>
         <div
           ref={setNodeRef}
+          style={style}
           className={cn(
             "grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
             "hover:bg-muted/40",
             selected && "bg-muted/60",
-            isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5"
+            isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5",
+            isDragging && "opacity-60"
           )}
           onContextMenuCapture={() => {
             if (menuOpen) {
@@ -2882,6 +3002,9 @@ function FolderRow({
             const fs = Array.from(e.dataTransfer.files || []);
             if (fs.length) onDropFilesHere(fs);
           }}
+          // dnd-kit
+          {...attributes}
+          {...listeners}
         >
           <div className="min-w-0 flex items-center gap-2">
             <Folder className="h-4 w-4 shrink-0" />

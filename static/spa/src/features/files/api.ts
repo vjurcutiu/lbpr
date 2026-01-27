@@ -45,6 +45,28 @@ export async function createFolder(path: string): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
+export type MoveFolderResponse = {
+  ok: boolean;
+  from_path: string;
+  to_path: string;
+  moved_files: number;
+  moved_folders: number;
+};
+
+export async function moveFolder(srcPath: string, destParentPath?: string | null): Promise<MoveFolderResponse> {
+  const res = await fetch(`${API_BASE}/v1/files/folders/move`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      src_path: srcPath,
+      dest_parent_path: destParentPath ? destParentPath : null,
+    }),
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  return res.json();
+}
+
 export type UpdateFileRequest = {
   folder?: string | null;
   name?: string | null;
