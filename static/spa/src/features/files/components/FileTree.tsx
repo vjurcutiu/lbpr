@@ -85,14 +85,12 @@ export function FileTree({
         prefs.pop();
         for (const pref of prefs) next.add(pref);
       }
-      next.add("");
       return next;
     });
   }, [revealPaths?.join("|")]);
 
   const toggleOpen = (path: string) => {
     const p = normPath(path);
-    if (!p) return; // keep root always open
     setOpenPaths((prev) => {
       const next = new Set(prev);
       if (next.has(p)) next.delete(p);
@@ -172,7 +170,7 @@ function FolderRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuKey, setMenuKey] = useState(0);
 
-  const open = isRoot ? true : openPaths.has(normPath(node.path));
+  const open = openPaths.has(normPath(node.path));
   const children = (node.children || []) as TreeNode[];
   const hasChildren = children.length > 0;
   const selected = selectedKey === folderKey(node.path);
@@ -239,7 +237,6 @@ function FolderRow({
               type="button"
               className={cn(
                 "p-0.5 rounded hover:bg-muted/60",
-                isRoot && "opacity-0 pointer-events-none",
                 !hasChildren && "opacity-0 pointer-events-none"
               )}
               aria-label={open ? "Collapse" : "Expand"}
@@ -266,6 +263,9 @@ function FolderRow({
                 e.stopPropagation();
                 if (ignoreClick()) return;
                 onSelectFolder(node.path);
+                // VSCode-ish: double-click toggles the tree open/closed,
+                // while also "opening" the folder in the main view.
+                if (hasChildren) toggleOpen(node.path);
                 onOpenFolder(node.path);
               }}
             >
