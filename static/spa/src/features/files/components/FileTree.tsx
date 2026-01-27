@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
-import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy } from "lucide-react";
+import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy, Scissors, Clipboard } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 
 import { cn } from "@/lib/utils";
@@ -49,6 +49,10 @@ export function FileTree({
   onOpenFile,
   onUploadTo,
   onNewFolder,
+  canPaste = false,
+  onCopyFolder,
+  onCutFolder,
+  onPasteInto,
   onMoveFilesTo,
   onDropFilesTo,
 }: {
@@ -65,6 +69,10 @@ export function FileTree({
   onOpenFile: (file: FileItem) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
+  canPaste?: boolean;
+  onCopyFolder?: (path: string) => void;
+  onCutFolder?: (path: string) => void;
+  onPasteInto?: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
@@ -125,6 +133,10 @@ export function FileTree({
         onOpenFile={onOpenFile}
         onUploadTo={onUploadTo}
         onNewFolder={onNewFolder}
+        canPaste={canPaste}
+        onCopyFolder={onCopyFolder}
+        onCutFolder={onCutFolder}
+        onPasteInto={onPasteInto}
         onMoveFilesTo={onMoveFilesTo}
         onDropFilesTo={onDropFilesTo}
       />
@@ -147,6 +159,10 @@ function FolderRow({
   onOpenFile,
   onUploadTo,
   onNewFolder,
+  canPaste,
+  onCopyFolder,
+  onCutFolder,
+  onPasteInto,
   onMoveFilesTo,
   onDropFilesTo,
 }: {
@@ -164,6 +180,10 @@ function FolderRow({
   onOpenFile: (file: FileItem) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
+  canPaste?: boolean;
+  onCopyFolder?: (path: string) => void;
+  onCutFolder?: (path: string) => void;
+  onPasteInto?: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
@@ -282,6 +302,21 @@ function FolderRow({
             <FolderPlus className="h-4 w-4" /> New folder…
           </ContextMenuItem>
           <ContextMenuSeparator />
+
+          <ContextMenuItem disabled={isRoot} onSelect={() => onCopyFolder?.(node.path)}
+          >
+            <Copy className="h-4 w-4" /> Copy
+          </ContextMenuItem>
+          <ContextMenuItem disabled={isRoot} onSelect={() => onCutFolder?.(node.path)}
+          >
+            <Scissors className="h-4 w-4" /> Cut
+          </ContextMenuItem>
+          <ContextMenuItem disabled={!canPaste} onSelect={() => onPasteInto?.(node.path)}
+          >
+            <Clipboard className="h-4 w-4" /> Paste
+          </ContextMenuItem>
+
+          <ContextMenuSeparator />
           <ContextMenuItem
             onSelect={() => {
               const p = node.path || "";
@@ -313,6 +348,10 @@ function FolderRow({
                 onOpenFile={onOpenFile}
                 onUploadTo={onUploadTo}
                 onNewFolder={onNewFolder}
+                canPaste={canPaste}
+                onCopyFolder={onCopyFolder}
+                onCutFolder={onCutFolder}
+                onPasteInto={onPasteInto}
                 onMoveFilesTo={onMoveFilesTo}
                 onDropFilesTo={onDropFilesTo}
               />

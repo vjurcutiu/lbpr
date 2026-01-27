@@ -62,6 +62,31 @@ export async function updateFile(id: string, payload: UpdateFileRequest): Promis
   return { ok: true };
 }
 
+export type PasteRequest = {
+  op: "copy" | "move";
+  destination: string; // folder path ("" for root)
+  folders?: string[];
+  files?: string[];
+};
+
+export type PasteResponse = {
+  ok: boolean;
+  created_folders?: number;
+  created_files?: number;
+};
+
+export async function pasteClipboard(payload: PasteRequest): Promise<PasteResponse> {
+  const res = await fetch(`${API_BASE}/v1/files/paste`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  return res.json();
+}
+
+
 function extractMessage(text: string): string {
   // try to parse common backend error envelopes
   try {

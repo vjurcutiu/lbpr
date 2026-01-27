@@ -29,6 +29,9 @@ import {
   Download,
   FolderPlus,
   Copy,
+  Pencil,
+  Scissors,
+  Clipboard,
   ArrowUp,
   Mic,
   ScanText,
@@ -78,6 +81,7 @@ import {
   deleteFile,
   fileDownloadUrl,
   getFileContent,
+  pasteClipboard,
   type FileItem,
 } from "./api";
 
@@ -175,6 +179,47 @@ function uniqStrings(ids: string[]): string[] {
   return Array.from(new Set(ids.filter((x) => typeof x === "string" && x)));
 }
 
+
+type ClipboardState = {
+  op: "copy" | "move";
+  folders: string[];
+  files: string[];
+};
+
+function reduceNestedFolderPaths(paths: string[]): string[] {
+  const norm = uniqStrings(paths.map(normalizeFolderPath));
+  norm.sort((a, b) => a.length - b.length);
+  const out: string[] = [];
+  for (const p of norm) {
+    if (!p) continue;
+    if (out.some((o) => p === o || p.startsWith(o + "/"))) continue;
+    out.push(p);
+  }
+  return out;
+}
+
+function fileParentFolder(files: FileItem[], id: string): string {
+  const f = files.find((x) => x.id === id);
+  if (!f) return "";
+  return parentPath(f.name || "");
+}
+
+function filterFileIdsNotUnderFolders(files: FileItem[], fileIds: string[], folderPaths: string[]): string[] {
+  const ids = uniqStrings(fileIds);
+  if (!folderPaths.length) return ids;
+  const tops = reduceNestedFolderPaths(folderPaths);
+  if (!tops.length) return ids;
+  const out: string[] = [];
+  for (const id of ids) {
+    const pf = normalizeFolderPath(fileParentFolder(files, id));
+    if (tops.some((src) => pf === src || pf.startsWith(src + "/"))) {
+      continue;
+    }
+    out.push(id);
+  }
+  return out;
+}
+
 export default function FilesPage() {
   const isMobile = useMediaQuery("(max-width: 767px)");
 
@@ -203,6 +248,10 @@ export default function FilesPage() {
   const selectionAnchorRef = useRef<string | null>(null);
   const selectedFileSet = useMemo(() => new Set(selectedFileIds), [selectedFileIds]);
   const selectedFolderRowSet = useMemo(() => new Set(selectedFolderRowPaths), [selectedFolderRowPaths]);
+
+  const [clipboard, setClipboard] = useState<ClipboardState | null>(null);
+  const clipboardHasItems = !!clipboard && (clipboard.folders.length > 0 || clipboard.files.length > 0);
+  const hasSelection = selectedFolderRowPaths.length > 0 || selectedFileIds.length > 0;
 
 // Internal drag (dnd-kit)
 const suppressClickUntilRef = useRef<number>(0);
@@ -403,6 +452,73 @@ const sensors = useSensors(
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+
+  const setClipboardFromSelection = useCallback(
+    (op: "copy" | "move") => {
+      const folders = reduceNestedFolderPaths(selectedFolderRowPaths);
+      const filesOnly = filterFileIdsNotUnderFolders(files, selectedFileIds, folders);
+      if (!folders.length && !filesOnly.length) {
+        toast.message("Nothing selected");
+        return;
+      }
+      setClipboard({ op, folders, files: filesOnly });
+      toast.success(op === "copy" ? "Copied" : "Cut", {
+        description: `${folders.length} folder${folders.length === 1 ? "" : "s"} • ${filesOnly.length} file${filesOnly.length === 1 ? "" : "s"}`,
+      });
+    },
+    [selectedFolderRowPaths, selectedFileIds, files]
+  );
+
+  const setClipboardForFolder = useCallback((op: "copy" | "move", folderPath: string) => {
+    const p = normalizeFolderPath(folderPath);
+    if (!p) {
+      toast.message("Root can't be copied/cut");
+      return;
+    }
+    setClipboard({ op, folders: [p], files: [] });
+    toast.success(op === "copy" ? "Copied folder" : "Cut folder", { description: basename(p) });
+  }, []);
+
+  const pasteIntoFolder = useCallback(
+    async (destPath: string) => {
+      if (!clipboard || !clipboardHasItems) return;
+
+      const destination = normalizeFolderPath(destPath);
+
+      if (clipboard.op === "move") {
+        for (const src of clipboard.folders) {
+          const s = normalizeFolderPath(src);
+          if (!s) continue;
+          if (destination === s || destination.startsWith(s + "/")) {
+            toast.error("Can't move a folder into itself", {
+              description: `Destination is inside “${basename(s)}”.`,
+            });
+            return;
+          }
+        }
+      }
+
+      try {
+        setBusy(true);
+        await pasteClipboard({
+          op: clipboard.op,
+          destination,
+          folders: clipboard.folders,
+          files: clipboard.files,
+        });
+        await refresh();
+        if (clipboard.op === "move") setClipboard(null);
+        toast.success("Pasted", { description: destination ? `Into “${destination}”` : "Into Root" });
+      } catch (err) {
+        console.error("[files] paste error", err);
+        toast.error("Paste failed", { description: parseErr(err) });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [clipboard, clipboardHasItems, refresh]
+  );
 
   // Resize (desktop)
   useEffect(() => {
@@ -1761,6 +1877,10 @@ const sensors = useSensors(
                   }}
                   onUploadTo={(p) => startUploadTo(p)}
                   onNewFolder={(p) => requestNewFolder(p)}
+                  canPaste={clipboardHasItems}
+                  onCopyFolder={(p) => setClipboardForFolder("copy", p)}
+                  onCutFolder={(p) => setClipboardForFolder("move", p)}
+                  onPasteInto={(p) => pasteIntoFolder(p)}
                   onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
                   onDropFilesTo={(folderPath, fs) => preparePending(fs, folderPath)}
                 />
@@ -1999,6 +2119,10 @@ const sensors = useSensors(
                             suppressClickUntilRef={suppressClickUntilRef}
                             onSelect={(e) => selectFolderRow(n.path, e)}
                             onOpen={() => setSelectedFolder(n.path)}
+                            canPaste={clipboardHasItems}
+                            onCopy={() => setClipboardFromSelection("copy")}
+                            onCut={() => setClipboardFromSelection("move")}
+                            onPasteHere={() => pasteIntoFolder(n.path)}
                             onUploadHere={() => startUploadTo(n.path)}
                             onNewFolderHere={() => requestNewFolder(n.path)}
                             onMoveFilesTo={(fileIds) => moveFilesToFolder(fileIds, n.path)}
@@ -2012,6 +2136,10 @@ const sensors = useSensors(
                             selected={!!(n.file?.id && selectedFileSet.has(n.file.id))}
                             onSelect={(e) => n.file && selectFile(n.file.id, e)}
                             onOpen={() => n.file && openViewer(n.file)}
+                            canPaste={clipboardHasItems}
+                            onCopy={() => setClipboardFromSelection("copy")}
+                            onCut={() => setClipboardFromSelection("move")}
+                            onPasteHere={() => pasteIntoFolder(selectedFolder)}
                             onDelete={() => n.file && requestDelete(n.file)}
                             onRename={() => n.file && requestRename(n.file)}
                             onMove={() => n.file && requestMove(n.file)}
@@ -2039,11 +2167,22 @@ const sensors = useSensors(
         </ContextMenuTrigger>
 
         <ContextMenuContent key={bgContextKey} className="min-w-[13rem]">
+
           <ContextMenuItem onSelect={bgUpload}>
             <Upload className="h-4 w-4" /> Upload
           </ContextMenuItem>
           <ContextMenuItem onSelect={bgNewFolder}>
             <FolderPlus className="h-4 w-4" /> New folder…
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem disabled={!hasSelection} onSelect={() => setClipboardFromSelection("copy")}>
+            <Copy className="h-4 w-4" /> Copy
+          </ContextMenuItem>
+          <ContextMenuItem disabled={!hasSelection} onSelect={() => setClipboardFromSelection("move")}>
+            <Scissors className="h-4 w-4" /> Cut
+          </ContextMenuItem>
+          <ContextMenuItem disabled={!clipboardHasItems} onSelect={() => pasteIntoFolder(selectedFolder)}>
+            <Clipboard className="h-4 w-4" /> Paste
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={bgRefresh}>
@@ -2316,6 +2455,10 @@ const sensors = useSensors(
               }}
               onUploadTo={(p) => startUploadTo(p)}
               onNewFolder={(p) => requestNewFolder(p)}
+              canPaste={clipboardHasItems}
+              onCopyFolder={(p) => setClipboardForFolder("copy", p)}
+              onCutFolder={(p) => setClipboardForFolder("move", p)}
+              onPasteInto={(p) => pasteIntoFolder(p)}
               onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
               onDropFilesTo={(folderPath, fs) => preparePending(fs, folderPath)}
             />
@@ -2808,6 +2951,10 @@ function FolderRow({
   selected,
   onSelect,
   onOpen,
+  canPaste,
+  onCopy,
+  onCut,
+  onPasteHere,
   onUploadHere,
   onNewFolderHere,
   onMoveFilesTo,
@@ -2818,6 +2965,10 @@ function FolderRow({
   selected: boolean;
   onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
+  canPaste: boolean;
+  onCopy: () => void;
+  onCut: () => void;
+  onPasteHere: () => void;
   onUploadHere: () => void;
   onNewFolderHere: () => void;
   onMoveFilesTo: (fileIds: string[]) => void;
@@ -2897,6 +3048,16 @@ function FolderRow({
           <Folder className="h-4 w-4" /> Open
         </ContextMenuItem>
         <ContextMenuSeparator />
+        <ContextMenuItem onSelect={onCopy}>
+          <Copy className="h-4 w-4" /> Copy
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onCut}>
+          <Scissors className="h-4 w-4" /> Cut
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!canPaste} onSelect={onPasteHere}>
+          <Clipboard className="h-4 w-4" /> Paste
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem onSelect={onUploadHere}>
           <Upload className="h-4 w-4" /> Upload here
         </ContextMenuItem>
@@ -2922,6 +3083,10 @@ function FileRow({
   selected,
   onSelect,
   onOpen,
+  canPaste,
+  onCopy,
+  onCut,
+  onPasteHere,
   onDelete,
   onRename,
   onMove,
@@ -2931,6 +3096,10 @@ function FileRow({
   selected: boolean;
   onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
+  canPaste: boolean;
+  onCopy: () => void;
+  onCut: () => void;
+  onPasteHere: () => void;
   onDelete: () => void;
   onRename: () => void;
   onMove: () => void;
@@ -3008,8 +3177,18 @@ function FileRow({
           <Download className="h-4 w-4" /> Download
         </ContextMenuItem>
         <ContextMenuSeparator />
+        <ContextMenuItem onSelect={onCopy}>
+          <Copy className="h-4 w-4" /> Copy
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={onCut}>
+          <Scissors className="h-4 w-4" /> Cut
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!canPaste} onSelect={onPasteHere}>
+          <Clipboard className="h-4 w-4" /> Paste
+        </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem onSelect={onRename}>
-          <Copy className="h-4 w-4" /> Rename…
+          <Pencil className="h-4 w-4" /> Rename…
         </ContextMenuItem>
         <ContextMenuItem onSelect={onMove}>
           <Folder className="h-4 w-4" /> Move…
