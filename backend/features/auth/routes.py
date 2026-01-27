@@ -22,15 +22,31 @@ from core.config import settings
 router = APIRouter(tags=["auth"])
 
 
-def _require_admin_key(req: Request):
-    """Optional guard for admin-only endpoints.
+def _magic_create_http_enabled() -> bool:
+    """Whether the HTTP endpoint for creating magic links is enabled.
 
-    If MAGIC_LINK_ADMIN_KEY is set, requests must provide header:
+    Recommended (Option A): keep this **disabled** and use the in-container
+    CLI (backend/admin_magic_link.py) instead.
+    """
+
+    v = (os.getenv("MAGIC_LINK_HTTP_CREATE_ENABLED", "0") or "0").strip().lower()
+    return v in {"1", "true", "yes", "on"}
+
+
+def _require_admin_key(req: Request, *, require_configured: bool = False):
+    """Admin-key guard for admin-only endpoints.
+
+    Header:
       x-admin-key: <MAGIC_LINK_ADMIN_KEY>
+
+    If require_configured=True and MAGIC_LINK_ADMIN_KEY is missing, raise 500
+    to avoid accidentally exposing an unguarded admin endpoint.
     """
 
     admin_key = os.getenv("MAGIC_LINK_ADMIN_KEY", "").strip()
     if not admin_key:
+        if require_configured:
+            raise HTTPException(status_code=500, detail="MAGIC_LINK_ADMIN_KEY not configured")
         return
     if req.headers.get("x-admin-key") != admin_key:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -93,12 +109,19 @@ def create_magic_link(
     """Create a one-time code and return a link (intended to be sent via SMS).
 
     Security:
-    - If MAGIC_LINK_ADMIN_KEY is set, requires `x-admin-key` header.
+    - By default, this HTTP endpoint is **disabled** (MAGIC_LINK_HTTP_CREATE_ENABLED=0)
+      and you should use the in-container CLI (backend/admin_magic_link.py).
+    - If you explicitly enable it, it requires `x-admin-key` and MAGIC_LINK_ADMIN_KEY
+      must be configured.
 
     Provide either payload.uid or payload.phone_number.
     """
 
-    _require_admin_key(req)
+    if not _magic_create_http_enabled():
+        # Fail closed: don't expose an admin provisioning endpoint to the internet.
+        raise HTTPException(status_code=404, detail="Not found")
+
+    _require_admin_key(req, require_configured=True)
 
     uid = (payload.uid or "").strip()
     phone = (payload.phone_number or "").strip()

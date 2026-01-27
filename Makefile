@@ -17,7 +17,7 @@ NET  := $(PROJECT)_appnet
 -include .env.local
 export
 
-.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check
+.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check
 
 help:
 	@echo "Targets:"
@@ -27,6 +27,7 @@ help:
 	@echo "  dev-logs-api         - follow dev logs (api only)"
 	@echo "  dev-logs-spa         - follow dev logs (spa only)"
 	@echo "  dev-logs-nginx       - follow dev logs (nginx only)"
+	@echo "  dev-magic-link       - generate a magic login link for a phone number (runs inside api container)"
 	@echo "  up-dev               - bring up base stack (docker-compose.yml, no SSL override)"
 	@echo "  staging / up-staging - bring up stack with Cloudflare SSL override"
 	@echo "  prod / up-prod       - bring up stack with Cloudflare SSL override"
@@ -41,6 +42,9 @@ help:
 	@echo "Local setup (once):"
 	@echo "  1) Install Doppler CLI"
 	@echo "  2) Create .env.local with DOPPLER_* values (see comment at top)"
+	@echo ""
+	@echo "Admin helpers (Option A):"
+	@echo "  make dev-magic-link PHONE=+40712345678 [BASE_URL=http://app.localhost] [RETURN_TO=/files] [TTL_SECONDS=86400]"
 
 # ----- Doppler (local dev) -----
 
@@ -74,6 +78,12 @@ dev-logs-spa:
 
 dev-logs-nginx:
 	$(DC) -p $(PROJECT)-dev $(DEV) logs -f nginx
+
+# ----- Admin: magic link provisioning (runs inside container) -----
+
+dev-magic-link:
+	@test -n "$(PHONE)" || (echo "Usage: make dev-magic-link PHONE=+40712345678 [BASE_URL=http://app.localhost] [RETURN_TO=/files] [TTL_SECONDS=86400]"; exit 1)
+	$(DC) -p $(PROJECT)-dev $(DEV) exec api sh -lc 'python admin_magic_link.py --phone "$(PHONE)" $(if $(BASE_URL),--base-url "$(BASE_URL)",) $(if $(RETURN_TO),--return-to "$(RETURN_TO)",) $(if $(TTL_SECONDS),--ttl-seconds "$(TTL_SECONDS)",)'
 
 # ----- Base / prod-style stack (docker-compose.yml) -----
 
