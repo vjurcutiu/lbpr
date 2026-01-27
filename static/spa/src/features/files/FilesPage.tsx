@@ -622,7 +622,10 @@ const sensors = useSensors(
     const q = filter.trim().toLowerCase();
     if (!q) return currentFolders;
     return allFolders
-      .filter((c) => c.name.toLowerCase().includes(q) || c.path.toLowerCase().includes(q))
+      // Match against the folder's own name only.
+      // If we match against the full path, searching for "test" would also match
+      // any descendant like "test/1" and "test/2".
+      .filter((c) => (c.name || "").toLowerCase().includes(q))
       .sort((a, b) => a.path.localeCompare(b.path));
   }, [currentFolders, allFolders, filter]);
   const filteredCurrentFiles = useMemo(() => {
@@ -631,9 +634,10 @@ const sensors = useSensors(
     return allFiles
       .filter((c) => {
         const n = (c.name || "").toLowerCase();
-        const p = (c.path || "").toLowerCase();
         const full = ((c.file?.name || "") as string).toLowerCase();
-        return n.includes(q) || p.includes(q) || full.includes(q);
+        // Same reasoning as folders: match against the file's own name only.
+        // Otherwise, searching a folder name would pull in unrelated descendants.
+        return n.includes(q) || full.includes(q);
       })
       .sort((a, b) => a.path.localeCompare(b.path));
   }, [currentFiles, allFiles, filter]);
