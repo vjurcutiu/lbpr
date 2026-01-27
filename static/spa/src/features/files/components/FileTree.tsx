@@ -287,7 +287,15 @@ function FolderRow({
             <FolderPlus className="h-4 w-4" /> New folder…
           </ContextMenuItem>
           {!isRoot && !!normPath(node.path) && (
-            <ContextMenuItem onSelect={() => onRenameFolder(node.path)}>
+            <ContextMenuItem
+              onSelect={(e) => {
+                // NOTE: Radix context-menu + modal open can be finicky unless we
+                // prevent the default selection behavior and close the menu ourselves.
+                e.preventDefault();
+                setMenuOpen(false);
+                onRenameFolder(node.path);
+              }}
+            >
               <Pencil className="h-4 w-4" /> Rename…
             </ContextMenuItem>
           )}

@@ -3014,7 +3014,15 @@ function FolderRow({
         <ContextMenuItem onSelect={onOpen}>
           <Folder className="h-4 w-4" /> Open
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onRename}>
+        <ContextMenuItem
+          onSelect={(e) => {
+            // Opening a modal from a Radix context-menu item can be flaky unless
+            // we prevent the default selection behavior and close the menu ourselves.
+            e.preventDefault();
+            setMenuOpen(false);
+            onRename();
+          }}
+        >
           <Pencil className="h-4 w-4" /> Rename…
         </ContextMenuItem>
         <ContextMenuSeparator />
@@ -3129,10 +3137,23 @@ function FileRow({
           <Download className="h-4 w-4" /> Download
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={onRename}>
+        <ContextMenuItem
+          onSelect={(e) => {
+            // See note in folder row: avoid Radix menu auto-close focus quirks when opening modals.
+            e.preventDefault();
+            setMenuOpen(false);
+            onRename();
+          }}
+        >
           <Copy className="h-4 w-4" /> Rename…
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onMove}>
+        <ContextMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            setMenuOpen(false);
+            onMove();
+          }}
+        >
           <Folder className="h-4 w-4" /> Move…
         </ContextMenuItem>
         <ContextMenuSeparator />
