@@ -197,10 +197,6 @@ export default function FilesPage() {
 
 // Internal drag (dnd-kit)
 const suppressClickUntilRef = useRef<number>(0);
-// After a marquee drag ends, browsers may still emit a synthetic `click` on the viewport.
-// Use this to prevent the "background click clears selection" handler from immediately wiping
-// the marquee selection.
-const suppressBgClearUntilRef = useRef<number>(0);
 const [activeInternalDrag, setActiveInternalDrag] = useState<{ count: number; label: string } | null>(null);
 const sensors = useSensors(
   useSensor(PointerSensor, {
@@ -1101,16 +1097,6 @@ const sensors = useSensors(
     return out;
   };
 
-  const openTranscribe = () => {
-    setTranscribeOpen(true);
-    setTranscribeErr(null);
-    setTranscribeText("");
-    setTranscribeSegments([]);
-    setTranscribeDetected([]);
-    setTranscribeBilledSeconds(null);
-    setTranscribeMeta(null);
-  };
-
   const pickTranscribeFile = () => {
     transcribeInputRef.current?.click();
   };
@@ -1221,13 +1207,6 @@ const sensors = useSensors(
   };
 
   // --- OCR helpers
-  const openOcr = () => {
-    setOcrOpen(true);
-    setOcrErr(null);
-    setOcrText("");
-    setOcrMeta(null);
-  };
-
   const pickOcrFile = () => {
     ocrInputRef.current?.click();
   };
@@ -1550,25 +1529,6 @@ const sensors = useSensors(
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={openTranscribe}
-          title="Transcribe an audio/video file"
-        >
-          <Mic className="h-4 w-4" />
-          <span className="ml-1.5 hidden sm:inline">Transcribe</span>
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={openOcr}
-          title="Extract text from an image (OCR)"
-        >
-          <ScanText className="h-4 w-4" />
-          <span className="ml-1.5 hidden sm:inline">OCR</span>
-        </Button>
         <Button variant="outline" size="sm" onClick={() => requestNewFolder(selectedFolder)} title="New folder">
           <FolderPlus className="h-4 w-4" />
           <span className="ml-1.5 hidden sm:inline">New folder</span>
@@ -1761,16 +1721,12 @@ const sensors = useSensors(
                 onContextMenu={(e) => {
                   const el = e.target as HTMLElement | null;
                   if (el && (el.closest("[data-file-row]") || el.closest("[data-folder-row]"))) return;
-                  // If we just completed a marquee selection, ignore the synthetic contextmenu.
-                  if (Date.now() < suppressBgClearUntilRef.current) return;
                   clearSelection();
                 }}
                 onClick={(e) => {
                   const el = e.target as HTMLElement | null;
                   if (el && (el.closest("[data-file-row]") || el.closest("[data-folder-row]"))) return;
                   if ((e as any).metaKey || (e as any).ctrlKey) return;
-                  // Browsers may emit a click after a drag; avoid clearing marquee selection.
-                  if (Date.now() < suppressBgClearUntilRef.current) return;
                   if (Date.now() < suppressClickUntilRef.current) return;
                   clearSelection();
                 }}
@@ -1880,10 +1836,6 @@ const sensors = useSensors(
                   if (st.started) computeAndApplyMarquee();
 
                   const finished = endMarquee();
-                  if (finished?.started) {
-                    // Prevent the follow-up synthetic click from clearing the selection.
-                    suppressBgClearUntilRef.current = Date.now() + 250;
-                  }
                   try {
                     (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
                   } catch {}
@@ -1895,8 +1847,7 @@ const sensors = useSensors(
                 onPointerCancel={(e) => {
                   const st = marqueeStateRef.current;
                   if (!st || st.pointerId !== e.pointerId) return;
-                  const finished = endMarquee();
-                  if (finished?.started) suppressBgClearUntilRef.current = Date.now() + 250;
+                  endMarquee();
                   try {
                     (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
                   } catch {}
@@ -2196,12 +2147,6 @@ const sensors = useSensors(
             </Button>
             <Button size="sm" onClick={() => startUploadTo(selectedFolder)} disabled={uploading} title="Upload">
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            </Button>
-            <Button variant="outline" size="sm" onClick={openTranscribe} title="Transcribe">
-              <Mic className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={openOcr} title="OCR">
-              <ScanText className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setMobileFoldersOpen(false)} title="Close">
               <X className="h-4 w-4" />
@@ -2534,29 +2479,7 @@ const sensors = useSensors(
               </a>
             )}
 
-            {viewerFile && viewerPayload?.kind === "image" && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    const url = (viewerPayload as any)?.url;
-                    if (!url) throw new Error("Preview not ready");
-                    const blob = await fetch(url).then((r) => r.blob());
-                    const type = viewerFile.content_type || blob.type || "application/octet-stream";
-                    const f = new File([blob], basename(viewerFile.name) || "image", { type });
-                    await runOcrWithFile(f);
-                  } catch (e) {
-                    toast.error("OCR failed", { description: parseErr(e) });
-                  }
-                }}
-                disabled={ocrBusy}
-                title="Extract text from this image"
-              >
-                <ScanText className="h-4 w-4" />
-                <span className="ml-1.5 hidden sm:inline">OCR</span>
-              </Button>
-            )}
+
             <Button
               variant="outline"
               size="sm"
