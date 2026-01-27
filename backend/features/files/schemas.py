@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pydantic import BaseModel, Field
 
 
@@ -64,3 +64,17 @@ class UpdateFileRequest(BaseModel):
 class UpdateFileResponse(BaseModel):
     ok: bool = True
     file: Optional[FileItem] = None
+
+
+
+class PasteRequest(BaseModel):
+    op: Literal["copy", "move"] = Field(..., description="copy = copy, move = cut")
+    destination: str = Field("", description="Destination folder path like 'clients/acme' ('' for root)")
+    folders: Optional[List[str]] = Field(None, description="Folder paths to copy/move (recursive)")
+    files: Optional[List[str]] = Field(None, description="File IDs (storage paths) to copy/move")
+
+
+class PasteResponse(BaseModel):
+    ok: bool = True
+    created_folders: int = 0
+    created_files: int = 0

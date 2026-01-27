@@ -267,3 +267,19 @@ def backfill_from_storage(uid: str, items: Iterable[Dict[str, Any]]) -> None:
             )
         except Exception:
             continue
+
+
+def delete_folder(uid: str, folder_path: str) -> None:
+    """Delete a folder doc by its path (best-effort).
+
+    Note: This only removes the folder record. It does NOT move/delete files.
+    """
+    db, fs = _db()
+    p = normalize_folder_path(folder_path)
+    if not p:
+        return
+    did = folder_doc_id(uid, p)
+    try:
+        db.collection(ROOT_COLLECTION).document(uid).collection('folders').document(did).delete()
+    except Exception as e:
+        log.debug('folder_index_delete_failed', extra={'uid': uid, 'path': p, 'error': str(e)})

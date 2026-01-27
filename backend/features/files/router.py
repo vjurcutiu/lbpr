@@ -16,6 +16,8 @@ from .schemas import (
     CreateFolderResponse,
     UpdateFileRequest,
     UpdateFileResponse,
+    PasteRequest,
+    PasteResponse,
 )
 from . import service
 
@@ -181,6 +183,31 @@ async def update_file(file_id: str, req: UpdateFileRequest, user: SessionOut = D
         raise HTTPException(status_code=404, detail="File not found")
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+
+
+@router.post("/paste", response_model=PasteResponse)
+async def paste(req: PasteRequest, user: SessionOut = Depends(get_current_user)):
+    """Paste clipboard contents (copy or move). Supports recursive folders."""
+    try:
+        return await service.paste(
+            user.uid,
+            op=req.op,
+            destination=req.destination,
+            folders=req.folders,
+            files=req.files,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

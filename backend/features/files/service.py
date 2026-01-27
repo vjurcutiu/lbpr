@@ -88,13 +88,13 @@ def _ocr_image_local(data: bytes) -> Optional[str]:
         return None
 
 
-async def _ocr_image_google(uid: str, job_id: str, data: bytes) -> Optional[str]:
+async def _ocr_image_google(uid: str, job_id: str, data: bytes, *, charge_usage: bool = True) -> Optional[str]:
     """OCR image via Google Cloud Vision (preferred)."""
     if not settings.OCR_ENABLE:
         return None
     try:
         from features.ocr import service as ocr_service  # lazy import
-        return await ocr_service.ocr_image_bytes(uid=uid, job_id=job_id, image_bytes=data, charge_usage=True)
+        return await ocr_service.ocr_image_bytes(uid=uid, job_id=job_id, image_bytes=data, charge_usage=charge_usage)
     except HTTPException:
         # Preserve status (e.g., 402 cap reached)
         raise
@@ -103,7 +103,7 @@ async def _ocr_image_google(uid: str, job_id: str, data: bytes) -> Optional[str]
         return None
 
 
-async def _extract_text(uid: str, job_id: str, name: str, content_type: Optional[str], data: bytes) -> Optional[str]:
+async def _extract_text(uid: str, job_id: str, name: str, content_type: Optional[str], data: bytes, *, charge_usage: bool = True) -> Optional[str]:
     """Extract text from a variety of formats; falls back to OCR for images; skips heavy PDF OCR."""
     ct = (content_type or "").lower()
     name_lower = (name or "").lower()
@@ -154,7 +154,7 @@ async def _extract_text(uid: str, job_id: str, name: str, content_type: Optional
                 return None
         # Images → OCR (best-effort)
         if ct.startswith("image/") or name_lower.endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif")):
-            text = await _ocr_image_google(uid, job_id, data)
+            text = await _ocr_image_google(uid, job_id, data, charge_usage=charge_usage)
             if text:
                 return text
             # optional local fallback
@@ -787,3 +787,516 @@ def get_file_bytes(uid: str, file_id: str) -> tuple[bytes, str]:
     ct = blob.content_type or (blob.metadata or {}).get("content_type") or "application/octet-stream"
     log.debug("files_get_bytes_ok", uid=uid, id=file_id, size=len(data), content_type=ct)
     return data, ct
+
+
+# ---------------------------- Clipboard paste ----------------------------
+
+
+def _reduce_nested_paths(paths: List[str]) -> List[str]:
+    """Remove nested folder roots so we don't process the same subtree multiple times."""
+    norm = []
+    for p in paths:
+        p2 = index_store.normalize_folder_path(p)
+        if p2:
+            norm.append(p2)
+    norm = sorted(set(norm), key=lambda x: (len(x), x))
+    out: List[str] = []
+    for p in norm:
+        if any(p == o or p.startswith(o + "/") for o in out):
+            continue
+        out.append(p)
+    return out
+
+
+def _join_folder(parent: str, child: str) -> str:
+    parent = index_store.normalize_folder_path(parent)
+    child = index_store.normalize_folder_path(child)
+    if not parent:
+        return child
+    if not child:
+        return parent
+    return index_store.normalize_folder_path(f"{parent}/{child}")
+
+
+def _unique_filename(desired: str, existing: set[str]) -> str:
+    """Return a unique filename (base name only) within a folder set."""
+    desired = (desired or "").strip()
+    if not desired:
+        desired = "file"
+    if desired not in existing:
+        existing.add(desired)
+        return desired
+
+    # split extension
+    base, ext = desired, ""
+    if "." in desired and not desired.startswith("."):
+        b, e = desired.rsplit(".", 1)
+        if b:
+            base, ext = b, "." + e
+
+    cand = f"{base} (copy){ext}"
+    if cand not in existing:
+        existing.add(cand)
+        return cand
+
+    n = 2
+    while True:
+        cand = f"{base} (copy {n}){ext}"
+        if cand not in existing:
+            existing.add(cand)
+            return cand
+        n += 1
+
+
+def _internalize(uid: str, s: str) -> str:
+    s = index_store.normalize_folder_path(s)
+    if settings.PII_TOKENIZE_FILENAMES:
+        return tokenize_text(uid, s) if s else ""
+    return s
+
+
+def _internalize_filename(uid: str, s: str) -> str:
+    fn = (s or "").strip().replace("\\", "/").split("/")[-1]
+    if settings.PII_TOKENIZE_FILENAMES:
+        return tokenize_text(uid, fn) if fn else fn
+    return fn
+
+
+def _folder_leaf(path: str) -> str:
+    p = index_store.normalize_folder_path(path)
+    if not p:
+        return ""
+    return p.split("/")[-1]
+
+
+def _folder_in_subtree(folder_path: str, root: str) -> bool:
+    if not root:
+        return False
+    return folder_path == root or folder_path.startswith(root + "/")
+
+
+def _collect_existing_names(file_rows: List[dict]) -> dict[str, set[str]]:
+    """Map folder_path -> set(original_name) from Firestore index rows."""
+    out: dict[str, set[str]] = {}
+    for r in file_rows:
+        fp = str(r.get("folder_path") or "")
+        on = str(r.get("original_name") or "")
+        if not on:
+            dn = str(r.get("display_name") or "")
+            on = dn.split("/")[-1] if dn else ""
+        out.setdefault(fp, set()).add(on)
+    return out
+
+
+def _folder_marker_create(uid: str, folder_path: str) -> None:
+    """Best-effort create a 0-byte marker object for empty-folder visibility."""
+    try:
+        bkt = _bucket()
+        marker = bkt.blob(_folder_marker_object(uid, folder_path))
+        marker.metadata = {
+            "owner_uid": uid,
+            "is_folder_marker": "1",
+            "display_name": f"{folder_path}/",
+            "folder_path": folder_path,
+        }
+        marker.upload_from_string(b"", content_type="application/octet-stream")
+    except Exception:
+        return
+
+
+def _folder_marker_delete(uid: str, folder_path: str) -> None:
+    try:
+        bkt = _bucket()
+        marker = bkt.blob(_folder_marker_object(uid, folder_path))
+        if marker.exists():
+            marker.delete()
+    except Exception:
+        return
+
+
+def _get_blob_metadata(uid: str, file_id: str) -> dict:
+    _assert_user_owns(uid, file_id)
+    bkt = _bucket()
+    blob = bkt.blob(file_id)
+    if not blob.exists():
+        raise FileNotFoundError("File not found")
+    blob.reload()
+    return blob.metadata or {}
+
+
+async def _copy_one_file(
+    uid: str,
+    *,
+    src_id: str,
+    dst_folder: str,
+    dst_name: str,
+    existing_names_by_folder: dict[str, set[str]],
+) -> str:
+    """Copy a single file into dst_folder with dst_name. Returns new storage_path."""
+    _assert_user_owns(uid, src_id)
+    bkt = _bucket()
+    src_blob = bkt.blob(src_id)
+    if not src_blob.exists():
+        raise FileNotFoundError("File not found")
+    src_blob.reload()
+    md = src_blob.metadata or {}
+
+    dataset = str(md.get("dataset") or "default")
+    content_type = str(src_blob.content_type or md.get("content_type") or "application/octet-stream")
+    checksum = str(md.get("checksum") or "")
+
+    # Resolve unique name in destination folder
+    dst_set = existing_names_by_folder.setdefault(dst_folder, set())
+    unique_name = _unique_filename(dst_name, dst_set)
+    dst_display = index_store.build_display_name(dst_folder, unique_name)
+
+    new_object = _object_path(uid, unique_name)
+    new_blob = bkt.copy_blob(src_blob, bkt, new_object)
+
+    # Overwrite metadata with new UI/display semantics
+    new_md = dict(md)
+    new_md.update(
+        {
+            "owner_uid": uid,
+            "dataset": dataset,
+            "content_type": content_type,
+            "checksum": checksum,
+            "original_name": unique_name,
+            "display_name": dst_display,
+            "folder_path": dst_folder,
+            "initial_name": md.get("initial_name") or md.get("original_name") or unique_name,
+            "copied_from": src_id,
+        }
+    )
+    new_blob.metadata = new_md
+    try:
+        new_blob.content_type = content_type
+    except Exception:
+        pass
+    new_blob.patch()
+
+    # Index Firestore
+    try:
+        index_store.upsert_file(
+            uid,
+            storage_path=new_object,
+            original_name=unique_name,
+            display_name=dst_display,
+            folder_path=dst_folder,
+            size=int(new_blob.size or 0),
+            content_type=content_type,
+            dataset=dataset,
+            checksum=checksum,
+            created_at=getattr(new_blob, "time_created", None) or datetime.utcnow(),
+        )
+    except Exception as e:
+        log.debug("files_index_copy_upsert_failed", uid=uid, src_id=src_id, new_id=new_object, error=str(e))
+
+    # Best-effort ingest so copies are searchable (no usage charge)
+    try:
+        data = src_blob.download_as_bytes()
+        text = await _extract_text(uid, new_object, unique_name, content_type, data, charge_usage=False)
+        tokenized_text = tokenize_text(uid, text) if text else text
+        if tokenized_text:
+            orchestrator.ingest_request(
+                IngestRequest(
+                    dataset=dataset,
+                    text=str(tokenized_text),
+                    doc_id=new_object,
+                    metadata={
+                        "owner_uid": uid,
+                        "source": "copy",
+                        "title": unique_name,
+                        "filename": unique_name,
+                        "file_id": new_object,
+                        "dataset": dataset,
+                        "checksum": checksum,
+                        "content_type": content_type,
+                        "display_name": dst_display,
+                        "folder_path": dst_folder,
+                    },
+                ),
+                uid=uid,
+            )
+    except Exception as e:
+        log.debug("copy_ingest_skipped", uid=uid, file_id=new_object, error=str(e))
+
+    return new_object
+
+
+def _move_one_file(
+    uid: str,
+    *,
+    src_id: str,
+    dst_folder: str,
+    dst_name: str,
+    existing_names_by_folder: dict[str, set[str]],
+) -> None:
+    """Move (cut) a single file by updating metadata + Firestore (storage path unchanged)."""
+    _assert_user_owns(uid, src_id)
+    bkt = _bucket()
+    blob = bkt.blob(src_id)
+    if not blob.exists():
+        raise FileNotFoundError("File not found")
+    blob.reload()
+    md = blob.metadata or {}
+
+    dataset = str(md.get("dataset") or "default")
+    content_type = str(blob.content_type or md.get("content_type") or "application/octet-stream")
+    checksum = str(md.get("checksum") or "")
+
+    current_folder = str(md.get("folder_path") or "")
+    current_name = str(md.get("original_name") or "")
+
+    # Resolve unique name in destination folder (ignore self when staying in same folder)
+    dst_set = existing_names_by_folder.setdefault(dst_folder, set())
+    if dst_folder == current_folder and current_name:
+        dst_set.discard(current_name)
+    # Also remove from current folder set so subsequent moves into the same folder behave naturally
+    if current_folder in existing_names_by_folder and current_name:
+        existing_names_by_folder[current_folder].discard(current_name)
+
+    unique_name = _unique_filename(dst_name, dst_set)
+    dst_display = index_store.build_display_name(dst_folder, unique_name)
+
+    if "initial_name" not in md:
+        md["initial_name"] = md.get("original_name") or unique_name
+
+    md["original_name"] = unique_name
+    md["display_name"] = dst_display
+    md["folder_path"] = dst_folder
+    md["dataset"] = dataset
+    md["content_type"] = content_type
+
+    blob.metadata = md
+    blob.patch()
+
+    try:
+        index_store.upsert_file(
+            uid,
+            storage_path=src_id,
+            original_name=unique_name,
+            display_name=dst_display,
+            folder_path=dst_folder,
+            size=int(blob.size or 0),
+            content_type=content_type,
+            dataset=dataset,
+            checksum=checksum,
+            created_at=getattr(blob, "time_created", None) or datetime.utcnow(),
+        )
+    except Exception as e:
+        log.debug("files_index_move_upsert_failed", uid=uid, file_id=src_id, error=str(e))
+
+
+async def paste(
+    uid: str,
+    *,
+    op: str,
+    destination: str,
+    folders: Optional[List[str]] = None,
+    files: Optional[List[str]] = None,
+):
+    """Paste clipboard contents (recursive folders/files).
+
+    op='copy' duplicates blobs and re-ingests into RAG without charging usage.
+    op='move' updates folder/name metadata (storage ids unchanged).
+    """
+
+    op = (op or "").strip().lower()
+    if op not in {"copy", "move"}:
+        raise ValueError("Invalid op; expected 'copy' or 'move'")
+
+    dest_raw = index_store.normalize_folder_path(destination)
+    dest = tokenize_text(uid, dest_raw) if settings.PII_TOKENIZE_FILENAMES and dest_raw else (dest_raw or "")
+
+    folder_roots_raw = _reduce_nested_paths(folders or [])
+    if any(not p for p in folder_roots_raw):
+        folder_roots_raw = [p for p in folder_roots_raw if p]
+
+    folder_roots = [tokenize_text(uid, p) if settings.PII_TOKENIZE_FILENAMES else p for p in folder_roots_raw]
+
+    file_ids = [str(x) for x in (files or []) if str(x or "").strip()]
+    # Deduplicate file ids
+    file_ids = sorted(set(file_ids))
+    for fid in file_ids:
+        _assert_user_owns(uid, fid)
+
+    # Prevent move into itself/descendant (backend guard)
+    if op == "move" and dest:
+        for src in folder_roots:
+            if dest == src or dest.startswith(src + "/"):
+                raise ValueError("Cannot move a folder into itself")
+
+    # Fetch index rows
+    file_rows = []
+    folder_rows = []
+    try:
+        file_rows = index_store.list_files(uid, limit=5000)
+    except Exception:
+        file_rows = []
+    try:
+        folder_rows = index_store.list_folders(uid)
+    except Exception:
+        folder_rows = []
+
+    existing_names_by_folder = _collect_existing_names(file_rows)
+
+    # Build folder subtree lists (tokenized/internal)
+    folder_subtrees: dict[str, List[str]] = {r: [] for r in folder_roots}
+    for fr in folder_rows:
+        p = str(fr.get("path") or "")
+        if not p:
+            continue
+        for root in folder_roots:
+            if _folder_in_subtree(p, root):
+                folder_subtrees.setdefault(root, []).append(p)
+
+    # Ensure each root includes itself even if it's not in Firestore yet
+    for root in folder_roots:
+        if root and root not in folder_subtrees.get(root, []):
+            folder_subtrees.setdefault(root, []).append(root)
+
+    # Collect files under folder selections
+    files_under_folders: List[dict] = []
+    seen_storage: set[str] = set()
+    for r in file_rows:
+        sp = str(r.get("storage_path") or "")
+        if not sp:
+            continue
+        fp = str(r.get("folder_path") or "")
+        for root in folder_roots:
+            if root and _folder_in_subtree(fp, root):
+                if sp in seen_storage:
+                    break
+                seen_storage.add(sp)
+                files_under_folders.append(r)
+                break
+
+    # Add explicitly selected files (even if not in index rows)
+    for fid in file_ids:
+        if fid in seen_storage:
+            continue
+        seen_storage.add(fid)
+        # synth row with blob metadata
+        try:
+            md = _get_blob_metadata(uid, fid)
+        except Exception:
+            md = {}
+        files_under_folders.append(
+            {
+                "storage_path": fid,
+                "folder_path": str(md.get("folder_path") or ""),
+                "original_name": str(md.get("original_name") or fid.split("/")[-1]),
+                "display_name": str(md.get("display_name") or md.get("original_name") or fid.split("/")[-1]),
+            }
+        )
+
+    created_folders = 0
+    created_files = 0
+
+    # Create destination folder docs for folder selections
+    dest_folders_to_create: set[str] = set()
+
+    # For each selected folder root, paste as a child folder into destination
+    root_to_destroot: dict[str, str] = {}
+    for root in folder_roots:
+        leaf = _folder_leaf(root)
+        if not leaf:
+            continue
+        root_to_destroot[root] = _join_folder(dest, leaf)
+
+    for root, subfolders in folder_subtrees.items():
+        dest_root = root_to_destroot.get(root)
+        if not dest_root:
+            continue
+        for sf in subfolders:
+            rel = ""
+            if sf != root:
+                rel = sf[len(root) + 1 :] if sf.startswith(root + "/") else ""
+            dst_sf = _join_folder(dest_root, rel)
+            if dst_sf:
+                dest_folders_to_create.add(dst_sf)
+
+    # Ensure parent chain for file-only paste when destination is set
+    if dest:
+        dest_folders_to_create.add(dest)
+
+    # Create all dest folders best-effort (and marker objects)
+    for fp in sorted(dest_folders_to_create, key=lambda x: (len(x), x)):
+        try:
+            index_store.upsert_folder(uid, fp)
+            _folder_marker_create(uid, fp)
+            created_folders += 1
+        except Exception:
+            continue
+
+    # Perform copy/move operations for files
+    for r in files_under_folders:
+        src_id = str(r.get("storage_path") or r.get("id") or "")
+        if not src_id:
+            continue
+
+        src_folder = str(r.get("folder_path") or "")
+        src_name = str(r.get("original_name") or "")
+        if not src_name:
+            dn = str(r.get("display_name") or "")
+            src_name = dn.split("/")[-1] if dn else src_id.split("/")[-1]
+
+        # Decide destination folder
+        dst_folder = dest
+
+        # If file came from a moved/copied folder subtree, keep relative structure
+        for root in folder_roots:
+            if root and _folder_in_subtree(src_folder, root):
+                dest_root = root_to_destroot.get(root) or dest
+                rel = ""
+                if src_folder != root:
+                    rel = src_folder[len(root) + 1 :] if src_folder.startswith(root + "/") else ""
+                dst_folder = _join_folder(dest_root, rel)
+                break
+
+        if op == "copy":
+            try:
+                await _copy_one_file(
+                    uid,
+                    src_id=src_id,
+                    dst_folder=dst_folder,
+                    dst_name=src_name,
+                    existing_names_by_folder=existing_names_by_folder,
+                )
+                created_files += 1
+            except Exception as e:
+                log.debug("paste_copy_file_failed", uid=uid, src_id=src_id, error=str(e))
+                continue
+        else:
+            try:
+                _move_one_file(
+                    uid,
+                    src_id=src_id,
+                    dst_folder=dst_folder,
+                    dst_name=src_name,
+                    existing_names_by_folder=existing_names_by_folder,
+                )
+            except Exception as e:
+                log.debug("paste_move_file_failed", uid=uid, src_id=src_id, error=str(e))
+                continue
+
+    # Cleanup folder docs/markers on move (best-effort)
+    if op == "move" and folder_roots:
+        try:
+            # delete folder docs for each moved subtree
+            for root in folder_roots:
+                # delete descendants first
+                desc = [p for p in folder_subtrees.get(root, []) if p]
+                desc.sort(key=lambda x: len(x), reverse=True)
+                for p in desc:
+                    try:
+                        index_store.delete_folder(uid, p)
+                        _folder_marker_delete(uid, p)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    from .schemas import PasteResponse
+    return PasteResponse(ok=True, created_folders=int(created_folders), created_files=int(created_files))
