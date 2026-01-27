@@ -185,11 +185,6 @@ function FolderRow({
   } = useDraggable({ id: folderDndId(node.path), disabled: isRoot });
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: folderDndId(node.path) });
 
-  const setNodeRef = (el: HTMLDivElement | null) => {
-    setDragRef(el);
-    setDropRef(el);
-  };
-
   const style = {
     transform: CSS.Translate.toString(transform),
   } as React.CSSProperties;
@@ -210,14 +205,10 @@ function FolderRow({
       <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <ContextMenuTrigger asChild>
           <div
-            ref={setNodeRef}
-            style={{ ...style, paddingLeft: 8 + depth * 14 }}
+            ref={setDropRef}
             className={cn(
-              "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left",
-              "hover:bg-muted/40",
-              selected && "bg-muted/50",
-              isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5",
-              isDragging && "opacity-60"
+              "rounded",
+              isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5"
             )}
             onContextMenuCapture={() => {
               if (menuOpen) {
@@ -250,9 +241,19 @@ function FolderRow({
               if (fs.length) onDropFilesTo(node.path, fs);
             }}
             title={node.path || "Root"}
-            {...attributes}
-            {...listeners}
           >
+            <div
+              ref={setDragRef}
+              style={{ ...style, paddingLeft: 8 + depth * 14 }}
+              className={cn(
+                "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left",
+                "hover:bg-muted/40",
+                selected && "bg-muted/50",
+                isDragging && "opacity-60"
+              )}
+              {...attributes}
+              {...listeners}
+            >
             <button
               type="button"
               className={cn(
@@ -292,6 +293,7 @@ function FolderRow({
               <Folder className="h-4 w-4 shrink-0" />
               <span className={cn("truncate", isRoot && "font-medium")}>{node.name || "Root"}</span>
             </button>
+            </div>
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent key={menuKey} className="min-w-[12rem]">

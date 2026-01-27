@@ -2938,11 +2938,6 @@ function FolderRow({
   } = useDraggable({ id: folderDndId(node.path) });
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: folderDndId(node.path) });
 
-  const setNodeRef = (el: HTMLDivElement | null) => {
-    setDragRef(el);
-    setDropRef(el);
-  };
-
   const style = {
     transform: CSS.Translate.toString(transform),
   } as React.CSSProperties;
@@ -2951,15 +2946,8 @@ function FolderRow({
     <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <ContextMenuTrigger asChild>
         <div
-          ref={setNodeRef}
-          style={style}
-          className={cn(
-            "grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
-            "hover:bg-muted/40",
-            selected && "bg-muted/60",
-            isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5",
-            isDragging && "opacity-60"
-          )}
+          ref={setDropRef}
+          className={cn("rounded", isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5")}
           onContextMenuCapture={() => {
             if (menuOpen) {
               flushSync(() => {
@@ -3002,17 +2990,28 @@ function FolderRow({
             const fs = Array.from(e.dataTransfer.files || []);
             if (fs.length) onDropFilesHere(fs);
           }}
-          // dnd-kit
-          {...attributes}
-          {...listeners}
         >
-          <div className="min-w-0 flex items-center gap-2">
-            <Folder className="h-4 w-4 shrink-0" />
-            <span className="truncate font-medium">{node.name}</span>
+          <div
+            ref={setDragRef}
+            style={style}
+            className={cn(
+              "grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
+              "hover:bg-muted/40",
+              selected && "bg-muted/60",
+              isDragging && "opacity-60"
+            )}
+            // dnd-kit
+            {...attributes}
+            {...listeners}
+          >
+            <div className="min-w-0 flex items-center gap-2">
+              <Folder className="h-4 w-4 shrink-0" />
+              <span className="truncate font-medium">{node.name}</span>
+            </div>
+            <div className="text-right text-muted-foreground">—</div>
+            <div className="text-muted-foreground">Folder</div>
+            <div className="text-muted-foreground">—</div>
           </div>
-          <div className="text-right text-muted-foreground">—</div>
-          <div className="text-muted-foreground">Folder</div>
-          <div className="text-muted-foreground">—</div>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent key={menuKey} className="min-w-[12rem]">
