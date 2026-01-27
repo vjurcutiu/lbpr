@@ -25,7 +25,6 @@ import {
   ChevronUp,
   ChevronDown,
   X,
-  Info,
   Download,
   FolderPlus,
   Copy,
@@ -313,7 +312,6 @@ const sensors = useSensors(
   // Viewer modal (with search + metadata)
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerId, setViewerId] = useState<string | null>(null);
-  const [viewerInfoOpen, setViewerInfoOpen] = useState(true);
   const [content, setContent] = useState<Record<string, Awaited<ReturnType<typeof getFileContent>>>>({});
   const [infileQuery, setInfileQuery] = useState("");
   const [infileIdx, setInfileIdx] = useState(0);
@@ -1567,7 +1565,6 @@ const sensors = useSensors(
   const openViewer = async (file: FileItem) => {
     setViewerId(file.id);
     setViewerOpen(true);
-    setViewerInfoOpen(true);
     if (!content[file.id]) {
       try {
         const payload = await getFileContent(file.id);
@@ -2599,7 +2596,7 @@ const sensors = useSensors(
       </Dialog>
 
       {/* File viewer modal */}
-      <Dialog
+            <Dialog
         open={viewerOpen}
         onOpenChange={(open) => {
           setViewerOpen(open);
@@ -2610,116 +2607,83 @@ const sensors = useSensors(
           }
         }}
       >
-        <DialogContent className="p-0 max-w-[95vw] w-[70rem] h-[88vh] flex flex-col">
-          <div className="px-4 py-3 border-b flex items-center gap-2">
-            <div className="min-w-0">
-              <div className="font-medium truncate">{viewerFile ? basename(viewerFile.name) : ""}</div>
-              <div className="text-xs text-muted-foreground truncate">{viewerFile ? viewerFile.name : ""}</div>
-            </div>
-            <div className="flex-1" />
-            {viewerFile && (
-              <a
-                className="inline-flex"
-                href={fileDownloadUrl(viewerFile.id)}
-                title="Download"
-                onClick={() => console.debug("[files] viewer download", { id: viewerFile.id })}
-              >
-                <Button variant="outline" size="sm">
-                  <Download className="h-4 w-4" />
-                  <span className="ml-1.5 hidden sm:inline">Download</span>
-                </Button>
-              </a>
-            )}
-
-            {viewerFile && viewerPayload?.kind === "image" && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    const url = (viewerPayload as any)?.url;
-                    if (!url) throw new Error("Preview not ready");
-                    const blob = await fetch(url).then((r) => r.blob());
-                    const type = viewerFile.content_type || blob.type || "application/octet-stream";
-                    const f = new File([blob], basename(viewerFile.name) || "image", { type });
-                    await runOcrWithFile(f);
-                  } catch (e) {
-                    toast.error("OCR failed", { description: parseErr(e) });
-                  }
-                }}
-                disabled={ocrBusy}
-                title="Extract text from this image"
-              >
-                <ScanText className="h-4 w-4" />
-                <span className="ml-1.5 hidden sm:inline">OCR</span>
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setViewerInfoOpen((v) => !v)}
-              disabled={!viewerFile}
-              title="Toggle info"
-            >
-              <Info className="h-4 w-4" />
-              <span className="ml-1.5 hidden sm:inline">Info</span>
-            </Button>
-          </div>
-
-          {/* In-file search */}
-          <div className="px-4 py-2 border-b bg-background flex items-center gap-2">
-            <div className="relative flex-1 min-w-0">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={canSearchInFile ? "Search in this file…" : "Search available for text files"}
-                value={infileQuery}
-                onChange={(e) => setInfileQuery(e.target.value)}
-                className="pl-8 pr-28"
-                disabled={!viewerFile || !canSearchInFile}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    if ((e as any).shiftKey) gotoPrev();
-                    else gotoNext();
-                  }
-                }}
-              />
-              <div className="absolute right-24 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground select-none">
-                {infileQuery.trim() && canSearchInFile ? (matchCount > 0 ? `${infileIdx + 1}/${matchCount}` : "0/0") : ""}
+        <DialogContent className="p-0 w-[84rem] max-w-[96vw] h-[calc(100vh-2rem)] sm:h-[calc(100vh-4rem)] flex flex-col">
+          {/* Title + search + download */}
+          <div className="px-3 sm:px-4 py-2 border-b bg-background">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="min-w-0 sm:max-w-[22rem]">
+                <div className="font-medium truncate" title={viewerFile ? viewerFile.name : ""}>
+                  {viewerFile ? basename(viewerFile.name) : ""}
+                </div>
               </div>
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                <button
-                  className="p-1 rounded hover:bg-muted disabled:opacity-50"
-                  title="Previous match (Shift+Enter)"
-                  onClick={gotoPrev}
-                  disabled={!canSearchInFile || matchCount === 0}
-                >
-                  <ChevronUp className="h-4 w-4" />
-                </button>
-                <button
-                  className="p-1 rounded hover:bg-muted disabled:opacity-50"
-                  title="Next match (Enter)"
-                  onClick={gotoNext}
-                  disabled={!canSearchInFile || matchCount === 0}
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </button>
-                <button
-                  className="p-1 rounded hover:bg-muted disabled:opacity-50"
-                  title="Clear search"
-                  onClick={clearInfile}
-                  disabled={!infileQuery}
-                >
-                  <X className="h-4 w-4" />
-                </button>
+
+              {/* In-file search */}
+              <div className="relative flex-1 min-w-0">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder={canSearchInFile ? "Search…" : "Search available for text files"}
+                  value={infileQuery}
+                  onChange={(e) => setInfileQuery(e.target.value)}
+                  className="pl-8 pr-24"
+                  disabled={!viewerFile || !canSearchInFile}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      if ((e as any).shiftKey) gotoPrev();
+                      else gotoNext();
+                    }
+                  }}
+                />
+                <div className="absolute right-24 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground select-none hidden sm:block">
+                  {infileQuery.trim() && canSearchInFile ? (matchCount > 0 ? `${infileIdx + 1}/${matchCount}` : "0/0") : ""}
+                </div>
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <button
+                    className="p-1 rounded hover:bg-muted disabled:opacity-50"
+                    title="Previous match (Shift+Enter)"
+                    onClick={gotoPrev}
+                    disabled={!canSearchInFile || matchCount === 0}
+                  >
+                    <ChevronUp className="h-4 w-4" />
+                  </button>
+                  <button
+                    className="p-1 rounded hover:bg-muted disabled:opacity-50"
+                    title="Next match (Enter)"
+                    onClick={gotoNext}
+                    disabled={!canSearchInFile || matchCount === 0}
+                  >
+                    <ChevronDown className="h-4 w-4" />
+                  </button>
+                  <button
+                    className="p-1 rounded hover:bg-muted disabled:opacity-50"
+                    title="Clear search"
+                    onClick={clearInfile}
+                    disabled={!infileQuery}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
+
+              {/* Download */}
+              {viewerFile && (
+                <a
+                  className="inline-flex shrink-0"
+                  href={fileDownloadUrl(viewerFile.id)}
+                  title="Download"
+                  onClick={() => console.debug("[files] viewer download", { id: viewerFile.id })}
+                >
+                  <Button variant="outline" size="icon" aria-label="Download">
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </a>
+              )}
             </div>
           </div>
 
-          {/* Content + metadata */}
-          <div className={cn("flex-1 min-h-0 grid", viewerInfoOpen ? "md:grid-cols-[1fr_18rem]" : "grid-cols-1")}
-          >
-            <div className="min-h-0 overflow-auto p-4">
-              <div className="rounded-lg border bg-background shadow-sm p-4">
+          {/* Content */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="h-full overflow-auto p-3 sm:p-4">
+              <div className="h-full w-full">
                 <FileViewer
                   payload={viewerId ? content[viewerId] : undefined}
                   file={viewerFile}
@@ -2728,36 +2692,6 @@ const sensors = useSensors(
                 />
               </div>
             </div>
-            {viewerInfoOpen && (
-              <div className="min-h-0 overflow-auto border-l bg-muted/10 p-4">
-                {viewerFile ? (
-                  <div className="text-sm grid grid-cols-3 gap-x-3 gap-y-2">
-                    <div className="text-muted-foreground">Name</div>
-                    <div className="col-span-2 break-all">{basename(viewerFile.name)}</div>
-                    <div className="text-muted-foreground">Path</div>
-                    <div className="col-span-2 break-all">{viewerFile.name}</div>
-                    <div className="text-muted-foreground">ID</div>
-                    <div className="col-span-2 break-all">{viewerFile.id}</div>
-                    <div className="text-muted-foreground">Size</div>
-                    <div className="col-span-2">{fmtSize(viewerFile.size || 0)}</div>
-                    {viewerFile.created_at && (
-                      <>
-                        <div className="text-muted-foreground">Created</div>
-                        <div className="col-span-2">{new Date(viewerFile.created_at).toLocaleString()}</div>
-                      </>
-                    )}
-                    {viewerFile.content_type && (
-                      <>
-                        <div className="text-muted-foreground">Type</div>
-                        <div className="col-span-2 break-all">{viewerFile.content_type}</div>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground">No file selected.</div>
-                )}
-              </div>
-            )}
           </div>
         </DialogContent>
       </Dialog>
