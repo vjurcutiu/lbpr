@@ -706,6 +706,9 @@ const sensors = useSensors(
   const listViewportRef = useRef<HTMLDivElement>(null);
   const marqueeBoxRef = useRef<HTMLDivElement>(null);
   const [marqueeActive, setMarqueeActive] = useState(false);
+  // While the pointer is down on empty space (potential marquee), suppress text selection.
+  // This prevents the browser from selecting/highlighting UI text during drag gestures.
+  const [marqueeDown, setMarqueeDown] = useState(false);
   const marqueeRafRef = useRef<number | null>(null);
   const autoScrollRafRef = useRef<number | null>(null);
   const marqueeLastSigRef = useRef<string>("");
@@ -880,6 +883,7 @@ const sensors = useSensors(
     }
     setMarqueeBox(null);
     setMarqueeActive(false);
+    setMarqueeDown(false);
     marqueeLastSigRef.current = "";
     if (typeof document !== "undefined") {
       document.body.style.userSelect = bodyStyleRef.current.userSelect;
@@ -1749,10 +1753,17 @@ const sensors = useSensors(
               {/* List */}
               <div
                 ref={listViewportRef}
-                className="flex-1 min-h-0 relative"
+                className={cn("flex-1 min-h-0 relative", marqueeDown && "select-none")}
                 onContextMenu={(e) => {
                   const el = e.target as HTMLElement | null;
                   if (el && (el.closest("[data-file-row]") || el.closest("[data-folder-row]"))) return;
+                  clearSelection();
+                }}
+                onClick={(e) => {
+                  const el = e.target as HTMLElement | null;
+                  if (el && (el.closest("[data-file-row]") || el.closest("[data-folder-row]"))) return;
+                  if ((e as any).metaKey || (e as any).ctrlKey) return;
+                  if (Date.now() < suppressClickUntilRef.current) return;
                   clearSelection();
                 }}
                 onPointerDown={(e) => {
@@ -1799,7 +1810,15 @@ const sensors = useSensors(
                       userSelect: document.body.style.userSelect,
                       cursor: document.body.style.cursor,
                     };
+                    // Immediately suppress text selection on background-drag gestures.
+                    // (Without this, the browser may highlight lots of UI text while dragging.)
+                    document.body.style.userSelect = "none";
                   }
+
+                  setMarqueeDown(true);
+
+                  // Prevent native text selection / drag behaviors from starting.
+                  e.preventDefault();
 
                   try {
                     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
@@ -1808,6 +1827,8 @@ const sensors = useSensors(
                 onPointerMove={(e) => {
                   const st = marqueeStateRef.current;
                   if (!st || st.pointerId !== e.pointerId) return;
+                  // Prevent the browser from selecting text while the pointer is down.
+                  e.preventDefault();
                   st.lastX = e.clientX;
                   st.lastY = e.clientY;
 
@@ -1839,7 +1860,6 @@ const sensors = useSensors(
                   }
 
                   scheduleMarqueeUpdate();
-                  e.preventDefault();
                 }}
                 
                 onPointerUp={(e) => {
