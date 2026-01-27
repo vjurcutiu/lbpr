@@ -189,10 +189,11 @@ export default function FilesPage() {
   });
 
   // Selection (right panel)
-  const [selectedFolderRowPath, setSelectedFolderRowPath] = useState<string | null>(null);
+  const [selectedFolderRowPaths, setSelectedFolderRowPaths] = useState<string[]>([]);
   const [selectedFileIds, setSelectedFileIds] = useState<string[]>([]);
   const selectionAnchorRef = useRef<string | null>(null);
   const selectedFileSet = useMemo(() => new Set(selectedFileIds), [selectedFileIds]);
+  const selectedFolderRowSet = useMemo(() => new Set(selectedFolderRowPaths), [selectedFolderRowPaths]);
 
 // Internal drag (dnd-kit)
 const suppressClickUntilRef = useRef<number>(0);
@@ -326,7 +327,7 @@ const sensors = useSensors(
   // Clear selection when navigating between folders
   useEffect(() => {
     setSelectedFileIds([]);
-    setSelectedFolderRowPath(null);
+    setSelectedFolderRowPaths([]);
     selectionAnchorRef.current = null;
   }, [selectedFolder]);
 
@@ -588,58 +589,293 @@ const sensors = useSensors(
     return currentFiles.filter((c) => (c.file?.name || c.name).toLowerCase().includes(q) || c.name.toLowerCase().includes(q));
   }, [currentFiles, filter]);
 
-  const filteredFileIdOrder = useMemo(() => {
-    return filteredCurrentFiles
-      .map((n) => n.file?.id)
-      .filter((x): x is string => typeof x === "string" && !!x);
-  }, [filteredCurrentFiles]);
+  const visibleItemKeyOrder = useMemo(() => {
+    const keys: string[] = [];
+    for (const f of filteredCurrentFolders) keys.push(`d:${f.path}`);
+    for (const n of filteredCurrentFiles) {
+      const id = n.file?.id;
+      if (id) keys.push(`f:${id}`);
+    }
+    return keys;
+  }, [filteredCurrentFiles, filteredCurrentFolders]);
+
+  const visibleIndexByKey = useMemo(() => {
+    const m = new Map<string, number>();
+    visibleItemKeyOrder.forEach((k, idx) => m.set(k, idx));
+    return m;
+  }, [visibleItemKeyOrder]);
 
   const clearSelection = useCallback(() => {
     setSelectedFileIds([]);
-    setSelectedFolderRowPath(null);
+    setSelectedFolderRowPaths([]);
     selectionAnchorRef.current = null;
   }, []);
 
-  const selectFile = useCallback(
-    (fileId: string, e: React.MouseEvent) => {
+  const applySelectionFromKeys = useCallback(
+    (keys: string[], mode: "replace" | "union", base?: { files: Set<string>; folders: Set<string> }) => {
+      const files = new Set<string>(mode === "union" && base ? base.files : []);
+      const folders = new Set<string>(mode === "union" && base ? base.folders : []);
+      for (const k of keys) {
+        if (k.startsWith("f:")) files.add(k.slice(2));
+        else if (k.startsWith("d:")) folders.add(k.slice(2));
+      }
+      setSelectedFileIds(Array.from(files));
+      setSelectedFolderRowPaths(Array.from(folders));
+    },
+    []
+  );
+
+  const selectByKey = useCallback(
+    (key: string, e: React.MouseEvent) => {
       const isMeta = e.metaKey || e.ctrlKey;
       const isShift = e.shiftKey;
-      const anchor = selectionAnchorRef.current;
-      setSelectedFolderRowPath(null);
+      const anchorKey = selectionAnchorRef.current;
 
-      // Shift range select (based on current filtered list ordering)
-      if (isShift && anchor && anchor !== fileId) {
-        const a = filteredFileIdOrder.indexOf(anchor);
-        const b = filteredFileIdOrder.indexOf(fileId);
-        if (a !== -1 && b !== -1) {
+      // Shift range select across folders + files in the visible list
+      if (isShift && anchorKey && anchorKey !== key) {
+        const a = visibleIndexByKey.get(anchorKey);
+        const b = visibleIndexByKey.get(key);
+        if (a !== undefined && b !== undefined) {
           const lo = Math.min(a, b);
           const hi = Math.max(a, b);
-          const range = filteredFileIdOrder.slice(lo, hi + 1);
-          setSelectedFileIds((prev) => {
-            if (isMeta) return uniqStrings([...prev, ...range]);
-            return range;
+          const range = visibleItemKeyOrder.slice(lo, hi + 1);
+          applySelectionFromKeys(range, isMeta ? "union" : "replace", {
+            files: new Set(selectedFileIds),
+            folders: new Set(selectedFolderRowPaths),
           });
+          selectionAnchorRef.current = key;
           return;
         }
         // If anchor/click not in list, fall through to single/toggle
       }
 
       if (isMeta) {
-        setSelectedFileIds((prev) => {
-          const set = new Set(prev);
-          if (set.has(fileId)) set.delete(fileId);
-          else set.add(fileId);
-          return Array.from(set);
-        });
-        selectionAnchorRef.current = fileId;
+        if (key.startsWith("f:")) {
+          const fileId = key.slice(2);
+          setSelectedFileIds((prev) => {
+            const set = new Set(prev);
+            if (set.has(fileId)) set.delete(fileId);
+            else set.add(fileId);
+            return Array.from(set);
+          });
+        } else if (key.startsWith("d:")) {
+          const path = key.slice(2);
+          setSelectedFolderRowPaths((prev) => {
+            const set = new Set(prev);
+            if (set.has(path)) set.delete(path);
+            else set.add(path);
+            return Array.from(set);
+          });
+        }
+        selectionAnchorRef.current = key;
         return;
       }
 
-      setSelectedFileIds([fileId]);
-      selectionAnchorRef.current = fileId;
+      // Replace selection
+      if (key.startsWith("f:")) {
+        setSelectedFileIds([key.slice(2)]);
+        setSelectedFolderRowPaths([]);
+      } else {
+        setSelectedFolderRowPaths([key.slice(2)]);
+        setSelectedFileIds([]);
+      }
+      selectionAnchorRef.current = key;
     },
-    [filteredFileIdOrder]
+    [applySelectionFromKeys, selectedFileIds, selectedFolderRowPaths, visibleIndexByKey, visibleItemKeyOrder]
   );
+
+  const selectFile = useCallback(
+    (fileId: string, e: React.MouseEvent) => {
+      selectByKey(`f:${fileId}`, e);
+    },
+    [selectByKey]
+  );
+
+  const selectFolderRow = useCallback(
+    (folderPath: string, e: React.MouseEvent) => {
+      selectByKey(`d:${folderPath}`, e);
+    },
+    [selectByKey]
+  );
+
+  // --- Marquee (drag-box) selection in the right panel
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  const listBoxRef = useRef<HTMLDivElement>(null);
+  // Viewport that covers the whole right-panel list area (including empty space below items).
+  // We attach pointer handlers here so marquee works even when the bordered list doesn't fill the scroll height.
+  const listViewportRef = useRef<HTMLDivElement>(null);
+  const marqueeBoxRef = useRef<HTMLDivElement>(null);
+  const [marqueeActive, setMarqueeActive] = useState(false);
+  const marqueeRafRef = useRef<number | null>(null);
+  const autoScrollRafRef = useRef<number | null>(null);
+  const marqueeLastSigRef = useRef<string>("");
+  const marqueeStateRef = useRef<
+    | null
+    | {
+        pointerId: number;
+        startX: number;
+        startY: number;
+        lastX: number;
+        lastY: number;
+        moved: boolean;
+        mode: "replace" | "union";
+        base: { files: Set<string>; folders: Set<string> };
+      }
+  >(null);
+  const bodyStyleRef = useRef<{ userSelect: string; cursor: string }>({ userSelect: "", cursor: "" });
+
+  useEffect(() => {
+    return () => {
+      if (marqueeRafRef.current) cancelAnimationFrame(marqueeRafRef.current);
+      if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
+      // best-effort restore
+      if (typeof document !== "undefined") {
+        document.body.style.userSelect = bodyStyleRef.current.userSelect;
+        document.body.style.cursor = bodyStyleRef.current.cursor;
+      }
+    };
+  }, []);
+
+  const setMarqueeBox = useCallback((rect: { left: number; top: number; width: number; height: number } | null) => {
+    const el = marqueeBoxRef.current;
+    if (!el) return;
+    if (!rect) {
+      el.style.transform = "translate(-99999px,-99999px)";
+      el.style.width = "0px";
+      el.style.height = "0px";
+      return;
+    }
+    el.style.transform = `translate(${rect.left}px, ${rect.top}px)`;
+    el.style.width = `${rect.width}px`;
+    el.style.height = `${rect.height}px`;
+  }, []);
+
+  const computeAndApplyMarquee = useCallback(() => {
+    const st = marqueeStateRef.current;
+    const viewport = listViewportRef.current || listBoxRef.current;
+    const queryRoot = listScrollRef.current || listBoxRef.current;
+    if (!st || !viewport || !queryRoot) return;
+
+    const boxRect = viewport.getBoundingClientRect();
+    const sx = st.startX;
+    const sy = st.startY;
+    const cx = st.lastX;
+    const cy = st.lastY;
+
+    const rawLeft = Math.min(sx, cx);
+    const rawRight = Math.max(sx, cx);
+    const rawTop = Math.min(sy, cy);
+    const rawBottom = Math.max(sy, cy);
+
+    const left = Math.max(boxRect.left, Math.min(rawLeft, boxRect.right));
+    const right = Math.max(boxRect.left, Math.min(rawRight, boxRect.right));
+    const top = Math.max(boxRect.top, Math.min(rawTop, boxRect.bottom));
+    const bottom = Math.max(boxRect.top, Math.min(rawBottom, boxRect.bottom));
+
+    const w = Math.max(0, right - left);
+    const h = Math.max(0, bottom - top);
+
+    // Track whether user actually dragged (vs click)
+    const moved = Math.hypot(cx - sx, cy - sy) >= 4;
+    if (moved && !st.moved) st.moved = true;
+
+    // Render box (coords relative to the list box)
+    if (st.moved) {
+      setMarqueeBox({ left: left - boxRect.left, top: top - boxRect.top, width: w, height: h });
+    } else {
+      setMarqueeBox(null);
+    }
+
+    // If the box is too small, don't apply selection yet
+    if (!st.moved || w < 2 || h < 2) return;
+
+    // Collect hit keys
+    const hitKeys: string[] = [];
+    const rows = queryRoot.querySelectorAll<HTMLElement>("[data-file-row],[data-folder-row]");
+    for (const row of Array.from(rows)) {
+      const r = row.getBoundingClientRect();
+      const intersects = left <= r.right && right >= r.left && top <= r.bottom && bottom >= r.top;
+      if (!intersects) continue;
+      const fileId = (row as any).dataset?.fileId as string | undefined;
+      if (fileId) {
+        hitKeys.push(`f:${fileId}`);
+        continue;
+      }
+      const folderPath = (row as any).dataset?.folderPath as string | undefined;
+      if (folderPath) hitKeys.push(`d:${folderPath}`);
+    }
+
+    const files = new Set<string>(st.mode === "union" ? st.base.files : []);
+    const folders = new Set<string>(st.mode === "union" ? st.base.folders : []);
+    for (const k of hitKeys) {
+      if (k.startsWith("f:")) files.add(k.slice(2));
+      else if (k.startsWith("d:")) folders.add(k.slice(2));
+    }
+
+    // Avoid re-render spam when selection hasn't changed
+    const nextSig = `${Array.from(files).sort().join("\n")}::${Array.from(folders).sort().join("\n")}`;
+    if (nextSig === marqueeLastSigRef.current) return;
+    marqueeLastSigRef.current = nextSig;
+
+    setSelectedFileIds(Array.from(files));
+    setSelectedFolderRowPaths(Array.from(folders));
+  }, [setMarqueeBox]);
+
+  const scheduleMarqueeUpdate = useCallback(() => {
+    if (marqueeRafRef.current != null) return;
+    marqueeRafRef.current = requestAnimationFrame(() => {
+      marqueeRafRef.current = null;
+      computeAndApplyMarquee();
+    });
+  }, [computeAndApplyMarquee]);
+
+  const startAutoScrollLoop = useCallback(() => {
+    if (autoScrollRafRef.current != null) return;
+    const loop = () => {
+      autoScrollRafRef.current = null;
+      const st = marqueeStateRef.current;
+      const scrollEl = listScrollRef.current;
+      if (!st || !scrollEl) return;
+
+      const r = scrollEl.getBoundingClientRect();
+      const zone = 48;
+      const speed = 18;
+      let dy = 0;
+      if (st.lastY < r.top + zone) dy = -speed;
+      else if (st.lastY > r.bottom - zone) dy = speed;
+
+      if (dy !== 0) {
+        scrollEl.scrollTop += dy;
+        // scrolling changes item rects; recompute selection even if pointer doesn't move
+        scheduleMarqueeUpdate();
+      }
+
+      // Continue while active
+      if (marqueeStateRef.current) autoScrollRafRef.current = requestAnimationFrame(loop);
+    };
+    autoScrollRafRef.current = requestAnimationFrame(loop);
+  }, [scheduleMarqueeUpdate]);
+
+  const endMarquee = useCallback(() => {
+    const st = marqueeStateRef.current;
+    marqueeStateRef.current = null;
+    if (marqueeRafRef.current) {
+      cancelAnimationFrame(marqueeRafRef.current);
+      marqueeRafRef.current = null;
+    }
+    if (autoScrollRafRef.current) {
+      cancelAnimationFrame(autoScrollRafRef.current);
+      autoScrollRafRef.current = null;
+    }
+    setMarqueeBox(null);
+    setMarqueeActive(false);
+    marqueeLastSigRef.current = "";
+    if (typeof document !== "undefined") {
+      document.body.style.userSelect = bodyStyleRef.current.userSelect;
+      document.body.style.cursor = bodyStyleRef.current.cursor;
+    }
+    return st;
+  }, [setMarqueeBox]);
 
   const breadcrumb = useMemo(() => {
     const parts = (selectedFolder || "").split("/").filter(Boolean);
@@ -1163,6 +1399,7 @@ const sensors = useSensors(
       }
 
       setSelectedFileIds([]);
+      setSelectedFolderRowPaths([]);
       selectionAnchorRef.current = null;
       await refresh();
     } catch (err) {
@@ -1386,7 +1623,8 @@ const sensors = useSensors(
     const ids = alreadySelected ? selectedFileIds : [fileId];
     if (!alreadySelected) {
       setSelectedFileIds([fileId]);
-      selectionAnchorRef.current = fileId;
+      setSelectedFolderRowPaths([]);
+      selectionAnchorRef.current = `f:${fileId}`;
     }
     const name = files.find((f) => f.id === fileId)?.name || "File";
     setActiveInternalDrag({
@@ -1498,30 +1736,114 @@ const sensors = useSensors(
               </div>
 
               {/* List */}
-              <div className="flex-1 min-h-0 overflow-auto">
-                <div className="px-2 py-2">
-                  {/* Header */}
-                  <div className="hidden md:grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-1 text-xs text-muted-foreground">
-                    <div>Name</div>
-                    <div className="text-right">Size</div>
-                    <div>Type</div>
-                    <div>Created</div>
-                  </div>
-                  <div
-                    className="border rounded-md overflow-hidden"
-                    onContextMenu={(e) => {
-                      const el = e.target as HTMLElement | null;
-                      if (el && (el.closest("[data-file-row]") || el.closest("[data-folder-row]"))) return;
-                      clearSelection();
-                    }}
-                    onMouseDown={(e) => {
-                      // Click on blank space clears current file selection
-                      if (e.button !== 0) return;
-                      const el = e.target as HTMLElement | null;
-                      if (el && el.closest("[data-file-row]")) return;
-                      clearSelection();
-                    }}
-                  >
+              <div
+                ref={listViewportRef}
+                className="flex-1 min-h-0 relative"
+                onContextMenu={(e) => {
+                  const el = e.target as HTMLElement | null;
+                  if (el && (el.closest("[data-file-row]") || el.closest("[data-folder-row]"))) return;
+                  clearSelection();
+                }}
+                onPointerDown={(e) => {
+                  // Disable for touch; allow on narrow windows (isMobile) if a mouse is used.
+                  if (e.pointerType === "touch") return;
+                  if (e.button !== 0) return;
+                  const el = e.target as HTMLElement | null;
+                  if (el && (el.closest("[data-file-row]") || el.closest("[data-folder-row]"))) return;
+                  // If we just completed a dnd move, suppress background drag-box start.
+                  if (Date.now() < suppressClickUntilRef.current) return;
+
+                  // Don't start marquee when the user is grabbing the scrollbar.
+                  const scrollEl = listScrollRef.current;
+                  if (scrollEl) {
+                    const r = scrollEl.getBoundingClientRect();
+                    const sbW = Math.max(0, scrollEl.offsetWidth - scrollEl.clientWidth);
+                    const sbH = Math.max(0, scrollEl.offsetHeight - scrollEl.clientHeight);
+                    if (sbW > 0 && e.clientX >= r.right - sbW) return;
+                    if (sbH > 0 && e.clientY >= r.bottom - sbH) return;
+                  }
+
+                  const mode: "replace" | "union" = e.metaKey || e.ctrlKey ? "union" : "replace";
+                  marqueeLastSigRef.current = "";
+                  marqueeStateRef.current = {
+                    pointerId: e.pointerId,
+                    startX: e.clientX,
+                    startY: e.clientY,
+                    lastX: e.clientX,
+                    lastY: e.clientY,
+                    moved: false,
+                    mode,
+                    base: {
+                      files: new Set(selectedFileIds),
+                      folders: new Set(selectedFolderRowPaths),
+                    },
+                  };
+
+                  // Explorer-like: clicking/dragging on empty space without Ctrl clears existing selection
+                  if (mode === "replace") {
+                    setSelectedFileIds([]);
+                    setSelectedFolderRowPaths([]);
+                  }
+
+                  // Prevent text selection while dragging
+                  if (typeof document !== "undefined") {
+                    bodyStyleRef.current = {
+                      userSelect: document.body.style.userSelect,
+                      cursor: document.body.style.cursor,
+                    };
+                    document.body.style.userSelect = "none";
+                    document.body.style.cursor = "crosshair";
+                  }
+
+                  try {
+                    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                  } catch {}
+                  setMarqueeActive(true);
+                  startAutoScrollLoop();
+                  e.preventDefault();
+                }}
+                onPointerMove={(e) => {
+                  const st = marqueeStateRef.current;
+                  if (!st || st.pointerId !== e.pointerId) return;
+                  st.lastX = e.clientX;
+                  st.lastY = e.clientY;
+                  scheduleMarqueeUpdate();
+                  e.preventDefault();
+                }}
+                onPointerUp={(e) => {
+                  const st = marqueeStateRef.current;
+                  if (!st || st.pointerId !== e.pointerId) return;
+                  st.lastX = e.clientX;
+                  st.lastY = e.clientY;
+                  computeAndApplyMarquee();
+                  const finished = endMarquee();
+                  try {
+                    (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+                  } catch {}
+                  // Click on empty space (no drag) clears selection unless Ctrl/Cmd was held.
+                  if (finished && !finished.moved && finished.mode === "replace") clearSelection();
+                  e.preventDefault();
+                }}
+                onPointerCancel={(e) => {
+                  const st = marqueeStateRef.current;
+                  if (!st || st.pointerId !== e.pointerId) return;
+                  endMarquee();
+                  try {
+                    (e.currentTarget as HTMLDivElement).releasePointerCapture(e.pointerId);
+                  } catch {}
+                  e.preventDefault();
+                }}
+              >
+                <div ref={listScrollRef} className="absolute inset-0 overflow-auto">
+                  <div className="px-2 py-2">
+                    {/* Header */}
+                    <div className="hidden md:grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-1 text-xs text-muted-foreground">
+                      <div>Name</div>
+                      <div className="text-right">Size</div>
+                      <div>Type</div>
+                      <div>Created</div>
+                    </div>
+                    <div ref={listBoxRef} className="border rounded-md overflow-hidden relative">
                     {filteredCurrentFolders.length === 0 && filteredCurrentFiles.length === 0 ? (
                       <div className="p-6 text-sm text-muted-foreground">
                         This folder is empty. Right-click to create a folder or upload files.
@@ -1532,15 +1854,9 @@ const sensors = useSensors(
                           <FolderRow
                             key={n.path}
                             node={n}
-                            selected={selectedFolderRowPath === n.path}
-
+                            selected={selectedFolderRowSet.has(n.path)}
                             suppressClickUntilRef={suppressClickUntilRef}
-                            onSelect={() => {
-                              // Selecting a folder row clears file selection
-                              setSelectedFileIds([]);
-                              selectionAnchorRef.current = null;
-                              setSelectedFolderRowPath(n.path);
-                            }}
+                            onSelect={(e) => selectFolderRow(n.path, e)}
                             onOpen={() => setSelectedFolder(n.path)}
                             onUploadHere={() => startUploadTo(n.path)}
                             onNewFolderHere={() => requestNewFolder(n.path)}
@@ -1562,8 +1878,20 @@ const sensors = useSensors(
                         ))}
                       </div>
                     )}
+                    </div>
                   </div>
                 </div>
+
+                {/* Drag-box selection overlay (covers the whole viewport so it works over empty space too) */}
+                {marqueeActive && (
+                  <div className="pointer-events-none absolute inset-0 z-20">
+                    <div
+                      ref={marqueeBoxRef}
+                      className="absolute border border-primary bg-primary/10 rounded-sm"
+                      style={{ transform: "translate(-99999px,-99999px)", width: 0, height: 0 }}
+                    />
+                  </div>
+                )}
               </div>
             </CurrentFolderDrop>
           </div>
@@ -2321,7 +2649,7 @@ function FolderRow({
 }: {
   node: TreeNode;
   selected: boolean;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
   onUploadHere: () => void;
   onNewFolderHere: () => void;
@@ -2363,12 +2691,13 @@ function FolderRow({
           onClick={(e) => {
             e.stopPropagation();
             if (Date.now() < suppressClickUntilRef.current) return;
-            onSelect();
+            onSelect(e);
           }}
           onContextMenu={(e) => {
             e.stopPropagation();
             if (Date.now() < suppressClickUntilRef.current) return;
-            onSelect();
+            // Right-click selects the folder if it isn't already selected
+            if (!selected) onSelect(e);
           }}
           onDragOver={(e) => {
             // External OS file drop only
@@ -2377,6 +2706,7 @@ function FolderRow({
             e.dataTransfer.dropEffect = "copy";
           }}
           data-folder-row
+          data-folder-path={node.path}
           onDrop={(e) => {
             // External OS file drop only
             if (!isExternalFilesDrag(e.dataTransfer)) return;
@@ -2487,6 +2817,7 @@ function FileRow({
           {...attributes}
           {...listeners}
           data-file-row
+          data-file-id={f.id}
           title={f.name}
         >
           <div className="min-w-0 flex items-center gap-2">
