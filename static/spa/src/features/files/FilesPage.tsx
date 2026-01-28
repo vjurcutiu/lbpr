@@ -108,6 +108,67 @@ const LS_OCR_DOCMODE = "files:ocrDocMode";
 
 const DT_INTERNAL_FILE = "application/x-lbpr-file";
 
+// Debug helper: context-menu instrumentation
+// Enable by adding ?debugCtxMenu=1 to the URL or running:
+//   localStorage.setItem('lbp.debug.ctxmenu','1'); location.reload();
+const DEBUG_CTXMENU = (() => {
+  if (typeof window === "undefined") return false;
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const qp = (sp.get("debugCtxMenu") || "").toLowerCase();
+    if (qp === "1" || qp === "true" || qp === "yes") return true;
+    return window.localStorage.getItem("lbp.debug.ctxmenu") === "1";
+  } catch {
+    return false;
+  }
+})();
+
+function ctxEvtSummary(e: any) {
+  const target = e?.target as HTMLElement | null;
+  const currentTarget = e?.currentTarget as HTMLElement | null;
+  const s = {
+    type: e?.type,
+    button: (e as any)?.button,
+    buttons: (e as any)?.buttons,
+    pointerType: (e as any)?.pointerType,
+    pointerId: (e as any)?.pointerId,
+    clientX: (e as any)?.clientX,
+    clientY: (e as any)?.clientY,
+    ctrlKey: !!(e as any)?.ctrlKey,
+    metaKey: !!(e as any)?.metaKey,
+    shiftKey: !!(e as any)?.shiftKey,
+    altKey: !!(e as any)?.altKey,
+    defaultPrevented: !!e?.defaultPrevented,
+    target: target
+      ? {
+          tag: target.tagName,
+          id: target.id,
+          className: target.className,
+          dataset: { ...(target.dataset || {}) },
+        }
+      : null,
+    currentTarget: currentTarget
+      ? {
+          tag: currentTarget.tagName,
+          id: currentTarget.id,
+          className: currentTarget.className,
+          dataset: { ...(currentTarget.dataset || {}) },
+        }
+      : null,
+  };
+  return s;
+}
+
+function ctxLog(scope: string, payload?: any) {
+  if (!DEBUG_CTXMENU) return;
+  try {
+    // eslint-disable-next-line no-console
+    console.debug(`[ctxmenu] ${scope}`, payload ?? "");
+  } catch {
+    // no-op
+  }
+}
+
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => {
     if (typeof window === "undefined") return false;
@@ -218,6 +279,48 @@ const sensors = useSensors(
     activationConstraint: { distance: 6 },
   })
 );
+
+  // Debug: capture global context-menu related events (helps spot swallowed clicks / outside-interactions).
+  useEffect(() => {
+    if (!DEBUG_CTXMENU || typeof window === "undefined") return;
+
+    const shouldLog = (e: any) => {
+      const t = e?.target as HTMLElement | null;
+      if (!t || typeof (t as any).closest !== "function") return false;
+
+      // Anything happening inside Radix context menu portal
+      if (
+        t.closest?.('[data-slot="context-menu-content"]') ||
+        t.closest?.('[data-slot="context-menu-item"]') ||
+        t.closest?.('[data-slot="context-menu-sub-content"]')
+      )
+        return true;
+
+      // Right-click on file/folder rows (common repro point)
+      if (e?.type === "contextmenu") {
+        if (t.closest?.("[data-file-row]") || t.closest?.("[data-folder-row]")) return true;
+      }
+
+      // Key interactions while the menu is open
+      if (e?.type === "keydown") {
+        const key = (e as any)?.key;
+        if (key === "Escape" || key === "Enter" || key === " ") return true;
+      }
+
+      return false;
+    };
+
+    const handler = (e: any) => {
+      if (!shouldLog(e)) return;
+      ctxLog(`global.${e.type}`, ctxEvtSummary(e));
+    };
+
+    const types: Array<keyof WindowEventMap | string> = ["contextmenu", "pointerdown", "pointerup", "click", "keydown"];
+    for (const t of types) window.addEventListener(t as any, handler, true);
+    return () => {
+      for (const t of types) window.removeEventListener(t as any, handler, true);
+    };
+  }, []);
 
 
   // UI
@@ -2948,7 +3051,13 @@ function FolderRow({
   const { setNodeRef, isOver } = useDroppable({ id: folderDndId(node.path) });
 
   return (
-    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
+    <ContextMenu
+      open={menuOpen}
+      onOpenChange={(open) => {
+        ctxLog("FolderRow.onOpenChange", { folderPath: node.path, open, selected });
+        setMenuOpen(open);
+      }}
+    >
       <ContextMenuTrigger asChild>
         <div
           ref={setNodeRef}
@@ -2958,7 +3067,13 @@ function FolderRow({
             selected && "bg-muted/60",
             isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5"
           )}
-          onContextMenuCapture={() => {
+          onContextMenuCapture={(e) => {
+            ctxLog("FolderRow.onContextMenuCapture", {
+              folderPath: node.path,
+              menuOpen,
+              selected,
+              evt: ctxEvtSummary(e),
+            });
             if (menuOpen) {
               flushSync(() => {
                 setMenuOpen(false);
@@ -2969,16 +3084,19 @@ function FolderRow({
             }
           }}
           onDoubleClick={(e) => {
+            ctxLog("FolderRow.onDoubleClick", { folderPath: node.path, evt: ctxEvtSummary(e) });
             e.stopPropagation();
             if (Date.now() < suppressClickUntilRef.current) return;
             onOpen();
           }}
           onClick={(e) => {
+            ctxLog("FolderRow.onClick", { folderPath: node.path, evt: ctxEvtSummary(e) });
             e.stopPropagation();
             if (Date.now() < suppressClickUntilRef.current) return;
             onSelect(e);
           }}
           onContextMenu={(e) => {
+            ctxLog("FolderRow.onContextMenu", { folderPath: node.path, evt: ctxEvtSummary(e) });
             e.stopPropagation();
             if (Date.now() < suppressClickUntilRef.current) return;
             // Right-click selects the folder if it isn't already selected
@@ -3010,12 +3128,27 @@ function FolderRow({
           <div className="text-muted-foreground">—</div>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent key={menuKey} className="min-w-[12rem]">
-        <ContextMenuItem onSelect={onOpen}>
+      <ContextMenuContent
+        key={menuKey}
+        className="min-w-[12rem]"
+        onPointerDownCapture={(e) =>
+          ctxLog("FolderRow.menu.pointerDownCapture", { folderPath: node.path, evt: ctxEvtSummary(e) })
+        }
+        onPointerDownOutside={(e) => ctxLog("FolderRow.menu.pointerDownOutside", { folderPath: node.path, evt: e })}
+        onInteractOutside={(e) => ctxLog("FolderRow.menu.interactOutside", { folderPath: node.path, evt: e })}
+        onEscapeKeyDown={(e) => ctxLog("FolderRow.menu.escape", { folderPath: node.path, evt: e })}
+      >
+        <ContextMenuItem
+          onSelect={(e) => {
+            ctxLog("FolderRow.menuItem.open", { folderPath: node.path, evt: ctxEvtSummary(e) });
+            onOpen();
+          }}
+        >
           <Folder className="h-4 w-4" /> Open
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={(e) => {
+            ctxLog("FolderRow.menuItem.rename", { folderPath: node.path, evt: ctxEvtSummary(e) });
             // Opening a modal from a Radix context-menu item can be flaky unless
             // we prevent the default selection behavior and close the menu ourselves.
             e.preventDefault();
@@ -3026,15 +3159,26 @@ function FolderRow({
           <Pencil className="h-4 w-4" /> Rename…
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={onUploadHere}>
+        <ContextMenuItem
+          onSelect={(e) => {
+            ctxLog("FolderRow.menuItem.uploadHere", { folderPath: node.path, evt: ctxEvtSummary(e) });
+            onUploadHere();
+          }}
+        >
           <Upload className="h-4 w-4" /> Upload here
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onNewFolderHere}>
+        <ContextMenuItem
+          onSelect={(e) => {
+            ctxLog("FolderRow.menuItem.newFolder", { folderPath: node.path, evt: ctxEvtSummary(e) });
+            onNewFolderHere();
+          }}
+        >
           <FolderPlus className="h-4 w-4" /> New folder…
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
           onSelect={() => {
+            ctxLog("FolderRow.menuItem.copyPath", { folderPath: node.path });
             const p = node.path || "";
             if (navigator?.clipboard?.writeText) navigator.clipboard.writeText(p);
           }}
@@ -3078,7 +3222,13 @@ function FileRow({
   } as React.CSSProperties;
 
   return (
-    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
+    <ContextMenu
+      open={menuOpen}
+      onOpenChange={(open) => {
+        ctxLog("FileRow.onOpenChange", { fileId: f.id, open, selected });
+        setMenuOpen(open);
+      }}
+    >
       <ContextMenuTrigger asChild>
         <div
           ref={setNodeRef}
@@ -3089,7 +3239,8 @@ function FileRow({
             selected && "bg-muted/60",
             isDragging && "opacity-60"
           )}
-          onContextMenuCapture={() => {
+          onContextMenuCapture={(e) => {
+            ctxLog("FileRow.onContextMenuCapture", { fileId: f.id, menuOpen, selected, evt: ctxEvtSummary(e) });
             if (menuOpen) {
               flushSync(() => {
                 setMenuOpen(false);
@@ -3101,10 +3252,12 @@ function FileRow({
           }}
           onDoubleClick={onOpen}
           onClick={(e) => {
+            ctxLog("FileRow.onClick", { fileId: f.id, evt: ctxEvtSummary(e) });
             e.stopPropagation();
             onSelect(e);
           }}
           onContextMenu={(e) => {
+            ctxLog("FileRow.onContextMenu", { fileId: f.id, evt: ctxEvtSummary(e) });
             e.stopPropagation();
             // Right-click selects the file if it isn't already selected
             if (!selected) onSelect(e);
@@ -3125,12 +3278,25 @@ function FileRow({
           <div className="text-muted-foreground truncate">{f.created_at ? new Date(f.created_at).toLocaleString() : "—"}</div>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent key={menuKey} className="min-w-[12rem]">
-        <ContextMenuItem onSelect={onOpen}>
+      <ContextMenuContent
+        key={menuKey}
+        className="min-w-[12rem]"
+        onPointerDownCapture={(e) => ctxLog("FileRow.menu.pointerDownCapture", { fileId: f.id, evt: ctxEvtSummary(e) })}
+        onPointerDownOutside={(e) => ctxLog("FileRow.menu.pointerDownOutside", { fileId: f.id, evt: e })}
+        onInteractOutside={(e) => ctxLog("FileRow.menu.interactOutside", { fileId: f.id, evt: e })}
+        onEscapeKeyDown={(e) => ctxLog("FileRow.menu.escape", { fileId: f.id, evt: e })}
+      >
+        <ContextMenuItem
+          onSelect={(e) => {
+            ctxLog("FileRow.menuItem.open", { fileId: f.id, evt: ctxEvtSummary(e) });
+            onOpen();
+          }}
+        >
           <Folder className="h-4 w-4" /> Open
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() => {
+            ctxLog("FileRow.menuItem.download", { fileId: f.id, href });
             window.open(href, "_self");
           }}
         >
@@ -3139,6 +3305,7 @@ function FileRow({
         <ContextMenuSeparator />
         <ContextMenuItem
           onSelect={(e) => {
+            ctxLog("FileRow.menuItem.rename", { fileId: f.id, evt: ctxEvtSummary(e) });
             // See note in folder row: avoid Radix menu auto-close focus quirks when opening modals.
             e.preventDefault();
             setMenuOpen(false);
@@ -3149,6 +3316,7 @@ function FileRow({
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={(e) => {
+            ctxLog("FileRow.menuItem.move", { fileId: f.id, evt: ctxEvtSummary(e) });
             e.preventDefault();
             setMenuOpen(false);
             onMove();
@@ -3158,7 +3326,10 @@ function FileRow({
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
-          onSelect={onDelete}
+          onSelect={(e) => {
+            ctxLog("FileRow.menuItem.delete", { fileId: f.id, evt: ctxEvtSummary(e) });
+            onDelete();
+          }}
           className="text-destructive focus:text-destructive"
         >
           <Trash2 className="h-4 w-4" /> Delete
