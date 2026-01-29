@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
-import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy, Scissors, Clipboard, Trash2, Pencil } from "lucide-react";
+import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy, Scissors, Clipboard, Trash2, Pencil, GripVertical } from "lucide-react";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -210,6 +210,7 @@ function FolderRow({
     attributes,
     listeners,
     setNodeRef: setDragRef,
+    setActivatorNodeRef,
     transform,
     isDragging,
   } = useDraggable({ id: folderDndId(node.path), disabled: isRoot });
@@ -281,9 +282,28 @@ function FolderRow({
                 selected && "bg-muted/50",
                 isDragging && "opacity-60"
               )}
-              {...attributes}
-              {...listeners}
             >
+              {/* Drag handle (dnd-kit activator). Keeps clicks/context menus stable. */}
+              {isRoot ? (
+                <span className="h-5 w-5" />
+              ) : (
+                <button
+                  ref={setActivatorNodeRef}
+                  type="button"
+                  aria-label="Drag folder"
+                  className={cn(
+                    "inline-flex h-5 w-5 items-center justify-center rounded",
+                    "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
+                    "cursor-grab active:cursor-grabbing touch-none select-none"
+                  )}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  {...attributes}
+                  {...listeners}
+                >
+                  <GripVertical className="h-4 w-4" />
+                </button>
+              )}
             <button
               type="button"
               className={cn(
@@ -475,6 +495,7 @@ function FileRow({
       }}
       title={file.name}
     >
+      <span className="h-5 w-5 opacity-0" />
       <span className="h-4 w-4 opacity-0" />
       <FileIconByName name={file.name} className="h-4 w-4" />
       <span className="truncate">{node.name}</span>
