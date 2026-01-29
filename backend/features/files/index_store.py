@@ -177,6 +177,23 @@ def list_folders(uid: str) -> List[Dict[str, Any]]:
     return out
 
 
+def delete_folder(uid: str, folder_path: str) -> None:
+    """Delete a folder record from Firestore (best-effort).
+
+    Note: This does NOT delete any files; it's just the folder index record.
+    """
+    folder_path = normalize_folder_path(folder_path)
+    if not folder_path:
+        return
+
+    db, fs = _db()
+    did = folder_doc_id(uid, folder_path)
+    try:
+        db.collection(ROOT_COLLECTION).document(uid).collection("folders").document(did).delete()
+    except Exception as e:
+        log.debug("folder_index_delete_failed", extra={"uid": uid, "path": folder_path, "error": str(e)})
+
+
 def upsert_file(
     uid: str,
     *,

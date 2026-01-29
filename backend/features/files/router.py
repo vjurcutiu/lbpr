@@ -14,6 +14,8 @@ from .schemas import (
     FolderItem,
     CreateFolderRequest,
     CreateFolderResponse,
+    MoveFolderRequest,
+    MoveFolderResponse,
     UpdateFileRequest,
     UpdateFileResponse,
 )
@@ -63,6 +65,24 @@ async def create_folder(req: CreateFolderRequest, user: SessionOut = Depends(get
         return CreateFolderResponse(ok=True, folder=folder)
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/folders/move", response_model=MoveFolderResponse)
+async def move_folder(req: MoveFolderRequest, user: SessionOut = Depends(get_current_user)):
+    """Move a folder (recursively) to a new parent path.
+
+    This updates folder records and moves all files in the subtree by updating their metadata.
+    """
+    try:
+        return service.move_folder(user.uid, req.src_path, req.dest_parent_path)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Folder not found")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

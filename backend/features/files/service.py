@@ -631,6 +631,174 @@ def create_folder(uid: str, path: str) -> FolderItem:
     )
 
 
+def move_folder(uid: str, src_path: str, dest_parent_path: Optional[str] = None):
+    """Move a folder recursively by updating folder index records and file metadata.
+
+    Storage object names are NOT changed (only metadata / Firestore index), so RAG doc ids remain stable.
+
+    Args:
+        uid: current user id
+        src_path: source folder path (user-visible)
+        dest_parent_path: destination parent folder path (user-visible). None/"" means Root.
+    """
+
+    src_vis = index_store.normalize_folder_path(src_path)
+    if not src_vis:
+        raise ValueError("Source folder path required")
+
+    dest_parent_vis = index_store.normalize_folder_path(dest_parent_path or "")
+
+    base_vis = src_vis.split("/")[-1]
+    new_root_vis = f"{dest_parent_vis}/{base_vis}" if dest_parent_vis else base_vis
+
+    # Guardrails: prevent moving a folder into itself or its own descendants.
+    if dest_parent_vis == src_vis or dest_parent_vis.startswith(src_vis + "/"):
+        raise ValueError("Cannot move a parent folder into one of its children")
+
+    if new_root_vis == src_vis:
+        return {
+            "ok": True,
+            "from_path": src_vis,
+            "to_path": new_root_vis,
+            "moved_files": 0,
+            "moved_folders": 0,
+        }
+
+    # If PII tokenization is enabled, the index and marker objects store tokenized paths.
+    if settings.PII_TOKENIZE_FILENAMES:
+        src_tok = tokenize_text(uid, src_vis) if src_vis else ""
+        dest_parent_tok = tokenize_text(uid, dest_parent_vis) if dest_parent_vis else ""
+    else:
+        src_tok = src_vis
+        dest_parent_tok = dest_parent_vis
+
+    base_tok = (src_tok.split("/")[-1] if src_tok else "")
+    new_root_tok = f"{dest_parent_tok}/{base_tok}" if dest_parent_tok else base_tok
+
+    # 1) Collect subtree files (authoritative for non-empty folders)
+    try:
+        items = list_files(uid)
+    except Exception:
+        items = []
+
+    files_to_move = []
+    for f in items:
+        fp = index_store.normalize_folder_path(getattr(f, "folder_path", None) or "")
+        if fp == src_vis or fp.startswith(src_vis + "/"):
+            files_to_move.append(f)
+
+    # 2) Collect subtree folder records (best-effort, includes empty folders)
+    try:
+        folder_rows = index_store.list_folders(uid)
+    except Exception:
+        folder_rows = []
+
+    existing_tok_paths: set[str] = set()
+    for r in folder_rows:
+        p = str(r.get("path") or "")
+        if not p:
+            continue
+        if p == src_tok or p.startswith(src_tok + "/"):
+            existing_tok_paths.add(p)
+
+    # Determine whether the source folder exists in any of our sources.
+    marker_exists = False
+    try:
+        bkt = _bucket()
+        marker_exists = bkt.blob(_folder_marker_object(uid, src_tok)).exists()
+    except Exception:
+        marker_exists = False
+
+    if not files_to_move and (src_tok not in existing_tok_paths) and not marker_exists:
+        raise FileNotFoundError("Folder not found")
+
+    # Track which folder paths exist in the file subtree so we can recreate folder records at the destination.
+    subtree_folder_paths_vis: set[str] = set()
+
+    moved_files = 0
+    move_errors: List[str] = []
+    for f in files_to_move:
+        fp = index_store.normalize_folder_path(getattr(f, "folder_path", None) or "")
+        suffix = fp[len(src_vis):]  # '' or '/...'
+        new_fp_vis = new_root_vis + suffix
+        base_name = (f.name or "").split("/")[-1]
+        try:
+            update_file(uid, f.id, folder=new_fp_vis, name=base_name)
+            moved_files += 1
+        except Exception as e:
+            move_errors.append(str(e))
+
+        # Collect prefixes for folder records.
+        parts = new_fp_vis.split("/")
+        acc = []
+        for seg in parts:
+            acc.append(seg)
+            subtree_folder_paths_vis.add("/".join(acc))
+
+    # If we couldn't move all files, stop before touching folder records.
+    if move_errors:
+        first = move_errors[0]
+        raise ValueError(f"{len(move_errors)} file(s) failed to move. First error: {first}")
+
+    moved_folders = 0
+
+    # Ensure we always consider the source folder itself even if it wasn't explicitly created.
+    existing_tok_paths.add(src_tok)
+
+    # Also backfill from moved files (for the target location). This preserves structure when folders were derived.
+    if subtree_folder_paths_vis:
+        for p_vis in sorted(subtree_folder_paths_vis):
+            try:
+                p_tok = tokenize_text(uid, p_vis) if settings.PII_TOKENIZE_FILENAMES else p_vis
+                index_store.upsert_folder(uid, p_tok)
+            except Exception:
+                pass
+
+    # Create destination folder records for any existing folder docs in the subtree.
+    for p_tok in sorted(existing_tok_paths, key=lambda x: (x.count("/"), x)):
+        if p_tok == src_tok:
+            suffix = ""
+        else:
+            suffix = p_tok[len(src_tok):]
+        new_p_tok = new_root_tok + suffix
+        try:
+            index_store.upsert_folder(uid, new_p_tok)
+            moved_folders += 1
+        except Exception:
+            pass
+
+    # Delete old folder records after creating new ones.
+    for p_tok in sorted(existing_tok_paths, key=lambda x: (-x.count("/"), x)):
+        try:
+            index_store.delete_folder(uid, p_tok)
+        except Exception:
+            pass
+
+    # 3) Move folder marker objects in Storage (best-effort)
+    try:
+        bkt = _bucket()
+        old_prefix = f"{_user_prefix(uid)}/uploads/.folders/{src_tok}/"
+        new_prefix = f"{_user_prefix(uid)}/uploads/.folders/{new_root_tok}/"
+        for blob in bkt.list_blobs(prefix=old_prefix):
+            tail = blob.name[len(old_prefix):]
+            new_name = new_prefix + tail
+            try:
+                bkt.copy_blob(blob, bkt, new_name)
+                blob.delete()
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "from_path": src_vis,
+        "to_path": new_root_vis,
+        "moved_files": int(moved_files),
+        "moved_folders": int(moved_folders),
+    }
+
+
 def update_file(
     uid: str,
     file_id: str,

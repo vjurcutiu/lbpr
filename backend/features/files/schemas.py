@@ -44,6 +44,22 @@ class CreateFolderResponse(BaseModel):
     folder: FolderItem
 
 
+class MoveFolderRequest(BaseModel):
+    src_path: str = Field(..., description="Source folder path like 'clients/acme'")
+    dest_parent_path: Optional[str] = Field(
+        None,
+        description="Destination parent folder path like 'clients' (null/empty means Root)",
+    )
+
+
+class MoveFolderResponse(BaseModel):
+    ok: bool = True
+    from_path: str
+    to_path: str
+    moved_files: int = 0
+    moved_folders: int = 0
+
+
 class UpdateFileRequest(BaseModel):
     # If multiple are provided, display_name wins, then folder/name.
     display_name: Optional[str] = Field(
