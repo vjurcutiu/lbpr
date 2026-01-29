@@ -1,7 +1,7 @@
 // src/AppShell.tsx
 import type { ReactNode } from "react"
-import { useEffect, useState } from "react"
-import { Link, NavLink } from "react-router-dom"
+import { useEffect, useMemo, useState } from "react"
+import { Link, NavLink, useLocation } from "react-router-dom"
 import { Menu, Sun, Moon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,10 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet"
 import { RiRobotLine } from "react-icons/ri";
+
+import { useAuthContext } from "@/features/auth/AuthProvider";
+import { auth } from "@/features/auth/firebase";
+import PhoneLoginInfoModal from "@/features/auth/PhoneLoginInfoModal";
 
 type NavItem = { to: string; label: string; where?: "top" | "mobile" | "both" }
 
@@ -31,10 +35,75 @@ export default function AppShell({
   navItems = [],
   fullBleed = false,
 }: AppShellProps) {
+  const { user, loading } = useAuthContext();
+  const location = useLocation();
+  const [phoneModalOpen, setPhoneModalOpen] = useState(false);
+
+  const phoneModalStorageKey = useMemo(() => {
+    const fb = auth.currentUser;
+    const uid = fb?.uid;
+    return uid ? `lexbot:onboarding:phone-login:v1:dismissed:${uid}` : null;
+  }, [user?.uid]);
+
+  const shouldShowPhoneModal = useMemo(() => {
+    if (loading || !user) return false;
+    const fb = auth.currentUser;
+    if (!fb) return false;
+
+    const phone = fb.phoneNumber;
+    if (!phone) return false;
+
+    const providerIds = new Set(fb.providerData?.map((p) => p.providerId) ?? []);
+    // Some custom-token logins don't include "phone" in providerData even if the user has a phoneNumber.
+    if (fb.phoneNumber) providerIds.add("phone");
+
+    const hasOtherProvider = providerIds.has("google.com") || providerIds.has("password");
+    const hasEmail = !!fb.email;
+
+    // Only show for phone-only accounts (the ones provisioned via SMS magic link).
+    const isPhoneOnly = !!phone && !hasEmail && !hasOtherProvider;
+    if (!isPhoneOnly) return false;
+
+    // Avoid auto-opening while already on the Profile page (where the CTA would be redundant).
+    if (location.pathname.startsWith("/profile")) return false;
+
+    // One-time per user per device.
+    if (!phoneModalStorageKey) return false;
+    try {
+      return !localStorage.getItem(phoneModalStorageKey);
+    } catch {
+      return true;
+    }
+  }, [loading, user, location.pathname, phoneModalStorageKey]);
+
+  useEffect(() => {
+    if (shouldShowPhoneModal) setPhoneModalOpen(true);
+  }, [shouldShowPhoneModal]);
+
+  const onPhoneModalOpenChange = (open: boolean) => {
+    setPhoneModalOpen(open);
+    if (!open && phoneModalStorageKey) {
+      try {
+        localStorage.setItem(phoneModalStorageKey, "1");
+      } catch {
+        // ignore
+      }
+    }
+  };
+
   return (
     // Use dynamic viewport height and prevent outer-page scrolling.
     <div className="h-dvh min-h-0 flex flex-col bg-background text-foreground overflow-hidden">
       <TopNav appName={appName} navItems={navItems} />
+
+      {/* Phone sign-in onboarding (for SMS magic-link provisioned users) */}
+      <PhoneLoginInfoModal
+        open={phoneModalOpen}
+        onOpenChange={onPhoneModalOpenChange}
+        phoneNumber={auth.currentUser?.phoneNumber}
+        hideProfileCta={location.pathname.startsWith("/profile")}
+      />
+
       {fullBleed ? (
         // Full-bleed: content manages its own padding; keep it height-constrained
         <main className="flex-1 min-h-0 overflow-hidden">
