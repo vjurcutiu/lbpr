@@ -83,11 +83,11 @@ export function FileViewer({
 
   if (payload.kind === "image" && payload.url) {
     return (
-      <div className="w-full grid place-items-center" ref={containerRef}>
+      <div className="w-full h-full grid place-items-center" ref={containerRef}>
         <img
           src={payload.url}
           alt={file.name}
-          className="max-w-full max-h-[70vh] md:max-h-full object-contain"
+          className="max-w-full max-h-[70vh] sm:max-h-full object-contain"
         />
       </div>
     );
@@ -99,7 +99,7 @@ export function FileViewer({
       <iframe
         src={payload.url}
         title={file.name}
-        className="w-full h-[70vh] md:h-full border rounded"
+        className="w-full h-[70vh] sm:h-full border rounded-md"
       />
     );
   }
