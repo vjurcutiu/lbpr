@@ -80,6 +80,7 @@ import {
   uploadFileToFolder,
   uploadFilesToFolder,
   deleteFile,
+  deleteFolder,
   fileDownloadUrl,
   getFileContent,
   pasteClipboard,
@@ -362,6 +363,11 @@ const sensors = useSensors(
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<FileItem | null>(null);
+
+  // Delete folder modal
+  const [folderConfirmOpen, setFolderConfirmOpen] = useState(false);
+  const [folderDeleting, setFolderDeleting] = useState(false);
+  const [folderToDelete, setFolderToDelete] = useState<string>("");
 
   // Create folder modal
   const [newFolderOpen, setNewFolderOpen] = useState(false);
@@ -1565,6 +1571,63 @@ const sensors = useSensors(
     }
   };
 
+  const requestDeleteFolder = (path: string) => {
+    setFolderToDelete(path || "");
+    setFolderConfirmOpen(true);
+  };
+
+    const performDeleteFolder = async () => {
+    const p = folderToDelete || "";
+    if (!p) return;
+    setFolderDeleting(true);
+    const parent = parentPath(p);
+
+    try {
+      await deleteFolder(p, { recursive: true });
+
+      // If we're currently browsing inside the deleted folder, move up to its parent.
+      const sel = selectedFolder || "";
+      const selInside = sel === p || sel.startsWith(`${p}/`);
+      if (selInside) {
+        suppressNavClearRef.current = true;
+        setSelectedFolder(parent);
+        setTreeSelectedKey(`d:${parent}`);
+        setSelectedFileIds([]);
+        setSelectedFolderRowPaths([]);
+        selectionAnchorRef.current = null;
+      }
+
+      // If the left tree selection is inside this folder, move selection to its parent.
+      if (treeSelectedKey === `d:${p}` || treeSelectedKey.startsWith(`d:${p}/`)) {
+        setTreeSelectedKey(`d:${parent}`);
+      } else if (treeSelectedKey.startsWith("f:")) {
+        const id = treeSelectedKey.slice(2);
+        const f = files.find((x) => x.id === id);
+        if (f && f.name.startsWith(`${p}/`)) setTreeSelectedKey(`d:${parent}`);
+      }
+
+      // If the viewer is open on a file inside this folder, close it.
+      if (viewerId) {
+        const vf = files.find((f) => f.id === viewerId);
+        if (vf && vf.name.startsWith(`${p}/`)) {
+          setViewerOpen(false);
+          setViewerId(null);
+        }
+      }
+
+      toast.success("Folder deleted", { description: `“${p}” removed.` });
+      await refresh();
+    } catch (err) {
+      console.error(err);
+      toast.error("Delete failed", { description: parseErr(err) });
+    } finally {
+      setFolderDeleting(false);
+      setFolderConfirmOpen(false);
+      setFolderToDelete("");
+    }
+  };
+
+
   const requestNewFolder = (parent: string) => {
     setNewFolderParent(parent || "");
     setNewFolderName("");
@@ -1982,6 +2045,7 @@ const sensors = useSensors(
                   onCopyFolder={(p) => setClipboardForFolder("copy", p)}
                   onCutFolder={(p) => setClipboardForFolder("move", p)}
                   onPasteInto={(p) => pasteIntoFolder(p)}
+                  onDeleteFolder={(p) => requestDeleteFolder(p)}
                   onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
                   onDropFilesTo={(folderPath, fs) => preparePending(fs, folderPath)}
                 />
@@ -2336,6 +2400,29 @@ const sensors = useSensors(
         </AlertDialogContent>
       </AlertDialog>
 
+
+      {/* Delete folder confirmation */}
+      <AlertDialog open={folderConfirmOpen} onOpenChange={setFolderConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete folder?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <span className="font-medium">{folderToDelete}</span> and all files inside it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={folderDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={performDeleteFolder}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={folderDeleting}
+            >
+              {folderDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete folder"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* New folder */}
       <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
         <DialogContent className="sm:max-w-md">
@@ -2560,6 +2647,7 @@ const sensors = useSensors(
               onCopyFolder={(p) => setClipboardForFolder("copy", p)}
               onCutFolder={(p) => setClipboardForFolder("move", p)}
               onPasteInto={(p) => pasteIntoFolder(p)}
+              onDeleteFolder={(p) => requestDeleteFolder(p)}
               onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
               onDropFilesTo={(folderPath, fs) => preparePending(fs, folderPath)}
             />

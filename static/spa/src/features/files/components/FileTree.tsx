@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
-import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy, Scissors, Clipboard } from "lucide-react";
+import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy, Scissors, Clipboard, Trash2 } from "lucide-react";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -54,6 +54,7 @@ export function FileTree({
   onCopyFolder,
   onCutFolder,
   onPasteInto,
+  onDeleteFolder,
   onMoveFilesTo,
   onDropFilesTo,
 }: {
@@ -74,6 +75,7 @@ export function FileTree({
   onCopyFolder?: (path: string) => void;
   onCutFolder?: (path: string) => void;
   onPasteInto?: (path: string) => void;
+  onDeleteFolder?: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
@@ -138,6 +140,7 @@ export function FileTree({
         onCopyFolder={onCopyFolder}
         onCutFolder={onCutFolder}
         onPasteInto={onPasteInto}
+        onDeleteFolder={onDeleteFolder}
         onMoveFilesTo={onMoveFilesTo}
         onDropFilesTo={onDropFilesTo}
       />
@@ -164,6 +167,7 @@ function FolderRow({
   onCopyFolder,
   onCutFolder,
   onPasteInto,
+  onDeleteFolder,
   onMoveFilesTo,
   onDropFilesTo,
 }: {
@@ -185,6 +189,7 @@ function FolderRow({
   onCopyFolder?: (path: string) => void;
   onCutFolder?: (path: string) => void;
   onPasteInto?: (path: string) => void;
+  onDeleteFolder?: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, files: File[]) => void;
 }) {
@@ -347,6 +352,15 @@ function FolderRow({
           >
             <Copy className="h-4 w-4" /> Copy path
           </ContextMenuItem>
+
+          {onDeleteFolder && !isRoot && node.path ? (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem variant="destructive" onSelect={() => onDeleteFolder(node.path)}>
+                <Trash2 className="h-4 w-4" /> Delete folder…
+              </ContextMenuItem>
+            </>
+          ) : null}
         </ContextMenuContent>
       </ContextMenu>
 
@@ -374,6 +388,7 @@ function FolderRow({
                 onCopyFolder={onCopyFolder}
                 onCutFolder={onCutFolder}
                 onPasteInto={onPasteInto}
+                onDeleteFolder={onDeleteFolder}
                 onMoveFilesTo={onMoveFilesTo}
                 onDropFilesTo={onDropFilesTo}
               />
