@@ -62,10 +62,15 @@ class Settings(BaseSettings):
     LIMITS_PRO_UPLOAD_TOKENS: int = 20_000_000
 
     # Transcription usage (billed audio seconds)
-    LIMITS_FREE_TRANSCRIBE_SECONDS: int = 3600
-    LIMITS_PRO_TRANSCRIBE_SECONDS: int = 360000
-    LIMITS_FREE_OCR_IMAGES: int = 500
-    LIMITS_PRO_OCR_IMAGES: int = 200000
+    # NOTE: Product plans are expressed in minutes in the UI; backend stores seconds.
+    # Free: 5 minutes. Pro/Paid: 1000 minutes.
+    LIMITS_FREE_TRANSCRIBE_SECONDS: int = 300
+    LIMITS_PRO_TRANSCRIBE_SECONDS: int = 60000
+
+    # OCR usage (images/pages)
+    # Free: 5 images. Pro/Paid: 1000 images.
+    LIMITS_FREE_OCR_IMAGES: int = 5
+    LIMITS_PRO_OCR_IMAGES: int = 1000
     # Speech-to-text (OpenAI Audio API)
     # Location is kept for API compatibility; OpenAI is a global API.
     STT_LOCATION: str = "openai"

@@ -2709,10 +2709,16 @@ const sensors = useSensors(
                     {limits ? `Remaining after: ${new Intl.NumberFormat().format(Math.max(0, (limits.caps.upload_tokens || 0) - (limits.usage.upload_tokens || 0) - pendingTotals.tokens))} / ${new Intl.NumberFormat().format(limits.caps.upload_tokens || 0)}` : "Remaining after: —"}
                   </div>
 
-                  <div className="text-muted-foreground">Transcribe seconds</div>
-                  <div className="text-muted-foreground">+{new Intl.NumberFormat().format(pendingTotals.seconds)}</div>
+                  <div className="text-muted-foreground">Transcribe minutes</div>
+                  <div className="text-muted-foreground">+{new Intl.NumberFormat().format(Math.round(pendingTotals.seconds / 60))} min</div>
                   <div className="text-muted-foreground">
-                    {limits ? `Remaining after: ${new Intl.NumberFormat().format(Math.max(0, (limits.caps.transcribe_seconds || 0) - (limits.usage.transcribe_seconds || 0) - pendingTotals.seconds))} / ${new Intl.NumberFormat().format(limits.caps.transcribe_seconds || 0)}` : "Remaining after: —"}
+                    {(() => {
+                      if (!limits) return "Remaining after: —";
+                      const capSec = limits.caps.transcribe_seconds || 0;
+                      const usedSec = limits.usage.transcribe_seconds || 0;
+                      const remainSec = Math.max(0, capSec - usedSec - pendingTotals.seconds);
+                      return `Remaining after: ${new Intl.NumberFormat().format(Math.round(remainSec / 60))} / ${new Intl.NumberFormat().format(Math.round(capSec / 60))} min`;
+                    })()}
                   </div>
 
                   <div className="text-muted-foreground">OCR images</div>
