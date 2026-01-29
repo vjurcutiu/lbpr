@@ -50,6 +50,18 @@ class CreateFolderResponse(BaseModel):
     ok: bool = True
     folder: FolderItem
 
+class RenameFolderRequest(BaseModel):
+    old_path: str = Field(..., description="Existing folder path like 'clients/acme'")
+    new_path: str = Field(..., description="New folder path like 'clients/foobar'")
+
+
+class RenameFolderResponse(BaseModel):
+    ok: bool = True
+    old_path: str
+    new_path: str
+    files_updated: int = 0
+    folders_updated: int = 0
+
 
 class MoveFolderRequest(BaseModel):
     src_path: str = Field(..., description="Source folder path like 'clients/acme'")

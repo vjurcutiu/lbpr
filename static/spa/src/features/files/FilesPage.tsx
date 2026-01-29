@@ -75,7 +75,6 @@ import {
   listFiles,
   listFolders,
   createFolder,
-  moveFolder,
   updateFile,
   uploadFileToFolder,
   uploadFilesToFolder,
@@ -98,7 +97,7 @@ import { FileViewer } from "./components/FileViewer";
 import { FileIconByName } from "./components/FileIconByName";
 import { UploadTrackerPanel } from "./components/UploadTracker";
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
-import { getJSON } from "@/shared/api";
+import { API_BASE, getJSON } from "@/shared/api";
 import { loadBool, saveBool, loadJSON, saveJSON } from "@/shared/persist";
 import "./styles.css";
 
@@ -111,6 +110,32 @@ const LS_OCR_LANGUAGES = "files:ocrLanguages";
 const LS_OCR_DOCMODE = "files:ocrDocMode";
 
 const DT_INTERNAL_FILE = "application/x-lbpr-file";
+
+// Optional context-menu debugging (turn on with ?ctxmenu=1)
+const DEBUG_CTXMENU = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("ctxmenu");
+function ctxEvtSummary(e: any) {
+  try {
+    const t = e?.target as HTMLElement | null;
+    return {
+      type: e?.type,
+      x: e?.clientX,
+      y: e?.clientY,
+      button: e?.button,
+      buttons: e?.buttons,
+      detail: e?.detail,
+      target: t
+        ? { tag: t.tagName, id: t.id, className: t.className, dataset: (t as any).dataset, text: (t as any).innerText }
+        : null,
+    };
+  } catch {
+    return { type: e?.type };
+  }
+}
+function ctxLog(label: string, payload?: any) {
+  if (!DEBUG_CTXMENU) return;
+  // eslint-disable-next-line no-console
+  console.log(`[ctxmenu] ${label}`, payload ?? "");
+}
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(() => {
@@ -242,6 +267,8 @@ function filterFileIdsNotUnderFolders(files: FileItem[], fileIds: string[], fold
 
 export default function FilesPage() {
   const isMobile = useMediaQuery("(max-width: 767px)");
+  // Allow passing optional/merged props to FileTree during branch merges.
+  const FileTreeAny: any = FileTree;
 
   // Data
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -285,6 +312,25 @@ const sensors = useSensors(
     activationConstraint: { distance: 6 },
   })
 );
+
+  // Context-menu debug helpers
+  useEffect(() => {
+    if (!DEBUG_CTXMENU) return;
+    const onCtx = (e: Event) => ctxLog("global.contextmenu", ctxEvtSummary(e));
+    const onPD = (e: Event) => ctxLog("global.pointerdown", ctxEvtSummary(e));
+    const onPU = (e: Event) => ctxLog("global.pointerup", ctxEvtSummary(e));
+    const onClick = (e: Event) => ctxLog("global.click", ctxEvtSummary(e));
+    window.addEventListener("contextmenu", onCtx, true);
+    window.addEventListener("pointerdown", onPD, true);
+    window.addEventListener("pointerup", onPU, true);
+    window.addEventListener("click", onClick, true);
+    return () => {
+      window.removeEventListener("contextmenu", onCtx, true);
+      window.removeEventListener("pointerdown", onPD, true);
+      window.removeEventListener("pointerup", onPU, true);
+      window.removeEventListener("click", onClick, true);
+    };
+  }, []);
 
 
   // UI
@@ -383,6 +429,12 @@ const sensors = useSensors(
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameFile, setRenameFile] = useState<FileItem | null>(null);
   const [renameValue, setRenameValue] = useState<string>("");
+
+  // Rename folder modal
+  const [renameFolderOpen, setRenameFolderOpen] = useState(false);
+  const [renameFolderPath, setRenameFolderPath] = useState<string>("");
+  const [renameFolderValue, setRenameFolderValue] = useState<string>("");
+  const [renamingFolder, setRenamingFolder] = useState(false);
 
   // Viewer modal (with search + metadata)
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -1700,29 +1752,18 @@ const sensors = useSensors(
     }
 
     try {
-      const results = await Promise.allSettled(paths.map((p) => moveFolder(p, dest ? dest : null)));
-      const failed = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
+      await pasteClipboard({ op: "move", destination: dest, files: [], folders: paths });
 
-      if (failed.length) {
-        const first = failed[0]?.reason;
-        toast.error("Move failed", {
-          description:
-            failed.length === 1
-              ? parseErr(first)
-              : `${failed.length} of ${paths.length} failed. ${parseErr(first)}`,
-        });
-      } else {
-        toast.success("Moved", {
-          description:
-            paths.length === 1
-              ? dest
-                ? `Moved into “${dest}”`
-                : "Moved to Root"
-              : dest
-              ? `Moved ${paths.length} folders into “${dest}”`
-              : `Moved ${paths.length} folders to Root`,
-        });
-      }
+      toast.success("Moved", {
+        description:
+          paths.length === 1
+            ? dest
+              ? `Moved into “${dest}”`
+              : "Moved to Root"
+            : dest
+            ? `Moved ${paths.length} folders into “${dest}”`
+            : `Moved ${paths.length} folders to Root`,
+      });
 
       setSelectedFileIds([]);
       setSelectedFolderRowPaths([]);
@@ -1769,6 +1810,78 @@ const sensors = useSensors(
       await refresh();
     } catch (err) {
       toast.error("Rename failed", { description: parseErr(err) });
+    }
+  };
+
+  const remapFolderPath = useCallback((p: string, oldPath: string, newPath: string) => {
+    if (!p) return p;
+    if (p === oldPath) return newPath;
+    if (p.startsWith(oldPath + "/")) return newPath + p.slice(oldPath.length);
+    return p;
+  }, []);
+
+  const requestRenameFolder = (path: string) => {
+    const p = normalizeFolderPath(path);
+    if (!p) return; // don't rename Root
+    setRenameFolderPath(p);
+    setRenameFolderValue(basename(p));
+    setRenameFolderOpen(true);
+  };
+
+  const performRenameFolder = async () => {
+    const oldPath = normalizeFolderPath(renameFolderPath);
+    if (!oldPath) return;
+    const newName = (renameFolderValue || "").trim().replace(/^\/+|\/+$/g, "");
+    if (!newName) return;
+    const parent = parentPath(oldPath);
+    const newPath = parent ? `${parent}/${newName}` : newName;
+    if (newPath === oldPath) {
+      setRenameFolderOpen(false);
+      return;
+    }
+
+    setRenamingFolder(true);
+    try {
+      const res = await fetch(`${API_BASE}/v1/files/folders/rename`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ old_path: oldPath, new_path: newPath }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        let msg = txt;
+        try {
+          const j = JSON.parse(txt);
+          msg = j?.detail || j?.message || msg;
+        } catch {}
+        msg = String(msg || "").replace(/<[^>]*>/g, " ").trim();
+        throw new Error(msg || `HTTP ${res.status}`);
+      }
+
+      // Remap any folder-based selections/anchors so the UI doesn't "jump" after refresh.
+      setSelectedFolder((prev) => remapFolderPath(prev || "", oldPath, newPath));
+      setSelectedFolderRowPaths((prev) => prev.map((x) => remapFolderPath(x, oldPath, newPath)));
+      setTreeSelectedKey((prev) => {
+        if (prev === `d:${oldPath}`) return `d:${newPath}`;
+        if (prev.startsWith(`d:${oldPath}/`)) return `d:${newPath}${prev.slice((`d:${oldPath}`).length)}`;
+        return prev;
+      });
+      if (selectionAnchorRef.current && selectionAnchorRef.current.startsWith("d:")) {
+        const ap = selectionAnchorRef.current.slice(2);
+        const rp = remapFolderPath(ap, oldPath, newPath);
+        selectionAnchorRef.current = `d:${rp}`;
+      }
+
+      toast.success("Folder renamed", { description: `“${oldPath}” → “${newPath}”` });
+      setRenameFolderOpen(false);
+      setRenameFolderPath("");
+      setRenameFolderValue("");
+      await refresh();
+    } catch (err) {
+      toast.error("Rename folder failed", { description: parseErr(err) });
+    } finally {
+      setRenamingFolder(false);
     }
   };
 
@@ -2003,7 +2116,7 @@ const sensors = useSensors(
             {/* LEFT: folders */}
             <aside className="hidden md:block shrink-0 overflow-hidden border-r bg-muted/20" style={{ width: sidebarWidth }}>
               <div className="h-full overflow-auto px-1 py-2">
-                <FileTree
+                <FileTreeAny
                   loading={busy && (!tree || files.length === 0)}
                   node={treeForFolders}
                   selectedKey={treeSelectedKey}
@@ -2039,6 +2152,7 @@ const sensors = useSensors(
                   }}
                   onUploadTo={(p) => startUploadTo(p)}
                   onNewFolder={(p) => requestNewFolder(p)}
+                  onRenameFolder={(p: string) => requestRenameFolder(p)}
                   canPaste={clipboardHasItems}
                   onCopyFolder={(p) => setClipboardForFolder("copy", p)}
                   onCutFolder={(p) => setClipboardForFolder("move", p)}
@@ -2282,6 +2396,7 @@ const sensors = useSensors(
                             suppressClickUntilRef={suppressClickUntilRef}
                             onSelect={(e) => selectFolderRow(n.path, e)}
                             onOpen={() => setSelectedFolder(n.path)}
+                            onRename={() => requestRenameFolder(n.path)}
                             canPaste={clipboardHasItems}
                             onCopy={() => setClipboardFromSelection("copy")}
                             onCut={() => setClipboardFromSelection("move")}
@@ -2489,6 +2604,47 @@ const sensors = useSensors(
         </DialogContent>
       </Dialog>
 
+      {/* Rename folder */}
+      <Dialog
+        open={renameFolderOpen}
+        onOpenChange={(open) => {
+          setRenameFolderOpen(open);
+          if (!open) {
+            setRenameFolderPath("");
+            setRenameFolderValue("");
+            setRenamingFolder(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename folder</DialogTitle>
+            <DialogDescription>
+              Rename <span className="font-medium">{renameFolderPath || ""}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              autoFocus
+              placeholder="New folder name"
+              value={renameFolderValue}
+              onChange={(e) => setRenameFolderValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") performRenameFolder();
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameFolderOpen(false)} disabled={renamingFolder}>
+              Cancel
+            </Button>
+            <Button onClick={performRenameFolder} disabled={!renameFolderValue.trim() || renamingFolder}>
+              {renamingFolder ? "Renaming…" : "Rename"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Rename */}
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent className="sm:max-w-md">
@@ -2599,7 +2755,7 @@ const sensors = useSensors(
             </Button>
           </div>
           <div className="flex-1 overflow-auto px-1 py-2 bg-muted/10">
-            <FileTree
+            <FileTreeAny
               loading={busy && (!tree || files.length === 0)}
               node={treeForFolders}
               selectedKey={treeSelectedKey}
@@ -2641,6 +2797,7 @@ const sensors = useSensors(
               }}
               onUploadTo={(p) => startUploadTo(p)}
               onNewFolder={(p) => requestNewFolder(p)}
+              onRenameFolder={(p: string) => requestRenameFolder(p)}
               canPaste={clipboardHasItems}
               onCopyFolder={(p) => setClipboardForFolder("copy", p)}
               onCutFolder={(p) => setClipboardForFolder("move", p)}
@@ -3090,6 +3247,7 @@ function FolderRow({
   selected,
   onSelect,
   onOpen,
+  onRename,
   canPaste,
   onCopy,
   onCut,
@@ -3104,6 +3262,7 @@ function FolderRow({
   selected: boolean;
   onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
+  onRename: () => void;
   canPaste: boolean;
   onCopy: () => void;
   onCut: () => void;
@@ -3131,12 +3290,19 @@ function FolderRow({
   } as React.CSSProperties;
 
   return (
-    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
+    <ContextMenu
+      open={menuOpen}
+      onOpenChange={(open) => {
+        ctxLog("FolderRow.onOpenChange", { open, path: node.path });
+        setMenuOpen(open);
+      }}
+    >
       <ContextMenuTrigger asChild>
         <div
           ref={setDropRef}
           className={cn("rounded", isOver && "ring-2 ring-primary/40 ring-inset bg-primary/5")}
-          onContextMenuCapture={() => {
+          onContextMenuCapture={(e) => {
+            ctxLog("FolderRow.onContextMenuCapture", ctxEvtSummary(e));
             if (menuOpen) {
               flushSync(() => {
                 setMenuOpen(false);
@@ -3202,9 +3368,24 @@ function FolderRow({
           </div>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent key={menuKey} className="min-w-[12rem]">
+      <ContextMenuContent
+        key={menuKey}
+        className="min-w-[12rem]"
+        onOpenAutoFocus={(e) => ctxLog("FolderRow.menu.openAutoFocus", ctxEvtSummary(e))}
+        onPointerDownCapture={(e) => ctxLog("FolderRow.menu.pointerDownCapture", ctxEvtSummary(e))}
+        onClickCapture={(e) => ctxLog("FolderRow.menu.clickCapture", ctxEvtSummary(e))}
+      >
         <ContextMenuItem onSelect={onOpen}>
           <Folder className="h-4 w-4" /> Open
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            setMenuOpen(false);
+            onRename();
+          }}
+        >
+          <Pencil className="h-4 w-4" /> Rename folder…
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onCopy}>
@@ -3277,7 +3458,13 @@ function FileRow({
   } as React.CSSProperties;
 
   return (
-    <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
+    <ContextMenu
+      open={menuOpen}
+      onOpenChange={(open) => {
+        ctxLog("FileRow.onOpenChange", { open, id: f.id });
+        setMenuOpen(open);
+      }}
+    >
       <ContextMenuTrigger asChild>
         <div
           ref={setNodeRef}
@@ -3288,7 +3475,8 @@ function FileRow({
             selected && "bg-muted/60",
             isDragging && "opacity-60"
           )}
-          onContextMenuCapture={() => {
+          onContextMenuCapture={(e) => {
+            ctxLog("FileRow.onContextMenuCapture", ctxEvtSummary(e));
             if (menuOpen) {
               flushSync(() => {
                 setMenuOpen(false);
@@ -3324,7 +3512,13 @@ function FileRow({
           <div className="text-muted-foreground truncate">{f.created_at ? new Date(f.created_at).toLocaleString() : "—"}</div>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent key={menuKey} className="min-w-[12rem]">
+      <ContextMenuContent
+        key={menuKey}
+        className="min-w-[12rem]"
+        onOpenAutoFocus={(e) => ctxLog("FileRow.menu.openAutoFocus", ctxEvtSummary(e))}
+        onPointerDownCapture={(e) => ctxLog("FileRow.menu.pointerDownCapture", ctxEvtSummary(e))}
+        onClickCapture={(e) => ctxLog("FileRow.menu.clickCapture", ctxEvtSummary(e))}
+      >
         <ContextMenuItem onSelect={onOpen}>
           <Folder className="h-4 w-4" /> Open
         </ContextMenuItem>
@@ -3346,10 +3540,22 @@ function FileRow({
           <Clipboard className="h-4 w-4" /> Paste
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={onRename}>
+        <ContextMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            setMenuOpen(false);
+            onRename();
+          }}
+        >
           <Pencil className="h-4 w-4" /> Rename…
         </ContextMenuItem>
-        <ContextMenuItem onSelect={onMove}>
+        <ContextMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            setMenuOpen(false);
+            onMove();
+          }}
+        >
           <Folder className="h-4 w-4" /> Move…
         </ContextMenuItem>
         <ContextMenuSeparator />

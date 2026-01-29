@@ -180,7 +180,7 @@ def list_folders(uid: str) -> List[Dict[str, Any]]:
 def delete_folder(uid: str, folder_path: str) -> None:
     """Delete a folder record from Firestore (best-effort).
 
-    Note: This does NOT delete any files; it's just the folder index record.
+    Note: This only removes the folder record. It does NOT move/delete files.
     """
     folder_path = normalize_folder_path(folder_path)
     if not folder_path:

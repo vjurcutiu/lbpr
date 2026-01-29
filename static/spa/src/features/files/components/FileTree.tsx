@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
-import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy, Scissors, Clipboard, Trash2 } from "lucide-react";
+import { ChevronRight, Folder, Loader2, Upload, FolderPlus, Copy, Scissors, Clipboard, Trash2, Pencil } from "lucide-react";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -50,6 +50,7 @@ export function FileTree({
   onOpenFile,
   onUploadTo,
   onNewFolder,
+  onRenameFolder,
   canPaste = false,
   onCopyFolder,
   onCutFolder,
@@ -71,6 +72,7 @@ export function FileTree({
   onOpenFile: (file: FileItem) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
+  onRenameFolder?: (path: string) => void;
   canPaste?: boolean;
   onCopyFolder?: (path: string) => void;
   onCutFolder?: (path: string) => void;
@@ -136,6 +138,7 @@ export function FileTree({
         onOpenFile={onOpenFile}
         onUploadTo={onUploadTo}
         onNewFolder={onNewFolder}
+        onRenameFolder={onRenameFolder}
         canPaste={canPaste}
         onCopyFolder={onCopyFolder}
         onCutFolder={onCutFolder}
@@ -163,6 +166,7 @@ function FolderRow({
   onOpenFile,
   onUploadTo,
   onNewFolder,
+  onRenameFolder,
   canPaste,
   onCopyFolder,
   onCutFolder,
@@ -185,6 +189,7 @@ function FolderRow({
   onOpenFile: (file: FileItem) => void;
   onUploadTo: (path: string) => void;
   onNewFolder: (parentPath: string) => void;
+  onRenameFolder?: (path: string) => void;
   canPaste?: boolean;
   onCopyFolder?: (path: string) => void;
   onCutFolder?: (path: string) => void;
@@ -328,6 +333,19 @@ function FolderRow({
           <ContextMenuItem onSelect={() => onNewFolder(node.path)}>
             <FolderPlus className="h-4 w-4" /> New folder…
           </ContextMenuItem>
+          {onRenameFolder && !isRoot && !!normPath(node.path) && (
+            <ContextMenuItem
+              onSelect={(e) => {
+                // NOTE: Radix context-menu + modal open can be finicky unless we
+                // prevent the default selection behavior and close the menu ourselves.
+                e.preventDefault();
+                setMenuOpen(false);
+                onRenameFolder(node.path);
+              }}
+            >
+              <Pencil className="h-4 w-4" /> Rename…
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
 
           <ContextMenuItem disabled={isRoot} onSelect={() => onCopyFolder?.(node.path)}
@@ -384,6 +402,7 @@ function FolderRow({
                 onOpenFile={onOpenFile}
                 onUploadTo={onUploadTo}
                 onNewFolder={onNewFolder}
+                onRenameFolder={onRenameFolder}
                 canPaste={canPaste}
                 onCopyFolder={onCopyFolder}
                 onCutFolder={onCutFolder}

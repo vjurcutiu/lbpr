@@ -45,6 +45,29 @@ export async function createFolder(path: string): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
+export type RenameFolderResponse = {
+  ok: boolean;
+  old_path: string;
+  new_path: string;
+  files_updated?: number;
+  folders_updated?: number;
+};
+
+/**
+ * PATCH /v1/files/folders/rename
+ * Renames (or moves) a folder path, updating all files/subfolders under it.
+ */
+export async function renameFolder(old_path: string, new_path: string): Promise<RenameFolderResponse> {
+  const res = await fetch(`${API_BASE}/v1/files/folders/rename`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ old_path, new_path }),
+  });
+  if (!res.ok) throw new Error(extractMessage(await res.text()));
+  return res.json();
+}
+
 export type MoveFolderResponse = {
   ok: boolean;
   from_path: string;

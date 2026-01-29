@@ -631,6 +631,225 @@ def create_folder(uid: str, path: str) -> FolderItem:
     )
 
 
+def rename_folder(uid: str, old_path: str, new_path: str) -> dict:
+    """Rename (or move) a folder.
+
+    This rewrites:
+      - Firestore folder docs for the folder subtree
+      - Firestore file docs for files within the folder subtree
+      - Storage blob metadata (folder_path + display_name) for those files
+
+    NOTE: Storage object names are not changed.
+    """
+
+    raw_old = index_store.normalize_folder_path(old_path)
+    raw_new = index_store.normalize_folder_path(new_path)
+
+    if not raw_old:
+        raise ValueError("old_path required")
+    if not raw_new:
+        raise ValueError("new_path required")
+    if raw_old == raw_new:
+        return {
+            "ok": True,
+            "old_path": raw_old,
+            "new_path": raw_new,
+            "files_updated": 0,
+            "folders_updated": 0,
+        }
+    if raw_new.startswith(raw_old + "/"):
+        raise ValueError("new_path cannot be inside old_path")
+
+    # Tokenize for storage/index if enabled.
+    old_tok = tokenize_text(uid, raw_old) if settings.PII_TOKENIZE_FILENAMES else raw_old
+    new_tok = tokenize_text(uid, raw_new) if settings.PII_TOKENIZE_FILENAMES else raw_new
+
+    def _remap_subpath(cur: str) -> str:
+        cur = index_store.normalize_folder_path(cur)
+        if cur == old_tok:
+            return new_tok
+        if cur.startswith(old_tok + "/"):
+            return new_tok + cur[len(old_tok) :]
+        return cur
+
+    # --- Collect files + folders (source of truth: Firestore; fallback: storage scan)
+    try:
+        file_rows = index_store.list_files_in_folder_tree(uid, old_tok, limit=20000)
+    except Exception:
+        file_rows = []
+
+    try:
+        folder_rows = index_store.list_folders_in_tree(uid, old_tok, limit=20000)
+    except Exception:
+        folder_rows = []
+
+    bkt = _bucket()
+
+    marker_exists = False
+    try:
+        marker_exists = bkt.blob(_folder_marker_object(uid, old_tok)).exists()
+    except Exception:
+        marker_exists = False
+
+    if not file_rows and not folder_rows and not marker_exists:
+        raise FileNotFoundError("Folder not found")
+
+    if not file_rows:
+        # Fallback: scan storage if index is empty/out of sync
+        try:
+            pref = f"{_user_prefix(uid)}/uploads/"
+            for blob in bkt.list_blobs(prefix=pref):
+                try:
+                    blob.reload()
+                    md = blob.metadata or {}
+                    if _is_folder_marker(blob.name, md):
+                        continue
+                    file_rows.append(
+                        {
+                            "storage_path": blob.name,
+                            "folder_path": str(md.get("folder_path") or ""),
+                            "display_name": str(md.get("display_name") or ""),
+                            "original_name": str(md.get("original_name") or ""),
+                            "dataset": str(md.get("dataset") or "default"),
+                            "checksum": str(md.get("checksum") or ""),
+                        }
+                    )
+                except Exception:
+                    continue
+        except Exception:
+            file_rows = []
+
+    # --- Update file metadata for all files under old folder
+    files_updated = 0
+    for r in file_rows:
+        try:
+            cur_folder = str(r.get("folder_path") or "")
+            if not (cur_folder == old_tok or cur_folder.startswith(old_tok + "/")):
+                continue
+
+            storage_path = str(r.get("storage_path") or r.get("id") or "")
+            if not storage_path:
+                continue
+
+            blob = bkt.blob(storage_path)
+            if not blob.exists():
+                continue
+            blob.reload()
+            md = blob.metadata or {}
+
+            # Determine base name (already tokenized if PII_TOKENIZE_FILENAMES)
+            cur_display = str(r.get("display_name") or md.get("display_name") or "")
+            cur_base = (
+                (cur_display.split("/")[-1] if cur_display else "")
+                or str(r.get("original_name") or md.get("original_name") or "")
+            )
+            cur_base = (cur_base or "").split("/")[-1]
+            if not cur_base:
+                continue
+
+            new_folder = _remap_subpath(cur_folder)
+            new_display = index_store.build_display_name(new_folder, cur_base)
+
+            md["folder_path"] = new_folder
+            md["display_name"] = new_display
+            md["original_name"] = cur_base
+            blob.metadata = md
+            blob.patch()
+
+            # Update Firestore index (best-effort)
+            try:
+                index_store.upsert_file(
+                    uid,
+                    storage_path=storage_path,
+                    original_name=cur_base,
+                    display_name=new_display,
+                    folder_path=new_folder,
+                    size=int(blob.size or 0),
+                    content_type=str(blob.content_type or md.get("content_type") or ""),
+                    dataset=str(md.get("dataset") or r.get("dataset") or "default"),
+                    checksum=str(md.get("checksum") or r.get("checksum") or ""),
+                    created_at=getattr(blob, "time_created", None) or datetime.utcnow(),
+                )
+            except Exception:
+                pass
+
+            files_updated += 1
+        except Exception:
+            continue
+
+    # --- Update folder docs (subtree) + folder marker objects
+    folders_updated = 0
+
+    # Ensure target chain exists
+    try:
+        index_store.ensure_folder_chain(uid, new_tok)
+    except Exception:
+        pass
+
+    # Rename subtree from deepest to shallowest to reduce temporary duplicates
+    paths_to_rename: list[str] = []
+    for fr in folder_rows:
+        p = str(fr.get("path") or "")
+        if not p:
+            continue
+        if p == old_tok or p.startswith(old_tok + "/"):
+            paths_to_rename.append(p)
+    paths_to_rename.sort(key=lambda x: len(x), reverse=True)
+
+    for p in paths_to_rename:
+        try:
+            new_p = _remap_subpath(p)
+            if not new_p or new_p == p:
+                continue
+            try:
+                index_store.upsert_folder(uid, new_p)
+            except Exception:
+                pass
+            try:
+                index_store.delete_folder(uid, p)
+            except Exception:
+                pass
+
+            # Best-effort move marker objects
+            try:
+                old_marker = bkt.blob(_folder_marker_object(uid, p))
+                if old_marker.exists():
+                    old_marker.delete()
+            except Exception:
+                pass
+            try:
+                marker = bkt.blob(_folder_marker_object(uid, new_p))
+                marker.metadata = {
+                    "owner_uid": uid,
+                    "is_folder_marker": "1",
+                    "display_name": f"{new_p}/",
+                    "folder_path": new_p,
+                }
+                marker.upload_from_string(b"", content_type="application/octet-stream")
+            except Exception:
+                pass
+
+            folders_updated += 1
+        except Exception:
+            continue
+
+    # Also ensure the root folder itself exists even if Firestore list was empty
+    if folders_updated == 0:
+        try:
+            index_store.upsert_folder(uid, new_tok)
+            index_store.delete_folder(uid, old_tok)
+            folders_updated = 1
+        except Exception:
+            pass
+
+    return {
+        "ok": True,
+        "old_path": detokenize_text(uid, old_tok),
+        "new_path": detokenize_text(uid, new_tok),
+        "files_updated": int(files_updated),
+        "folders_updated": int(folders_updated),
+    }
+
 def move_folder(uid: str, src_path: str, dest_parent_path: Optional[str] = None):
     """Move a folder recursively by updating folder index records and file metadata.
 
