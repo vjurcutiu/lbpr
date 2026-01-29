@@ -21,6 +21,7 @@ import {
   Search,
   Activity,
   Folder,
+  GripVertical,
   ChevronRight,
   ChevronUp,
   ChevronDown,
@@ -2373,7 +2374,8 @@ const sensors = useSensors(
                 <div ref={listScrollRef} className="absolute inset-0 overflow-auto">
                   <div className="px-2 py-2">
                     {/* Header */}
-                    <div className="hidden md:grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-1 text-xs text-muted-foreground">
+                    <div className="hidden md:grid grid-cols-[1.25rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-1 text-xs text-muted-foreground">
+                      <div />
                       <div>Name</div>
                       <div className="text-right">Size</div>
                       <div>Type</div>
@@ -3280,6 +3282,7 @@ function FolderRow({
     attributes,
     listeners,
     setNodeRef: setDragRef,
+    setActivatorNodeRef,
     transform,
     isDragging,
   } = useDraggable({ id: folderDndId(node.path) });
@@ -3349,15 +3352,31 @@ function FolderRow({
             ref={setDragRef}
             style={style}
             className={cn(
-              "grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
+              "group grid grid-cols-[1.25rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
               "hover:bg-muted/40",
               selected && "bg-muted/60",
               isDragging && "opacity-60"
             )}
-            // dnd-kit
-            {...attributes}
-            {...listeners}
           >
+            <div className="flex items-center justify-center">
+              <button
+                ref={setActivatorNodeRef}
+                type="button"
+                aria-label="Drag folder"
+                className={cn(
+                  "inline-flex h-5 w-5 items-center justify-center rounded",
+                  "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
+                  "cursor-grab active:cursor-grabbing touch-none select-none"
+                )}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                // dnd-kit (handle)
+                {...attributes}
+                {...listeners}
+              >
+                <GripVertical className="h-4 w-4" />
+              </button>
+            </div>
             <div className="min-w-0 flex items-center gap-2">
               <Folder className="h-4 w-4 shrink-0" />
               <span className="truncate font-medium">{node.name}</span>
@@ -3452,7 +3471,7 @@ function FileRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuKey, setMenuKey] = useState(0);
 
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: fileDndId(f.id) });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } = useDraggable({ id: fileDndId(f.id) });
   const style = {
     transform: CSS.Translate.toString(transform),
   } as React.CSSProperties;
@@ -3470,7 +3489,7 @@ function FileRow({
           ref={setNodeRef}
           style={style}
           className={cn(
-            "grid grid-cols-[minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
+            "group grid grid-cols-[1.25rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
             "hover:bg-muted/40",
             selected && "bg-muted/60",
             isDragging && "opacity-60"
@@ -3496,13 +3515,29 @@ function FileRow({
             // Right-click selects the file if it isn't already selected
             if (!selected) onSelect(e);
           }}
-          // dnd-kit
-          {...attributes}
-          {...listeners}
           data-file-row
           data-file-id={f.id}
           title={f.name}
         >
+          <div className="flex items-center justify-center">
+            <button
+              ref={setActivatorNodeRef}
+              type="button"
+              aria-label="Drag file"
+              className={cn(
+                "inline-flex h-5 w-5 items-center justify-center rounded",
+                "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
+                "cursor-grab active:cursor-grabbing touch-none select-none"
+              )}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              // dnd-kit (handle)
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+          </div>
           <div className="min-w-0 flex items-center gap-2">
             <FileIconByName name={node.name} className="h-4 w-4 shrink-0" />
             <span className="truncate">{node.name}</span>
