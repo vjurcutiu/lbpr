@@ -325,6 +325,8 @@ export default function BillingPage() {
           <ul className="text-sm space-y-2 mb-6 flex-1">
             <li>• 50 messages</li>
             <li>• 100,000 upload tokens (≈75 pages)</li>
+            <li>• 5 minutes transcription</li>
+            <li>• 5 OCR images</li>
             <li>• Get started — no credit card</li>
           </ul>
 
@@ -366,11 +368,10 @@ export default function BillingPage() {
           <ul className="text-sm space-y-2 mb-6 flex-1">
             <li>• 10,000 messages / month</li>
             <li>• 20,000,000 upload tokens (≈15,000 pages) / month</li>
-            <li>• Priority file processing & faster queue</li>
-            <li>• Cross-document keyword search</li>
-            <li>• Phone & email support (≤24h SLA)</li>
-            <li>• Priority feature requests & roadmap voting</li>
-          </ul>
+            <li>• 1,000 minutes transcription / month</li>
+            <li>• 1,000 OCR images / month</li>
+            <li>• Pseudonymization to protect sensitive data (PII)</li>
+            <li>• Phone & email support (≤24h SLA)</li>          </ul>
 
           {/* footer: chip above button */}
           <div className="mt-auto flex flex-col gap-3">
