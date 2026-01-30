@@ -11384,7 +11384,10 @@ const breadcrumb = useMemo(() => {
 
 
 
-        <DialogContent className="md:hidden p-0 gap-0 w-[calc(100vw-1rem)] max-w-none h-[calc(100vh-1rem)] flex flex-col">
+        <DialogContent
+          showCloseButton={false}
+          className="md:hidden p-0 gap-0 w-auto max-w-none flex flex-col overflow-hidden top-[calc(env(safe-area-inset-top)+0.5rem)] bottom-[calc(env(safe-area-inset-bottom)+0.5rem)] left-[calc(env(safe-area-inset-left)+0.5rem)] right-[calc(env(safe-area-inset-right)+0.5rem)] translate-x-0 translate-y-0"
+        >
 
 
 
