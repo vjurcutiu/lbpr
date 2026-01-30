@@ -20,6 +20,48 @@ import { FileIconByName } from "./FileIconByName";
 const folderKey = (path: string) => `d:${path || ""}`;
 const fileKey = (id: string) => `f:${id || ""}`;
 
+// Tree indent styling
+// - BASE_LEFT_PX must match the paddingLeft base used for rows.
+// - INDENT_PX controls the depth step and should match the existing indentation.
+//
+// VSCode-ish guides: faint vertical lines per depth + a small elbow into each row.
+// Implemented via background layers so it can't interfere with clicks / DnD.
+const BASE_LEFT_PX = 8;
+const INDENT_PX = 14;
+const GUIDE_COLOR = "hsl(var(--muted-foreground) / 0.16)";
+
+function treeGuidesStyle(depth: number): React.CSSProperties {
+  if (depth <= 0) return {};
+
+  const images: string[] = [];
+  const sizes: string[] = [];
+  const positions: string[] = [];
+  const repeats: string[] = [];
+
+  // Vertical guides for each indent level.
+  for (let i = 1; i <= depth; i++) {
+    const x = BASE_LEFT_PX + (i - 0.5) * INDENT_PX;
+    images.push(`linear-gradient(${GUIDE_COLOR}, ${GUIDE_COLOR})`);
+    sizes.push("1px 100%");
+    positions.push(`${x}px 0`);
+    repeats.push("no-repeat");
+  }
+
+  // Elbow into the row at the current depth.
+  const elbowX = BASE_LEFT_PX + (depth - 0.5) * INDENT_PX;
+  images.push(`linear-gradient(${GUIDE_COLOR}, ${GUIDE_COLOR})`);
+  sizes.push(`${INDENT_PX / 2}px 1px`);
+  positions.push(`${elbowX}px 50%`);
+  repeats.push("no-repeat");
+
+  return {
+    backgroundImage: images.join(","),
+    backgroundSize: sizes.join(","),
+    backgroundPosition: positions.join(","),
+    backgroundRepeat: repeats.join(","),
+  };
+}
+
 function normPath(p: string) {
   return (p || "").split("/").filter(Boolean).join("/");
 }
@@ -220,6 +262,12 @@ function FolderRow({
     transform: CSS.Translate.toString(transform),
   } as React.CSSProperties;
 
+  const rowStyle = {
+    ...style,
+    paddingLeft: BASE_LEFT_PX + depth * INDENT_PX,
+    ...treeGuidesStyle(depth),
+  } as React.CSSProperties;
+
   const ignoreClick = () => {
     const until = suppressClickUntilRef?.current ?? 0;
     return Date.now() < until;
@@ -275,7 +323,7 @@ function FolderRow({
           >
             <div
               ref={setDragRef}
-              style={{ ...style, paddingLeft: 8 + depth * 14 }}
+              style={rowStyle}
               className={cn(
                 "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left",
                 "hover:bg-muted/40",
@@ -481,7 +529,7 @@ function FileRow({
         "hover:bg-muted/40",
         selected && "bg-muted/50"
       )}
-      style={{ paddingLeft: 8 + depth * 14 }}
+      style={{ paddingLeft: BASE_LEFT_PX + depth * INDENT_PX, ...treeGuidesStyle(depth) }}
       onClick={(e) => {
         e.stopPropagation();
         if (ignoreClick()) return;
