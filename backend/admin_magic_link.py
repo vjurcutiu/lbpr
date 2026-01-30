@@ -11,6 +11,14 @@ Examples:
   # Prod (example)
   docker compose -p lbpr -f docker-compose.yml -f docker-compose.ssl.yml exec api \
     python admin_magic_link.py --phone +40712345678 --base-url https://app.lexbot.pro
+
+cd /opt/lbpr
+sudo docker compose \
+  -f /opt/lbpr/docker-compose.yml \
+  -f /opt/lbpr/ops/deploy/docker-compose.deploy.yml \
+  -f /opt/lbpr/docker-compose.ssl.yml \
+  -f /opt/lbpr/ops/deploy/docker-compose.doppler.yml \
+  exec api bash -lc 'python /app/admin_magic_link.py --phone "+40739420954" --base-url "https://lexbot.pro" --return-to "/files"'
 """
 
 from __future__ import annotations
