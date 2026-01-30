@@ -392,6 +392,8 @@ import { FileIconByName } from "./components/FileIconByName";
 
 import { UploadTrackerPanel } from "./components/UploadTracker";
 
+import { InternalDragPreview } from "./components/InternalDragPreview";
+
 
 
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
@@ -1458,7 +1460,14 @@ const suppressBgClearUntilRef = useRef<number>(0);
 
 
 
-const [activeInternalDrag, setActiveInternalDrag] = useState<{ count: number; label: string } | null>(null);
+type ActiveInternalDrag = {
+  kind: "file" | "folder";
+  ids: string[]; // fileIds or folderPaths
+  count: number;
+  label?: string;
+};
+
+const [activeInternalDrag, setActiveInternalDrag] = useState<ActiveInternalDrag | null>(null);
 
 
 
@@ -1479,6 +1488,30 @@ const sensors = useSensors(
 
 
 );
+
+const internalDragPreviewLabels = useMemo(() => {
+
+  if (!activeInternalDrag) return [] as string[];
+
+  if (activeInternalDrag.kind === "file") {
+
+    const byId = new Map(files.map((f) => [f.id, f.name] as const));
+
+    return activeInternalDrag.ids
+
+      .map((id) => byId.get(id) || "File")
+
+      .slice(0, 3);
+
+  }
+
+  return activeInternalDrag.ids
+
+    .map((p) => basename(p) || "Folder")
+
+    .slice(0, 3);
+
+}, [activeInternalDrag, files]);
 
 
 
@@ -8609,6 +8642,14 @@ const breadcrumb = useMemo(() => {
 
 
 
+        kind: "file",
+
+
+
+        ids,
+
+
+
         count: ids.length,
 
 
@@ -8674,6 +8715,14 @@ const breadcrumb = useMemo(() => {
 
 
       setActiveInternalDrag({
+
+
+
+        kind: "folder",
+
+
+
+        ids: paths,
 
 
 
@@ -8795,12 +8844,11 @@ const breadcrumb = useMemo(() => {
 
   }}
 
+  onDragCancel={() => {
 
+    setActiveInternalDrag(null);
 
-  onDragCancel={() => setActiveInternalDrag(null)}
-
-
-
+  }}
 >
 
 
@@ -10049,6 +10097,20 @@ const breadcrumb = useMemo(() => {
 
 
 
+                            dragGroupCount={activeInternalDrag?.kind === "folder" ? activeInternalDrag.count : 0}
+
+
+
+                            dragGroupActive={
+
+                              activeInternalDrag?.kind === "folder" &&
+
+                              activeInternalDrag.ids.includes(normalizeFolderPath(n.path))
+
+                            }
+
+
+
                           />
 
 
@@ -10111,6 +10173,30 @@ const breadcrumb = useMemo(() => {
 
 
                             onMove={() => n.file && requestMove(n.file)}
+
+
+
+                            dragGroupCount={activeInternalDrag?.kind === "file" ? activeInternalDrag.count : 0}
+
+
+
+                            dragGroupActive={
+
+
+
+                              activeInternalDrag?.kind === "file" &&
+
+
+
+                              !!n.file?.id &&
+
+
+
+                              activeInternalDrag.ids.includes(n.file.id)
+
+
+
+                            }
 
 
 
@@ -10314,15 +10400,7 @@ const breadcrumb = useMemo(() => {
 
 
 
-    <div className="rounded-lg border bg-background shadow-lg px-4 py-2 text-sm">
-
-
-
-      Moving {activeInternalDrag.count} item{activeInternalDrag.count === 1 ? "" : "s"}
-
-
-
-    </div>
+    <InternalDragPreview kind={activeInternalDrag.kind} labels={internalDragPreviewLabels} count={activeInternalDrag.count} />
 
 
 
@@ -13459,6 +13537,14 @@ function FolderRow({
 
 
 
+  dragGroupActive,
+
+
+
+  dragGroupCount,
+
+
+
 }: {
 
 
@@ -13520,6 +13606,14 @@ function FolderRow({
 
 
   suppressClickUntilRef: React.MutableRefObject<number>;
+
+
+
+  dragGroupActive?: boolean;
+
+
+
+  dragGroupCount?: number;
 
 
 
@@ -13588,6 +13682,10 @@ function FolderRow({
 
 
   } as React.CSSProperties;
+
+  const multiDrag = (dragGroupCount || 0) > 1;
+
+  const inDragGroup = !!dragGroupActive && multiDrag;
 
 
 
@@ -13847,7 +13945,19 @@ function FolderRow({
 
 
 
-              isDragging && "opacity-60"
+              "transition-opacity",
+
+
+
+              isDragging && (multiDrag ? "opacity-0" : "opacity-60"),
+
+
+
+              isDragging && "pointer-events-none",
+
+
+
+              !isDragging && inDragGroup && "opacity-40"
 
 
 
@@ -14207,6 +14317,14 @@ function FileRow({
 
 
 
+  dragGroupActive,
+
+
+
+  dragGroupCount,
+
+
+
 }: {
 
 
@@ -14263,6 +14381,14 @@ function FileRow({
 
 
 
+  dragGroupActive?: boolean;
+
+
+
+  dragGroupCount?: number;
+
+
+
 }) {
 
 
@@ -14311,7 +14437,9 @@ function FileRow({
 
 
 
-
+  // Multi-drag visual state (only true for rows that are part of the active drag group)
+  const multiDrag = (dragGroupCount || 0) > 1;
+  const inDragGroup = !!dragGroupActive && multiDrag;
 
 
 
@@ -14379,7 +14507,19 @@ function FileRow({
 
 
 
-            isDragging && "opacity-60"
+            "transition-opacity",
+
+
+
+            isDragging && (multiDrag ? "opacity-0" : "opacity-60"),
+
+
+
+            isDragging && "pointer-events-none",
+
+
+
+            !isDragging && inDragGroup && "opacity-40"
 
 
 
