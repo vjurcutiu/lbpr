@@ -11,6 +11,7 @@ from core.firebase import init_firebase
 from core.logging import setup_logging
 from core import redis_utils
 from core.request_context import set_request_context, reset_request_context
+from core.telemetry import current_trace_id_hex, setup_telemetry
 
 from routers import health
 from routers.limits import router as limits_router
@@ -33,7 +34,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         t0 = time.time()
-        trace_id = request.headers.get("x-trace-id") or str(uuid.uuid4())
+        trace_id = request.headers.get("x-trace-id") or current_trace_id_hex() or str(uuid.uuid4())
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
         tenant = request.headers.get("x-tenant-id")
 
@@ -181,6 +182,8 @@ def create_app() -> FastAPI:
     app.include_router(auth_routes.router, prefix="/v1")
     app.include_router(profile_routes.router, prefix="/v1")
     app.include_router(rag_router, prefix="/v1")
+
+    setup_telemetry(app)
 
     return app
 

@@ -51,7 +51,12 @@ services:
   api:
     build: ./backend
     command: >
-      sh -lc "opentelemetry-instrument uvicorn main:app --host 0.0.0.0 --port 8000
+      sh -lc "uvicorn main:app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app
+      --reload-exclude 'venv/*'
+      --reload-exclude '.venv/*'
+      --reload-exclude 'node_modules/*'
+      --reload-exclude '.git/*'
       --no-access-log"
     env_file:
       - ./backend/.env

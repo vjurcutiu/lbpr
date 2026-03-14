@@ -1,3 +1,5 @@
+-include .ai-tools/ai-zip.mk
+
 SHELL := /bin/bash
 DC ?= docker compose
 PROJECT ?= lbpr
@@ -17,7 +19,7 @@ NET  := $(PROJECT)_appnet
 -include .env.local
 export
 
-.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check
+.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check synczip synczip-working
 
 help:
 	@echo "Targets:"
@@ -117,3 +119,7 @@ cert-perms:
 	chmod 644      ops/certs/cf-origin/*.pem || true
 	chown root:101 ops/certs/cf-origin/*.key || true
 	chmod 640      ops/certs/cf-origin/*.key || true
+
+synczip: ai-synczip
+
+synczip-working: ai-synczip-working

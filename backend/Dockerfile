@@ -10,8 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 # install only runtime deps
 COPY requirements.txt .
-RUN pip install -r requirements.txt && \
-    opentelemetry-bootstrap -a install
+RUN pip install -r requirements.txt
 
 # copy app code
 COPY . .
