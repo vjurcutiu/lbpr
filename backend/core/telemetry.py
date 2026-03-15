@@ -22,6 +22,8 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 from opentelemetry.sdk.trace.sampling import ALWAYS_OFF, ALWAYS_ON, ParentBased, TraceIdRatioBased
 
+from core.business_metrics import init_business_metrics, reset_business_metrics
+
 _INITIALIZED = False
 _TRACER_PROVIDER: TracerProvider | None = None
 _METER_PROVIDER: MeterProvider | None = None
@@ -185,6 +187,7 @@ def setup_telemetry(app=None) -> None:
         meter_provider = MeterProvider(resource=resource, metric_readers=metric_readers)
         metrics.set_meter_provider(meter_provider)
         _METER_PROVIDER = meter_provider
+        init_business_metrics()
 
     excluded_urls = (
         os.getenv("OTEL_PYTHON_FASTAPI_EXCLUDED_URLS")
@@ -231,4 +234,5 @@ def shutdown_telemetry() -> None:
 
     _TRACER_PROVIDER = None
     _METER_PROVIDER = None
+    reset_business_metrics()
     _INITIALIZED = False

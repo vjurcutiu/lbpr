@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import time
 from typing import List, Optional, Dict, Any, Tuple, Set
 from fastapi import APIRouter, Request, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -25,6 +26,7 @@ except Exception:  # pragma: no cover
 from core.rate_limit import add_message
 from core.plan import sync_caps_and_plan
 from core.pii import tokenize_text, detokenize_text
+from core.business_metrics import record_chat_completed, record_chat_duration, record_chat_error, record_chat_started
 from .orchestrator import query_request
 from .schemas import QueryRequest, QueryResponse, Source
 
@@ -224,6 +226,8 @@ def _compose_user_message(question: str, context_block: str) -> str:
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(get_current_user)) -> ChatResponse:
     uid = getattr(user, "uid", "dev")
+    chat_t0 = time.perf_counter()
+    record_chat_started(flow="contracts_chat")
 
     # Enforce plan/caps before counting
     await sync_caps_and_plan(uid)
@@ -231,6 +235,8 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
     ok, used, cap = await add_message(uid)
     log.info("usage_message_add", uid=uid, allowed=ok, used_messages=used, cap_messages=cap, path=str(request.url.path))
     if not ok:
+        record_chat_error(flow="contracts_chat", stage="limit")
+        record_chat_duration(flow="contracts_chat", dur_ms=(time.perf_counter() - chat_t0) * 1000, status="error")
         raise HTTPException(status_code=429, detail=f"Message limit reached ({used}/{cap}). Upgrade to continue.")
 
     # Tokenize user message + history before sending to any external service.
@@ -262,6 +268,7 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
         else:
             context_text, citations = ("", [])
     except Exception:
+        record_chat_error(flow="contracts_chat", stage="rag")
         log.exception("chat_rag_error")
 
     try:
@@ -297,8 +304,14 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
                 citations = [c for c in citations if c.index in used]
             else:
                 citations = []
+            record_chat_completed(flow="contracts_chat", with_sources=bool(citations))
+            record_chat_duration(flow="contracts_chat", dur_ms=(time.perf_counter() - chat_t0) * 1000, status="ok")
             return ChatResponse(answer=answer, citations=citations, usage={})
     except Exception:
+        record_chat_error(flow="contracts_chat", stage="llm")
+        record_chat_duration(flow="contracts_chat", dur_ms=(time.perf_counter() - chat_t0) * 1000, status="error")
         log.exception("chat_llm_error")
 
+    record_chat_error(flow="contracts_chat", stage="fallback")
+    record_chat_duration(flow="contracts_chat", dur_ms=(time.perf_counter() - chat_t0) * 1000, status="fallback")
     return ChatResponse(answer=f"You said: {req.message}", citations=[], usage={})

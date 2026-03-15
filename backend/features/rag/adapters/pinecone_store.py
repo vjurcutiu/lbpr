@@ -2,6 +2,9 @@ from __future__ import annotations
 from typing import Dict, List, Tuple, Optional
 import os
 import logging
+import time
+
+from core.business_metrics import record_pinecone_duration
 
 log = logging.getLogger("rag.pinecone")
 
@@ -104,10 +107,13 @@ class PineconeVectorStore:
                 vec["sparse_values"] = e["sparse"]
             vectors.append(vec)
 
+        op_t0 = time.perf_counter()
         try:
             idx.upsert(vectors=vectors, namespace=ns)
+            record_pinecone_duration(operation="upsert", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
 
         except Exception as e:
+            record_pinecone_duration(operation="upsert", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
             # Add a super-detailed error to help diagnose
             ids_preview = [v["id"] for v in vectors[:3]]
 
@@ -167,32 +173,39 @@ class PineconeVectorStore:
         alpha: float = 0.5,
     ):
         idx = self._index_handle(required_dim=len(q_dense or []))
+        op_t0 = time.perf_counter()
+        try:
+            if fusion == "alpha":
+                # Single-call hybrid with convex scaling.
+                res = idx.query(
+                    vector=q_dense,
+                    sparse_vector=q_sparse,
+                    top_k=k,
+                    include_metadata=True,
+                    namespace=str(dataset),
+                )
+                hits = self._to_hits(res)
+                record_pinecone_duration(operation="query_hybrid", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
+                return hits
 
-        if fusion == "alpha":
-            # Single-call hybrid with convex scaling.
-            res = idx.query(
-                vector=q_dense,
-                sparse_vector=q_sparse,
-                top_k=k,
-                include_metadata=True,
-                namespace=str(dataset),
-            )
-            return self._to_hits(res)
+            # Default: two queries + RRF fusion. (Sparse may be unsupported; then it just contributes 0.)
+            topd = self.query_dense(dataset, q_dense, k=max(k, 20))
+            tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
+            dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
+            sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
 
-        # Default: two queries + RRF fusion. (Sparse may be unsupported; then it just contributes 0.)
-        topd = self.query_dense(dataset, q_dense, k=max(k, 20))
-        tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
-        dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
-        sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
+            def rrf(ids_a, ids_b, k_out, k_rrf=60):
+                ranks = {}
+                for r, id_ in enumerate(ids_a, 1):
+                    ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+                for r, id_ in enumerate(ids_b, 1):
+                    ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+                return sorted(ranks.items(), key=lambda t: t[1], reverse=True)[:k_out]
 
-        def rrf(ids_a, ids_b, k_out, k_rrf=60):
-            ranks = {}
-            for r, id_ in enumerate(ids_a, 1):
-                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
-            for r, id_ in enumerate(ids_b, 1):
-                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
-            return sorted(ranks.items(), key=lambda t: t[1], reverse=True)[:k_out]
-
-        fused = rrf(dense_ids, sparse_ids, k)
-        id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
-        return [(score, id2e[i]) for i, score in fused]
+            fused = rrf(dense_ids, sparse_ids, k)
+            id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
+            record_pinecone_duration(operation="query_hybrid", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
+            return [(score, id2e[i]) for i, score in fused]
+        except Exception:
+            record_pinecone_duration(operation="query_hybrid", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
+            raise

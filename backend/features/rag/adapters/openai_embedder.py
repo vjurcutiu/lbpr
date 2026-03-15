@@ -5,6 +5,8 @@ import time
 import logging
 from typing import List
 
+from core.business_metrics import record_openai_duration
+
 log = logging.getLogger("rag.openai")
 
 try:
@@ -35,10 +37,12 @@ class OpenAIEmbedder:
                 dur_ms = int((time.time() - t0) * 1000)
                 data = resp.data or []
                 dim = len(data[0].embedding) if data else 0
+                record_openai_duration(operation="embeddings.create", dur_ms=dur_ms, status="ok")
                 log.info("openai_embed_ok", model=self.model, count=len(texts), dur_ms=dur_ms, dim=dim)
                 return [d.embedding for d in data]
             except Exception as e:
                 if attempt == self.max_retries - 1:
+                    record_openai_duration(operation="embeddings.create", dur_ms=(time.time() - t0) * 1000, status="error")
                     log.exception("openai_embed_error_final")
                     raise
                 log.warning("openai_embed_retry", attempt=attempt+1, error=str(e))

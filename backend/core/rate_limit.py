@@ -1,6 +1,8 @@
 from __future__ import annotations
 import os, time, logging, inspect
 from typing import Tuple, Optional, Dict, Any
+
+from core.business_metrics import record_messages_used, record_plan_limit_hit, record_upload_tokens_used
 try:
     from core.redis_utils import get_client as _get_client
 except Exception:
@@ -128,6 +130,11 @@ async def add_message(uid: str):
     cap = int(meta.get("cap_messages") or DEFAULT_CAP_MESSAGES)
     period_id, start, end = _period_id_for_user(meta)
     ok, newv = await _check_and_add(uid, "messages", 1, cap, start, end, period_id)
+    plan = str(meta.get("plan") or "free").lower()
+    if ok:
+        record_messages_used(amount=1, plan=plan)
+    else:
+        record_plan_limit_hit(metric="messages", plan=plan)
     return ok, newv, cap
 async def add_upload_tokens(uid: str, n_tokens: int):
     meta = await _load_meta(uid)
@@ -135,6 +142,11 @@ async def add_upload_tokens(uid: str, n_tokens: int):
     period_id, start, end = _period_id_for_user(meta)
     inc = max(0, int(n_tokens))
     ok, newv = await _check_and_add(uid, "upload_tokens", inc, cap, start, end, period_id)
+    plan = str(meta.get("plan") or "free").lower()
+    if ok:
+        record_upload_tokens_used(amount=inc, plan=plan)
+    else:
+        record_plan_limit_hit(metric="upload_tokens", plan=plan)
     return ok, newv, cap
 
 async def add_transcribe_seconds(uid: str, n_seconds: float):

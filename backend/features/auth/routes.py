@@ -18,6 +18,7 @@ from features.auth.deps import get_current_user, get_auth_service
 from features.auth.service import AuthService, cookie_settings
 from features.auth.sessions import sessions
 from core.config import settings
+from core.business_metrics import record_auth_session_error, record_auth_session_success
 
 router = APIRouter(tags=["auth"])
 
@@ -67,15 +68,18 @@ def create_session(resp: Response, payload: CreateSessionIn, svc: AuthService = 
     try:
         user = svc.verify_id_token(payload.id_token)
     except Exception:
+        record_auth_session_error(reason="invalid_id_token")
         raise HTTPException(status_code=401, detail="Invalid ID token")
 
     # Enforce email verification for email/password accounts
     # If there's an email and it's not verified, block session creation
     if user.email and user.email_verified is False:
+        record_auth_session_error(reason="email_unverified")
         raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
 
     sid = sessions.create(user, ttl_seconds=cookie_settings()["max_age"])
     resp.set_cookie(settings.COOKIE_NAME, sid, **cookie_settings())
+    record_auth_session_success()
     return {"ok": True}
 
 @router.post("/auth/logout")

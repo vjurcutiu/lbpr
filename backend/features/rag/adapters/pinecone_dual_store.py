@@ -6,6 +6,9 @@ import sys
 import logging
 import platform
 import importlib.util
+import time
+
+from core.business_metrics import record_pinecone_duration
 
 log = logging.getLogger("rag.pinecone.dual")
 
@@ -256,9 +259,15 @@ class PineconeDualVectorStore:
         )
 
         # Upsert to both indexes
-        didx.upsert(vectors=dense_vectors, namespace=ns)
-        if sparse_vectors:
-            sidx.upsert(vectors=sparse_vectors, namespace=ns)
+        op_t0 = time.perf_counter()
+        try:
+            didx.upsert(vectors=dense_vectors, namespace=ns)
+            if sparse_vectors:
+                sidx.upsert(vectors=sparse_vectors, namespace=ns)
+            record_pinecone_duration(operation="upsert", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
+        except Exception:
+            record_pinecone_duration(operation="upsert", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
+            raise
 
         log.info(
             "pinecone_upsert_ok",
@@ -315,37 +324,44 @@ class PineconeDualVectorStore:
         fusion: str = "rrf",
         alpha: float = 0.5,
     ):
-        topd = self.query_dense(dataset, q_dense, k=max(k, 20))
-        tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
+        op_t0 = time.perf_counter()
+        try:
+            topd = self.query_dense(dataset, q_dense, k=max(k, 20))
+            tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
 
-        if fusion == "alpha":
-            # Rank-based convex blend (since we can't single-call across indexes)
+            if fusion == "alpha":
+                # Rank-based convex blend (since we can't single-call across indexes)
+                dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
+                sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
+                id2rank_d = {id_: i + 1 for i, id_ in enumerate(dense_ids)}
+                id2rank_s = {id_: i + 1 for i, id_ in enumerate(sparse_ids)}
+                all_ids = set(dense_ids) | set(sparse_ids)
+                fused = []
+                for id_ in all_ids:
+                    rd = id2rank_d.get(id_, 9999)
+                    rs = id2rank_s.get(id_, 9999)
+                    score = alpha * (1 / rd) + (1 - alpha) * (1 / rs)
+                    fused.append((score, id_))
+                fused.sort(key=lambda t: t[0], reverse=True)
+                id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
+                record_pinecone_duration(operation="query_hybrid", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
+                return [(s, id2e[i]) for s, i in fused[:k]]
+
+            # Default: Reciprocal Rank Fusion
+            def rrf(ids_a, ids_b, k_out, k_rrf=60):
+                ranks = {}
+                for r, id_ in enumerate(ids_a, 1):
+                    ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+                for r, id_ in enumerate(ids_b, 1):
+                    ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
+                return sorted(ranks.items(), key=lambda t: t[1], reverse=True)[:k_out]
+
             dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
             sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
-            id2rank_d = {id_: i + 1 for i, id_ in enumerate(dense_ids)}
-            id2rank_s = {id_: i + 1 for i, id_ in enumerate(sparse_ids)}
-            all_ids = set(dense_ids) | set(sparse_ids)
-            fused = []
-            for id_ in all_ids:
-                rd = id2rank_d.get(id_, 9999)
-                rs = id2rank_s.get(id_, 9999)
-                score = alpha * (1 / rd) + (1 - alpha) * (1 / rs)
-                fused.append((score, id_))
-            fused.sort(key=lambda t: t[0], reverse=True)
+            fused = rrf(dense_ids, sparse_ids, k)
             id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
-            return [(s, id2e[i]) for s, i in fused[:k]]
-
-        # Default: Reciprocal Rank Fusion
-        def rrf(ids_a, ids_b, k_out, k_rrf=60):
-            ranks = {}
-            for r, id_ in enumerate(ids_a, 1):
-                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
-            for r, id_ in enumerate(ids_b, 1):
-                ranks[id_] = ranks.get(id_, 0.0) + 1.0 / (k_rrf + r)
-            return sorted(ranks.items(), key=lambda t: t[1], reverse=True)[:k_out]
-
-        dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
-        sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
-        fused = rrf(dense_ids, sparse_ids, k)
-        id2e = {f"{e['doc_id']}::{e['chunk_id']}": e for _, e in (topd + tops)}
-        return [(score, id2e[i]) for i, score in fused]
+            record_pinecone_duration(operation="query_hybrid", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
+            return [(score, id2e[i]) for i, score in fused]
+        except Exception:
+            record_pinecone_duration(operation="query_hybrid", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
+            raise

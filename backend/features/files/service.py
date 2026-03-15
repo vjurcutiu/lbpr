@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -24,6 +25,15 @@ from core import tracker as uptrack
 from core.tokenizer import count_tokens
 from core.rate_limit import add_upload_tokens
 from core.plan import sync_caps_and_plan
+from core.business_metrics import (
+    record_file_upload_completed,
+    record_file_upload_error,
+    record_file_upload_started,
+    record_ingest_completed,
+    record_ingest_duration,
+    record_ingest_error,
+    record_ingest_started,
+)
 
 # PII pseudonymization (optional)
 from core.pii import tokenize_text, detokenize_text, detokenize_many
@@ -173,6 +183,9 @@ async def upload_file(
 ) -> UploadResponse:
     """Upload a single file; store folder/display_name metadata; index into Firestore (Phase 3)."""
 
+    upload_t0 = time.perf_counter()
+    record_file_upload_started(flow="upload")
+
     # Raw user-provided values (may contain PII)
     raw_filename = file.filename or "file"
     raw_folder_path = index_store.normalize_folder_path(folder)
@@ -273,6 +286,7 @@ async def upload_file(
             if not ok:
                 msg = f"Upload budget exceeded ({used}/{cap} tokens). Upgrade to continue."
                 await uptrack.mark_error(object_name, msg)
+                record_file_upload_error(stage="limit", flow="upload")
                 log.warning("upload_tokens_exhausted_abort", uid=uid, object=object_name)
                 return UploadResponse(job_id=object_name)
         except Exception:
@@ -306,6 +320,7 @@ async def upload_file(
         log.info("upload_storage_ok", object=object_name, size=total)
     except Exception as e:
         await uptrack.mark_error(object_name, f"Storage error: {e}")
+        record_file_upload_error(stage="storage", flow="upload")
         log.exception("upload_storage_error", object=object_name)
         raise
 
@@ -335,6 +350,8 @@ async def upload_file(
         if tokenized_text:
             log.info("upload_extract_ok", object=object_name, chars=len(tokenized_text))
             await uptrack.set_phase(object_name, "embed", pct=85)
+            ingest_t0 = time.perf_counter()
+            record_ingest_started(flow="upload")
             try:
                 orchestrator.ingest_request(
                     IngestRequest(
@@ -358,8 +375,12 @@ async def upload_file(
                     uid=uid,
                 )
                 await uptrack.set_phase(object_name, "upsert", pct=95)
+                record_ingest_completed(flow="upload")
+                record_ingest_duration(flow="upload", dur_ms=(time.perf_counter() - ingest_t0) * 1000, status="ok")
                 log.info("upload_ingest_ok", object=object_name)
             except Exception as e:
+                record_ingest_error(flow="upload", stage="orchestrator")
+                record_ingest_duration(flow="upload", dur_ms=(time.perf_counter() - ingest_t0) * 1000, status="error")
                 log.warning("upload_ingest_error", object=object_name, error=str(e))
         else:
             log.info(
@@ -372,11 +393,13 @@ async def upload_file(
             await uptrack.set_phase(object_name, "upsert", pct=95)
     except Exception as e:
         await uptrack.mark_error(object_name, f"Extract/ingest error: {e}")
+        record_file_upload_error(stage="extract_or_ingest", flow="upload")
         log.exception("upload_extract_error", object=object_name)
         raise
 
     await uptrack.mark_done(object_name)
-    log.info("upload_done", object=object_name)
+    record_file_upload_completed(flow="upload")
+    log.info("upload_done", object=object_name, dur_ms=int((time.perf_counter() - upload_t0) * 1000))
 
     return UploadResponse(job_id=object_name)
 

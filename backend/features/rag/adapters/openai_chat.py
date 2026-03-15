@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import os
 import asyncio
+import time
 from typing import List, Dict, Optional, Any
+
+from core.business_metrics import record_openai_duration
 
 try:
     from openai import OpenAI  # official SDK (>=1.0)
@@ -60,6 +63,7 @@ class OpenAIChat:
 
         # Try Responses API first
         try:
+            t0 = time.perf_counter()
             resp = self.client.responses.create(
                 model=self.model,
                 instructions=system or None,
@@ -72,18 +76,26 @@ class OpenAIChat:
                 text = "".join(
                     [getattr(item, "content", "") if hasattr(item, "content") else "" for item in getattr(resp, "output", [])]
                 )
+            record_openai_duration(operation="responses.create", dur_ms=(time.perf_counter() - t0) * 1000, status="ok")
             return text or ""
         except Exception:
+            record_openai_duration(operation="responses.create", dur_ms=(time.perf_counter() - t0) * 1000, status="error")
             # Fall back to Chat Completions for environments pinned to older SDKs
             pass
 
         # Fallback: Chat Completions
-        cc = self.client.chat.completions.create(  # type: ignore[attr-defined]
-            model=self.model,
-            messages=messages,
-            temperature=0.2,
-        )
-        return cc.choices[0].message.content or ""
+        t1 = time.perf_counter()
+        try:
+            cc = self.client.chat.completions.create(  # type: ignore[attr-defined]
+                model=self.model,
+                messages=messages,
+                temperature=0.2,
+            )
+            record_openai_duration(operation="chat.completions.create", dur_ms=(time.perf_counter() - t1) * 1000, status="ok")
+            return cc.choices[0].message.content or ""
+        except Exception:
+            record_openai_duration(operation="chat.completions.create", dur_ms=(time.perf_counter() - t1) * 1000, status="error")
+            raise
 
     async def simple_answer(
         self,
