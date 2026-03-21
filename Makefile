@@ -91,7 +91,7 @@ dev-magic-link:
 	$(DC) -p $(PROJECT)-dev $(DEV) exec api sh -lc 'python admin_magic_link.py --phone "$(PHONE)" $(if $(BASE_URL),--base-url "$(BASE_URL)",) $(if $(RETURN_TO),--return-to "$(RETURN_TO)",) $(if $(TTL_SECONDS),--ttl-seconds "$(TTL_SECONDS)",)'
 
 telemetry-seed:
-	$(DC) -p $(PROJECT)-dev $(DEV) exec api python scripts/seed_telemetry.py
+	$(DC) -p $(PROJECT)-dev $(DEV) exec api sh -lc 'PYTHONPATH=/app python scripts/seed_telemetry.py'
 
 # ----- Base / prod-style stack (docker-compose.yml) -----
 

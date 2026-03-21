@@ -10,6 +10,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+# Ensure imports like `from core...` and `from main...` work when the script is run as
+# `python scripts/seed_telemetry.py` from inside the container. In that mode, Python
+# puts `/app/scripts` on sys.path, not the backend root `/app`.
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
 # Default to deterministic fake auth for the in-process seed app.
 # Set SEED_USE_FAKE_AUTH=0 to disable.
 if os.getenv("SEED_USE_FAKE_AUTH", "1") == "1":
