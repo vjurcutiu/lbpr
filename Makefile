@@ -19,7 +19,7 @@ NET  := $(PROJECT)_appnet
 -include .env.local
 export
 
-.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check synczip synczip-working
+.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check synczip synczip-working telemetry-seed
 
 help:
 	@echo "Targets:"
@@ -47,6 +47,9 @@ help:
 	@echo ""
 	@echo "Admin helpers (Option A):"
 	@echo "  make dev-magic-link PHONE=+40712345678 [BASE_URL=http://app.localhost] [RETURN_TO=/files] [TTL_SECONDS=86400]"
+	@echo ""
+	@echo "Telemetry:"
+	@echo "  make telemetry-seed       - drive in-process seed flows and flush business metrics to Grafana"
 
 # ----- Doppler (local dev) -----
 
@@ -86,6 +89,9 @@ dev-logs-nginx:
 dev-magic-link:
 	@test -n "$(PHONE)" || (echo "Usage: make dev-magic-link PHONE=+40712345678 [BASE_URL=http://app.localhost] [RETURN_TO=/files] [TTL_SECONDS=86400]"; exit 1)
 	$(DC) -p $(PROJECT)-dev $(DEV) exec api sh -lc 'python admin_magic_link.py --phone "$(PHONE)" $(if $(BASE_URL),--base-url "$(BASE_URL)",) $(if $(RETURN_TO),--return-to "$(RETURN_TO)",) $(if $(TTL_SECONDS),--ttl-seconds "$(TTL_SECONDS)",)'
+
+telemetry-seed:
+	$(DC) -p $(PROJECT)-dev $(DEV) exec api python scripts/seed_telemetry.py
 
 # ----- Base / prod-style stack (docker-compose.yml) -----
 

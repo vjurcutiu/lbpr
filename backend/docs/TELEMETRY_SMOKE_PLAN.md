@@ -1,11 +1,14 @@
 # Telemetry smoke plan
 
-This repo now has two layers of telemetry validation:
+This repo now has three layers of telemetry validation:
 
 1. **Code-level smoke tests** in `backend/tests/test_telemetry_smoke.py`
-2. **Grafana validation flows** you can run manually after deploy/dev startup
+2. **One-command live seed flow** in `backend/scripts/seed_telemetry.py`
+3. **Grafana validation queries** you can run in Explore or panels after the seed completes
 
-## Run the smoke tests
+## What each layer proves
+
+### 1) Pytest smoke tests
 
 From `backend/`:
 
@@ -20,6 +23,60 @@ What these tests prove:
 - ingest limit path emits error/duration metrics
 - file upload success emits upload + ingest metrics
 - quota accounting emits usage and plan-limit counters
+
+What these tests **do not** prove:
+
+- that Grafana received any metrics
+- that OTLP export is configured correctly
+- that the current datasource labels match your PromQL filters
+
+These tests replace the real business instruments with the fake test kit in `tests/telemetry_testkit.py`, and test startup disables OTEL exporting in `tests/conftest.py`. Keep them green, but do not expect them to populate Grafana.
+
+### 2) One-command live seed flow
+
+From the repo root, with the dev stack already running:
+
+```bash
+make telemetry-seed
+```
+
+That target runs:
+
+```bash
+docker compose -p lbpr-dev -f docker-compose.dev.yml exec api python scripts/seed_telemetry.py
+```
+
+The seed script runs the app **in-process** inside the api container, drives the golden flows through real FastAPI routes, and flushes telemetry on shutdown.
+
+By default it uses deterministic fake auth (`AUTH_FAKE=1`) for the seed process only, so it can reliably hit:
+
+- auth session success
+- auth session failure
+- `/session`
+- `/me`
+- `/limits/me`
+- RAG ingest success
+- RAG query success
+- `/v1/chat`
+- file upload success
+- message limit hit
+- upload-token limit hit
+
+Useful flags:
+
+```bash
+python scripts/seed_telemetry.py --skip-upload
+```
+
+```bash
+python scripts/seed_telemetry.py --skip-contracts-chat
+```
+
+```bash
+SEED_USE_FAKE_AUTH=0 python scripts/seed_telemetry.py
+```
+
+The script prints a step-by-step result list and exits non-zero if any flow failed.
 
 ## Golden flows and expected metrics
 
@@ -58,6 +115,7 @@ Expected metrics:
 - `lbpr_ingest_started_total{flow="api"}` increments
 - `lbpr_ingest_error_total{flow="api",stage="limit"}` increments
 - `lbpr_ingest_duration_ms{flow="api",status="error"}` records
+- `lbpr_plan_limit_hit_total{metric="upload_tokens",plan="..."}` increments
 
 ### 5) File upload success
 
@@ -71,47 +129,112 @@ Expected metrics:
 - `lbpr_ingest_completed_total{flow="upload"}` increments
 - `lbpr_ingest_duration_ms{flow="upload",status="ok"}` records
 
-### 6) Plan/quota usage
+### 6) Plan/quota usage and denial
 
 Trigger:
-- `add_message()` on an allowed request
-- `add_upload_tokens()` on a blocked request
+- successful chat/query path
+- successful ingest/upload path
+- forced message-limit denial
+- forced upload-token denial
 
 Expected metrics:
 - `lbpr_messages_used_total{plan="pro|free|..."}` increments on success
+- `lbpr_upload_tokens_used_total{plan="pro|free|..."}` increments on success
 - `lbpr_plan_limit_hit_total{metric="messages|upload_tokens",plan="..."}` increments on denial
 
-## Manual Grafana smoke flow
+## Grafana validation flow
 
-Run these after starting the app with OTEL metrics+traces enabled:
+Run these after `make telemetry-seed`.
 
-1. Login / create session
-2. Hit `/session`
-3. Hit `/me`
-4. Upload one small text file
-5. Run one successful query
-6. Force one limit-hit path if practical
+### 1) Discover the actual service labels first
 
-Then confirm in Grafana Explore (metrics datasource) that these return data:
+Do this **before** hard-coding a `job=` filter:
 
 ```promql
-sum(rate(lbpr_auth_session_success_total[$__rate_interval]))
+count by (job, service_name, deployment_environment, deployment_environment_name) (target_info)
+```
+
+Your local/dev service often ends up as something like:
+
+- `job="my-application-group/lbpr-api-local"`
+
+while prod may be:
+
+- `job="my-application-group/lbpr-api"`
+
+If you filter on the wrong `job`, your panels will show nothing even when the metrics exist.
+
+### 2) Use `increase(...)` first, not `rate(...)`
+
+For sparse manual seed traffic, `increase` is easier to validate than `rate`.
+
+Start with these in Explore, with a 15m or 30m time range:
+
+```promql
+sum(increase(lbpr_auth_session_success_total[15m])) by (job)
 ```
 
 ```promql
-sum(rate(lbpr_chat_started_total[$__rate_interval])) by (flow)
+sum(increase(lbpr_auth_session_error_total[15m])) by (job, reason)
 ```
 
 ```promql
-sum(rate(lbpr_file_upload_completed_total[$__rate_interval])) by (flow)
+sum(increase(lbpr_chat_started_total[15m])) by (job, flow)
 ```
+
+```promql
+sum(increase(lbpr_chat_completed_total[15m])) by (job, flow, with_sources)
+```
+
+```promql
+sum(increase(lbpr_chat_error_total[15m])) by (job, flow, stage)
+```
+
+```promql
+sum(increase(lbpr_ingest_started_total[15m])) by (job, flow)
+```
+
+```promql
+sum(increase(lbpr_ingest_completed_total[15m])) by (job, flow, chunk_bucket)
+```
+
+```promql
+sum(increase(lbpr_ingest_error_total[15m])) by (job, flow, stage)
+```
+
+```promql
+sum(increase(lbpr_file_upload_completed_total[15m])) by (job, flow)
+```
+
+```promql
+sum(increase(lbpr_messages_used_total[15m])) by (job, plan)
+```
+
+```promql
+sum(increase(lbpr_upload_tokens_used_total[15m])) by (job, plan)
+```
+
+```promql
+sum(increase(lbpr_plan_limit_hit_total[15m])) by (job, metric, plan)
+```
+
+### 3) Validate histograms exist before asking for p95
+
+```promql
+sum(increase(lbpr_chat_duration_ms_count[15m])) by (job, flow, status)
+```
+
+```promql
+sum(increase(lbpr_ingest_duration_ms_count[15m])) by (job, flow, status)
+```
+
+Once those show data, use p95 queries for dashboards.
 
 ## First 6 dashboard panels
 
-These are the first six panels worth adding. Filter by:
+After the Explore checks above work, convert them into dashboard-style PromQL.
 
-- `job="my-application-group/lbpr-api"` if you want to scope to this service
-- or leave unfiltered while you only have one backend service sending custom metrics
+Filter by the real `job` label you discovered from `target_info`, or leave the filter off while only one backend is sending these custom metrics.
 
 ### 1) Auth sessions: success vs error
 
@@ -171,7 +294,9 @@ sum(rate(lbpr_plan_limit_hit_total[$__rate_interval])) by (metric, plan)
 
 ## Suggested rollout order
 
-1. Keep the smoke tests green in CI
-2. Verify metrics arrive in Grafana Explore
-3. Add the six panels above
-4. Only then add alerts or more detailed business slices
+1. Keep the pytest smoke tests green in CI
+2. Run `make telemetry-seed`
+3. Validate the series in Grafana Explore with `increase(...)`
+4. Discover the real `job` label from `target_info`
+5. Build dashboard panels only after the Explore queries work
+6. Only then add alerts or more detailed business slices
