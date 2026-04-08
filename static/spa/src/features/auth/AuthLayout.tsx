@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { RiRobotLine } from "react-icons/ri";
+import AuthSignalPanel, { type AuthSignalMetric } from "./AuthSignalPanel";
 
 type AuthLayoutProps = {
   title: string;
@@ -8,113 +9,136 @@ type AuthLayoutProps = {
   children: ReactNode;
 };
 
-function CheckIcon(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" {...props}>
-      <path
-        fillRule="evenodd"
-        d="M16.707 5.293a1 1 0 010 1.414l-7.25 7.25a1 1 0 01-1.414 0l-3-3a1 1 0 111.414-1.414L8.5 11.086l6.543-6.543a1 1 0 011.414 0z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
+type AuthMarketingContent = {
+  eyebrow: string;
+  headline: string;
+  description: string;
+  metrics: AuthSignalMetric[];
+  chips: string[];
+};
 
-function LogoMark(props: React.SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden="true" {...props}>
-      <defs>
-        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#111827" />
-          <stop offset="1" stopColor="#4b5563" />
-        </linearGradient>
-      </defs>
-      <rect x="0" y="0" width="32" height="32" rx="8" fill="url(#g)" />
-      <path d="M8 16c0-4.418 3.582-8 8-8s8 3.582 8 8-3.582 8-8 8h-3.5a1.5 1.5 0 01-1.5-1.5V19a3 3 0 01-3-3z" fill="white" />
-    </svg>
-  );
+function getAuthMarketingContent(pathname: string): AuthMarketingContent {
+  if (pathname.startsWith("/signup")) {
+    return {
+      eyebrow: "Start free",
+      headline: "Turn raw files into usable signal",
+      description:
+        "Create your workspace, bring in docs, audio, or images, and get grounded answers back with the source trail intact.",
+      metrics: [
+        { value: "50", label: "free messages to start" },
+        { value: "~75", label: "pages of uploads included" },
+        { value: "No card", label: "required for the free tier" },
+      ],
+      chips: ["Upload-first", "Grounded answers", "Private by default"],
+    };
+  }
+
+  if (pathname.startsWith("/phone")) {
+    return {
+      eyebrow: "Fast access",
+      headline: "Get back to your workspace faster",
+      description:
+        "Use a one-time code when you need a quick, low-friction path back into chat, files, and the latest answers.",
+      metrics: [
+        { value: "1 code", label: "to unlock your workspace" },
+        { value: "Files", label: "chat and uploads stay in sync" },
+        { value: "Live", label: "same account, same data" },
+      ],
+      chips: ["Low friction", "Verified access", "Same workspace"],
+    };
+  }
+
+  return {
+    eyebrow: "Production-ready RAG",
+    headline: "Reconnect with the signal in your files",
+    description:
+      "Pick up where you left off with source-backed chat, document search, OCR, transcription, and upload flows built into one workspace.",
+    metrics: [
+      { value: "Files", label: "upload, organize, and query" },
+      { value: "Hybrid", label: "retrieval plus reasoning" },
+      { value: "Cited", label: "answers tied back to sources" },
+    ],
+    chips: ["Source-backed", "Multilingual", "Ops-ready"],
+  };
 }
 
 export default function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
   const location = useLocation();
-  // If user is already on /signup, keep the flag so re-clicking still re-triggers focus.
-  const signupHref = "/signup?highlight=email";
+  const content = getAuthMarketingContent(location.pathname);
 
   return (
-    <main className="relative min-h-dvh grid grid-cols-1 md:grid-cols-5 bg-white">
-      {/* Left: hero (hidden on small screens) */}
-      <section className="relative hidden md:block md:col-span-3">
-        <div className="absolute inset-0 bg-[url('/auth-hero.jpg')] bg-cover bg-center" />
-        <div className="absolute inset-0 bg-black/40" />
+    <main className="relative min-h-dvh overflow-hidden bg-[#040914] text-white">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(69,125,255,0.14),transparent_34%),linear-gradient(180deg,#050a15_0%,#040914_45%,#050912_100%)]" />
+      <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] [background-size:72px_72px] [mask-image:radial-gradient(circle_at_center,black,transparent_82%)]" />
+      <div className="pointer-events-none absolute -left-16 top-24 h-72 w-72 rounded-full bg-cyan-400/10 blur-3xl" />
+      <div className="pointer-events-none absolute -right-20 bottom-0 h-80 w-80 rounded-full bg-indigo-500/15 blur-3xl" />
 
-        {/* Header */}
-        <div className="relative z-10 flex items-center gap-3 p-6">
-          <RiRobotLine className="h-7 w-7 rounded-lg shadow-sm text-white" />
-          <span className="text-white font-semibold tracking-tight">LexBot PRO • AI Search Engine</span>
-        </div>
+      <div className="relative grid min-h-dvh grid-cols-1 md:grid-cols-12">
+        <section className="hidden md:col-span-7 md:flex md:p-6 lg:p-8">
+          <div className="flex w-full flex-col gap-6">
+            <Link to="/" className="inline-flex w-fit items-center gap-3 rounded-full border border-white/12 bg-white/6 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-md transition hover:bg-white/10">
+              <RiRobotLine className="h-5 w-5 text-cyan-200" />
+              <span>Lexbot Pro</span>
+              <span className="text-white/45">/</span>
+              <span className="text-white/65">Structured answers for noisy data</span>
+            </Link>
+            <AuthSignalPanel
+              eyebrow={content.eyebrow}
+              title={content.headline}
+              description={content.description}
+              metrics={content.metrics}
+            />
+          </div>
+        </section>
 
-        {/* Value prop */}
-        <div className="relative z-10 flex h-[calc(100%-64px)] items-end p-10">
-          <div className="text-white space-y-4 max-w-xl">
-            <h1 className="text-4xl font-semibold leading-tight drop-shadow">
-              Smart answers from your own files.
-            </h1>
-            <p className="text-white/85">
-              Upload your documents and chat with them — no setup, no tech skills. Get instant, audit-friendly answers that reference your sources.
-            </p>
+        <section className="relative flex items-center justify-center p-4 sm:p-6 md:col-span-5 md:p-8 lg:p-10">
+          <div className="w-full max-w-md">
+            <Link to="/" className="mb-5 inline-flex items-center gap-3 rounded-full border border-white/12 bg-white/8 px-4 py-2 text-sm font-medium text-white/90 backdrop-blur-md md:hidden">
+              <RiRobotLine className="h-5 w-5 text-cyan-200" />
+              <span>Lexbot Pro</span>
+            </Link>
 
-            <ul className="mt-2 space-y-2 text-sm text-white/90">
-              <li className="flex items-start gap-2">
-                <CheckIcon className="h-5 w-5 mt-0.5" />
-                Free tier: <strong>50 messages</strong> &nbsp;•&nbsp; <strong>~75&nbsp;pages</strong> of uploads
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckIcon className="h-5 w-5 mt-0.5" /> Strong multi-lingual, multi-domain capabilities.
-              </li>
-              <li className="flex items-start gap-2">
-                <CheckIcon className="h-5 w-5 mt-0.5" /> Easy to use. Private by default.
-              </li>
-            </ul>
+            <div className="rounded-[2rem] border border-white/14 bg-white/92 p-6 text-slate-950 shadow-[0_30px_100px_rgba(0,0,0,0.32)] backdrop-blur-xl sm:p-8">
+              <div className="mb-6 space-y-4">
+                <div className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[0.72rem] font-semibold uppercase tracking-[0.18em] text-sky-700">
+                  {content.eyebrow}
+                </div>
+                <div>
+                  <h2 className="text-3xl font-semibold tracking-tight text-slate-950">{title}</h2>
+                  {subtitle ? <p className="mt-2 text-sm leading-6 text-slate-600">{subtitle}</p> : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {content.chips.map((chip) => (
+                    <span
+                      key={chip}
+                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[0.72rem] font-medium text-slate-600"
+                    >
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+              </div>
 
-            <div className="pt-2">
-              <Link
-                to={signupHref}
-                className="inline-flex items-center justify-center rounded-xl bg-white/95 text-gray-900 px-4 py-2 font-medium shadow hover:bg-white focus:outline-none focus:ring-4 focus:ring-white/40"
-                aria-describedby="cta-helper"
-              >
-                Create free account
-              </Link>
-              <span id="cta-helper" className="sr-only">
-                Navigates to signup. The email field will be highlighted so you can start there.
-              </span>
+              {children}
+            </div>
+
+            <div className="mt-5 space-y-3 text-center text-xs text-white/70">
+              <p>
+                By continuing you agree to our{" "}
+                <a href="/terms" className="underline decoration-white/30 underline-offset-4 transition hover:text-white hover:decoration-white/60">
+                  Terms
+                </a>{" "}
+                and{" "}
+                <a href="/privacy" className="underline decoration-white/30 underline-offset-4 transition hover:text-white hover:decoration-white/60">
+                  Privacy Policy
+                </a>
+                .
+              </p>
+              <p>No credit card required • Marketing site on lexbot.pro • App on app.lexbot.pro</p>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* Right: auth card */}
-      <section className="md:col-span-2 flex items-center justify-center p-6">
-        <div className="w-full max-w-md">
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <div className="mb-6">
-              <h2 className="text-2xl font-semibold">{title}</h2>
-              {subtitle ? (
-                <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
-              ) : null}
-            </div>
-            {children}
-          </div>
-          <p className="mt-6 text-center text-xs text-gray-500">
-            By continuing you agree to our{" "}
-            <a href="/terms" className="underline underline-offset-2">Terms</a>{" "}
-            and{" "}
-            <a href="/privacy" className="underline underline-offset-2">Privacy Policy</a>.
-          </p>
-          <div className="mt-4 text-center text-xs text-gray-500">
-            No credit card required • Cancel anytime
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }
