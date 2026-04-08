@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
 import sys
 import tempfile
@@ -23,16 +22,15 @@ if os.getenv("SEED_USE_FAKE_AUTH", "1") == "1":
     os.environ.setdefault("AUTH_FAKE", "1")
 
 from fastapi.testclient import TestClient
+from redis import Redis
 
-from core.plan import sync_caps_and_plan
+from core.config import settings
 from core.rate_limit import (
     DEFAULT_CAP_MESSAGES,
     DEFAULT_CAP_UPLOAD_TOKENS,
-    _load_meta,
     _period_id_for_user,
     _usage_key,
 )
-from core.redis_utils import get_client
 from main import app
 
 
@@ -52,6 +50,29 @@ class UsageBackup:
 SEED_UID = "u_test"
 
 
+def _redis_sync() -> Redis:
+    return Redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+
+
+def _load_meta_sync(uid: str) -> dict[str, str]:
+    r = _redis_sync()
+    try:
+        key = f"rl:{uid}:meta"
+        meta = r.hgetall(key)
+        if not meta:
+            meta = {
+                "plan": "free",
+                "cap_messages": str(DEFAULT_CAP_MESSAGES),
+                "cap_upload_tokens": str(DEFAULT_CAP_UPLOAD_TOKENS),
+                "billing_anchor_ts": "0",
+                "free_no_refresh": "1",
+            }
+            r.hset(key, mapping=meta)
+        return {str(k): str(v) for k, v in meta.items()}
+    finally:
+        r.close()
+
+
 def _print_step(result: StepResult) -> None:
     prefix = "✓" if result.ok else "✗"
     if result.detail:
@@ -60,44 +81,52 @@ def _print_step(result: StepResult) -> None:
         print(f"{prefix} {result.name}")
 
 
-async def _usage_key_and_period(uid: str) -> tuple[str, int, int, dict[str, str]]:
-    meta = await _load_meta(uid)
+def _usage_key_and_period(uid: str) -> tuple[str, int, int, dict[str, str]]:
+    meta = _load_meta_sync(uid)
     period_id, start_ts, end_ts = _period_id_for_user(meta)
     return _usage_key(uid, period_id), start_ts, end_ts, meta
 
 
-async def _backup_usage(uid: str) -> UsageBackup:
-    key, _start_ts, _end_ts, _meta = await _usage_key_and_period(uid)
-    r = await get_client()
-    fields = await r.hgetall(key)
-    return UsageBackup(key=key, fields={str(k): str(v) for k, v in (fields or {}).items()})
+def _backup_usage(uid: str) -> UsageBackup:
+    key, _start_ts, _end_ts, _meta = _usage_key_and_period(uid)
+    r = _redis_sync()
+    try:
+        fields = r.hgetall(key)
+        return UsageBackup(key=key, fields={str(k): str(v) for k, v in (fields or {}).items()})
+    finally:
+        r.close()
 
 
-async def _restore_usage(backup: UsageBackup) -> None:
-    r = await get_client()
-    if backup.fields:
-        await r.delete(backup.key)
-        await r.hset(backup.key, mapping=backup.fields)
-    else:
-        await r.delete(backup.key)
+def _restore_usage(backup: UsageBackup) -> None:
+    r = _redis_sync()
+    try:
+        if backup.fields:
+            r.delete(backup.key)
+            r.hset(backup.key, mapping=backup.fields)
+        else:
+            r.delete(backup.key)
+    finally:
+        r.close()
 
 
-async def _set_usage_at_cap(uid: str, *, metric: str, cap: int) -> None:
-    key, start_ts, end_ts, _meta = await _usage_key_and_period(uid)
-    r = await get_client()
-    await r.hset(
-        key,
-        mapping={
-            metric: str(max(0, int(cap))),
-            "period_start_ts": str(start_ts),
-            "period_end_ts": str(end_ts),
-        },
-    )
+def _set_usage_at_cap(uid: str, *, metric: str, cap: int) -> None:
+    key, start_ts, end_ts, _meta = _usage_key_and_period(uid)
+    r = _redis_sync()
+    try:
+        r.hset(
+            key,
+            mapping={
+                metric: str(max(0, int(cap))),
+                "period_start_ts": str(start_ts),
+                "period_end_ts": str(end_ts),
+            },
+        )
+    finally:
+        r.close()
 
 
-async def _get_caps(uid: str) -> tuple[int, int]:
-    await sync_caps_and_plan(uid)
-    meta = await _load_meta(uid)
+def _get_caps(uid: str) -> tuple[int, int]:
+    meta = _load_meta_sync(uid)
     cap_messages = int(meta.get("cap_messages") or DEFAULT_CAP_MESSAGES)
     cap_upload_tokens = int(meta.get("cap_upload_tokens") or DEFAULT_CAP_UPLOAD_TOKENS)
     return cap_messages, cap_upload_tokens
@@ -125,7 +154,7 @@ def run_seed(*, dataset_prefix: str, skip_upload: bool, skip_contracts_chat: boo
     results: list[StepResult] = []
 
     with TestClient(app) as client:
-        usage_backup = asyncio.run(_backup_usage(SEED_UID))
+        usage_backup = _backup_usage(SEED_UID)
         try:
             resp = client.post("/auth/session", json={"id_token": "good-token"})
             detail = _request_ok(resp, 200)
@@ -197,9 +226,9 @@ def run_seed(*, dataset_prefix: str, skip_upload: bool, skip_contracts_chat: boo
                     except Exception:
                         pass
 
-            cap_messages, cap_upload_tokens = asyncio.run(_get_caps(SEED_UID))
+            cap_messages, cap_upload_tokens = _get_caps(SEED_UID)
 
-            asyncio.run(_set_usage_at_cap(SEED_UID, metric="messages", cap=cap_messages))
+            _set_usage_at_cap(SEED_UID, metric="messages", cap=cap_messages)
             resp = client.post(
                 "/features/rag/query",
                 json={
@@ -212,7 +241,7 @@ def run_seed(*, dataset_prefix: str, skip_upload: bool, skip_contracts_chat: boo
             detail = _request_ok(resp, 429)
             results.append(StepResult("message limit hit", not detail, detail))
 
-            asyncio.run(_set_usage_at_cap(SEED_UID, metric="upload_tokens", cap=cap_upload_tokens))
+            _set_usage_at_cap(SEED_UID, metric="upload_tokens", cap=cap_upload_tokens)
             resp = client.post(
                 "/features/rag/ingest",
                 json={
@@ -224,7 +253,7 @@ def run_seed(*, dataset_prefix: str, skip_upload: bool, skip_contracts_chat: boo
             detail = _request_ok(resp, 429)
             results.append(StepResult("upload-token limit hit", not detail, detail))
         finally:
-            asyncio.run(_restore_usage(usage_backup))
+            _restore_usage(usage_backup)
 
     print(f"dataset={dataset}")
     for result in results:

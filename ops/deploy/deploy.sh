@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-
 cd "$ROOT_DIR"
 
 echo "[deploy] Using project root: $ROOT_DIR"
@@ -20,37 +19,58 @@ fi
 
 API_TAG="${API_TAG:-latest}"
 SPA_TAG="${SPA_TAG:-latest}"
+SITE_TAG="${SITE_TAG:-latest}"
+DOCKER_COMPOSE="docker compose"
 
 echo "[deploy] DOCKERHUB_USERNAME=$DOCKERHUB_USERNAME"
 echo "[deploy] API_TAG=$API_TAG"
 echo "[deploy] SPA_TAG=$SPA_TAG"
+echo "[deploy] SITE_TAG=$SITE_TAG"
 
-DOCKER_COMPOSE="docker compose"
+extract_static_assets() {
+  local image_ref="$1"
+  local container_name="$2"
+  local destination_dir="$3"
+  local source_dir_in_image="$4"
+  local expected_file="$5"
 
-SPACONTAINER="lbpr-spa-extract"
+  echo "[deploy] Preparing static assets from $image_ref"
 
-echo "[deploy] Preparing SPA static assets from image docker.io/${DOCKERHUB_USERNAME}/lbpr-spa:${SPA_TAG}"
+  if docker ps -a --format '{{.Names}}' | grep -q "^${container_name}$"; then
+    echo "[deploy] Removing existing extract container ${container_name}"
+    docker rm -f "${container_name}" || true
+  fi
 
-if docker ps -a --format '{{.Names}}' | grep -q "^${SPACONTAINER}$"; then
-  echo "[deploy] Removing existing SPA extract container ${SPACONTAINER}"
-  docker rm -f "${SPACONTAINER}" || true
-fi
+  mkdir -p "$destination_dir"
+  find "$destination_dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-mkdir -p static/spa/dist
+  docker run --name "$container_name" --rm \
+    -v "$ROOT_DIR/$destination_dir:/opt/static-output" \
+    "$image_ref" \
+    /bin/sh -lc "mkdir -p /opt/static-output && cp -r ${source_dir_in_image}/. /opt/static-output/"
 
-echo "[deploy] Running SPA extract container..."
-docker run --name "${SPACONTAINER}" --rm   -v "$ROOT_DIR/static/spa:/opt/spa-output"   "docker.io/${DOCKERHUB_USERNAME}/lbpr-spa:${SPA_TAG}"   /bin/sh -lc 'mkdir -p /opt/spa-output/dist && cp -r /srv/spa/dist/* /opt/spa-output/dist/'
+  echo "[deploy] Static assets ready at $destination_dir"
+  ls -la "$destination_dir" || true
 
-echo "[deploy] SPA assets ready at static/spa/dist"
-echo "[deploy] Host SPA tree (static/spa):"
-ls -la static/spa || true
-echo "[deploy] Host SPA dist tree (static/spa/dist):"
-ls -la static/spa/dist || true
+  if [[ ! -f "$destination_dir/$expected_file" ]]; then
+    echo "[deploy] ERROR: $destination_dir/$expected_file is missing after extraction." >&2
+    exit 1
+  fi
+}
 
-if [[ ! -f static/spa/dist/index.html ]]; then
-  echo "[deploy] ERROR: static/spa/dist/index.html is missing after extraction; SPA routing will fail." >&2
-  exit 1
-fi
+extract_static_assets \
+  "docker.io/${DOCKERHUB_USERNAME}/lbpr-spa:${SPA_TAG}" \
+  "lbpr-spa-extract" \
+  "static/spa/dist" \
+  "/srv/spa/dist" \
+  "index.html"
+
+extract_static_assets \
+  "docker.io/${DOCKERHUB_USERNAME}/lbpr-site:${SITE_TAG}" \
+  "lbpr-site-extract" \
+  "static/marketing/dist" \
+  "/srv/marketing/dist" \
+  "index.html"
 
 OVERRIDES="-f docker-compose.yml -f ops/deploy/docker-compose.deploy.yml"
 
@@ -68,7 +88,7 @@ if [[ "${DOPPLER_ENABLED:-0}" == "1" ]]; then
   fi
 fi
 
-echo "[deploy] Pulling images for api service"
+echo "[deploy] Pulling image for api service"
 API_IMAGE="docker.io/${DOCKERHUB_USERNAME}/lbpr-api:${API_TAG}"
 docker pull "$API_IMAGE"
 
@@ -76,12 +96,12 @@ echo "[deploy] Using docker compose overrides: $OVERRIDES"
 $DOCKER_COMPOSE $OVERRIDES ps
 $DOCKER_COMPOSE $OVERRIDES up -d --remove-orphans
 
-echo "[deploy] Forcing nginx recreate to ensure fresh static/spa mounts..."
+echo "[deploy] Forcing nginx recreate to ensure fresh static mounts..."
 $DOCKER_COMPOSE $OVERRIDES up -d --no-deps --force-recreate nginx
 
-echo "[deploy] Verifying SPA assets inside nginx container..."
-if ! $DOCKER_COMPOSE $OVERRIDES exec nginx sh -lc 'echo "[nginx] /srv:" && ls -la /srv || true; echo "[nginx] /srv/spa:" && ls -la /srv/spa || true; echo "[nginx] /srv/spa/dist:" && ls -la /srv/spa/dist || true; echo "[nginx] index.html:" && ls -la /srv/spa/dist/index.html || true'; then
-  echo "[deploy] WARNING: Could not list SPA assets inside nginx container (container may be starting or unhealthy)." >&2
+echo "[deploy] Verifying static assets inside nginx container..."
+if ! $DOCKER_COMPOSE $OVERRIDES exec nginx sh -lc 'echo "[nginx] /srv:" && ls -la /srv || true; echo "[nginx] /srv/spa/dist:" && ls -la /srv/spa/dist || true; echo "[nginx] /srv/marketing/dist:" && ls -la /srv/marketing/dist || true'; then
+  echo "[deploy] WARNING: Could not list static assets inside nginx container (container may be starting or unhealthy)." >&2
 fi
 
 echo "[deploy] Testing nginx config..."

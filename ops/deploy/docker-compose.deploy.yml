@@ -6,4 +6,6 @@ services:
       uvicorn main:app --host 0.0.0.0 --port 8000 --proxy-headers
     # keep other settings (env_file, volumes, healthcheck) from base compose
 
-  # nginx uses built assets from ./static/spa (populated by deploy.sh)
+  # nginx serves built assets from:
+  #   - ./static/spa/dist       (app.lexbot.pro + staging.lexbot.pro)
+  #   - ./static/marketing/dist (lexbot.pro)
