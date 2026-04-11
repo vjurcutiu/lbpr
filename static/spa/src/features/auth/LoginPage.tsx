@@ -73,10 +73,10 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthLayout title="Welcome back" subtitle="Sign in to pick up the signal where you left off.">
+    <AuthLayout title="Welcome back" subtitle="Sign in to get back to your files, chats, and answers.">
       <div className="mx-auto max-w-sm space-y-5">
         <div className="rounded-2xl border border-slate-200 bg-slate-50/90 p-4 text-sm text-slate-600">
-          Your files, chats, and source-backed answers stay in one workspace. Sign in to continue right where you stopped.
+          Your files, chats, and answers stay in one place. Sign in to pick up where you left off.
         </div>
 
         <form className="space-y-4" onSubmit={onSubmit}>
@@ -120,7 +120,7 @@ export default function LoginPage() {
           ) : null}
 
           <button type="submit" disabled={loading} className={primaryButtonClass}>
-            {loading ? "Signing you in…" : "Open workspace"}
+            {loading ? "Signing you in…" : "Sign in"}
           </button>
 
           <div className="space-y-3">
@@ -155,8 +155,8 @@ export default function LoginPage() {
         </form>
 
         <div className="grid gap-2 rounded-2xl border border-slate-200/80 bg-white/70 p-4 text-xs text-slate-500 sm:grid-cols-3 sm:gap-3 sm:text-center">
-          <div>Source-backed answers</div>
-          <div>Multilingual retrieval</div>
+          <div>Search across your files</div>
+          <div>Answers with sources</div>
           <div>Private by default</div>
         </div>
       </div>

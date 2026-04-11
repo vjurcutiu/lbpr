@@ -103,7 +103,7 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthLayout title="Create your workspace" subtitle="Start free with 50 messages and roughly 75 pages of uploads.">
+    <AuthLayout title="Create your workspace" subtitle="Start free with 50 messages and roughly 75 pages of uploads included.">
       {sent ? (
         <div className="mx-auto max-w-sm space-y-4">
           <div className="rounded-2xl border border-sky-200 bg-sky-50/90 p-4">
@@ -158,7 +158,7 @@ export default function SignupPage() {
       ) : (
         <div className="mx-auto max-w-sm space-y-5">
           <div className="rounded-2xl border border-slate-200 bg-slate-50/90 p-4 text-sm text-slate-600">
-            Bring your documents in first. Lexbot turns messy source material into grounded answers with citations you can inspect.
+            Upload documents, notes, audio, or images and get answers you can trace back to the source.
           </div>
 
           <form className="space-y-4" onSubmit={onSubmit}>
@@ -186,7 +186,7 @@ export default function SignupPage() {
                   role="tooltip"
                   className="absolute -top-2 right-0 max-w-[240px] -translate-y-full rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-xs leading-5 text-slate-600 shadow-lg"
                 >
-                  Start here — enter your email to create your free workspace.
+                  Start here — enter your email to create your account.
                   <span className="absolute -bottom-2 right-6 inline-block h-0 w-0 border-x-8 border-x-transparent border-t-8 border-t-white" />
                 </div>
               ) : null}
@@ -257,9 +257,9 @@ export default function SignupPage() {
           </form>
 
           <div className="grid gap-2 rounded-2xl border border-slate-200/80 bg-white/70 p-4 text-xs text-slate-500 sm:grid-cols-3 sm:gap-3 sm:text-center">
-            <div>Free forever plan</div>
+            <div>Free plan available</div>
             <div>No credit card</div>
-            <div>Source-backed chat</div>
+            <div>Answers with sources</div>
           </div>
         </div>
       )}

@@ -21,24 +21,24 @@ function getAuthMarketingContent(pathname: string): AuthMarketingContent {
   if (pathname.startsWith("/signup")) {
     return {
       eyebrow: "Start free",
-      headline: "Turn raw files into usable signal",
+      headline: "Turn business content into clear answers",
       description:
-        "Create your workspace, bring in docs, audio, or images, and get grounded answers back with the source trail intact.",
+        "Create your workspace, upload docs, audio, or images, and get clear answers with links back to the original source.",
       metrics: [
-        { value: "50", label: "free messages to start" },
+        { value: "50", label: "messages to start" },
         { value: "~75", label: "pages of uploads included" },
-        { value: "No card", label: "required for the free tier" },
+        { value: "No card", label: "required on the free plan" },
       ],
-      chips: ["Upload-first", "Grounded answers", "Private by default"],
+      chips: ["Easy setup", "Answers with sources", "Private by default"],
     };
   }
 
   if (pathname.startsWith("/phone")) {
     return {
       eyebrow: "Fast access",
-      headline: "Get back to your workspace faster",
+      headline: "Get back to your workspace quickly",
       description:
-        "Use a one-time code when you need a quick, low-friction path back into chat, files, and the latest answers.",
+        "Use a one-time code for quick access to your files, chats, and the latest answers in your workspace.",
       metrics: [
         { value: "1 code", label: "to unlock your workspace" },
         { value: "Files", label: "chat and uploads stay in sync" },
@@ -49,16 +49,16 @@ function getAuthMarketingContent(pathname: string): AuthMarketingContent {
   }
 
   return {
-    eyebrow: "Production-ready RAG",
-    headline: "Reconnect with the signal in your files",
+    eyebrow: "Welcome back",
+    headline: "Get back to the answers in your workspace",
     description:
-      "Pick up where you left off with source-backed chat, document search, OCR, transcription, and upload flows built into one workspace.",
+      "Pick up where you left off with file search, source-backed answers, OCR, transcription, and uploads in one place.",
     metrics: [
-      { value: "Files", label: "upload, organize, and query" },
-      { value: "Hybrid", label: "retrieval plus reasoning" },
+      { value: "Files", label: "upload, organize, and search" },
+      { value: "Fast", label: "answers across your content" },
       { value: "Cited", label: "answers tied back to sources" },
     ],
-    chips: ["Source-backed", "Multilingual", "Ops-ready"],
+    chips: ["Source-backed", "Easy to use", "Private by default"],
   };
 }
 
@@ -80,7 +80,7 @@ export default function AuthLayout({ title, subtitle, children }: AuthLayoutProp
               <RiRobotLine className="h-5 w-5 text-cyan-200" />
               <span>Lexbot Pro</span>
               <span className="text-white/45">/</span>
-              <span className="text-white/65">Structured answers for noisy data</span>
+              <span className="text-white/65">Answers grounded in your business content</span>
             </Link>
             <AuthSignalPanel
               eyebrow={content.eyebrow}
@@ -134,7 +134,7 @@ export default function AuthLayout({ title, subtitle, children }: AuthLayoutProp
                 </a>
                 .
               </p>
-              <p>No credit card required • Marketing site on lexbot.pro • App on app.lexbot.pro</p>
+              <p>No credit card required on the free plan.</p>
             </div>
           </div>
         </section>
