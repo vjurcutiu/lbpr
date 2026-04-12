@@ -62,6 +62,18 @@
   --sidebar-accent-foreground: hsl(240 5.9% 10%);
   --sidebar-border: hsl(220 13% 91%);
   --sidebar-ring: hsl(217.2 91.2% 59.8%);
+
+  /* Chat-specific accents */
+  --chat-action-bg: 220 52% 95%;
+  --chat-action-bg-hover: 221 48% 92%;
+  --chat-action-border: 220 30% 84%;
+  --chat-action-foreground: 220 36% 24%;
+  --chat-action-foreground-strong: 222 44% 18%;
+  --chat-system-bg: 220 30% 94%;
+  --chat-system-border: 220 24% 85%;
+  --chat-system-foreground: 220 24% 31%;
+  --chat-sidebar-title: 220 28% 29%;
+  --chat-sidebar-title-active: 222 34% 18%;
 }
 
 /* Dark mode (toggle by adding/removing .dark on <html>) */
@@ -105,6 +117,18 @@ html {
   --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
   --sidebar-border: hsl(240 3.7% 15.9%);
   --sidebar-ring: hsl(217.2 91.2% 59.8%);
+
+  /* Chat-specific accents */
+  --chat-action-bg: 222 27% 17%;
+  --chat-action-bg-hover: 221 25% 22%;
+  --chat-action-border: 221 18% 27%;
+  --chat-action-foreground: 214 28% 85%;
+  --chat-action-foreground-strong: 210 32% 94%;
+  --chat-system-bg: 222 23% 14%;
+  --chat-system-border: 221 16% 24%;
+  --chat-system-foreground: 215 19% 76%;
+  --chat-sidebar-title: 216 15% 70%;
+  --chat-sidebar-title-active: 212 24% 88%;
 }
 
 /* Map tokens so Tailwind utilities like bg-background work */

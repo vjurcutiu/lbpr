@@ -365,7 +365,10 @@ function LeftSidebar({
   return (
     <aside className="hidden sm:flex w-[18.5rem] shrink-0 border-r border-border/70 bg-gradient-to-b from-background via-background to-muted/20 backdrop-blur-xl flex-col dark:from-background dark:via-background dark:to-muted/10">
       <div className="border-b border-border/70 px-3 py-3.5">
-        <Button className="h-11 w-full justify-start gap-2 rounded-2xl bg-foreground px-4 text-sm font-medium text-background shadow-sm transition hover:bg-foreground/90" onClick={onNew}>
+        <Button
+          className="h-11 w-full justify-start gap-2 rounded-2xl border border-[hsl(var(--chat-action-border))] bg-[hsl(var(--chat-action-bg))] px-4 text-sm font-semibold text-[hsl(var(--chat-action-foreground))] shadow-sm transition hover:bg-[hsl(var(--chat-action-bg-hover))] hover:text-[hsl(var(--chat-action-foreground-strong))]"
+          onClick={onNew}
+        >
           <PlusCircle className="h-4 w-4" />
           New Search
         </Button>
@@ -401,7 +404,16 @@ function LeftSidebar({
                     <MessageSquare className="h-4 w-4" />
                   </span>
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-foreground">{s.title || "Untitled"}</div>
+                    <div
+                      className={[
+                        "truncate text-sm font-medium",
+                        s.id === currentId
+                          ? "text-[hsl(var(--chat-sidebar-title-active))]"
+                          : "text-[hsl(var(--chat-sidebar-title))] group-hover:text-[hsl(var(--chat-sidebar-title-active))]",
+                      ].join(" ")}
+                    >
+                      {s.title || "Untitled"}
+                    </div>
                     <div className="mt-1 text-[11px] text-muted-foreground">Updated {formatTimeAgo(s.updated_at)}</div>
                   </div>
                 </button>
@@ -548,7 +560,7 @@ function MessageRow({
       }
     } catch {}
     return (
-      <div className="mx-auto max-w-2xl text-center text-xs text-muted-foreground bg-muted rounded-xl px-3 py-2">
+      <div className="mx-auto max-w-2xl rounded-2xl border border-[hsl(var(--chat-system-border))] bg-[hsl(var(--chat-system-bg))] px-3.5 py-2.5 text-center text-xs font-medium text-[hsl(var(--chat-system-foreground))] shadow-sm">
         {content}
       </div>
     );
