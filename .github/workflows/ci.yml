@@ -290,7 +290,7 @@ jobs:
           set -euo pipefail
           HEALTH_URL="${{ secrets.PROD_HEALTHCHECK_URL }}"
           if [ -z "$HEALTH_URL" ]; then
-            HEALTH_URL="https://app.lexbot.pro/healthz"
+            HEALTH_URL="https://app.lexbot.pro/api/healthz"
           fi
           echo "Checking $HEALTH_URL"
           curl --fail --silent --show-error --max-time 20 "$HEALTH_URL" >/dev/null
