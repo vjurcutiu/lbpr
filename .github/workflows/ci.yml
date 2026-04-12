@@ -286,12 +286,18 @@ jobs:
           terraform apply -auto-approve
 
       - name: Post-deploy API health check
+        working-directory: ${{ env.LOCAL_DEPLOY_DIR }}
         run: |
           set -euo pipefail
+
           HEALTH_URL="${{ secrets.PROD_HEALTHCHECK_URL }}"
-          if [ -z "$HEALTH_URL" ]; then
-            HEALTH_URL="https://app.lexbot.pro/api/healthz"
+          if [ -n "$HEALTH_URL" ]; then
+            echo "Checking external health URL: $HEALTH_URL"
+            curl --fail --silent --show-error --max-time 20 "$HEALTH_URL" >/dev/null
+            echo "External API health check OK"
+            exit 0
           fi
-          echo "Checking $HEALTH_URL"
-          curl --fail --silent --show-error --max-time 20 "$HEALTH_URL" >/dev/null
-          echo "API health check OK"
+
+          echo "No PROD_HEALTHCHECK_URL set; using internal Docker health check"
+          docker compose -f docker-compose.yml -f ops/deploy/docker-compose.deploy.yml exec -T api             wget -qO- http://127.0.0.1:8000/healthz >/dev/null
+          echo "Internal API health check OK"
