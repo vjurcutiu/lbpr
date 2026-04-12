@@ -18,7 +18,7 @@ import { vi as _vi } from "vitest";
 _vi.doMock("@/features/auth/AuthProvider", async () => {
   return {
     AuthProvider: ({ children }: any) => children,
-    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {}, syncFromFirebase: async () => true }),
   };
 });
 

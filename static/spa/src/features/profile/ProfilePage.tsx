@@ -30,7 +30,7 @@ import { friendlyAuthMessage } from "@/features/auth/errorMessages";
 type Profile = { uid: string; email?: string };
 
 export default function ProfilePage() {
-  const { refresh, clear } = useAuthContext();
+  const { clear, syncFromFirebase } = useAuthContext();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [form, setForm] = useState<{ email: string; password: string; confirm: string }>({
@@ -74,15 +74,7 @@ export default function ProfilePage() {
   }, []);
 
   async function syncServerSessionFromFirebase() {
-    const u = auth.currentUser;
-    if (!u) return;
-    try {
-      const idToken = await u.getIdToken(true);
-      await postJSON("/auth/session", { id_token: idToken });
-    } catch {
-      // best-effort; the server will refresh on next full auth state change
-    }
-    await refresh();
+    await syncFromFirebase({ force: true, forceRefreshToken: true });
   }
 
 

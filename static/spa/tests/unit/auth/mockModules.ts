@@ -52,6 +52,7 @@ export function mockUseAuthContext(user: any = null) {
         loading: false,
         refresh: async () => {},
         clear: () => {},
+        syncFromFirebase: async () => true,
       }),
     };
   });

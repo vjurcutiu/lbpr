@@ -18,7 +18,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
 // Default: logged out
 vi.mock("@/features/auth/AuthProvider", async () => {
   return {
-    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {}, syncFromFirebase: async () => true }),
   };
 });
 
@@ -38,7 +38,7 @@ describe("ProtectedRoute", () => {
   it("shows loading state", async () => {
     vi.resetModules();
     vi.doMock("@/features/auth/AuthProvider", async () => ({
-      useAuthContext: () => ({ user: null, loading: true, refresh: async () => {}, clear: () => {} }),
+      useAuthContext: () => ({ user: null, loading: true, refresh: async () => {}, clear: () => {}, syncFromFirebase: async () => true }),
     }));
 
     const { default: ProtectedRoute2 } = await import("@/features/auth/ProtectedRoute");
@@ -49,7 +49,7 @@ describe("ProtectedRoute", () => {
   it("renders outlet when user is present", async () => {
     vi.resetModules();
     vi.doMock("@/features/auth/AuthProvider", async () => ({
-      useAuthContext: () => ({ user: { uid: "u1" }, loading: false, refresh: async () => {}, clear: () => {} }),
+      useAuthContext: () => ({ user: { uid: "u1" }, loading: false, refresh: async () => {}, clear: () => {}, syncFromFirebase: async () => true }),
     }));
 
     const { default: ProtectedRoute2 } = await import("@/features/auth/ProtectedRoute");

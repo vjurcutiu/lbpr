@@ -120,6 +120,24 @@ describe("AuthProvider", () => {
     expect(screen.getByTestId("uid")).toHaveTextContent("");
   });
 
+  it("does not exchange cookie when the server session already matches Firebase user", async () => {
+    apiMock.mockGetJSON.mockResolvedValueOnce({ user: { uid: "u-phone" } });
+
+    renderProvider();
+
+    const fbUser = {
+      uid: "u-phone",
+      email: null,
+      emailVerified: false,
+      providerData: [{ providerId: "phone" }],
+    };
+
+    await fbMock.getAuthCb()!(fbUser);
+
+    expect(apiMock.mockPostJSON).not.toHaveBeenCalled();
+    expect(screen.getByTestId("uid")).toHaveTextContent("u-phone");
+  });
+
   it("exchanges cookie for phone users even if emailVerified is false", async () => {
     apiMock.mockGetJSON.mockResolvedValueOnce({ user: null });
     // After cookie exchange, AuthProvider calls load() again
@@ -131,6 +149,7 @@ describe("AuthProvider", () => {
     renderProvider();
 
     const fbUser = {
+      uid: "u-phone",
       email: null,
       emailVerified: false,
       providerData: [{ providerId: "phone" }],
@@ -157,6 +176,7 @@ describe("AuthProvider", () => {
     renderProvider();
 
     const fbUser = {
+      uid: "u-pass",
       email: "ok@example.com",
       emailVerified: true,
       providerData: [{ providerId: "password" }],

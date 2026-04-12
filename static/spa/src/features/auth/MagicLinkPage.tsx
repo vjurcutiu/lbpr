@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import AuthLayout from "./AuthLayout";
 import { postJSON } from "@/shared/api";
-import { auth, signInWithCustomToken } from "./firebase";
+import { signInWithCustomToken } from "./firebase";
 import { useAuthContext } from "./AuthProvider";
 
 type ExchangeResp = { custom_token: string };
@@ -10,7 +10,7 @@ type ExchangeResp = { custom_token: string };
 export default function MagicLinkPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const { user, loading: authLoading, refresh } = useAuthContext();
+  const { user, loading: authLoading, syncFromFirebase } = useAuthContext();
 
   const code = (params.get("code") || "").trim();
   const returnTo = (params.get("returnTo") || "/files").trim() || "/files";
@@ -52,12 +52,13 @@ export default function MagicLinkPage() {
         // 2) Firebase sign-in (creates a Firebase session in the browser)
         await signInWithCustomToken(ex.custom_token);
 
-        // 3) Cookie exchange (server session)
-        const idToken = await auth.currentUser!.getIdToken();
-        await postJSON("/auth/session", { id_token: idToken });
+        // 3) Establish/refresh the backend session cookie
+        const synced = await syncFromFirebase({ force: true, forceRefreshToken: true });
+        if (!synced) {
+          throw new Error("We could not finish signing you in. Please try the link again.");
+        }
 
-        // 4) Refresh app user and redirect
-        await refresh();
+        // 4) Redirect after AuthProvider has hydrated the user
         if (!cancelled) navigate(safeReturnTo, { replace: true });
       } catch (e: any) {
         console.warn("[auth:magic] sign-in failed", e);
@@ -75,7 +76,7 @@ export default function MagicLinkPage() {
     return () => {
       cancelled = true;
     };
-  }, [authLoading, user, code, refresh, navigate, safeReturnTo]);
+  }, [authLoading, user, code, syncFromFirebase, navigate, safeReturnTo]);
 
   return (
     <AuthLayout

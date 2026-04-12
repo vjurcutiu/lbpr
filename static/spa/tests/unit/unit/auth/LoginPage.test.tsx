@@ -15,14 +15,15 @@ import {
 
 // Must be imported before the component under test
 import "./mockModules";
-import { mockPostJSON } from "./mockModules";
+
+const mockSyncFromFirebase = vi.fn();
 
 // We want LoginPage to think the user is logged out.
 import { vi as _vi } from "vitest";
 _vi.doMock("@/features/auth/AuthProvider", async () => {
   return {
     AuthProvider: ({ children }: any) => children,
-    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {} }),
+    useAuthContext: () => ({ user: null, loading: false, refresh: async () => {}, clear: () => {}, syncFromFirebase: mockSyncFromFirebase }),
   };
 });
 
@@ -32,7 +33,7 @@ describe("LoginPage", () => {
   let originalLocation: Location;
   beforeEach(() => {
     resetAuthMocks();
-    mockPostJSON.mockReset();
+    mockSyncFromFirebase.mockReset();
 
     // Prevent jsdom navigation errors by stubbing location.replace with a writable mock.
     originalLocation = window.location;
@@ -58,7 +59,8 @@ describe("LoginPage", () => {
       getIdToken: vi.fn().mockResolvedValue("ID_TOKEN"),
     });
     mockSignInWithEmailPassword.mockResolvedValue({});
-    mockPostJSON.mockResolvedValue({ ok: true });
+    mockSyncFromFirebase.mockReset();
+    mockSyncFromFirebase.mockResolvedValue(true);
 
     // Prevent jsdom navigation errors
 
@@ -71,7 +73,7 @@ describe("LoginPage", () => {
     await flushPromises();
 
     expect(mockSignInWithEmailPassword).toHaveBeenCalledWith("test@example.com", "secret123");
-    expect(mockPostJSON).toHaveBeenCalledWith("/auth/session", { id_token: "ID_TOKEN" });
+    expect(mockSyncFromFirebase).toHaveBeenCalledWith({ force: true });
     expect(window.location.replace).toHaveBeenCalledWith("/files");
   });
 
@@ -91,7 +93,7 @@ describe("LoginPage", () => {
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
     expect(await screen.findByText(/Please verify your email/i)).toBeInTheDocument();
-    expect(mockPostJSON).not.toHaveBeenCalled();
+    expect(mockSyncFromFirebase).not.toHaveBeenCalled();
   });
 
   it("renders friendly error message on login failure", async () => {

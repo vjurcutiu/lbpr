@@ -4,7 +4,6 @@ import { Link, Navigate, useSearchParams } from "react-router-dom";
 import AuthLayout from "./AuthLayout";
 import { useAuthContext } from "./AuthProvider";
 import { auth, signInWithEmailPassword, loginWithGoogle } from "./firebase";
-import { postJSON } from "@/shared/api";
 import { friendlyAuthMessage } from "./errorMessages";
 import GoogleIcon from "./GoogleIcon";
 
@@ -17,7 +16,7 @@ const secondaryButtonClass =
   "inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60";
 
 export default function LoginPage() {
-  const { user } = useAuthContext();
+  const { user, syncFromFirebase } = useAuthContext();
   const [params] = useSearchParams();
   const returnTo = params.get("returnTo") || "/files";
 
@@ -42,8 +41,10 @@ export default function LoginPage() {
         setNeedsVerify(true);
         return;
       }
-      const idToken = await auth.currentUser.getIdToken();
-      await postJSON("/auth/session", { id_token: idToken });
+      const synced = await syncFromFirebase({ force: true });
+      if (!synced) {
+        throw new Error("Could not establish your server session. Please try again.");
+      }
       window.location.replace(returnTo);
     } catch (e: any) {
       console.warn("[auth:login] Firebase error:", e);
