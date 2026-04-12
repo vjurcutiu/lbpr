@@ -17,7 +17,12 @@ type StoredShape = {
   messages: Record<string, ChatTurn[]>;
 };
 
-const LISTENERS: Record<string, Set<(id: string, msgs: ChatTurn[]) => void>> = {};
+type MessageListener = (id: string, msgs: ChatTurn[]) => void;
+type ConversationListener = (conversations: ConversationMeta[]) => void;
+
+const MESSAGE_LISTENERS: Record<string, Set<MessageListener>> = {};
+const CONVERSATION_LISTENERS: Record<string, Set<ConversationListener>> = {};
+const STORE_EVENT = "lbp-chat-store-change";
 
 function key(ns: string) {
   return `lbp_chat_${ns}`;
@@ -44,17 +49,37 @@ function read(ns: string): StoredShape {
 
 function write(ns: string, data: StoredShape) {
   localStorage.setItem(key(ns), JSON.stringify(data));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(STORE_EVENT, { detail: { ns } }));
+  }
 }
 
-function emit(ns: string, id: string) {
+function sortedConversations(conversations: ConversationMeta[]) {
+  return [...conversations].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+function emitMessages(ns: string, id: string) {
   const store = read(ns);
-  const listeners = LISTENERS[ns];
+  const listeners = MESSAGE_LISTENERS[ns];
   if (!listeners) return;
   const msgs = store.messages[id] || [];
   for (const cb of listeners) cb(id, msgs);
 }
 
-export async function createConversation(ns: string, title: string, tenantId: string): Promise<string> {
+function emitConversations(ns: string) {
+  const store = read(ns);
+  const listeners = CONVERSATION_LISTENERS[ns];
+  if (!listeners) return;
+  const conversations = sortedConversations(store.conversations);
+  for (const cb of listeners) cb(conversations);
+}
+
+function emitAll(ns: string, conversationId?: string) {
+  emitConversations(ns);
+  if (conversationId) emitMessages(ns, conversationId);
+}
+
+export async function createConversation(ns: string, title: string, tenantId = "tenant_demo"): Promise<string> {
   const store = read(ns);
   const id = uuidv4();
   const ts = nowIso();
@@ -68,7 +93,7 @@ export async function createConversation(ns: string, title: string, tenantId: st
   store.conversations.unshift(meta);
   store.messages[id] = [];
   write(ns, store);
-  emit(ns, id);
+  emitAll(ns, id);
   return id;
 }
 
@@ -86,13 +111,12 @@ export async function appendMessage(ns: string, id: string, msg: ChatTurn): Prom
   const conv = store.conversations.find(c => c.id === id);
   if (conv) conv.updated_at = nowIso();
   write(ns, store);
-  emit(ns, id);
+  emitAll(ns, id);
 }
 
 export async function listConversations(ns: string): Promise<ConversationMeta[]> {
   const store = read(ns);
-  // newest first
-  return [...store.conversations].sort((a, b) => (b.updated_at.localeCompare(a.updated_at)));
+  return sortedConversations(store.conversations);
 }
 
 export async function renameConversation(ns: string, id: string, title: string): Promise<void> {
@@ -102,6 +126,7 @@ export async function renameConversation(ns: string, id: string, title: string):
     conv.title = title?.trim() || conv.title;
     conv.updated_at = nowIso();
     write(ns, store);
+    emitConversations(ns);
   }
 }
 
@@ -110,7 +135,7 @@ export async function deleteConversation(ns: string, id: string): Promise<void> 
   store.conversations = store.conversations.filter(c => c.id !== id);
   delete store.messages[id];
   write(ns, store);
-  emit(ns, id);
+  emitAll(ns, id);
 }
 
 /**
@@ -122,16 +147,70 @@ export function subscribeMessages(
   id: string,
   cb: (msgs: ChatTurn[]) => void
 ): () => void {
-  const set = (LISTENERS[ns] = LISTENERS[ns] || new Set());
+  const set = (MESSAGE_LISTENERS[ns] = MESSAGE_LISTENERS[ns] || new Set());
   const wrapper = (_id: string, msgs: ChatTurn[]) => {
     if (_id === id) cb(msgs);
   };
+
+  const syncFromStorage = () => {
+    const store = read(ns);
+    cb(store.messages[id] || []);
+  };
+  const handleStoreEvent = (event: Event) => {
+    const detail = (event as CustomEvent<{ ns?: string }>).detail;
+    if (!detail?.ns || detail.ns === ns) syncFromStorage();
+  };
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === key(ns)) syncFromStorage();
+  };
+
   set.add(wrapper);
-  // fire immediately
-  const store = read(ns);
-  cb(store.messages[id] || []);
+  cb(read(ns).messages[id] || []);
+
+  if (typeof window !== "undefined") {
+    window.addEventListener(STORE_EVENT, handleStoreEvent as EventListener);
+    window.addEventListener("storage", handleStorage);
+  }
 
   return () => {
     set.delete(wrapper);
+    if (typeof window !== "undefined") {
+      window.removeEventListener(STORE_EVENT, handleStoreEvent as EventListener);
+      window.removeEventListener("storage", handleStorage);
+    }
+  };
+}
+
+export function subscribeConversations(
+  ns: string,
+  cb: (conversations: ConversationMeta[]) => void
+): () => void {
+  const set = (CONVERSATION_LISTENERS[ns] = CONVERSATION_LISTENERS[ns] || new Set());
+
+  const syncFromStorage = () => {
+    cb(sortedConversations(read(ns).conversations));
+  };
+  const handleStoreEvent = (event: Event) => {
+    const detail = (event as CustomEvent<{ ns?: string }>).detail;
+    if (!detail?.ns || detail.ns === ns) syncFromStorage();
+  };
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === key(ns)) syncFromStorage();
+  };
+
+  set.add(cb);
+  syncFromStorage();
+
+  if (typeof window !== "undefined") {
+    window.addEventListener(STORE_EVENT, handleStoreEvent as EventListener);
+    window.addEventListener("storage", handleStorage);
+  }
+
+  return () => {
+    set.delete(cb);
+    if (typeof window !== "undefined") {
+      window.removeEventListener(STORE_EVENT, handleStoreEvent as EventListener);
+      window.removeEventListener("storage", handleStorage);
+    }
   };
 }

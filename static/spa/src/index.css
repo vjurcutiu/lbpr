@@ -65,7 +65,12 @@
 }
 
 /* Dark mode (toggle by adding/removing .dark on <html>) */
+html {
+  color-scheme: light;
+}
+
 .dark {
+  color-scheme: dark;
   --background: 240 10% 4%;
   --foreground: 210 20% 98%;
 
@@ -152,6 +157,36 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: var(--font-sans);
+  }
+
+
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    background-color: hsl(var(--border));
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.45);
   }
 
   /* Focus ring */

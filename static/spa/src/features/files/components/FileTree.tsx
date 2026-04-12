@@ -29,6 +29,7 @@ const fileKey = (id: string) => `f:${id || ""}`;
 const BASE_LEFT_PX = 8;
 const INDENT_PX = 14;
 const GUIDE_COLOR = "hsl(var(--muted-foreground) / 0.16)";
+const FILE_OFFSET_PX = 10;
 
 function treeGuidesStyle(depth: number): React.CSSProperties {
   if (depth <= 0) return {};
@@ -525,11 +526,11 @@ function FileRow({
     <button
       type="button"
       className={cn(
-        "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left",
+        "w-full flex items-center gap-2 rounded py-1.5 pr-2 text-left",
         "hover:bg-muted/40",
         selected && "bg-muted/50"
       )}
-      style={{ paddingLeft: BASE_LEFT_PX + depth * INDENT_PX, ...treeGuidesStyle(depth) }}
+      style={{ paddingLeft: BASE_LEFT_PX + depth * INDENT_PX + FILE_OFFSET_PX, ...treeGuidesStyle(depth) }}
       onClick={(e) => {
         e.stopPropagation();
         if (ignoreClick()) return;
@@ -543,9 +544,7 @@ function FileRow({
       }}
       title={file.name}
     >
-      <span className="h-5 w-5 opacity-0" />
-      <span className="h-4 w-4 opacity-0" />
-      <FileIconByName name={file.name} className="h-4 w-4" />
+      <FileIconByName name={file.name} className="h-4 w-4 shrink-0 text-muted-foreground" />
       <span className="truncate">{node.name}</span>
     </button>
   );
