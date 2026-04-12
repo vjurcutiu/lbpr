@@ -388,7 +388,7 @@ function LeftSidebar({
                 className={[
                   "group w-full rounded-2xl border px-3 py-3 transition flex items-start gap-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)] dark:shadow-[0_10px_24px_rgba(0,0,0,0.18)]",
                   s.id === currentId
-                    ? "border-border bg-card shadow-[0_12px_30px_rgba(15,23,42,0.08)] dark:bg-card/95"
+                    ? "border-[hsl(var(--chat-sidebar-active-border))] bg-[hsl(var(--chat-sidebar-active-bg))] shadow-[0_12px_30px_rgba(15,23,42,0.08)]"
                     : "border-transparent bg-card/45 hover:border-border hover:bg-card/80 dark:bg-card/30",
                 ].join(" ")}
               >
@@ -399,7 +399,7 @@ function LeftSidebar({
                 >
                   <span className={[
                     "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border",
-                    s.id === currentId ? "border-border bg-muted text-foreground" : "border-border/70 bg-background text-muted-foreground group-hover:text-foreground",
+                    s.id === currentId ? "border-[hsl(var(--chat-sidebar-active-border))] bg-[hsl(var(--chat-action-bg))] text-[hsl(var(--chat-action-foreground-strong))]" : "border-border/70 bg-background text-muted-foreground group-hover:text-foreground",
                   ].join(" ")}>
                     <MessageSquare className="h-4 w-4" />
                   </span>
@@ -569,7 +569,7 @@ function MessageRow({
   // Bubble shared styles — slightly smaller type and paddings
   const bubbleBase =
     "rounded-[22px] px-4 py-3.5 text-[14px] leading-6 shadow-[0_10px_30px_rgba(15,23,42,0.05)] dark:shadow-[0_14px_38px_rgba(0,0,0,0.28)]";
-  const bubbleUser = "border border-foreground bg-foreground text-background whitespace-pre-wrap";
+  const bubbleUser = "border border-[hsl(var(--chat-user-border))] bg-[hsl(var(--chat-user-bg))] text-[hsl(var(--chat-user-foreground))] whitespace-pre-wrap";
   const bubbleAssistant = "border border-border bg-card text-card-foreground";
 
   return (
@@ -578,7 +578,7 @@ function MessageRow({
         className={`flex items-start gap-3.5 max-w-[min(82%,820px)] ${isUser ? "flex-row-reverse" : ""}`}
       >
         <Avatar className="mt-0.5 size-8 border border-border/80 bg-card shadow-sm">
-          <AvatarFallback className={isUser ? "bg-muted text-foreground" : "bg-primary/10 text-primary"}>{isUser ? "U" : "A"}</AvatarFallback>
+          <AvatarFallback className={isUser ? "bg-[hsl(var(--chat-action-bg))] text-[hsl(var(--chat-action-foreground-strong))]" : "bg-primary/10 text-primary"}>{isUser ? "U" : "A"}</AvatarFallback>
         </Avatar>
         <div className="space-y-2">
           <div

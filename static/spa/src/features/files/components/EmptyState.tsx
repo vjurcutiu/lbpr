@@ -25,7 +25,7 @@ export function EmptyState({
               Browse files
             </Button>
           )}
-          <Button size="sm" onClick={onUploadClick}>
+          <Button size="sm" onClick={onUploadClick} className="app-theme-action-button">
             <UploadCloud className="h-4 w-4 mr-1.5" />
             Upload files
           </Button>

@@ -8316,7 +8316,7 @@ const breadcrumb = useMemo(() => {
 
 
 
-        <Button onClick={() => startUploadTo(selectedFolder)} disabled={uploading} size="sm">
+        <Button onClick={() => startUploadTo(selectedFolder)} disabled={uploading} size="sm" className="app-theme-action-button">
 
 
 
@@ -11507,7 +11507,7 @@ const breadcrumb = useMemo(() => {
 
 
 
-            <Button size="sm" onClick={() => startUploadTo(selectedFolder)} disabled={uploading} title="Upload">
+            <Button size="sm" onClick={() => startUploadTo(selectedFolder)} disabled={uploading} title="Upload" className="app-theme-action-button">
 
 
 

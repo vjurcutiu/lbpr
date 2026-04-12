@@ -74,6 +74,12 @@
   --chat-system-foreground: 220 24% 31%;
   --chat-sidebar-title: 220 28% 29%;
   --chat-sidebar-title-active: 222 34% 18%;
+  --chat-sidebar-active-bg: 220 38% 95%;
+  --chat-sidebar-active-border: 220 24% 84%;
+  --chat-user-bg: 220 28% 24%;
+  --chat-user-bg-hover: 220 30% 22%;
+  --chat-user-border: 220 24% 18%;
+  --chat-user-foreground: 210 30% 98%;
 }
 
 /* Dark mode (toggle by adding/removing .dark on <html>) */
@@ -129,6 +135,12 @@ html {
   --chat-system-foreground: 215 19% 76%;
   --chat-sidebar-title: 216 15% 70%;
   --chat-sidebar-title-active: 212 24% 88%;
+  --chat-sidebar-active-bg: 221 23% 16%;
+  --chat-sidebar-active-border: 221 15% 26%;
+  --chat-user-bg: 221 27% 19%;
+  --chat-user-bg-hover: 221 26% 22%;
+  --chat-user-border: 221 17% 29%;
+  --chat-user-foreground: 210 26% 96%;
 }
 
 /* Map tokens so Tailwind utilities like bg-background work */
@@ -237,6 +249,22 @@ html {
   }
   .pill {
     @apply rounded-full border border-border;
+  }
+
+  .app-theme-action-button {
+    @apply border shadow-sm;
+    border-color: hsl(var(--chat-action-border));
+    background-color: hsl(var(--chat-action-bg));
+    color: hsl(var(--chat-action-foreground));
+  }
+
+  .app-theme-action-button:hover:not(:disabled) {
+    background-color: hsl(var(--chat-action-bg-hover));
+    color: hsl(var(--chat-action-foreground-strong));
+  }
+
+  .app-theme-action-button:disabled {
+    @apply opacity-70;
   }
 }
 
