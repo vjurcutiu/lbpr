@@ -27,7 +27,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Started chat/query requests over the selected range.",
+      "description": "Started chat/query requests over the selected range. Uses an instant total so sparse dev traffic still shows up.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -78,8 +78,9 @@
           "editorMode": "code",
           "expr": "sum(increase(lbpr_chat_started_total{job=~\"$job\"}[$__range])) or vector(0)",
           "legendFormat": "",
-          "range": true,
-          "refId": "A"
+          "range": false,
+          "refId": "A",
+          "instant": true
         }
       ],
       "title": "Chat requests started",
@@ -90,7 +91,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Completed chat/query requests over the selected range.",
+      "description": "Completed chat/query requests over the selected range. Uses an instant total so sparse dev traffic still shows up.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -141,8 +142,9 @@
           "editorMode": "code",
           "expr": "sum(increase(lbpr_chat_completed_total{job=~\"$job\"}[$__range])) or vector(0)",
           "legendFormat": "",
-          "range": true,
-          "refId": "A"
+          "range": false,
+          "refId": "A",
+          "instant": true
         }
       ],
       "title": "Chat requests completed",
@@ -153,7 +155,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Completed ingest operations over the selected range.",
+      "description": "Completed ingest operations over the selected range. Uses an instant total so sparse dev traffic still shows up.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -204,8 +206,9 @@
           "editorMode": "code",
           "expr": "sum(increase(lbpr_ingest_completed_total{job=~\"$job\"}[$__range])) or vector(0)",
           "legendFormat": "",
-          "range": true,
-          "refId": "A"
+          "range": false,
+          "refId": "A",
+          "instant": true
         }
       ],
       "title": "Ingest operations completed",
@@ -216,7 +219,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Incoming chat/query request rate.",
+      "description": "Chat/query request counts per interval. Uses increase rather than rate so low-volume dev traffic is visible.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -264,7 +267,7 @@
               }
             ]
           },
-          "unit": "ops"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -295,8 +298,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (flow) (rate(lbpr_chat_started_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "{{flow}}{{reason}}{{stage}}{{metric}}{{plan}}{{operation}}{{status}}{{with_sources}}{{chunk_bucket}}",
+          "expr": "sum by (flow) (increase(lbpr_chat_started_total{job=~\"$job\"}[$__interval]))",
+          "legendFormat": "{{flow}}",
           "range": true,
           "refId": "A"
         }
@@ -309,7 +312,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Successful chat/query completions by flow.",
+      "description": "Chat/query completion counts per interval. Uses increase rather than rate so low-volume dev traffic is visible.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -357,7 +360,7 @@
               }
             ]
           },
-          "unit": "ops"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -388,8 +391,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (flow) (rate(lbpr_chat_completed_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "{{flow}}{{reason}}{{stage}}{{metric}}{{plan}}{{operation}}{{status}}{{with_sources}}{{chunk_bucket}}",
+          "expr": "sum by (flow) (increase(lbpr_chat_completed_total{job=~\"$job\"}[$__interval]))",
+          "legendFormat": "{{flow}}",
           "range": true,
           "refId": "A"
         }
@@ -402,7 +405,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Whether successful chat responses returned sources.",
+      "description": "Chat completions by flow and whether sources were returned, shown as interval counts.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -450,7 +453,7 @@
               }
             ]
           },
-          "unit": "ops"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -481,8 +484,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (flow, with_sources) (rate(lbpr_chat_completed_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "{{flow}}{{reason}}{{stage}}{{metric}}{{plan}}{{operation}}{{status}}{{with_sources}}{{chunk_bucket}}",
+          "expr": "sum by (flow, with_sources) (increase(lbpr_chat_completed_total{job=~\"$job\"}[$__interval]))",
+          "legendFormat": "{{flow}} / {{with_sources}}",
           "range": true,
           "refId": "A"
         }
@@ -495,7 +498,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Chat/query failures split by flow and stage.",
+      "description": "Chat/query error counts per interval. Uses increase rather than rate so low-volume dev traffic is visible.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -543,7 +546,7 @@
               }
             ]
           },
-          "unit": "ops"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -574,8 +577,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (flow, stage) (rate(lbpr_chat_error_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "{{flow}}{{reason}}{{stage}}{{metric}}{{plan}}{{operation}}{{status}}{{with_sources}}{{chunk_bucket}}",
+          "expr": "sum by (flow, stage) (increase(lbpr_chat_error_total{job=~\"$job\"}[$__interval]))",
+          "legendFormat": "{{flow}} / {{stage}}",
           "range": true,
           "refId": "A"
         }
@@ -588,7 +591,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Successful ingests by chunk bucket, useful for load shape and chunk volume.",
+      "description": "Ingest completion counts by chunk bucket per interval. Uses increase rather than rate so low-volume dev traffic is visible.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -636,7 +639,7 @@
               }
             ]
           },
-          "unit": "ops"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -667,8 +670,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (flow, chunk_bucket) (rate(lbpr_ingest_completed_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "{{flow}}{{reason}}{{stage}}{{metric}}{{plan}}{{operation}}{{status}}{{with_sources}}{{chunk_bucket}}",
+          "expr": "sum by (flow, chunk_bucket) (increase(lbpr_ingest_completed_total{job=~\"$job\"}[$__interval]))",
+          "legendFormat": "{{flow}} / {{chunk_bucket}}",
           "range": true,
           "refId": "A"
         }
@@ -681,7 +684,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Ingest failures split by flow and stage.",
+      "description": "Ingest error counts per interval. Uses increase rather than rate so low-volume dev traffic is visible.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -729,7 +732,7 @@
               }
             ]
           },
-          "unit": "ops"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -760,8 +763,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (flow, stage) (rate(lbpr_ingest_error_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "{{flow}}{{reason}}{{stage}}{{metric}}{{plan}}{{operation}}{{status}}{{with_sources}}{{chunk_bucket}}",
+          "expr": "sum by (flow, stage) (increase(lbpr_ingest_error_total{job=~\"$job\"}[$__interval]))",
+          "legendFormat": "{{flow}} / {{stage}}",
           "range": true,
           "refId": "A"
         }
@@ -774,7 +777,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Quota consumption from successful chat/query flows.",
+      "description": "Messages consumed per interval, shown as counts instead of rates for dev-friendliness.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -822,7 +825,7 @@
               }
             ]
           },
-          "unit": "ops"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -853,8 +856,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (plan) (rate(lbpr_messages_used_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "{{flow}}{{reason}}{{stage}}{{metric}}{{plan}}{{operation}}{{status}}{{with_sources}}{{chunk_bucket}}",
+          "expr": "sum by (plan) (increase(lbpr_messages_used_total{job=~\"$job\"}[$__interval]))",
+          "legendFormat": "{{plan}}",
           "range": true,
           "refId": "A"
         }
@@ -867,7 +870,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Quota consumption from ingest/upload flows.",
+      "description": "Upload tokens consumed per interval, shown as counts instead of rates for dev-friendliness.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -915,7 +918,7 @@
               }
             ]
           },
-          "unit": "ops"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -946,8 +949,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (plan) (rate(lbpr_upload_tokens_used_total{job=~\"$job\"}[$__rate_interval]))",
-          "legendFormat": "{{flow}}{{reason}}{{stage}}{{metric}}{{plan}}{{operation}}{{status}}{{with_sources}}{{chunk_bucket}}",
+          "expr": "sum by (plan) (increase(lbpr_upload_tokens_used_total{job=~\"$job\"}[$__interval]))",
+          "legendFormat": "{{plan}}",
           "range": true,
           "refId": "A"
         }
@@ -960,7 +963,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "p95 end-to-end chat latency by flow.",
+      "description": "Chat p95 latency by flow, computed from histogram bucket increases so sparse traffic still renders.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1039,8 +1042,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, flow) (rate(lbpr_chat_duration_ms_milliseconds_bucket{job=~\"$job\"}[$__rate_interval])))",
-          "legendFormat": "{{flow}}{{reason}}{{stage}}{{metric}}{{plan}}{{operation}}{{status}}{{with_sources}}{{chunk_bucket}}",
+          "expr": "histogram_quantile(0.95, sum by (le, flow) (increase(lbpr_chat_duration_ms_milliseconds_bucket{job=~\"$job\"}[$__interval])))",
+          "legendFormat": "{{flow}}",
           "range": true,
           "refId": "A"
         }
@@ -1053,7 +1056,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "p95 end-to-end ingest latency by flow.",
+      "description": "Ingest p95 latency by flow, computed from histogram bucket increases so sparse traffic still renders.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1132,8 +1135,8 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, flow) (rate(lbpr_ingest_duration_ms_milliseconds_bucket{job=~\"$job\"}[$__rate_interval])))",
-          "legendFormat": "{{flow}}{{reason}}{{stage}}{{metric}}{{plan}}{{operation}}{{status}}{{with_sources}}{{chunk_bucket}}",
+          "expr": "histogram_quantile(0.95, sum by (le, flow) (increase(lbpr_ingest_duration_ms_milliseconds_bucket{job=~\"$job\"}[$__interval])))",
+          "legendFormat": "{{flow}}",
           "range": true,
           "refId": "A"
         }
