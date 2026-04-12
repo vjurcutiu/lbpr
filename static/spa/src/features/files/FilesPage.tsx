@@ -8955,6 +8955,10 @@ const breadcrumb = useMemo(() => {
 
 
 
+                  openFolderOnClick={true}
+
+
+
                   suppressClickUntilRef={suppressClickUntilRef}
 
 

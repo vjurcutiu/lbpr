@@ -277,6 +277,12 @@ function FolderRow({
     !hasChildren && "opacity-0"
   );
 
+  const activateFolder = () => {
+    onSelectFolder(node.path);
+    onOpenFolder(node.path);
+    if (hasChildren && !open) toggleOpen(node.path);
+  };
+
   return (
     <div className="mb-0.5">
       <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -373,17 +379,12 @@ function FolderRow({
               onClick={(e) => {
                 e.stopPropagation();
                 if (ignoreClick()) return;
-                onSelectFolder(node.path);
-                if (openFolderOnClick) onOpenFolder(node.path);
+                activateFolder();
               }}
               onDoubleClick={(e) => {
                 e.stopPropagation();
                 if (ignoreClick()) return;
-                onSelectFolder(node.path);
-                // VSCode-ish: double-click toggles the tree open/closed,
-                // while also "opening" the folder in the main view.
-                if (hasChildren) toggleOpen(node.path);
-                onOpenFolder(node.path);
+                activateFolder();
               }}
             >
               <Folder className="h-4 w-4 shrink-0" />
