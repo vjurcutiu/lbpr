@@ -184,6 +184,9 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: 1.14.8
+          terraform_wrapper: false
 
       - name: Validate Grafana Terraform
         working-directory: infra/terraform/grafana
