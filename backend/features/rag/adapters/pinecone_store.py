@@ -143,14 +143,24 @@ class PineconeVectorStore:
 
     def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
         idx = self._index_handle(required_dim=len(q_dense or []))
-        res = idx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
-        return self._to_hits(res)
+        op_t0 = time.perf_counter()
+        try:
+            res = idx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
+            record_pinecone_duration(operation="query_dense", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
+            return self._to_hits(res)
+        except Exception:
+            record_pinecone_duration(operation="query_dense", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
+            raise
 
     def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
         idx = self._index_handle()
+        op_t0 = time.perf_counter()
         try:
             res = idx.query(sparse_vector=q_sparse, top_k=k, include_metadata=True, namespace=str(dataset))
+            record_pinecone_duration(operation="query_sparse", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
+            return self._to_hits(res)
         except PineconeApiException as e:
+            record_pinecone_duration(operation="query_sparse", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
             # ✅ FIX: gracefully handle dense-only indexes that reject sparse-only queries
             msg = getattr(e, "body", None) or str(e)
             if "Cannot query index with dense 'vector_type' with only sparse vector" in str(msg):
@@ -161,7 +171,9 @@ class PineconeVectorStore:
                 )
                 return []
             raise
-        return self._to_hits(res)
+        except Exception:
+            record_pinecone_duration(operation="query_sparse", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
+            raise
 
     def query_hybrid(
         self,

@@ -218,14 +218,30 @@ sum(increase(lbpr_upload_tokens_used_total[15m])) by (job, plan)
 sum(increase(lbpr_plan_limit_hit_total[15m])) by (job, metric, plan)
 ```
 
-### 3) Validate histograms exist before asking for p95
-
 ```promql
-sum(increase(lbpr_chat_duration_ms_count[15m])) by (job, flow, status)
+sum(increase(lbpr_openai_call_total[15m])) by (job, operation, status)
 ```
 
 ```promql
-sum(increase(lbpr_ingest_duration_ms_count[15m])) by (job, flow, status)
+sum(increase(lbpr_pinecone_operation_total[15m])) by (job, operation, status)
+```
+
+### 3) Validate histograms exist before asking for p95
+
+```promql
+sum(increase(lbpr_chat_duration_ms_milliseconds_count[15m])) by (job, flow, status)
+```
+
+```promql
+sum(increase(lbpr_ingest_duration_ms_milliseconds_count[15m])) by (job, flow, status)
+```
+
+```promql
+sum(increase(lbpr_openai_duration_ms_milliseconds_count[15m])) by (job, operation, status)
+```
+
+```promql
+sum(increase(lbpr_pinecone_duration_ms_milliseconds_count[15m])) by (job, operation, status)
 ```
 
 Once those show data, use p95 queries for dashboards.

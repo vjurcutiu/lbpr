@@ -301,18 +301,30 @@ class PineconeDualVectorStore:
     def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
         didx = self._dense_idx(required_dim=len(q_dense or []))
         log.debug("pinecone_query_dense", index=self._dense_name, k=k, namespace=str(dataset))
-        res = didx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
-        return self._to_hits(res)
+        op_t0 = time.perf_counter()
+        try:
+            res = didx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
+            record_pinecone_duration(operation="query_dense", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
+            return self._to_hits(res)
+        except Exception:
+            record_pinecone_duration(operation="query_dense", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
+            raise
 
     def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
         sidx = self._sparse_idx()
         log.debug("pinecone_query_sparse", index=self._sparse_name, k=k, namespace=str(dataset))
+        op_t0 = time.perf_counter()
         try:
             res = sidx.query(sparse_vector=q_sparse, top_k=k, include_metadata=True, namespace=str(dataset))
+            record_pinecone_duration(operation="query_sparse", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
+            return self._to_hits(res)
         except PineconeApiException as e:
+            record_pinecone_duration(operation="query_sparse", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
             log.warning("pinecone_sparse_query_error", error=str(e))
             return []
-        return self._to_hits(res)
+        except Exception:
+            record_pinecone_duration(operation="query_sparse", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
+            raise
 
     # ---- hybrid (two calls + fusion) -------------------------------------
     def query_hybrid(

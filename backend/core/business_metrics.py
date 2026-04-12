@@ -24,7 +24,9 @@ class _Instruments:
     upload_tokens_used_total: Any
     chat_duration_ms: Any
     ingest_duration_ms: Any
+    openai_call_total: Any
     openai_duration_ms: Any
+    pinecone_operation_total: Any
     pinecone_duration_ms: Any
 
 
@@ -113,10 +115,18 @@ def init_business_metrics() -> None:
             unit="ms",
             description="End-to-end duration of ingest operations.",
         ),
+        openai_call_total=meter.create_counter(
+            "lbpr_openai_call_total",
+            description="Observed OpenAI API calls by operation and status.",
+        ),
         openai_duration_ms=meter.create_histogram(
             "lbpr_openai_duration_ms",
             unit="ms",
             description="Duration of OpenAI API calls.",
+        ),
+        pinecone_operation_total=meter.create_counter(
+            "lbpr_pinecone_operation_total",
+            description="Observed Pinecone operations by operation and status.",
         ),
         pinecone_duration_ms=meter.create_histogram(
             "lbpr_pinecone_duration_ms",
@@ -234,14 +244,12 @@ def record_ingest_duration(*, flow: str, dur_ms: int | float, status: str) -> No
 
 
 def record_openai_duration(*, operation: str, dur_ms: int | float, status: str) -> None:
-    _ins().openai_duration_ms.record(
-        float(max(0, dur_ms)),
-        {"operation": _clean_str(operation), "status": _clean_str(status)},
-    )
+    attrs = {"operation": _clean_str(operation), "status": _clean_str(status)}
+    _ins().openai_call_total.add(1, attrs)
+    _ins().openai_duration_ms.record(float(max(0, dur_ms)), attrs)
 
 
 def record_pinecone_duration(*, operation: str, dur_ms: int | float, status: str) -> None:
-    _ins().pinecone_duration_ms.record(
-        float(max(0, dur_ms)),
-        {"operation": _clean_str(operation), "status": _clean_str(status)},
-    )
+    attrs = {"operation": _clean_str(operation), "status": _clean_str(status)}
+    _ins().pinecone_operation_total.add(1, attrs)
+    _ins().pinecone_duration_ms.record(float(max(0, dur_ms)), attrs)

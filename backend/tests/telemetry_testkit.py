@@ -40,7 +40,9 @@ class FakeBusinessInstruments:
     upload_tokens_used_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_upload_tokens_used_total"))
     chat_duration_ms: FakeHistogram = field(default_factory=lambda: FakeHistogram("lbpr_chat_duration_ms"))
     ingest_duration_ms: FakeHistogram = field(default_factory=lambda: FakeHistogram("lbpr_ingest_duration_ms"))
+    openai_call_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_openai_call_total"))
     openai_duration_ms: FakeHistogram = field(default_factory=lambda: FakeHistogram("lbpr_openai_duration_ms"))
+    pinecone_operation_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_pinecone_operation_total"))
     pinecone_duration_ms: FakeHistogram = field(default_factory=lambda: FakeHistogram("lbpr_pinecone_duration_ms"))
 
 

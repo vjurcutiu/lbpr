@@ -4,12 +4,14 @@ import logging
 import math
 import os
 import tempfile
+import time
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from fastapi import HTTPException
 
 from core.config import settings
+from core.business_metrics import record_openai_duration
 from core.rate_limit import add_transcribe_seconds
 from core import tracker as uptrack
 
@@ -197,11 +199,25 @@ async def transcribe_bytes(
 
             # For diarization, request diarized_json + auto chunking.
             if diarization:
-                resp = client.audio.transcriptions.create(
-                    model=used_model,
-                    file=file_param,
-                    response_format="diarized_json",
-                    chunking_strategy="auto",
+                call_t0 = time.perf_counter()
+                try:
+                    resp = client.audio.transcriptions.create(
+                        model=used_model,
+                        file=file_param,
+                        response_format="diarized_json",
+                        chunking_strategy="auto",
+                    )
+                except Exception:
+                    record_openai_duration(
+                        operation="audio.transcriptions.create",
+                        dur_ms=(time.perf_counter() - call_t0) * 1000,
+                        status="error",
+                    )
+                    raise
+                record_openai_duration(
+                    operation="audio.transcriptions.create",
+                    dur_ms=(time.perf_counter() - call_t0) * 1000,
+                    status="ok",
                 )
                 # Response includes segments with speaker labels
                 try:
@@ -241,7 +257,21 @@ async def transcribe_bytes(
                 # Provide language when we have it (helps performance on some models)
                 if primary:
                     kwargs["language"] = primary
-                resp = client.audio.transcriptions.create(**kwargs)  # type: ignore[arg-type]
+                call_t0 = time.perf_counter()
+                try:
+                    resp = client.audio.transcriptions.create(**kwargs)  # type: ignore[arg-type]
+                except Exception:
+                    record_openai_duration(
+                        operation="audio.transcriptions.create",
+                        dur_ms=(time.perf_counter() - call_t0) * 1000,
+                        status="error",
+                    )
+                    raise
+                record_openai_duration(
+                    operation="audio.transcriptions.create",
+                    dur_ms=(time.perf_counter() - call_t0) * 1000,
+                    status="ok",
+                )
 
                 text = (getattr(resp, "text", None) or (resp.get("text") if isinstance(resp, dict) else "") or "").strip()
                 if text:
