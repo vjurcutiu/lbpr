@@ -156,6 +156,32 @@ jobs:
           build-args: |
             CI_FAST_BUILD=1
 
+      - name: Ensure Terraform runner prerequisites
+        run: |
+          set -euo pipefail
+          if command -v unzip >/dev/null 2>&1; then
+            echo "unzip already installed: $(command -v unzip)"
+            exit 0
+          fi
+
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y unzip
+          elif command -v dnf >/dev/null 2>&1; then
+            sudo dnf install -y unzip
+          elif command -v yum >/dev/null 2>&1; then
+            sudo yum install -y unzip
+          elif command -v apk >/dev/null 2>&1; then
+            sudo apk add --no-cache unzip
+          elif command -v zypper >/dev/null 2>&1; then
+            sudo zypper --non-interactive install unzip
+          else
+            echo "Could not install unzip automatically on this runner. Please preinstall unzip on the self-hosted runner image." >&2
+            exit 1
+          fi
+
+          unzip -v | head -n 1
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3.1.2
 
