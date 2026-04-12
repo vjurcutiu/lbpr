@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - develop
   workflow_dispatch:
 
 env:
@@ -44,7 +43,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Validate Doppler secrets
+      - name: Validate deploy secrets
         run: |
           set -euo pipefail
           if [ -z "${{ secrets.DOPPLER_TOKEN_API }}" ]; then
@@ -61,6 +60,14 @@ jobs:
           fi
           if [ -z "${{ secrets.DOPPLER_CONFIG }}" ]; then
             echo "DOPPLER_CONFIG is not set" >&2
+            exit 1
+          fi
+          if [ -z "${{ secrets.GRAFANA_URL }}" ]; then
+            echo "GRAFANA_URL is not set" >&2
+            exit 1
+          fi
+          if [ -z "${{ secrets.GRAFANA_AUTH }}" ]; then
+            echo "GRAFANA_AUTH is not set" >&2
             exit 1
           fi
 
@@ -149,6 +156,20 @@ jobs:
           build-args: |
             CI_FAST_BUILD=1
 
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+
+      - name: Validate Grafana Terraform
+        working-directory: infra/terraform/grafana
+        env:
+          TF_VAR_grafana_url: ${{ secrets.GRAFANA_URL }}
+          TF_VAR_grafana_auth: ${{ secrets.GRAFANA_AUTH }}
+        run: |
+          set -euo pipefail
+          terraform init -backend=false
+          terraform fmt -check
+          terraform validate
+
       - name: Prepare local deploy bundle
         run: |
           set -euo pipefail
@@ -224,3 +245,24 @@ jobs:
           echo 'DOPPLER_ENABLED=1' >> .deploy.env
 
           bash ops/deploy/deploy.sh
+
+      - name: Apply Grafana dashboards
+        working-directory: infra/terraform/grafana
+        env:
+          TF_VAR_grafana_url: ${{ secrets.GRAFANA_URL }}
+          TF_VAR_grafana_auth: ${{ secrets.GRAFANA_AUTH }}
+        run: |
+          set -euo pipefail
+          terraform init
+          terraform apply -auto-approve
+
+      - name: Post-deploy API health check
+        run: |
+          set -euo pipefail
+          HEALTH_URL="${{ secrets.PROD_HEALTHCHECK_URL }}"
+          if [ -z "$HEALTH_URL" ]; then
+            HEALTH_URL="https://app.lexbot.pro/healthz"
+          fi
+          echo "Checking $HEALTH_URL"
+          curl --fail --silent --show-error --max-time 20 "$HEALTH_URL" >/dev/null
+          echo "API health check OK"
