@@ -15,10 +15,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { FileIconByName } from "./FileIconByName";
 
 const folderKey = (path: string) => `d:${path || ""}`;
-const fileKey = (id: string) => `f:${id || ""}`;
 
 // Tree indent styling
 // - BASE_LEFT_PX must match the paddingLeft base used for rows.
@@ -29,7 +27,6 @@ const fileKey = (id: string) => `f:${id || ""}`;
 const BASE_LEFT_PX = 8;
 const INDENT_PX = 14;
 const GUIDE_COLOR = "hsl(var(--muted-foreground) / 0.16)";
-const FILE_OFFSET_PX = 10;
 
 function treeGuidesStyle(depth: number): React.CSSProperties {
   if (depth <= 0) return {};
@@ -245,7 +242,7 @@ function FolderRow({
   const [menuKey, setMenuKey] = useState(0);
 
   const open = openPaths.has(normPath(node.path));
-  const children = (node.children || []) as TreeNode[];
+  const children = ((node.children || []) as TreeNode[]).filter((child) => child.type === "folder");
   const hasChildren = children.length > 0;
   const selected = selectedKey === folderKey(node.path);
 
@@ -453,99 +450,35 @@ function FolderRow({
 
       {open && hasChildren && (
         <div>
-          {children.map((child) =>
-            child.type === "folder" ? (
-              <FolderRow
-                key={`d:${child.path}`}
-                node={child}
-                isRoot={false}
-                depth={depth + 1}
-                selectedKey={selectedKey}
-                openPaths={openPaths}
-                toggleOpen={toggleOpen}
-                suppressClickUntilRef={suppressClickUntilRef}
-                openFolderOnClick={openFolderOnClick}
-                onSelectFolder={onSelectFolder}
-                onOpenFolder={onOpenFolder}
-                onSelectFile={onSelectFile}
-                onOpenFile={onOpenFile}
-                onUploadTo={onUploadTo}
-                onNewFolder={onNewFolder}
-                onRenameFolder={onRenameFolder}
-                canPaste={canPaste}
-                onCopyFolder={onCopyFolder}
-                onCutFolder={onCutFolder}
-                onPasteInto={onPasteInto}
-                onDeleteFolder={onDeleteFolder}
-                onMoveFilesTo={onMoveFilesTo}
-                onDropFilesTo={onDropFilesTo}
-              />
-            ) : (
-              <FileRow
-                key={`f:${child.file?.id || child.path}`}
-                node={child}
-                depth={depth + 1}
-                selectedKey={selectedKey}
-                suppressClickUntilRef={suppressClickUntilRef}
-                onSelectFile={onSelectFile}
-                onOpenFile={onOpenFile}
-              />
-            )
-          )}
+          {children.map((child) => (
+            <FolderRow
+              key={`d:${child.path}`}
+              node={child}
+              isRoot={false}
+              depth={depth + 1}
+              selectedKey={selectedKey}
+              openPaths={openPaths}
+              toggleOpen={toggleOpen}
+              suppressClickUntilRef={suppressClickUntilRef}
+              openFolderOnClick={openFolderOnClick}
+              onSelectFolder={onSelectFolder}
+              onOpenFolder={onOpenFolder}
+              onSelectFile={onSelectFile}
+              onOpenFile={onOpenFile}
+              onUploadTo={onUploadTo}
+              onNewFolder={onNewFolder}
+              onRenameFolder={onRenameFolder}
+              canPaste={canPaste}
+              onCopyFolder={onCopyFolder}
+              onCutFolder={onCutFolder}
+              onPasteInto={onPasteInto}
+              onDeleteFolder={onDeleteFolder}
+              onMoveFilesTo={onMoveFilesTo}
+              onDropFilesTo={onDropFilesTo}
+            />
+          ))}
         </div>
       )}
     </div>
-  );
-}
-
-function FileRow({
-  node,
-  depth,
-  selectedKey,
-  suppressClickUntilRef,
-  onSelectFile,
-  onOpenFile,
-}: {
-  node: TreeNode;
-  depth: number;
-  selectedKey: string;
-  suppressClickUntilRef?: React.MutableRefObject<number>;
-  onSelectFile: (file: FileItem) => void;
-  onOpenFile: (file: FileItem) => void;
-}) {
-  const file = node.file;
-  if (!file) return null;
-  const selected = selectedKey === fileKey(file.id);
-
-  const ignoreClick = () => {
-    const until = suppressClickUntilRef?.current ?? 0;
-    return Date.now() < until;
-  };
-
-  return (
-    <button
-      type="button"
-      className={cn(
-        "w-full flex items-center gap-2 rounded py-1.5 pr-2 text-left",
-        "hover:bg-muted/40",
-        selected && "bg-muted/50"
-      )}
-      style={{ paddingLeft: BASE_LEFT_PX + depth * INDENT_PX + FILE_OFFSET_PX, ...treeGuidesStyle(depth) }}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (ignoreClick()) return;
-        onSelectFile(file);
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        if (ignoreClick()) return;
-        onSelectFile(file);
-        onOpenFile(file);
-      }}
-      title={file.name}
-    >
-      <FileIconByName name={file.name} className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <span className="truncate">{node.name}</span>
-    </button>
   );
 }

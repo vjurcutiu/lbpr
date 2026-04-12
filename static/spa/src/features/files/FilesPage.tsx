@@ -3575,6 +3575,16 @@ const internalDragPreviewLabels = useMemo(() => {
 
 
 
+  const folderTreeSelectedKey = useMemo(() => {
+
+    if (treeSelectedKey.startsWith("d:")) return treeSelectedKey;
+
+    return `d:${selectedFolder}`;
+
+  }, [treeSelectedKey, selectedFolder]);
+
+
+
   const treeRevealPaths = useMemo(() => {
 
 
@@ -8937,7 +8947,7 @@ const breadcrumb = useMemo(() => {
 
 
 
-                  selectedKey={treeSelectedKey}
+                  selectedKey={folderTreeSelectedKey}
 
 
 
@@ -11537,7 +11547,7 @@ const breadcrumb = useMemo(() => {
 
 
 
-              selectedKey={treeSelectedKey}
+              selectedKey={folderTreeSelectedKey}
 
 
 
