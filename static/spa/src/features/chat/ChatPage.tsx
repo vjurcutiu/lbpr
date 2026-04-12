@@ -371,44 +371,52 @@ function LeftSidebar({
   const sMap = new Map(sessions.map(s => [s.id, s]));
 
   return (
-    <aside className="hidden sm:flex w-64 border-r flex-col bg-muted/20">
-      <div className="p-3 border-b">
-        <Button className="w-full justify-start gap-2" onClick={onNew}>
+    <aside className="hidden sm:flex w-[18.5rem] shrink-0 border-r border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.98))] backdrop-blur-xl flex-col">
+      <div className="border-b border-slate-200/80 px-3 py-3.5">
+        <Button className="h-11 w-full justify-start gap-2 rounded-2xl bg-slate-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800" onClick={onNew}>
           <PlusCircle className="h-4 w-4" />
           New Search
         </Button>
       </div>
-      <div className="p-2 flex-1 overflow-auto">
-        <div className="px-2 text-xs uppercase tracking-wide text-muted-foreground mb-2">
-          Conversations
+      <div className="flex-1 overflow-auto px-3 py-3">
+        <div className="mb-3 px-2">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Conversations</div>
+          <div className="mt-1 text-xs text-slate-500">Recent chats and saved threads</div>
         </div>
         <ul className="space-y-1">
           {sessions.length === 0 && (
-            <li className="text-xs text-muted-foreground px-2 py-1">No conversations yet</li>
+            <li className="rounded-2xl border border-dashed border-slate-200 bg-white/70 px-3 py-4 text-xs text-slate-500">No conversations yet</li>
           )}
           {sessions.map((s) => (
             <li key={s.id}>
               <div
                 className={[
-                  "w-full rounded-lg px-3 py-2 hover:bg-accent/60 transition flex items-start gap-2",
-                  s.id === currentId ? "bg-accent/60" : "",
+                  "group w-full rounded-2xl border px-3 py-3 transition flex items-start gap-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]",
+                  s.id === currentId
+                    ? "border-slate-300/90 bg-white shadow-[0_12px_30px_rgba(15,23,42,0.08)]"
+                    : "border-transparent bg-white/55 hover:border-slate-200 hover:bg-white",
                 ].join(" ")}
               >
                 <button
-                  className="flex-1 text-left flex items-start gap-2 min-w-0"
+                  className="flex-1 text-left flex items-start gap-3 min-w-0"
                   onClick={() => onSelect(s.id)}
                   title={s.title}
                 >
-                  <MessageSquare className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span className={[
+                    "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border",
+                    s.id === currentId ? "border-slate-300 bg-slate-100 text-slate-700" : "border-slate-200 bg-white text-slate-500 group-hover:text-slate-700",
+                  ].join(" ")}>
+                    <MessageSquare className="h-4 w-4" />
+                  </span>
                   <div className="min-w-0">
-                    <div className="truncate text-sm">{s.title || "Untitled"}</div>
-                    <div className="text-[11px] text-muted-foreground">{formatTimeAgo(s.updated_at)}</div>
+                    <div className="truncate text-sm font-medium text-slate-900">{s.title || "Untitled"}</div>
+                    <div className="mt-1 text-[11px] text-slate-500">Updated {formatTimeAgo(s.updated_at)}</div>
                   </div>
                 </button>
 
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>
-                    <Button variant="ghost" size="icon" aria-label="Conversation actions">
+                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-xl text-slate-500 hover:bg-slate-100 hover:text-slate-900" aria-label="Conversation actions">
                       <MoreVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenu.Trigger>
@@ -416,10 +424,10 @@ function LeftSidebar({
                     <DropdownMenu.Content
                       side="right"
                       align="start"
-                      className="min-w-[180px] rounded-md border bg-popover p-1 shadow-md z-40 data-[state=open]:animate-in"
+                      className="z-40 min-w-[190px] rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.16)] data-[state=open]:animate-in"
                     >
                       <DropdownMenu.Item
-                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/60 cursor-pointer"
+                        className="flex cursor-pointer items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-slate-700 outline-none hover:bg-slate-100"
                         onSelect={(e) => {
                           e.preventDefault();
                           setRenameId(s.id);
@@ -429,9 +437,9 @@ function LeftSidebar({
                         <Pencil className="h-4 w-4" />
                         Rename
                       </DropdownMenu.Item>
-                      <DropdownMenu.Separator className="my-1 h-px bg-border" />
+                      <DropdownMenu.Separator className="my-1 h-px bg-slate-100" />
                       <DropdownMenu.Item
-                        className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/60 text-destructive cursor-pointer"
+                        className="flex cursor-pointer items-center gap-2 rounded-xl px-2.5 py-2 text-sm text-rose-600 outline-none hover:bg-rose-50"
                         onSelect={(e) => {
                           e.preventDefault();
                           setDeleteId(s.id);
@@ -546,17 +554,17 @@ function MessageRow({
 
   // Bubble shared styles — slightly smaller type and paddings
   const bubbleBase =
-    "rounded-2xl px-4 py-3 text-[14px] leading-6";
-  const bubbleUser = "bg-primary text-primary-foreground whitespace-pre-wrap";
-  const bubbleAssistant = "bg-card border border-border";
+    "rounded-[22px] px-4 py-3.5 text-[14px] leading-6 shadow-[0_10px_30px_rgba(15,23,42,0.05)]";
+  const bubbleUser = "bg-slate-950 text-white whitespace-pre-wrap border border-slate-950";
+  const bubbleAssistant = "border border-slate-200/90 bg-white text-slate-800";
 
   return (
     <div className={`w-full flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`flex items-start gap-3 max-w-[min(80%,780px)] ${isUser ? "flex-row-reverse" : ""}`}
+        className={`flex items-start gap-3.5 max-w-[min(82%,820px)] ${isUser ? "flex-row-reverse" : ""}`}
       >
-        <Avatar className="size-7">
-          <AvatarFallback>{isUser ? "U" : "A"}</AvatarFallback>
+        <Avatar className="mt-0.5 size-8 border border-slate-200/80 bg-white shadow-sm">
+          <AvatarFallback className={isUser ? "bg-slate-100 text-slate-700" : "bg-sky-50 text-sky-700"}>{isUser ? "U" : "A"}</AvatarFallback>
         </Avatar>
         <div className="space-y-2">
           <div
@@ -584,7 +592,7 @@ function MessageRow({
                       <a
                         {...props}
                         href={href}
-                        className={["underline", className].filter(Boolean).join(" ")}
+                        className={["underline decoration-slate-300 underline-offset-4 transition hover:decoration-slate-800", className].filter(Boolean).join(" ")}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
@@ -593,7 +601,7 @@ function MessageRow({
                     );
                   },
                   p: ({node, className, ...props}) => (
-                    <p {...props} className={["my-3", className].filter(Boolean).join(" ")} />
+                    <p {...props} className={["my-3 text-[14px] leading-6", className].filter(Boolean).join(" ")} />
                   ),
                   ul: ({node, className, ...props}) => (
                     <ul {...props} className={["my-3 ml-5 list-disc space-y-1", className].filter(Boolean).join(" ")} />
@@ -605,14 +613,14 @@ function MessageRow({
                     <li {...props} className={["pl-1", className].filter(Boolean).join(" ")} />
                   ),
                   blockquote: ({node, className, ...props}) => (
-                    <blockquote {...props} className={["border-l-2 pl-3 italic opacity-90 my-3", className].filter(Boolean).join(" ")} />
+                    <blockquote {...props} className={["my-3 rounded-r-2xl border-l-2 border-slate-300 bg-slate-50/80 py-1 pl-3 italic text-slate-700", className].filter(Boolean).join(" ")} />
                   ),
                   code: ({inline, className, children, ...props}) => {
                     if (inline) {
-                      return <code className="rounded bg-muted px-1 py-0.5 text-[13px]">{children}</code>;
+                      return <code className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[13px] text-slate-800">{children}</code>;
                     }
                     return (
-                      <pre className="rounded-xl bg-muted p-3 overflow-auto text-[13px] leading-6">
+                      <pre className="overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-3 text-[13px] leading-6">
                         <code className={className} {...props}>
                           {children}
                         </code>
@@ -621,11 +629,11 @@ function MessageRow({
                   },
                   table: ({node, className, ...props}) => (
                     <div className="overflow-x-auto my-3">
-                      <table {...props} className={["min-w-full text-sm border-collapse", className].filter(Boolean).join(" ")} />
+                      <table {...props} className={["min-w-full border-collapse text-sm", className].filter(Boolean).join(" ")} />
                     </div>
                   ),
-                  th: ({node, className, ...props}) => <th {...props} className={["border px-2 py-1 text-left font-semibold", className].filter(Boolean).join(" ")} />,
-                  td: ({node, className, ...props}) => <td {...props} className={["border px-2 py-1 align-top", className].filter(Boolean).join(" ")} />,
+                  th: ({node, className, ...props}) => <th {...props} className={["border border-slate-200 bg-slate-50 px-2 py-1 text-left font-semibold text-slate-700", className].filter(Boolean).join(" ")} />,
+                  td: ({node, className, ...props}) => <td {...props} className={["border border-slate-200 px-2 py-1 align-top", className].filter(Boolean).join(" ")} />,
                   h1: ({node, className, ...props}) => <h1 {...props} className={["text-lg font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
                   h2: ({node, className, ...props}) => <h2 {...props} className={["text-base font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
                   h3: ({node, className, ...props}) => <h3 {...props} className={["text-sm font-semibold mt-2 mb-1", className].filter(Boolean).join(" ")} />,
@@ -640,7 +648,7 @@ function MessageRow({
       </div>
     </div>
   );
-
+}
 
 function CitationPopover({
   index,
@@ -662,7 +670,7 @@ function CitationPopover({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center align-baseline text-[12px] font-medium text-muted-foreground hover:text-foreground px-0.5"
+          className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 align-baseline text-[11px] font-semibold text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-white hover:text-slate-900"
           aria-label={index ? `Open citation ${index}` : "Open citation"}
           onClick={(e) => {
             // Keep the click local to the citation trigger.
@@ -673,24 +681,24 @@ function CitationPopover({
           {children}
         </button>
       </PopoverTrigger>
-      <PopoverContent side="top" align="start" className="w-80">
+      <PopoverContent side="top" align="start" className="w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_20px_60px_rgba(15,23,42,0.16)]">
         <div className="space-y-2">
-          <div className="text-xs font-semibold">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
             {index ? `Source [${index}]` : "Source"}
           </div>
-          <div className="text-xs">
-            <div className="font-medium break-words">{fileLabel}</div>
-            {folderPath ? <div className="text-muted-foreground break-words">{folderPath}</div> : null}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs">
+            <div className="font-medium break-words text-slate-900">{fileLabel}</div>
+            {folderPath ? <div className="mt-1 break-words text-[11px] text-slate-500">{folderPath}</div> : null}
           </div>
 
-          <div className="rounded-md border bg-muted/40 p-2 max-h-64 overflow-auto">
-            <div className="text-xs whitespace-pre-wrap leading-5">
+          <div className="max-h-64 overflow-auto rounded-2xl border border-slate-200 bg-white p-3">
+            <div className="text-xs whitespace-pre-wrap leading-5 text-slate-700">
               {snippet || "No snippet available."}
             </div>
           </div>
 
           {c?.score != null ? (
-            <div className="text-[11px] text-muted-foreground">Similarity: {Number(c.score).toFixed(3)}</div>
+            <div className="text-[11px] text-slate-500">Similarity: {Number(c.score).toFixed(3)}</div>
           ) : null}
         </div>
       </PopoverContent>
@@ -723,16 +731,16 @@ function linkifyCitationsMarkdown(md: string) {
   }
   return fenceParts.join("```");
 }
-}
+
 function AssistantThinkingRow() {
   return (
     <div className="w-full flex justify-start">
-      <div className="flex items-start gap-3 max-w-[min(80%,720px)]">
-        <Avatar className="size-7">
-          <AvatarFallback>A</AvatarFallback>
+      <div className="flex items-start gap-3.5 max-w-[min(82%,760px)]">
+        <Avatar className="mt-0.5 size-8 border border-slate-200/80 bg-white shadow-sm">
+          <AvatarFallback className="bg-sky-50 text-sky-700">A</AvatarFallback>
         </Avatar>
         <div className="space-y-2">
-          <div className="rounded-2xl px-3.5 py-2.5 text-[13px] leading-6 bg-card border border-border text-muted-foreground flex items-center gap-2">
+          <div className="flex items-center gap-2 rounded-[22px] border border-slate-200 bg-white px-4 py-3 text-[13px] leading-6 text-slate-500 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span>Assistant is thinking…</span>
           </div>

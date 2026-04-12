@@ -6,6 +6,8 @@ export type FileItem = {
   size: number;
   created_at?: string;
   content_type?: string;
+  folder_path?: string | null;
+  original_name?: string | null;
 };
 
 export type FolderItem = {

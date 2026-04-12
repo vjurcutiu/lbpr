@@ -1,19 +1,13 @@
-import type { FormEvent, SVGProps } from "react";
+import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import AuthLayout from "./AuthLayout";
 import { useAuthContext } from "./AuthProvider";
 import { auth, signUpWithEmailPassword, sendVerificationEmail, loginWithGoogle } from "./firebase";
 import { friendlyAuthMessage } from "./errorMessages";
+import GoogleIcon from "./GoogleIcon";
 import { trackSignupConversion } from "@/lib/gtag";
 
-function GoogleIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" {...props}>
-      <path fill="#EA4335" d="M12 10.2v3.6h5.1c-.22 1.32-1.54 3.86-5.1 3.86-3.08 0-5.6-2.55-5.6-5.66S8.92 6.34 12 6.34c1.76 0 2.95.75 3.62 1.4l2.46-2.37C16.7 3.41 14.52 2.5 12 2.5 6.98 2.5 2.9 6.58 2.9 11.6S6.98 20.7 12 20.7c6.14 0 8.1-4.29 8.1-6.41 0-.43-.05-.71-.12-1.02H12z"/>
-    </svg>
-  );
-}
 
 const fieldClass =
   "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100";

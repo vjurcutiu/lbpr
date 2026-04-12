@@ -33,32 +33,30 @@ export function buildTree(files: FileItem[], folders: string[] = []): TreeNode {
 
   // 2) Files (and their implicit parents)
   for (const f of files) {
-    const parts = (f.name || "").split("/").filter(Boolean);
+    const folderParts = (f.folder_path || "").split("/").filter(Boolean);
+    const rawName = (f.original_name || f.name || "").split("/").filter(Boolean).pop() || f.name || "Untitled";
     let cur = root;
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      const atLeaf = i === parts.length - 1;
-      if (atLeaf) {
-        (cur.children ||= []).push({
-          type: "file",
+
+    for (const part of folderParts) {
+      let next = cur.children?.find((c) => c.type === "folder" && c.name === part);
+      if (!next) {
+        next = {
+          type: "folder",
           name: part,
           path: (cur.path ? cur.path + "/" : "") + part,
-          file: f,
-        });
-      } else {
-        let next = cur.children?.find((c) => c.type === "folder" && c.name === part);
-        if (!next) {
-          next = {
-            type: "folder",
-            name: part,
-            path: (cur.path ? cur.path + "/" : "") + part,
-            children: [],
-          };
-          (cur.children ||= []).push(next);
-        }
-        cur = next;
+          children: [],
+        };
+        (cur.children ||= []).push(next);
       }
+      cur = next;
     }
+
+    (cur.children ||= []).push({
+      type: "file",
+      name: rawName,
+      path: (cur.path ? cur.path + "/" : "") + rawName,
+      file: f,
+    });
   }
   function sort(node: TreeNode) {
     if (!node.children) return;
