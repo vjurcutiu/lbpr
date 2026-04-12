@@ -300,3 +300,31 @@ sum(rate(lbpr_plan_limit_hit_total[$__rate_interval])) by (metric, plan)
 4. Discover the real `job` label from `target_info`
 5. Build dashboard panels only after the Explore queries work
 6. Only then add alerts or more detailed business slices
+
+
+## Dashboards as code
+
+The repo also includes Grafana dashboards as code under `infra/terraform/grafana/`.
+
+To provision them into Grafana Cloud:
+
+```bash
+cd infra/terraform/grafana
+terraform init
+terraform plan
+terraform apply
+```
+
+Or use the root helpers:
+
+```bash
+make grafana-init
+make grafana-plan
+make grafana-apply
+```
+
+The dashboards included there are:
+
+- `LBPR / API Health`
+- `LBPR / RAG Pipeline`
+- `LBPR / Dependency Health`

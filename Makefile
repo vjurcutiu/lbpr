@@ -19,7 +19,7 @@ NET  := $(PROJECT)_appnet
 -include .env.local
 export
 
-.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check synczip synczip-working telemetry-seed
+.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check synczip synczip-working telemetry-seed grafana-init grafana-plan grafana-apply
 
 help:
 	@echo "Targets:"
@@ -50,6 +50,9 @@ help:
 	@echo ""
 	@echo "Telemetry:"
 	@echo "  make telemetry-seed       - drive in-process seed flows and flush business metrics to Grafana"
+	@echo "  make grafana-init         - terraform init for Grafana dashboards as code"
+	@echo "  make grafana-plan         - terraform plan for Grafana dashboards as code"
+	@echo "  make grafana-apply        - terraform apply for Grafana dashboards as code"
 
 # ----- Doppler (local dev) -----
 
@@ -129,3 +132,12 @@ cert-perms:
 synczip: ai-synczip
 
 synczip-working: ai-synczip-working
+
+grafana-init:
+	cd infra/terraform/grafana && terraform init
+
+grafana-plan:
+	cd infra/terraform/grafana && terraform plan
+
+grafana-apply:
+	cd infra/terraform/grafana && terraform apply
