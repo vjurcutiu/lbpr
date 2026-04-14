@@ -87,6 +87,7 @@ export function SignalInNoiseHero({
     }
 
     const reduceMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const coarsePointerQuery = window.matchMedia('(pointer: coarse)');
     const pointer: PointerState = {
       x: 0,
       y: 0,
@@ -103,6 +104,15 @@ export function SignalInNoiseHero({
     let particles: Particle[] = [];
     let signalTime = 0;
     let lastTime = performance.now();
+    let isCompactMode = false;
+    let shouldDrawConnections = true;
+    let observer: IntersectionObserver | null = null;
+
+    const saveData =
+      typeof navigator !== 'undefined' && 'connection' in navigator
+        ? Boolean((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData)
+        : false;
+    const lowCpuDevice = typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number' && navigator.hardwareConcurrency <= 4;
 
     const palette = {
       trail: 'rgba(71, 138, 255, 0.13)',
@@ -112,9 +122,8 @@ export function SignalInNoiseHero({
     };
 
     const buildParticles = () => {
-      const isCompact = width < 768;
-      const density = isCompact ? 0.000065 : 0.0001;
-      const total = Math.round(width * height * density);
+      const density = isCompactMode ? 0.000028 : 0.000082;
+      const total = Math.max(40, Math.round(width * height * density));
       particles = Array.from({ length: total }, () => {
         const seedX = Math.random() * width;
         const seedY = Math.random() * height;
@@ -137,7 +146,9 @@ export function SignalInNoiseHero({
       const bounds = container.getBoundingClientRect();
       width = bounds.width;
       height = bounds.height;
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      isCompactMode = width < 840 || coarsePointerQuery.matches || saveData || lowCpuDevice;
+      shouldDrawConnections = !isCompactMode && !reduceMotionQuery.matches;
+      dpr = Math.min(window.devicePixelRatio || 1, isCompactMode ? 1.25 : 2);
 
       canvas.width = Math.round(width * dpr);
       canvas.height = Math.round(height * dpr);
@@ -167,14 +178,16 @@ export function SignalInNoiseHero({
       context.save();
       context.globalCompositeOperation = 'screen';
 
-      for (let channel = 0; channel < 3; channel += 1) {
+      const totalChannels = isCompactMode ? 2 : 3;
+
+      for (let channel = 0; channel < totalChannels; channel += 1) {
         const gradient = context.createLinearGradient(0, 0, width, height);
         gradient.addColorStop(0, `rgba(102, 166, 255, ${0.05 + channel * 0.012})`);
         gradient.addColorStop(0.5, `rgba(115, 228, 255, ${0.1 + channel * 0.02})`);
         gradient.addColorStop(1, `rgba(136, 115, 255, ${0.05 + channel * 0.012})`);
 
         context.beginPath();
-        for (let x = 0; x <= width; x += 14) {
+        for (let x = 0; x <= width; x += isCompactMode ? 22 : 14) {
           const y = getSignalY(x, time, channel);
           if (x === 0) {
             context.moveTo(x, y);
@@ -194,6 +207,10 @@ export function SignalInNoiseHero({
     };
 
     const drawConnections = () => {
+      if (!shouldDrawConnections) {
+        return;
+      }
+
       const maxDistance = width < 768 ? 56 : 72;
       const maxDistanceSq = maxDistance * maxDistance;
       const stride = width < 768 ? 3 : 2;
@@ -230,7 +247,7 @@ export function SignalInNoiseHero({
     const animate = (now: number) => {
       const delta = Math.min((now - lastTime) / 16.6667, 2.2);
       lastTime = now;
-      signalTime += delta * (reduceMotionQuery.matches ? 0.004 : 0.012);
+      signalTime += delta * (reduceMotionQuery.matches ? 0.004 : isCompactMode ? 0.008 : 0.012);
 
       pointer.x += (pointer.targetX - pointer.x) * 0.11;
       pointer.y += (pointer.targetY - pointer.y) * 0.11;
@@ -259,7 +276,7 @@ export function SignalInNoiseHero({
         const pointerDx = pointer.x - particle.x;
         const pointerDy = pointer.y - particle.y;
         const pointerDistance = Math.sqrt(pointerDx * pointerDx + pointerDy * pointerDy) || 1;
-        const pointerForce = clamp(1 - pointerDistance / 190, 0, 1) * pointer.intensity;
+        const pointerForce = shouldDrawConnections ? clamp(1 - pointerDistance / 190, 0, 1) * pointer.intensity : 0;
         const signalY = getSignalY(particle.x, signalTime, 1.1);
         const signalDistance = Math.abs(particle.y - signalY);
         const signalForce = clamp(1 - signalDistance / 42, 0, 1);
@@ -311,14 +328,34 @@ export function SignalInNoiseHero({
       }
     };
 
-    container.addEventListener('pointermove', handlePointerMove);
-    container.addEventListener('pointerleave', handlePointerLeave);
+    if (!coarsePointerQuery.matches) {
+      container.addEventListener('pointermove', handlePointerMove, { passive: true });
+      container.addEventListener('pointerleave', handlePointerLeave);
+    }
+
+    observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return;
+
+        if (entry.isIntersecting && !document.hidden) {
+          window.cancelAnimationFrame(rafId);
+          lastTime = performance.now();
+          rafId = window.requestAnimationFrame(animate);
+        } else {
+          window.cancelAnimationFrame(rafId);
+        }
+      },
+      { threshold: 0.08 },
+    );
+
+    observer.observe(container);
     document.addEventListener('visibilitychange', handleVisibility);
     handlePointerLeave();
     rafId = window.requestAnimationFrame(animate);
 
     return () => {
       resizeObserver.disconnect();
+      observer?.disconnect();
       container.removeEventListener('pointermove', handlePointerMove);
       container.removeEventListener('pointerleave', handlePointerLeave);
       document.removeEventListener('visibilitychange', handleVisibility);

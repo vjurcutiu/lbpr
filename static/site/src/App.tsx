@@ -1,10 +1,5 @@
-import { useEffect, type ReactNode } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { SignalInNoiseHero } from './components/SignalInNoiseHero';
-import privacyMarkdown from './content/privacy.md?raw';
-import termsMarkdown from './content/tnc.md?raw';
-import dpaMarkdown from './content/dpa.md?raw';
 
 const DEFAULT_APP_URL =
   typeof window !== 'undefined' && window.location.hostname === 'localhost'
@@ -14,6 +9,8 @@ const DEFAULT_APP_URL =
 const APP_URL = import.meta.env.VITE_APP_URL ?? DEFAULT_APP_URL;
 const SIGNUP_URL = `${APP_URL}/signup?highlight=email`;
 const BILLING_URL = `${APP_URL}/billing`;
+
+const LegalPage = lazy(() => import('./LegalPage'));
 
 type PlanCardProps = {
   name: string;
@@ -136,19 +133,46 @@ function PlanCard({
 
 function PricingMatrix() {
   return (
-    <div className="pricing-matrix" aria-label="Plan comparison">
-      <div className="pricing-matrix__header pricing-matrix__row">
-        <div>Included feature</div>
-        <div>Free</div>
-        <div>Pro</div>
+    <div className="pricing-comparison" aria-label="Plan comparison">
+      <div className="pricing-matrix pricing-matrix--desktop">
+        <table className="pricing-table">
+          <caption className="sr-only">Compare the Free and Pro plans</caption>
+          <thead>
+            <tr>
+              <th scope="col">Included feature</th>
+              <th scope="col">Free</th>
+              <th scope="col">Pro</th>
+            </tr>
+          </thead>
+          <tbody>
+            {comparisonRows.map((row) => (
+              <tr key={row.label}>
+                <th scope="row" className="pricing-table__label">{row.label}</th>
+                <td>{row.free}</td>
+                <td>{row.pro}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      {comparisonRows.map((row) => (
-        <div key={row.label} className="pricing-matrix__row">
-          <div className="pricing-matrix__label">{row.label}</div>
-          <div>{row.free}</div>
-          <div>{row.pro}</div>
-        </div>
-      ))}
+
+      <div className="pricing-stack" aria-label="Mobile plan comparison">
+        {comparisonRows.map((row) => (
+          <article key={row.label} className="pricing-stack__card">
+            <h3 className="pricing-stack__title">{row.label}</h3>
+            <dl className="pricing-stack__list">
+              <div className="pricing-stack__item">
+                <dt>Free</dt>
+                <dd>{row.free}</dd>
+              </div>
+              <div className="pricing-stack__item">
+                <dt>Pro</dt>
+                <dd>{row.pro}</dd>
+              </div>
+            </dl>
+          </article>
+        ))}
+      </div>
     </div>
   );
 }
@@ -332,48 +356,31 @@ function HomePage() {
   );
 }
 
-function LegalPage({ title, markdown }: { title: string; markdown: string }) {
-  return (
-    <main className="legal-page">
-      <div className="site-shell legal-page__shell">
-        <a className="back-link" href="/">
-          ← Back to home
-        </a>
-        <div className="eyebrow-pill">Legal</div>
-        <h1>{title}</h1>
-        <div className="legal-card">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
-        </div>
-      </div>
-    </main>
-  );
-}
+const legalPageMeta = {
+  '/privacy': 'Lexbot Pro | Privacy Policy',
+  '/terms': 'Lexbot Pro | Terms & Conditions',
+  '/dpa': 'Lexbot Pro | Data Processing Addendum',
+} as const;
+
+type LegalPathname = keyof typeof legalPageMeta;
 
 export default function App() {
   const pathname = normalizePathname(window.location.pathname);
+  const isLegalPath = pathname in legalPageMeta;
 
   useEffect(() => {
-    const title =
-      pathname === '/privacy'
-        ? 'Lexbot Pro | Privacy Policy'
-        : pathname === '/terms'
-          ? 'Lexbot Pro | Terms & Conditions'
-          : pathname === '/dpa'
-            ? 'Lexbot Pro | Data Processing Addendum'
-            : 'Lexbot Pro | Structured answers for noisy data';
-    document.title = title;
-  }, [pathname]);
+    document.title = isLegalPath
+      ? legalPageMeta[pathname as LegalPathname]
+      : 'Lexbot Pro | Structured answers for noisy data';
+  }, [isLegalPath, pathname]);
 
-  let page: ReactNode;
-  if (pathname === '/privacy') {
-    page = <LegalPage title="Privacy Policy" markdown={privacyMarkdown} />;
-  } else if (pathname === '/terms') {
-    page = <LegalPage title="Terms & Conditions" markdown={termsMarkdown} />;
-  } else if (pathname === '/dpa') {
-    page = <LegalPage title="Data Processing Addendum" markdown={dpaMarkdown} />;
-  } else {
-    page = <HomePage />;
-  }
+  const page: ReactNode = isLegalPath ? (
+    <Suspense fallback={<main className="legal-page legal-page--loading" />}>
+      <LegalPage pathname={pathname as LegalPathname} />
+    </Suspense>
+  ) : (
+    <HomePage />
+  );
 
   return (
     <div className="site-root">

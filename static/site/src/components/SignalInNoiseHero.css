@@ -233,6 +233,19 @@
     min-height: auto;
   }
 
+  .signal-hero__backdrop {
+    opacity: 0.72;
+  }
+
+  .signal-hero__backdrop::after {
+    filter: blur(18px);
+    opacity: 0.52;
+  }
+
+  .signal-hero__noise {
+    display: none;
+  }
+
   .signal-hero__inner {
     min-height: 100svh;
     padding-top: 6rem;
@@ -250,6 +263,7 @@
   .signal-hero__metric {
     flex: 1 1 0;
     min-width: 0;
+    backdrop-filter: none;
   }
 }
 
