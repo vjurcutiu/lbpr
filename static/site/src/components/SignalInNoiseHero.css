@@ -185,14 +185,19 @@
 }
 
 .signal-hero__metrics {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: 1rem;
   padding-top: 1.05rem;
 }
 
 .signal-hero__metric {
-  min-width: 8.75rem;
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.32rem;
+  min-width: 0;
   padding: 1rem 1.05rem;
   border-radius: 1.25rem;
   border: 1px solid rgba(96, 130, 185, 0.18);
@@ -204,14 +209,17 @@
   display: block;
   margin-bottom: 0.35rem;
   color: #f4f7fb;
-  font-size: 1.55rem;
+  font-size: clamp(1.2rem, 3.4vw, 1.55rem);
   font-weight: 650;
   letter-spacing: -0.03em;
+  line-height: 1.05;
+  white-space: nowrap;
 }
 
 .signal-hero__metric-label {
   color: rgba(202, 218, 240, 0.66);
   font-size: 0.94rem;
+  line-height: 1.45;
 }
 
 .signal-hero__aside {
@@ -260,10 +268,16 @@
     width: 100%;
   }
 
+  .signal-hero__metrics {
+    grid-template-columns: 1fr;
+  }
+
   .signal-hero__metric {
-    flex: 1 1 0;
-    min-width: 0;
     backdrop-filter: none;
+  }
+
+  .signal-hero__metric-value {
+    white-space: normal;
   }
 }
 

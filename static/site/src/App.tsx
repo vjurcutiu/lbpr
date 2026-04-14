@@ -55,8 +55,6 @@ function AppHeader() {
           <a href="/#workflow">How it works</a>
           <a href="/#platform">Capabilities</a>
           <a href="/#pricing">Pricing</a>
-          <a href="/privacy">Privacy</a>
-          <a href="/terms">Terms</a>
         </nav>
         <div className="site-header__actions">
           <a className="button button--ghost" href={APP_URL}>
@@ -189,7 +187,7 @@ function HomePage() {
         metrics={[
           { value: 'Minutes', label: 'from upload to answer' },
           { value: 'Hybrid', label: 'search + reasoning' },
-          { value: '1 workspace', label: 'files, chat, and usage' },
+          { value: 'One place', label: 'files, chat, and usage' },
         ]}
         onPrimaryClick={() => window.location.assign(SIGNUP_URL)}
         onSecondaryClick={() => document.getElementById('workflow')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
@@ -344,7 +342,6 @@ function HomePage() {
             <p>Structured answers for noisy data.</p>
           </div>
           <div className="site-footer__links">
-            <a href="/#pricing">Pricing</a>
             <a href="/privacy">Privacy</a>
             <a href="/terms">Terms</a>
             <a href="/dpa">DPA</a>
