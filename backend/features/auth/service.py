@@ -1,13 +1,16 @@
-# features/auth/service.py
 from typing import Protocol
-from features.auth.models import SessionOut
+
 from core.config import settings
+from features.auth.models import SessionOut
+
 
 class AuthService(Protocol):
     def verify_id_token(self, id_token: str) -> SessionOut: ...
     def revoke_user(self, uid: str) -> None: ...
+    def delete_user(self, uid: str) -> None: ...
     def create_custom_token(self, uid: str) -> str: ...
     def get_uid_by_phone_number(self, phone_number: str) -> str: ...
+
 
 class FirebaseAuthService:
     def __init__(self):
@@ -29,6 +32,9 @@ class FirebaseAuthService:
     def revoke_user(self, uid: str) -> None:
         self._auth.revoke_refresh_tokens(uid)
 
+    def delete_user(self, uid: str) -> None:
+        self._auth.delete_user(uid)
+
     def create_custom_token(self, uid: str) -> str:
         """Create a Firebase custom token for the given UID."""
         tok = self._auth.create_custom_token(uid)
@@ -41,7 +47,8 @@ class FirebaseAuthService:
         user = self._auth.get_user_by_phone_number(phone_number)
         return user.uid
 
-# --- NEW: deterministic fake for tests ---
+
+# --- deterministic fake for tests ---
 class FakeAuthService:
     def verify_id_token(self, id_token: str) -> SessionOut:
         if id_token != "good-token":
@@ -51,6 +58,9 @@ class FakeAuthService:
     def revoke_user(self, uid: str) -> None:
         return  # no-op in tests
 
+    def delete_user(self, uid: str) -> None:
+        return  # no-op in tests
+
     def create_custom_token(self, uid: str) -> str:
         # Deterministic and obviously fake.
         return f"fake-custom-token::{uid}"
@@ -58,6 +68,7 @@ class FakeAuthService:
     def get_uid_by_phone_number(self, phone_number: str) -> str:
         # Minimal fake: always resolve to the same UID.
         return "u_test"
+
 
 def cookie_settings() -> dict:
     return {

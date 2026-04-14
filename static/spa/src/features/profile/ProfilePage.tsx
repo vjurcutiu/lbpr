@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { getJSON, postJSON } from "@/shared/api";
+import { clearUserConversationNamespaces } from "@/features/chat/chatStore";
 import { useAuthContext } from "@/features/auth/AuthProvider";
 import {
   auth,
@@ -23,6 +24,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { friendlyAuthMessage } from "@/features/auth/errorMessages";
@@ -41,6 +43,9 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [showPw, setShowPw] = useState(false);
   const [showPw2, setShowPw2] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   // Linked provider mgmt (Google / Phone / Email+password)
   const [busy, setBusy] = useState<string | null>(null);
@@ -87,6 +92,34 @@ export default function ProfilePage() {
     } catch {}
     clear();
     navigate("/login", { replace: true });
+  }
+
+  async function onDeleteAccount() {
+    if (!profile) return;
+    if (deleteBusy) return;
+    const confirmation = deleteConfirm.trim().toUpperCase();
+    if (confirmation !== "DELETE") {
+      toast.error("Type DELETE to confirm.");
+      return;
+    }
+
+    setDeleteBusy(true);
+    try {
+      await postJSON("/me/delete-account", { confirm_text: "DELETE" });
+      clearUserConversationNamespaces(profile.uid);
+      try {
+        await logoutFirebase();
+      } catch {}
+      clear();
+      setDeleteDialogOpen(false);
+      setDeleteConfirm("");
+      toast.success("Your account has been deleted.");
+      navigate("/login", { replace: true });
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to delete account.");
+    } finally {
+      setDeleteBusy(false);
+    }
   }
 
   async function reloadProfile() {
@@ -335,7 +368,7 @@ export default function ProfilePage() {
           <p className="text-sm text-muted-foreground mt-1">Manage your account and sign-in methods.</p>
         </div>
 
-        <Button variant="secondary" onClick={signOut} disabled={busy !== null}>
+        <Button variant="secondary" onClick={signOut} disabled={busy !== null || deleteBusy}>
           Sign out
         </Button>
       </div>
@@ -589,6 +622,56 @@ export default function ProfilePage() {
       </form>
 
       <Separator />
+
+      <Card className="border-destructive/30 bg-destructive/5">
+        <CardHeader>
+          <CardTitle className="text-destructive">Delete account</CardTitle>
+          <CardDescription>
+            Permanently delete your account, chats, and files. This cannot be undone.
+          </CardDescription>
+        </CardHeader>
+        <CardFooter className="justify-end">
+          <Button variant="destructive" onClick={() => setDeleteDialogOpen(true)} disabled={busy !== null || deleteBusy}>
+            Delete account
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={(open) => { if (!deleteBusy) { setDeleteDialogOpen(open); if (!open) setDeleteConfirm(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete account</DialogTitle>
+            <DialogDescription>
+              This permanently removes your account and its associated data. Type <span className="font-semibold text-foreground">DELETE</span> to confirm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delete-account-confirm">Confirmation</Label>
+            <Input
+              id="delete-account-confirm"
+              value={deleteConfirm}
+              onChange={(e) => setDeleteConfirm(e.target.value)}
+              placeholder="DELETE"
+              autoComplete="off"
+              disabled={deleteBusy}
+            />
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="secondary" onClick={() => { setDeleteDialogOpen(false); setDeleteConfirm(""); }} disabled={deleteBusy}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={onDeleteAccount}
+              disabled={deleteBusy || deleteConfirm.trim().toUpperCase() !== "DELETE"}
+            >
+              {deleteBusy ? "Deleting…" : "Delete account"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ReauthDialog open={reauthOpen} onClose={() => setReauthOpen(false)} onSuccess={onReauthSuccess} intent={reauthIntent} />
     </div>
   );

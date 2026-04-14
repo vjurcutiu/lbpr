@@ -17,6 +17,7 @@ from routers import health
 from routers.limits import router as limits_router
 from features.auth import routes as auth_routes  # type: ignore
 from features.profile import routes as profile_routes  # type: ignore
+from features.chat_history.router import router as chat_history_router
 from features.rag.router import router as rag_router
 from features.rag.contracts_router import router as rag_contracts_router
 from features.files.router import router as files_router  # type: ignore
@@ -171,6 +172,7 @@ def create_app() -> FastAPI:
     app.include_router(limits_router)
     app.include_router(auth_routes.router)
     app.include_router(profile_routes.router)
+    app.include_router(chat_history_router)
     app.include_router(rag_router)
     app.include_router(rag_contracts_router)
     app.include_router(files_router)

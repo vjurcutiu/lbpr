@@ -1,15 +1,6 @@
-// src/features/chat/chatStore.ts
-/**
- * Tiny chat store backed by localStorage.
- * Namespaced by `ns` so multiple tenants/spaces can coexist.
- *
- * Schema (per namespace key):
- * {
- *   conversations: ConversationMeta[],
- *   messages: Record<conversationId, ChatTurn[]>
- * }
- */
 import { v4 as uuidv4 } from "uuid";
+
+import { deleteJSON, getJSON, patchJSON, postJSON } from "@/shared/api";
 import type { ChatTurn, ConversationMeta } from "./types";
 
 type StoredShape = {
@@ -23,54 +14,66 @@ type ConversationListener = (conversations: ConversationMeta[]) => void;
 const MESSAGE_LISTENERS: Record<string, Set<MessageListener>> = {};
 const CONVERSATION_LISTENERS: Record<string, Set<ConversationListener>> = {};
 const STORE_EVENT = "lbp-chat-store-change";
+const SYNC_KEY_PREFIX = "lbp_chat_sync:";
+const LEGACY_MIGRATION_PREFIX = "lbp_chat_migrated:";
+const LEGACY_STORE_PREFIX = "lbp_chat_";
+const TYPING_KEY_PREFIX = "chat:pending:";
+const REFRESH_INTERVAL_MS = 15000;
 
-function key(ns: string) {
-  return `lbp_chat_${ns}`;
+const STATE_CACHE: Record<string, StoredShape> = {};
+const INFLIGHT_MIGRATIONS: Record<string, Promise<void>> = {};
+const INFLIGHT_CONVERSATIONS: Record<string, Promise<ConversationMeta[]>> = {};
+const INFLIGHT_MESSAGES: Record<string, Promise<ChatTurn[]>> = {};
+
+function legacyKey(ns: string) {
+  return `${LEGACY_STORE_PREFIX}${ns}`;
+}
+
+function syncKey(ns: string) {
+  return `${SYNC_KEY_PREFIX}${ns}`;
+}
+
+function migrationKey(ns: string) {
+  return `${LEGACY_MIGRATION_PREFIX}${ns}`;
 }
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function read(ns: string): StoredShape {
-  try {
-    const raw = localStorage.getItem(key(ns));
-    if (!raw) return { conversations: [], messages: {} };
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return { conversations: [], messages: {} };
-    return {
-      conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
-      messages: parsed.messages && typeof parsed.messages === "object" ? parsed.messages : {},
-    };
-  } catch {
-    return { conversations: [], messages: {} };
-  }
-}
-
-function write(ns: string, data: StoredShape) {
-  localStorage.setItem(key(ns), JSON.stringify(data));
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(STORE_EVENT, { detail: { ns } }));
-  }
-}
-
 function sortedConversations(conversations: ConversationMeta[]) {
   return [...conversations].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
 
+function getState(ns: string): StoredShape {
+  const cached = STATE_CACHE[ns];
+  if (cached) return cached;
+  const empty: StoredShape = { conversations: [], messages: {} };
+  STATE_CACHE[ns] = empty;
+  return empty;
+}
+
+function setConversationsCache(ns: string, conversations: ConversationMeta[]) {
+  const state = getState(ns);
+  state.conversations = sortedConversations(conversations);
+}
+
+function setMessagesCache(ns: string, id: string, msgs: ChatTurn[]) {
+  const state = getState(ns);
+  state.messages[id] = [...msgs].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+}
+
 function emitMessages(ns: string, id: string) {
-  const store = read(ns);
   const listeners = MESSAGE_LISTENERS[ns];
   if (!listeners) return;
-  const msgs = store.messages[id] || [];
+  const msgs = getState(ns).messages[id] || [];
   for (const cb of listeners) cb(id, msgs);
 }
 
 function emitConversations(ns: string) {
-  const store = read(ns);
   const listeners = CONVERSATION_LISTENERS[ns];
   if (!listeners) return;
-  const conversations = sortedConversations(store.conversations);
+  const conversations = sortedConversations(getState(ns).conversations);
   for (const cb of listeners) cb(conversations);
 }
 
@@ -79,93 +82,204 @@ function emitAll(ns: string, conversationId?: string) {
   if (conversationId) emitMessages(ns, conversationId);
 }
 
+function broadcastChange(ns: string) {
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(syncKey(ns), String(Date.now()));
+    } catch {
+      // no-op
+    }
+    window.dispatchEvent(new CustomEvent(STORE_EVENT, { detail: { ns } }));
+  }
+}
+
+function readLegacyStore(ns: string): StoredShape | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(legacyKey(ns));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      conversations: Array.isArray(parsed.conversations) ? parsed.conversations : [],
+      messages: parsed.messages && typeof parsed.messages === "object" ? parsed.messages : {},
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function refreshConversations(ns: string): Promise<ConversationMeta[]> {
+  if (INFLIGHT_CONVERSATIONS[ns]) return INFLIGHT_CONVERSATIONS[ns];
+  const promise = (async () => {
+    await maybeMigrateLegacyNamespace(ns);
+    const rows = await getJSON<ConversationMeta[]>(`/v1/chat/conversations?ns=${encodeURIComponent(ns)}`);
+    setConversationsCache(ns, rows || []);
+    emitConversations(ns);
+    return getState(ns).conversations;
+  })();
+  INFLIGHT_CONVERSATIONS[ns] = promise;
+  try {
+    return await promise;
+  } finally {
+    delete INFLIGHT_CONVERSATIONS[ns];
+  }
+}
+
+async function refreshMessages(ns: string, id: string): Promise<ChatTurn[]> {
+  const inflightKey = `${ns}:${id}`;
+  if (INFLIGHT_MESSAGES[inflightKey]) return INFLIGHT_MESSAGES[inflightKey];
+  const promise = (async () => {
+    await maybeMigrateLegacyNamespace(ns);
+    const rows = await getJSON<ChatTurn[]>(`/v1/chat/conversations/${encodeURIComponent(id)}/messages?ns=${encodeURIComponent(ns)}`);
+    setMessagesCache(ns, id, rows || []);
+    emitMessages(ns, id);
+    return getState(ns).messages[id] || [];
+  })();
+  INFLIGHT_MESSAGES[inflightKey] = promise;
+  try {
+    return await promise;
+  } finally {
+    delete INFLIGHT_MESSAGES[inflightKey];
+  }
+}
+
+async function maybeMigrateLegacyNamespace(ns: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (localStorage.getItem(migrationKey(ns)) === "1") return;
+  const legacy = readLegacyStore(ns);
+  if (!legacy || legacy.conversations.length === 0) {
+    localStorage.setItem(migrationKey(ns), "1");
+    return;
+  }
+  if (INFLIGHT_MIGRATIONS[ns]) return INFLIGHT_MIGRATIONS[ns];
+
+  const promise = (async () => {
+    for (const conv of sortedConversations(legacy.conversations)) {
+      const conversationId = String(conv.id || uuidv4());
+      await postJSON(`/v1/chat/conversations`, {
+        ns,
+        id: conversationId,
+        title: conv.title || "New chat",
+        tenant_id: conv.tenant_id || "tenant_demo",
+        created_at: conv.created_at || nowIso(),
+        updated_at: conv.updated_at || conv.created_at || nowIso(),
+      });
+
+      const msgs = legacy.messages?.[conversationId] || [];
+      for (const msg of msgs) {
+        await postJSON(`/v1/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
+          ns,
+          role: msg.role,
+          content: msg.content,
+          created_at: msg.created_at || nowIso(),
+          citations: msg.citations || [],
+          trace_id: msg.trace_id ?? null,
+          request_id: msg.request_id ?? null,
+        });
+      }
+    }
+
+    localStorage.removeItem(legacyKey(ns));
+    localStorage.setItem(migrationKey(ns), "1");
+    broadcastChange(ns);
+  })();
+
+  INFLIGHT_MIGRATIONS[ns] = promise;
+  try {
+    await promise;
+  } finally {
+    delete INFLIGHT_MIGRATIONS[ns];
+  }
+}
+
 export async function createConversation(ns: string, title: string, tenantId = "tenant_demo"): Promise<string> {
-  const store = read(ns);
   const id = uuidv4();
   const ts = nowIso();
-  const meta: ConversationMeta = {
+  const meta = await postJSON<ConversationMeta>(`/v1/chat/conversations`, {
+    ns,
     id,
     title: title?.trim() || "New chat",
     tenant_id: tenantId,
     created_at: ts,
     updated_at: ts,
-  };
-  store.conversations.unshift(meta);
-  store.messages[id] = [];
-  write(ns, store);
+  });
+  const state = getState(ns);
+  state.messages[id] = [];
+  setConversationsCache(ns, [meta, ...state.conversations.filter((c) => c.id !== meta.id)]);
   emitAll(ns, id);
+  broadcastChange(ns);
   return id;
 }
 
 export async function ensureConversation(ns: string, maybeId: string | null): Promise<string> {
   if (maybeId) return maybeId;
-  // Create default conversation when not specified
-  return await createConversation(ns, "New chat", "tenant_demo");
+  return createConversation(ns, "New chat", "tenant_demo");
 }
 
 export async function appendMessage(ns: string, id: string, msg: ChatTurn): Promise<void> {
-  const store = read(ns);
-  store.messages[id] = store.messages[id] || [];
-  store.messages[id].push({ ...msg, created_at: msg.created_at || nowIso() });
-  // bump conversation updated_at
-  const conv = store.conversations.find(c => c.id === id);
-  if (conv) conv.updated_at = nowIso();
-  write(ns, store);
-  emitAll(ns, id);
+  await postJSON(`/v1/chat/conversations/${encodeURIComponent(id)}/messages`, {
+    ns,
+    role: msg.role,
+    content: msg.content,
+    created_at: msg.created_at || nowIso(),
+    citations: msg.citations || [],
+    trace_id: msg.trace_id ?? null,
+    request_id: msg.request_id ?? null,
+  });
+  await Promise.all([refreshMessages(ns, id), refreshConversations(ns)]);
+  broadcastChange(ns);
 }
 
 export async function listConversations(ns: string): Promise<ConversationMeta[]> {
-  const store = read(ns);
-  return sortedConversations(store.conversations);
+  return refreshConversations(ns);
 }
 
 export async function renameConversation(ns: string, id: string, title: string): Promise<void> {
-  const store = read(ns);
-  const conv = store.conversations.find(c => c.id === id);
-  if (conv) {
-    conv.title = title?.trim() || conv.title;
-    conv.updated_at = nowIso();
-    write(ns, store);
-    emitConversations(ns);
-  }
+  const updated = await patchJSON<ConversationMeta>(`/v1/chat/conversations/${encodeURIComponent(id)}`, {
+    ns,
+    title: title?.trim() || "New chat",
+  });
+  const state = getState(ns);
+  setConversationsCache(ns, [updated, ...state.conversations.filter((c) => c.id !== id)]);
+  emitConversations(ns);
+  broadcastChange(ns);
 }
 
 export async function deleteConversation(ns: string, id: string): Promise<void> {
-  const store = read(ns);
-  store.conversations = store.conversations.filter(c => c.id !== id);
-  delete store.messages[id];
-  write(ns, store);
+  await deleteJSON(`/v1/chat/conversations/${encodeURIComponent(id)}?ns=${encodeURIComponent(ns)}`);
+  const state = getState(ns);
+  setConversationsCache(ns, state.conversations.filter((c) => c.id !== id));
+  delete state.messages[id];
   emitAll(ns, id);
+  broadcastChange(ns);
 }
 
-/**
- * Subscribe to message changes for a conversation.
- * Immediately calls back with current messages.
- */
-export function subscribeMessages(
-  ns: string,
-  id: string,
-  cb: (msgs: ChatTurn[]) => void
-): () => void {
+export function subscribeMessages(ns: string, id: string, cb: (msgs: ChatTurn[]) => void): () => void {
   const set = (MESSAGE_LISTENERS[ns] = MESSAGE_LISTENERS[ns] || new Set());
   const wrapper = (_id: string, msgs: ChatTurn[]) => {
     if (_id === id) cb(msgs);
   };
 
-  const syncFromStorage = () => {
-    const store = read(ns);
-    cb(store.messages[id] || []);
+  const sync = () => {
+    void refreshMessages(ns, id).catch(() => {
+      cb(getState(ns).messages[id] || []);
+    });
   };
+
   const handleStoreEvent = (event: Event) => {
     const detail = (event as CustomEvent<{ ns?: string }>).detail;
-    if (!detail?.ns || detail.ns === ns) syncFromStorage();
+    if (!detail?.ns || detail.ns === ns) sync();
   };
   const handleStorage = (event: StorageEvent) => {
-    if (event.key === key(ns)) syncFromStorage();
+    if (event.key === syncKey(ns)) sync();
   };
 
   set.add(wrapper);
-  cb(read(ns).messages[id] || []);
+  cb(getState(ns).messages[id] || []);
+  sync();
+
+  const timer = typeof window !== "undefined" ? window.setInterval(sync, REFRESH_INTERVAL_MS) : null;
 
   if (typeof window !== "undefined") {
     window.addEventListener(STORE_EVENT, handleStoreEvent as EventListener);
@@ -175,31 +289,35 @@ export function subscribeMessages(
   return () => {
     set.delete(wrapper);
     if (typeof window !== "undefined") {
+      if (timer !== null) window.clearInterval(timer);
       window.removeEventListener(STORE_EVENT, handleStoreEvent as EventListener);
       window.removeEventListener("storage", handleStorage);
     }
   };
 }
 
-export function subscribeConversations(
-  ns: string,
-  cb: (conversations: ConversationMeta[]) => void
-): () => void {
+export function subscribeConversations(ns: string, cb: (conversations: ConversationMeta[]) => void): () => void {
   const set = (CONVERSATION_LISTENERS[ns] = CONVERSATION_LISTENERS[ns] || new Set());
 
-  const syncFromStorage = () => {
-    cb(sortedConversations(read(ns).conversations));
+  const sync = () => {
+    void refreshConversations(ns).catch(() => {
+      cb(sortedConversations(getState(ns).conversations));
+    });
   };
+
   const handleStoreEvent = (event: Event) => {
     const detail = (event as CustomEvent<{ ns?: string }>).detail;
-    if (!detail?.ns || detail.ns === ns) syncFromStorage();
+    if (!detail?.ns || detail.ns === ns) sync();
   };
   const handleStorage = (event: StorageEvent) => {
-    if (event.key === key(ns)) syncFromStorage();
+    if (event.key === syncKey(ns)) sync();
   };
 
   set.add(cb);
-  syncFromStorage();
+  cb(sortedConversations(getState(ns).conversations));
+  sync();
+
+  const timer = typeof window !== "undefined" ? window.setInterval(sync, REFRESH_INTERVAL_MS) : null;
 
   if (typeof window !== "undefined") {
     window.addEventListener(STORE_EVENT, handleStoreEvent as EventListener);
@@ -209,8 +327,59 @@ export function subscribeConversations(
   return () => {
     set.delete(cb);
     if (typeof window !== "undefined") {
+      if (timer !== null) window.clearInterval(timer);
       window.removeEventListener(STORE_EVENT, handleStoreEvent as EventListener);
       window.removeEventListener("storage", handleStorage);
     }
   };
+}
+
+export function clearConversationNamespace(ns: string): void {
+  delete STATE_CACHE[ns];
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(legacyKey(ns));
+    localStorage.removeItem(syncKey(ns));
+    localStorage.removeItem(migrationKey(ns));
+    const typingPrefix = `${TYPING_KEY_PREFIX}${ns}:`;
+    const toDelete: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const rawKey = localStorage.key(i);
+      if (rawKey && rawKey.startsWith(typingPrefix)) toDelete.push(rawKey);
+    }
+    for (const rawKey of toDelete) localStorage.removeItem(rawKey);
+  }
+  emitConversations(ns);
+}
+
+export function clearUserConversationNamespaces(uid: string): void {
+  if (typeof window === "undefined") return;
+  const nsPrefix = `u:${uid}:`;
+  const legacyPrefix = `${LEGACY_STORE_PREFIX}${nsPrefix}`;
+  const syncPrefix = `${SYNC_KEY_PREFIX}${nsPrefix}`;
+  const migrationPrefix = `${LEGACY_MIGRATION_PREFIX}${nsPrefix}`;
+  const typingPrefix = `${TYPING_KEY_PREFIX}${nsPrefix}`;
+  const removeKeys: string[] = [];
+
+  for (const ns of Object.keys(STATE_CACHE)) {
+    if (ns.startsWith(nsPrefix)) {
+      delete STATE_CACHE[ns];
+      emitConversations(ns);
+    }
+  }
+
+  for (let i = 0; i < localStorage.length; i += 1) {
+    const rawKey = localStorage.key(i);
+    if (!rawKey) continue;
+    if (
+      rawKey.startsWith(legacyPrefix) ||
+      rawKey.startsWith(syncPrefix) ||
+      rawKey.startsWith(migrationPrefix) ||
+      rawKey.startsWith(typingPrefix)
+    ) {
+      removeKeys.push(rawKey);
+    }
+  }
+
+  for (const rawKey of removeKeys) localStorage.removeItem(rawKey);
+  localStorage.removeItem("lbp_chat_ns");
 }

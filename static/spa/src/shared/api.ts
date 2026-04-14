@@ -58,3 +58,16 @@ export async function patchJSON<T = any>(path: string, payload: any, init?: Requ
   });
   return handle(res) as Promise<T>;
 }
+
+
+export async function deleteJSON<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
+    method: "DELETE",
+    headers: {
+      ...(init?.headers || {}),
+    },
+    ...init,
+  });
+  return handle(res) as Promise<T>;
+}

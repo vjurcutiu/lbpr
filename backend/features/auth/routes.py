@@ -86,11 +86,17 @@ def create_session(resp: Response, payload: CreateSessionIn, svc: AuthService = 
 def logout(resp: Response, req: Request, svc: AuthService = Depends(get_auth_service)):
     sid = req.cookies.get(settings.COOKIE_NAME)
     if sid:
-        # Revoke server-side session
-        sessions.revoke(sid)
-        # Optional: also revoke Firebase refresh tokens for defense-in-depth
+        user = None
         try:
             user = sessions.get_user(sid)
+        except Exception:
+            user = None
+
+        # Revoke server-side session
+        sessions.revoke(sid)
+
+        # Optional: also revoke Firebase refresh tokens for defense-in-depth
+        try:
             if user:
                 svc.revoke_user(user.uid)
         except Exception:

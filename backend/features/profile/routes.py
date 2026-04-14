@@ -1,15 +1,17 @@
-# features/profile/routes.py
 from __future__ import annotations
 
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+
 from core.config import settings
-from features.auth.deps import get_current_user
+from features.auth.deps import get_auth_service, get_current_user
 from features.auth.models import SessionOut
+from features.auth.service import AuthService, cookie_settings
 from features.auth.sessions import sessions
-from .models import ProfileOut, ProfileUpdateIn
+from .account_deletion import AccountDeletionError, delete_account_data
+from .models import DeleteAccountIn, DeleteAccountOut, ProfileOut, ProfileUpdateIn
 
 log = logging.getLogger("profile")
 
@@ -100,3 +102,30 @@ def update_me(req: Request, payload: ProfileUpdateIn, user: SessionOut = Depends
     new_name = name if name is not None else user.name
     new_picture = picture if picture is not None else user.picture
     return ProfileOut(uid=user.uid, email=user.email, name=new_name, picture=new_picture)
+
+
+@router.post("/me/delete-account", response_model=DeleteAccountOut)
+def delete_me(
+    req: Request,
+    resp: Response,
+    payload: DeleteAccountIn,
+    user: SessionOut = Depends(get_current_user),
+    auth_svc: AuthService = Depends(get_auth_service),
+) -> DeleteAccountOut:
+    confirmation = (payload.confirm_text or "").strip().upper()
+    if confirmation != "DELETE":
+        raise HTTPException(status_code=400, detail="Type DELETE to confirm account deletion.")
+
+    sid = req.cookies.get(settings.COOKIE_NAME)
+    try:
+        summary = delete_account_data(user.uid, auth_svc=auth_svc, current_sid=sid)
+    except AccountDeletionError as exc:
+        log.exception("account_delete_failed", uid=user.uid, summary=exc.summary.to_dict())
+        raise HTTPException(status_code=500, detail="Account deletion did not complete. Please try again or contact support.") from exc
+    except Exception as exc:
+        log.exception("account_delete_failed", uid=user.uid)
+        raise HTTPException(status_code=500, detail="Account deletion did not complete. Please try again or contact support.") from exc
+
+    cs = cookie_settings()
+    resp.delete_cookie(settings.COOKIE_NAME, path=cs["path"], domain=cs.get("domain"), samesite=cs["samesite"])
+    return DeleteAccountOut(ok=True, **summary)
