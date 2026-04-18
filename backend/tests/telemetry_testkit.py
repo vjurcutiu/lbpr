@@ -44,6 +44,10 @@ class FakeBusinessInstruments:
     openai_duration_ms: FakeHistogram = field(default_factory=lambda: FakeHistogram("lbpr_openai_duration_ms"))
     pinecone_operation_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_pinecone_operation_total"))
     pinecone_duration_ms: FakeHistogram = field(default_factory=lambda: FakeHistogram("lbpr_pinecone_duration_ms"))
+    workflow_started_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_workflow_started_total"))
+    workflow_completed_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_workflow_completed_total"))
+    workflow_failed_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_workflow_failed_total"))
+    workflow_duration_ms: FakeHistogram = field(default_factory=lambda: FakeHistogram("lbpr_workflow_duration_ms"))
 
 
 def _stringify(attributes: dict[str, Any] | None) -> dict[str, str]:

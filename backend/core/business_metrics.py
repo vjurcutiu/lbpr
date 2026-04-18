@@ -28,6 +28,10 @@ class _Instruments:
     openai_duration_ms: Any
     pinecone_operation_total: Any
     pinecone_duration_ms: Any
+    workflow_started_total: Any
+    workflow_completed_total: Any
+    workflow_failed_total: Any
+    workflow_duration_ms: Any
 
 
 _INSTRUMENTS: _Instruments | None = None
@@ -132,6 +136,23 @@ def init_business_metrics() -> None:
             "lbpr_pinecone_duration_ms",
             unit="ms",
             description="Duration of Pinecone operations.",
+        ),
+        workflow_started_total=meter.create_counter(
+            "lbpr_workflow_started_total",
+            description="Workflow runs started.",
+        ),
+        workflow_completed_total=meter.create_counter(
+            "lbpr_workflow_completed_total",
+            description="Workflow runs completed successfully.",
+        ),
+        workflow_failed_total=meter.create_counter(
+            "lbpr_workflow_failed_total",
+            description="Workflow runs that failed.",
+        ),
+        workflow_duration_ms=meter.create_histogram(
+            "lbpr_workflow_duration_ms",
+            unit="ms",
+            description="Duration of workflow runs.",
         ),
     )
 
@@ -253,3 +274,33 @@ def record_pinecone_duration(*, operation: str, dur_ms: int | float, status: str
     attrs = {"operation": _clean_str(operation), "status": _clean_str(status)}
     _ins().pinecone_operation_total.add(1, attrs)
     _ins().pinecone_duration_ms.record(float(max(0, dur_ms)), attrs)
+
+
+def record_workflow_started(*, workflow_id: str, capability: str) -> None:
+    _ins().workflow_started_total.add(1, {"workflow_id": _clean_str(workflow_id), "capability": _clean_str(capability)})
+
+
+def record_workflow_completed(*, workflow_id: str, capability: str) -> None:
+    _ins().workflow_completed_total.add(1, {"workflow_id": _clean_str(workflow_id), "capability": _clean_str(capability)})
+
+
+def record_workflow_failed(*, workflow_id: str, capability: str, stage: str) -> None:
+    _ins().workflow_failed_total.add(
+        1,
+        {
+            "workflow_id": _clean_str(workflow_id),
+            "capability": _clean_str(capability),
+            "stage": _clean_str(stage),
+        },
+    )
+
+
+def record_workflow_duration(*, workflow_id: str, capability: str, dur_ms: int | float, status: str) -> None:
+    _ins().workflow_duration_ms.record(
+        float(max(0, dur_ms)),
+        {
+            "workflow_id": _clean_str(workflow_id),
+            "capability": _clean_str(capability),
+            "status": _clean_str(status),
+        },
+    )

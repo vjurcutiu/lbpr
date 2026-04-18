@@ -391,10 +391,16 @@ import { FileIconByName } from "./components/FileIconByName";
 
 
 import { UploadTrackerPanel } from "./components/UploadTracker";
-
 import { InternalDragPreview } from "./components/InternalDragPreview";
+import { FilesTopBar } from "./components/FilesTopBar";
+import { FilesFolderHeader } from "./components/FilesFolderHeader";
 
-
+import { WorkflowActionBar } from "@/features/workflows/components/WorkflowActionBar";
+import { WorkflowLauncher } from "@/features/workflows/components/WorkflowLauncher";
+import { WorkflowRunShelf } from "@/features/workflows/components/WorkflowRunShelf";
+import { useWorkflowSelection } from "@/features/workflows/hooks/useWorkflowSelection";
+import { createWorkflowRun, listWorkflowRuns, listWorkflows } from "@/features/workflows/api";
+import type { WorkflowManifest, WorkflowRun } from "@/features/workflows/types";
 
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
 
@@ -1429,6 +1435,31 @@ export default function FilesPage() {
 
 
   const hasSelection = selectedFolderRowPaths.length > 0 || selectedFileIds.length > 0;
+
+
+
+  const workflowSelectionInput = useMemo(
+    () => ({
+      file_ids: selectedFileIds,
+      folder_paths: selectedFolderRowPaths,
+      current_folder: selectedFolder,
+    }),
+    [selectedFileIds, selectedFolderRowPaths, selectedFolder]
+  );
+
+  const workflowSelection = useWorkflowSelection(workflowSelectionInput);
+
+  const [workflowCatalog, setWorkflowCatalog] = useState<WorkflowManifest[]>([]);
+
+  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
+
+  const [workflowLoading, setWorkflowLoading] = useState(false);
+
+  const [workflowSubmitting, setWorkflowSubmitting] = useState(false);
+
+  const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
+
+  const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(null);
 
 
 
@@ -2540,6 +2571,56 @@ const internalDragPreviewLabels = useMemo(() => {
 
 
 
+
+
+
+  const loadWorkflowInfra = useCallback(async () => {
+    setWorkflowLoading(true);
+    try {
+      const [catalog, runs] = await Promise.all([listWorkflows(), listWorkflowRuns(6)]);
+      setWorkflowCatalog(catalog);
+      setWorkflowRuns(runs.items || []);
+    } catch (err) {
+      console.error("[files.workflow] load error", err);
+      toast.error("Failed to load workflow starters", { description: parseErr(err) });
+    } finally {
+      setWorkflowLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadWorkflowInfra();
+  }, [loadWorkflowInfra]);
+
+  const openWorkflowLauncher = useCallback((workflow: WorkflowManifest) => {
+    setActiveWorkflow(workflow);
+    setWorkflowLauncherOpen(true);
+  }, []);
+
+  const handleRunWorkflow = useCallback(
+    async (workflow: WorkflowManifest, focus: string) => {
+      setWorkflowSubmitting(true);
+      try {
+        const run = await createWorkflowRun({
+          workflow_id: workflow.workflow_id,
+          selection: workflowSelectionInput,
+          inputs: focus.trim() ? { focus: focus.trim() } : {},
+        });
+        setWorkflowRuns((prev) => [run, ...prev.filter((item) => item.id !== run.id)].slice(0, 6));
+        setWorkflowLauncherOpen(false);
+        setActiveWorkflow(null);
+        toast.success(`${workflow.title} ready`, {
+          description: run.result?.summary || "Workflow scaffold completed.",
+        });
+      } catch (err) {
+        console.error("[files.workflow] run error", err);
+        toast.error(`Failed to run ${workflow.title}`, { description: parseErr(err) });
+      } finally {
+        setWorkflowSubmitting(false);
+      }
+    },
+    [workflowSelectionInput]
+  );
 
 
 
@@ -8266,319 +8347,37 @@ const breadcrumb = useMemo(() => {
 
       {/* Top bar */}
 
-
-
-      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 px-3 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-
-
-
-        <Button
-
-
-
-          variant="outline"
-
-
-
-          size="sm"
-
-
-
-          className="md:hidden"
-
-
-
-          onClick={() => setMobileFoldersOpen(true)}
-
-
-
-          title="Browse folders"
-
-
-
-        >
-
-
-
-          <Folder className="h-4 w-4" />
-
-
-
-          <span className="ml-1.5">Folders</span>
-
-
-
-        </Button>
-
-
-
-
-
-
-
-        <Button onClick={() => startUploadTo(selectedFolder)} disabled={uploading} size="sm" className="app-theme-action-button">
-
-
-
-          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-
-
-
-          <span className="ml-1.5">{uploading ? "Uploading…" : "Upload"}</span>
-
-
-
-        </Button>
-
-
-
-        <Button variant="outline" size="sm" onClick={() => requestNewFolder(selectedFolder)} title="New folder">
-
-
-
-          <FolderPlus className="h-4 w-4" />
-
-
-
-          <span className="ml-1.5 hidden sm:inline">New folder</span>
-
-
-
-        </Button>
-
-
-
-        <Input
-
-
-
-          ref={inputRef}
-
-
-
-          type="file"
-
-
-
-          className="hidden"
-
-
-
-          onChange={onChange}
-
-
-
-          multiple
-
-
-
-          accept="image/*,audio/*,text/*,.txt,.md,.markdown,.csv,.json,.xml,.yaml,.yml,.pdf,.doc,.docx"
-
-
-
-        />
-
-
-
-        <Input ref={transcribeInputRef} type="file" accept="audio/*,video/*" className="hidden" onChange={onPickTranscribeFile} />
-
-
-
-        <Input ref={ocrInputRef} type="file" accept="image/*" className="hidden" onChange={onPickOcrFile} />
-
-
-
-
-
-
-
-        <div className="relative w-full md:max-w-sm md:w-full md:order-none order-last">
-
-
-
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-
-
-
-          <Input
-
-
-
-            placeholder="Search folders & files…"
-
-
-
-            value={filter}
-
-
-
-            onChange={(e) => setFilter(e.target.value)}
-
-
-
-            className="pl-8 pr-7"
-
-
-
-          />
-
-
-
-          {filter && (
-
-
-
-            <button
-
-
-
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-
-
-
-              onClick={() => setFilter("")}
-
-
-
-              aria-label="Clear filter"
-
-
-
-              title="Clear"
-
-
-
-            >
-
-
-
-              ×
-
-
-
-            </button>
-
-
-
-          )}
-
-
-
-        </div>
-
-
-
-
-
-
-
-        <div className="flex-1 hidden md:block" />
-
-
-
-        <div className="hidden md:flex items-center text-xs text-muted-foreground mr-2">
-
-
-
-          <span className="mr-3">{files.length} file{files.length === 1 ? "" : "s"}</span>
-
-
-
-          <span>• {fmtSize(totalSize)}</span>
-
-
-
-        </div>
-
-
-
-        <Button variant="outline" onClick={refresh} disabled={busy} size="sm">
-
-
-
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 md:mr-1.5" />}
-
-
-
-          <span className="hidden md:inline">Refresh</span>
-
-
-
-        </Button>
-
-
-
-        <Button
-
-
-
-          variant="ghost"
-
-
-
-          size="sm"
-
-
-
-          onClick={() => setTrackerOpen((v) => !v)}
-
-
-
-          title="Show transfers"
-
-
-
-          className="relative"
-
-
-
-        >
-
-
-
-          <Activity className="h-4 w-4" />
-
-
-
-          <span className="ml-1 hidden sm:inline">Transfers</span>
-
-
-
-          {(uploading || runningUploads) && (
-
-
-
-            <span className="absolute -top-1 -right-1 inline-flex h-2.5 w-2.5">
-
-
-
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-60" />
-
-
-
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary" />
-
-
-
-            </span>
-
-
-
-          )}
-
-
-
-        </Button>
-
-
-
-      </div>
-
-
-
-
-
-
+      <FilesTopBar
+        selectedFolder={selectedFolder}
+        uploading={uploading}
+        busy={busy}
+        runningUploads={runningUploads}
+        filesCount={files.length}
+        totalSize={totalSize}
+        filter={filter}
+        inputRef={inputRef}
+        transcribeInputRef={transcribeInputRef}
+        ocrInputRef={ocrInputRef}
+        onOpenFolders={() => setMobileFoldersOpen(true)}
+        onUpload={() => startUploadTo(selectedFolder)}
+        onNewFolder={() => requestNewFolder(selectedFolder)}
+        onChange={onChange}
+        onPickTranscribeFile={onPickTranscribeFile}
+        onPickOcrFile={onPickOcrFile}
+        onFilterChange={setFilter}
+        onClearFilter={() => setFilter("")}
+        onRefresh={refresh}
+        onToggleTransfers={() => setTrackerOpen((v) => !v)}
+      />
+
+      <WorkflowActionBar
+        workflows={workflowCatalog}
+        selection={workflowSelection}
+        loading={workflowLoading || workflowSubmitting}
+        onLaunch={openWorkflowLauncher}
+      />
+
+      <WorkflowRunShelf runs={workflowRuns} />
 
 {/* Main split */}
 
@@ -9221,143 +9020,14 @@ const breadcrumb = useMemo(() => {
 
   {/* Breadcrumb row */}
 
-
-
-
-
-
-
-              <div className="h-10 border-b bg-background flex items-center gap-2 px-3">
-
-
-
-                <Button
-
-
-
-                  variant="ghost"
-
-
-
-                  size="sm"
-
-
-
-                  onClick={() => setSelectedFolder(parentPath(selectedFolder))}
-
-
-
-                  disabled={!selectedFolder}
-
-
-
-                  title="Up"
-
-
-
-                >
-
-
-
-                  <ArrowUp className="h-4 w-4" />
-
-
-
-                </Button>
-
-
-
-                <div className="min-w-0 flex items-center gap-1 text-sm">
-
-
-
-                  {breadcrumb.map((b, idx) => (
-
-
-
-                    <div key={b.path || "root"} className="flex items-center min-w-0">
-
-
-
-                      <button
-
-
-
-                        className={cn(
-
-
-
-                          "truncate max-w-[22vw] md:max-w-[18rem] hover:underline",
-
-
-
-                          idx === breadcrumb.length - 1 && "font-medium"
-
-
-
-                        )}
-
-
-
-                        onClick={() => setSelectedFolder(b.path)}
-
-
-
-                        title={b.path || "Root"}
-
-
-
-                      >
-
-
-
-                        {b.label}
-
-
-
-                      </button>
-
-
-
-                      {idx < breadcrumb.length - 1 && <ChevronRight className="h-4 w-4 opacity-60 mx-1" />}
-
-
-
-                    </div>
-
-
-
-                  ))}
-
-
-
-                </div>
-
-
-
-                <div className="flex-1" />
-
-
-
-                <div className="text-xs text-muted-foreground hidden sm:block">
-
-
-
-                  {filteredCurrentFolders.length} folder{filteredCurrentFolders.length === 1 ? "" : "s"} • {filteredCurrentFiles.length} file{filteredCurrentFiles.length === 1 ? "" : "s"}
-
-
-
-                </div>
-
-
-
-              </div>
-
-
-
-
-
-
+              <FilesFolderHeader
+                selectedFolder={selectedFolder}
+                breadcrumb={breadcrumb}
+                folderCount={filteredCurrentFolders.length}
+                fileCount={filteredCurrentFiles.length}
+                onGoUp={() => setSelectedFolder(parentPath(selectedFolder))}
+                onSelectFolder={setSelectedFolder}
+              />
 
               {/* List */}
 
@@ -13317,15 +12987,16 @@ const breadcrumb = useMemo(() => {
 
       </Dialog>
 
-
-
-
-
-
+      <WorkflowLauncher
+        open={workflowLauncherOpen}
+        workflow={activeWorkflow}
+        selection={workflowSelection}
+        submitting={workflowSubmitting}
+        onOpenChange={setWorkflowLauncherOpen}
+        onRun={handleRunWorkflow}
+      />
 
       <UploadTrackerPanel
-
-
 
         open={trackerOpen}
 
