@@ -95,6 +95,20 @@ import { UploadTrackerPanel } from "./components/UploadTracker";
 import { InternalDragPreview } from "./components/InternalDragPreview";
 import { FilesTopBar } from "./components/FilesTopBar";
 import { FilesFolderHeader } from "./components/FilesFolderHeader";
+import { useMediaQuery } from "./hooks/useMediaQuery";
+import { CurrentFolderDrop, FolderRow, FileRow } from "./components/FilesListRows";
+import { DEBUG_CTXMENU, ctxLog, ctxEvtSummary, safeAction } from "./utils/contextMenuDebug";
+import {
+  basename,
+  parentPath,
+  collectFolderPaths,
+  uniqStrings,
+  isDescendantPath,
+  pickTopLevelFolders,
+  reduceNestedFolderPaths,
+  filterFileIdsNotUnderFolders,
+  type ClipboardState,
+} from "./utils/pageHelpers";
 import { WorkflowActionBar } from "@/features/workflows/components/WorkflowActionBar";
 import { WorkflowLauncher } from "@/features/workflows/components/WorkflowLauncher";
 import { WorkflowRunShelf } from "@/features/workflows/components/WorkflowRunShelf";
