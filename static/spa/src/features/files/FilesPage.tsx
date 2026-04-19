@@ -113,8 +113,8 @@ import {
 import { WorkflowActionBar } from "@/features/workflows/components/WorkflowActionBar";
 import { WorkflowLauncher } from "@/features/workflows/components/WorkflowLauncher";
 import { useWorkflowSelection } from "@/features/workflows/hooks/useWorkflowSelection";
-import { createWorkflowRun, listWorkflows } from "@/features/workflows/api";
-import type { WorkflowManifest } from "@/features/workflows/types";
+import { createWorkflowRun, listWorkflowRuns, listWorkflows } from "@/features/workflows/api";
+import type { WorkflowManifest, WorkflowRun } from "@/features/workflows/types";
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
 import { API_BASE, getJSON } from "@/shared/api";
 import { loadBool, saveBool, loadJSON, saveJSON } from "@/shared/persist";
@@ -350,6 +350,7 @@ const internalDragPreviewLabels = useMemo(() => {
   const [optimisticJobs, setOptimisticJobs] = useState<UploadJob[]>([]);
   const [batchFilenames, setBatchFilenames] = useState<string[]>([]);
   const [seedFetched, setSeedFetched] = useState<UploadJob[]>([]);
+  const [seedWorkflowRuns, setSeedWorkflowRuns] = useState<WorkflowRun[]>([]);
   // Close mobile folders drawer automatically on desktop
   useEffect(() => {
     if (!isMobile) setMobileFoldersOpen(false);
@@ -376,7 +377,12 @@ const internalDragPreviewLabels = useMemo(() => {
     const bf = loadJSON<string[]>(LS_BATCH, []);
     if (bf.length) setBatchFilenames(bf);
     if (open) {
-      listUploadJobs().then(setSeedFetched).catch(() => {});
+      Promise.all([listUploadJobs(), listWorkflowRuns(12)])
+        .then(([uploads, workflowRes]) => {
+          setSeedFetched(uploads);
+          setSeedWorkflowRuns(workflowRes.items || []);
+        })
+        .catch(() => {});
       setTrackerRefreshKey(Date.now());
     }
   }, []);
@@ -394,6 +400,22 @@ const internalDragPreviewLabels = useMemo(() => {
     setOptimisticJobs((prev) => prev.filter((j) => j.status === "running"));
     setSeedFetched((prev) => prev.filter((j) => j.status === "running"));
   }, []);
+
+  const refreshWorkflowTracker = useCallback(async () => {
+    try {
+      const res = await listWorkflowRuns(12);
+      setSeedWorkflowRuns(res.items || []);
+    } catch (err) {
+      console.error("[files.workflow] tracker refresh error", err);
+    }
+  }, []);
+  useEffect(() => {
+    refreshWorkflowTracker();
+    const id = window.setInterval(() => {
+      refreshWorkflowTracker();
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [refreshWorkflowTracker]);
   // Persist OCR settings
   useEffect(() => saveJSON(LS_OCR_LANGUAGES, ocrLanguages), [ocrLanguages]);
   useEffect(() => saveBool(LS_OCR_DOCMODE, ocrDocMode), [ocrDocMode]);
@@ -445,10 +467,16 @@ const internalDragPreviewLabels = useMemo(() => {
           selection: workflowSelectionInput,
           inputs: focus.trim() ? { focus: focus.trim() } : {},
         });
+        setSeedWorkflowRuns((prev) => {
+          const next = [run, ...prev.filter((item) => item.id !== run.id)];
+          return next.slice(0, 12);
+        });
+        setTrackerOpen(true);
+        setTrackerRefreshKey(Date.now());
         setWorkflowLauncherOpen(false);
         setActiveWorkflow(null);
-        toast.success(`${workflow.title} ready`, {
-          description: run.result?.summary || "Workflow scaffold completed.",
+        toast.success(`${workflow.title} started`, {
+          description: "You can follow the run in Tasks and review the finished output in Workflows.",
         });
       } catch (err) {
         console.error("[files.workflow] run error", err);
@@ -688,6 +716,10 @@ const internalDragPreviewLabels = useMemo(() => {
   }, [selectedFolder, preparePending]);
   const totalSize = useMemo(() => files.reduce((acc, f) => acc + (f.size || 0), 0), [files]);
   const runningUploads = useMemo(() => optimisticJobs.some((j) => j.status === "running"), [optimisticJobs]);
+  const runningWorkflows = useMemo(
+    () => seedWorkflowRuns.some((run) => run.status === "queued" || run.status === "running"),
+    [seedWorkflowRuns]
+  );
   const treeForFolders = useMemo(() => {
     if (!tree) return null;
     // tree already includes folders+files; FileTree filters to folders
@@ -1768,7 +1800,7 @@ const breadcrumb = useMemo(() => {
         selectedFolder={selectedFolder}
         uploading={uploading}
         busy={busy}
-        runningUploads={runningUploads}
+        runningTasks={runningUploads || workflowSubmitting || runningWorkflows}
         filesCount={files.length}
         totalSize={totalSize}
         filter={filter}
@@ -2940,6 +2972,7 @@ const breadcrumb = useMemo(() => {
         batchFilenames={batchFilenames}
         showHistory={true}
         seedFetched={seedFetched}
+        seedWorkflowRuns={seedWorkflowRuns}
       />
     </div>
   );

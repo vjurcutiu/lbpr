@@ -1,30 +1,93 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listUploadJobs, type UploadJob, clearUploadJobs } from "../uploadTrackerApi";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Loader2, MoreHorizontal } from "lucide-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Link } from "react-router-dom";
+import { Loader2, MoreHorizontal, ArrowUpRight } from "lucide-react";
 import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+import { listWorkflowRuns } from "@/features/workflows/api";
+import { WorkflowStatusBadge } from "@/features/workflows/components/WorkflowStatusBadge";
+import { getWorkflowIcon } from "@/features/workflows/registry";
+import type { WorkflowRun } from "@/features/workflows/types";
+
+import { clearUploadJobs, listUploadJobs, type UploadJob } from "../uploadTrackerApi";
 
 function phaseLabel(p: UploadJob["phase"]) {
   switch (p) {
-    case "receive": return "Receiving";
-    case "upload": return "Storing";
-    case "transcribe": return "Transcribing";
-    case "ocr": return "OCR";
-    case "extract": return "Extracting";
-    case "embed": return "Embedding";
-    case "upsert": return "Upserting";
-    case "complete": return "Complete";
-    case "error": return "Error";
+    case "receive":
+      return "Receiving";
+    case "upload":
+      return "Storing";
+    case "transcribe":
+      return "Transcribing";
+    case "ocr":
+      return "OCR";
+    case "extract":
+      return "Extracting";
+    case "embed":
+      return "Embedding";
+    case "upsert":
+      return "Upserting";
+    case "complete":
+      return "Complete";
+    case "error":
+      return "Error";
   }
 }
 
 function fmtBytes(n: number) {
-  const units = ["B","KB","MB","GB","TB"];
-  let i = 0; let v = n;
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
   return `${v.toFixed(1)} ${units[i]}`;
+}
+
+function formatRelativeTime(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "just now";
+
+  const diffMs = date.getTime() - Date.now();
+  const minutes = Math.round(diffMs / 60000);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+  if (Math.abs(minutes) < 60) return rtf.format(minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return rtf.format(hours, "hour");
+  const days = Math.round(hours / 24);
+  return rtf.format(days, "day");
+}
+
+function formatWorkflowSelection(run: WorkflowRun) {
+  const files = run.selection.file_ids.length;
+  const folders = run.selection.folder_paths.length;
+  const parts: string[] = [];
+  if (files) parts.push(`${files} file${files === 1 ? "" : "s"}`);
+  if (folders) parts.push(`${folders} folder${folders === 1 ? "" : "s"}`);
+  if (run.selection.current_folder) parts.push(run.selection.current_folder);
+  return parts.join(" • ") || "No source selection";
+}
+
+function renderWorkflowStatusCopy(run: WorkflowRun) {
+  if (run.status === "completed") {
+    return run.result?.summary || "Finished and ready to review.";
+  }
+  if (run.status === "failed") {
+    return run.error || "This run needs review.";
+  }
+  if (run.status === "running") {
+    return "Working through the selected files now.";
+  }
+  return "Queued and waiting to start.";
 }
 
 export function UploadTrackerPanel({
@@ -34,33 +97,27 @@ export function UploadTrackerPanel({
   onAnyComplete,
   onCleared,
   optimistic = [],
-  /** NEW: filter panel to *this* batch only (by filename). */
   batchFilenames = [],
-  /** Optional: show completed items from earlier history even if not in this batch. */
   showHistory = false,
-  /** NEW: seed fetched jobs so existing history appears immediately when panel opens. */
   seedFetched = [],
+  seedWorkflowRuns = [],
 }: {
   open: boolean;
   onClose: () => void;
-  /** When this changes, the panel will force-refresh immediately. */
   refreshKey?: number | string;
-  /** Called when one or more jobs transition to 'done' (or 'error'). */
   onAnyComplete?: (newlyCompleted: UploadJob[]) => void;
-  /** Called after a successful clear so the parent can also clear local optimistic rows. */
   onCleared?: (scope: "done" | "all") => void;
-  /** Optimistic jobs seeded by the Files page when files are *selected* (before the server creates jobs). */
   optimistic?: UploadJob[];
   batchFilenames?: string[];
   showHistory?: boolean;
   seedFetched?: UploadJob[];
+  seedWorkflowRuns?: WorkflowRun[];
 }) {
-  // Initialize from seedFetched to show existing history immediately
   const [jobsFetched, setJobsFetched] = useState<UploadJob[]>(seedFetched || []);
+  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>(seedWorkflowRuns || []);
   const [busy, setBusy] = useState(false);
   const prevStatusRef = useRef<Map<string, UploadJob["status"]>>(new Map());
 
-  // Keep jobsFetched in sync if parent updates the seed
   useEffect(() => {
     if (seedFetched && seedFetched.length > 0) {
       setJobsFetched(seedFetched);
@@ -68,15 +125,19 @@ export function UploadTrackerPanel({
       for (const j of seedFetched) nextMap.set(j.job_id, j.status);
       prevStatusRef.current = nextMap;
     }
-    // if seed becomes empty we do nothing (panel will poll anyway)
   }, [seedFetched]);
+
+  useEffect(() => {
+    if (seedWorkflowRuns && seedWorkflowRuns.length > 0) {
+      setWorkflowRuns(seedWorkflowRuns);
+    }
+  }, [seedWorkflowRuns]);
 
   const refresh = async () => {
     if (!open) return;
     setBusy(true);
     try {
-      const items = await listUploadJobs(); // returns recent history (not just active)
-      // detect newly completed/error
+      const [items, workflowRes] = await Promise.all([listUploadJobs(), listWorkflowRuns(12)]);
       const prev = prevStatusRef.current;
       const newly: UploadJob[] = [];
       for (const j of items) {
@@ -85,29 +146,29 @@ export function UploadTrackerPanel({
           newly.push(j);
         }
       }
-      // update status map
+
       const nextMap = new Map<string, UploadJob["status"]>();
       for (const j of items) nextMap.set(j.job_id, j.status);
       prevStatusRef.current = nextMap;
 
       setJobsFetched(items);
+      setWorkflowRuns(workflowRes.items || []);
       if (newly.length > 0) onAnyComplete?.(newly);
     } catch (e) {
-      console.error("[uploadTracker] list error", e);
+      console.error("[taskTracker] list error", e);
     } finally {
       setBusy(false);
     }
   };
 
-  useEffect(() => { if (open) refresh(); }, [open]);
-  useEffect(() => { if (open) refresh(); }, [refreshKey]); // force refresh when key changes
+  useEffect(() => {
+    if (open) refresh();
+  }, [open]);
+  useEffect(() => {
+    if (open) refresh();
+  }, [refreshKey]);
 
-  // Merge optimistic + fetched with *robust de-duplication*:
-  // - Prefer server-fetched items over optimistic rows once a match by job_id exists
-  // - For temp:* optimistic rows, drop them once the server shows any row for the same filename
-  // - When filtering to the current batch (showHistory=false), collapse to the *latest per filename*
   const mergedJobs = useMemo(() => {
-    // Index fetched by filename and id
     const fetchedByFilename = new Map<string, UploadJob>();
     const fetchedIds = new Set<string>();
     for (const j of jobsFetched) {
@@ -116,24 +177,18 @@ export function UploadTrackerPanel({
       if (!prev || j.updated_at >= prev.updated_at) fetchedByFilename.set(j.filename, j);
     }
 
-    // Keep only optimistic items that don't have a server record for the same *job_id* or (if temp) filename
-    const dedupOptimistic = optimistic.filter(o => {
-      // If server already returned this job_id, prefer the server row
+    const dedupOptimistic = optimistic.filter((o) => {
       if (fetchedIds.has(o.job_id)) return false;
-      // If it's a temp row and we already have a server row for the same filename, hide the temp
       if (o.job_id.startsWith("temp:")) {
         return !fetchedByFilename.has(o.filename);
       }
-      // Otherwise keep it (server hasn't returned this id yet)
       return true;
     });
 
     let arr = [...jobsFetched, ...dedupOptimistic];
 
-    // Apply batch filter unless we explicitly want full history
     if (!showHistory && batchFilenames.length > 0) {
       const allow = new Set(batchFilenames);
-      // Collapse to latest per filename, preferring server vs temp
       const best = new Map<string, UploadJob>();
       for (const j of arr) {
         if (!allow.has(j.filename) && !j.job_id.startsWith("temp:")) continue;
@@ -146,26 +201,27 @@ export function UploadTrackerPanel({
       }
       arr = Array.from(best.values());
     } else {
-      // Else: ensure uniqueness by job_id (server wins because it's first in the array)
       const byId = new Map<string, UploadJob>();
       for (const j of arr) {
-        // If a job_id appears twice (optimistic + server), the first occurrence (server) remains
         if (!byId.has(j.job_id)) byId.set(j.job_id, j);
       }
       arr = Array.from(byId.values());
     }
 
-    return arr.sort((a, b) => (b.updated_at - a.updated_at));
+    return arr.sort((a, b) => b.updated_at - a.updated_at);
   }, [optimistic, jobsFetched, batchFilenames, showHistory]);
 
-  // Compute "any active" from VISIBLE rows only to drive polling cadence
-  const anyActive = mergedJobs.some(j => j.status === "running");
+  const anyActive = useMemo(
+    () =>
+      mergedJobs.some((j) => j.status === "running") ||
+      workflowRuns.some((run) => run.status === "queued" || run.status === "running"),
+    [mergedJobs, workflowRuns]
+  );
 
-  // Self-scheduling poller
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    let timer: any = null;
+    let timer: number | null = null;
     let inflight = false;
 
     const tick = async () => {
@@ -177,40 +233,50 @@ export function UploadTrackerPanel({
         inflight = false;
         if (cancelled) return;
         const delay = anyActive ? 1000 : 5000;
-        timer = setTimeout(tick, delay);
+        timer = window.setTimeout(tick, delay);
       }
     };
 
-    // Kick off immediately
     tick();
 
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
+      if (timer) window.clearTimeout(timer);
     };
   }, [open, anyActive, refreshKey]);
 
-  const totals = useMemo(() => {
+  const uploadTotals = useMemo(() => {
     const all = mergedJobs.length;
-    const done = mergedJobs.filter(j => j.status !== "running").length;
+    const done = mergedJobs.filter((j) => j.status !== "running").length;
     return { all, done };
   }, [mergedJobs]);
+
+  const workflowTotals = useMemo(() => {
+    const all = workflowRuns.length;
+    const done = workflowRuns.filter((run) => run.status === "completed" || run.status === "failed").length;
+    return { all, done };
+  }, [workflowRuns]);
+
+  const totals = useMemo(
+    () => ({
+      all: uploadTotals.all + workflowTotals.all,
+      done: uploadTotals.done + workflowTotals.done,
+    }),
+    [uploadTotals, workflowTotals]
+  );
 
   const doClear = async (scope: "done" | "all") => {
     try {
       const { removed } = await clearUploadJobs(scope);
       if (removed > 0) {
         const plural = removed === 1 ? "entry" : "entries";
-        // @ts-ignore - sonner accepts description in message()
-        ;(toast as any).success(scope === "all" ? "Tracker cleared" : "Completed cleared", {
-          description: `${removed} ${plural} removed.`
+        ;(toast as any).success(scope === "all" ? "Upload history cleared" : "Completed uploads cleared", {
+          description: `${removed} ${plural} removed.`,
         });
       } else {
-        // @ts-ignore
-        (toast as any).message("Nothing to clear", { description: "No matching entries." });
+        (toast as any).message("Nothing to clear", { description: "No matching upload entries." });
       }
 
-      // Immediately update UI (and let parent clear its optimistic rows) so the panel looks cleared right away.
       if (scope === "all") {
         setJobsFetched([]);
         prevStatusRef.current = new Map();
@@ -228,15 +294,18 @@ export function UploadTrackerPanel({
       await refresh();
     } catch (e: any) {
       console.error(e);
-      // @ts-ignore
-      (toast as any).error("Failed to clear", { description: e?.message ?? String(e) });
+      (toast as any).error("Failed to clear uploads", { description: e?.message ?? String(e) });
     }
   };
+
+  const hasUploads = mergedJobs.length > 0;
+  const hasWorkflows = workflowRuns.length > 0;
+  const isEmpty = !hasUploads && !hasWorkflows;
 
   return (
     <div
       className={cn(
-        "fixed z-50 border rounded-lg shadow-xl bg-background",
+        "fixed z-50 rounded-lg border bg-background shadow-xl",
         "left-2 right-2 bottom-2 md:left-auto md:right-4 md:bottom-4 md:w-[460px]",
         "max-w-[95vw]",
         "transition-transform duration-200",
@@ -245,9 +314,13 @@ export function UploadTrackerPanel({
       role="dialog"
       aria-hidden={!open}
     >
-      <div className="px-3 py-2 border-b flex items-center gap-2">
-        <div className="text-sm font-medium">Transfers</div>
-        <div className="text-xs text-muted-foreground">({totals.done}/{totals.all} complete)</div>
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <div>
+          <div className="text-sm font-medium">Tasks</div>
+          <div className="text-xs text-muted-foreground">
+            {totals.all > 0 ? `(${totals.done}/${totals.all} complete)` : "Uploads and workflows in one place"}
+          </div>
+        </div>
         <div className="flex-1" />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -255,59 +328,124 @@ export function UploadTrackerPanel({
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[12rem]">
-            <DropdownMenuItem onClick={() => doClear("done")}>
-              Clear completed
-            </DropdownMenuItem>
+          <DropdownMenuContent align="end" className="min-w-[14rem]">
+            <DropdownMenuItem onClick={() => doClear("done")}>Clear completed uploads</DropdownMenuItem>
             <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => doClear("all")}>
-              Clear all
+              Clear all upload history
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
         <Button size="sm" variant="ghost" onClick={refresh} disabled={busy}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
         </Button>
-        <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          Close
+        </Button>
       </div>
-      <div className="max-h-[60vh] md:max-h-[50vh] overflow-auto p-2 space-y-2">
-        {mergedJobs.length === 0 && (
-          <div className="text-sm text-muted-foreground px-2 py-6 text-center">
+
+      <div className="max-h-[60vh] space-y-4 overflow-auto p-3 md:max-h-[55vh]">
+        {isEmpty ? (
+          <div className="px-2 py-8 text-center text-sm text-muted-foreground">
             {batchFilenames.length > 0 && !showHistory
-              ? "This batch has no visible items yet. Waiting for server to create jobs…"
-              : "No recent uploads."}
+              ? "This batch has no visible items yet. Waiting for the server to create tasks…"
+              : "No recent tasks yet. Upload a file or launch a workflow to see activity here."}
           </div>
-        )}
-        {mergedJobs.map((j) => (
-          <div key={j.job_id} className="border rounded p-2">
-            <div className="flex items-center justify-between text-xs mb-1">
-              <div className="truncate" title={j.filename}>{j.filename}</div>
-              <div className={cn(
-                "px-1.5 py-0.5 rounded",
-                j.status === "error" ? "bg-destructive/20 text-destructive" :
-                j.status === "done" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" :
-                "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-              )}>
-                {phaseLabel(j.phase)}
+        ) : null}
+
+        {hasUploads ? (
+          <section className="space-y-2">
+            <div className="flex items-center justify-between gap-2 px-1">
+              <div>
+                <div className="text-sm font-medium">Uploads</div>
+                <div className="text-xs text-muted-foreground">
+                  {uploadTotals.all} tracked • {uploadTotals.done} complete
+                </div>
               </div>
             </div>
-            <div className="h-2 rounded bg-muted overflow-hidden">
-              <div
-                className={cn(
-                  "h-full transition-all",
-                  j.status === "error" ? "bg-destructive" : "bg-primary"
-                )}
-                style={{ width: `${Math.max(0, Math.min(100, j.pct))}%` }}
-              />
+
+            <div className="space-y-2">
+              {mergedJobs.map((j) => (
+                <div key={j.job_id} className="rounded-xl border p-2.5">
+                  <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                    <div className="truncate font-medium" title={j.filename}>
+                      {j.filename}
+                    </div>
+                    <div
+                      className={cn(
+                        "rounded px-1.5 py-0.5",
+                        j.status === "error"
+                          ? "bg-destructive/20 text-destructive"
+                          : j.status === "done"
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                            : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                      )}
+                    >
+                      {phaseLabel(j.phase)}
+                    </div>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded bg-muted">
+                    <div
+                      className={cn("h-full transition-all", j.status === "error" ? "bg-destructive" : "bg-primary")}
+                      style={{ width: `${Math.max(0, Math.min(100, j.pct))}%` }}
+                    />
+                  </div>
+                  <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+                    <div>
+                      {fmtBytes(j.bytes)} / {fmtBytes(j.total_bytes || 0)}
+                    </div>
+                    <div>{j.pct}%</div>
+                  </div>
+                  {j.error && j.status === "error" ? <div className="mt-1 text-xs text-destructive">{j.error}</div> : null}
+                </div>
+              ))}
             </div>
-            <div className="mt-1 text-[11px] text-muted-foreground flex justify-between">
-              <div>{fmtBytes(j.bytes)} / {fmtBytes(j.total_bytes || 0)}</div>
-              <div>{j.pct}%</div>
+          </section>
+        ) : null}
+
+        {hasWorkflows ? (
+          <section className="space-y-2">
+            <div className="flex items-center justify-between gap-2 px-1">
+              <div>
+                <div className="text-sm font-medium">Workflows</div>
+                <div className="text-xs text-muted-foreground">
+                  {workflowTotals.all} tracked • {workflowTotals.done} complete
+                </div>
+              </div>
+              <Button asChild variant="ghost" size="sm" className="h-8 rounded-full px-3 text-xs">
+                <Link to="/workflows">
+                  Open
+                  <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              </Button>
             </div>
-            {j.error && j.status === "error" && (
-              <div className="mt-1 text-xs text-destructive">{j.error}</div>
-            )}
-          </div>
-        ))}
+
+            <div className="space-y-2">
+              {workflowRuns.map((run) => {
+                const Icon = getWorkflowIcon(run.workflow_id);
+                return (
+                  <div key={run.id} className="rounded-xl border p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border bg-primary/5 text-primary">
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium">{run.title}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">{formatWorkflowSelection(run)}</div>
+                          </div>
+                        </div>
+                      </div>
+                      <WorkflowStatusBadge status={run.status} className="shrink-0" />
+                    </div>
+                    <p className="mt-2 text-sm leading-5 text-muted-foreground">{renderWorkflowStatusCopy(run)}</p>
+                    <div className="mt-2 text-[11px] text-muted-foreground">Updated {formatRelativeTime(run.updated_at)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
       </div>
     </div>
   );

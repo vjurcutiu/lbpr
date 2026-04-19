@@ -10,7 +10,7 @@ type Props = {
   selectedFolder: string;
   uploading: boolean;
   busy: boolean;
-  runningUploads: boolean;
+  runningTasks: boolean;
   filesCount: number;
   totalSize: number;
   filter: string;
@@ -33,7 +33,7 @@ export function FilesTopBar({
   selectedFolder,
   uploading,
   busy,
-  runningUploads,
+  runningTasks,
   filesCount,
   totalSize,
   filter,
@@ -112,10 +112,10 @@ export function FilesTopBar({
         <span className="hidden md:inline">Refresh</span>
       </Button>
 
-      <Button variant="ghost" size="sm" onClick={onToggleTransfers} title="Show transfers" className="relative">
+      <Button variant="ghost" size="sm" onClick={onToggleTransfers} title="Show tasks" className="relative">
         <Activity className="h-4 w-4" />
-        <span className="ml-1 hidden sm:inline">Transfers</span>
-        {(uploading || runningUploads) && (
+        <span className="ml-1 hidden sm:inline">Tasks</span>
+        {(uploading || runningTasks) && (
           <span className="absolute -right-1 -top-1 inline-flex h-2.5 w-2.5">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-60" />
             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary" />
