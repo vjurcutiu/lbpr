@@ -13,7 +13,7 @@ export function WorkflowRunShelf({ runs }: Props) {
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <div className="text-sm font-medium">Recent workflow runs</div>
-          <p className="text-xs text-muted-foreground">Shared result cards keep new workflows out of FilesPage and ChatPage churn.</p>
+          <p className="text-xs text-muted-foreground">Review the latest workflow jobs and open each result card for the full output.</p>
         </div>
       </div>
       <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">

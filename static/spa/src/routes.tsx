@@ -31,6 +31,7 @@ const DPAPage = lazy(() => import("@/pages/DPA"));
 const FilesPage = lazy(() => import("@/features/files/FilesPage"));
 const ChatPage = lazy(() => import("@/features/chat/ChatPage"));
 const BillingPage = lazy(() => import("@/features/billing/BillingPage"));
+const WorkflowsPage = lazy(() => import("@/features/workflows/WorkflowsPage"));
 const SupportPage = lazy(() => import("@/features/support/SupportPage"));
 const ProfilePage = lazy(() => import("@/features/profile/ProfilePage"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
@@ -52,6 +53,7 @@ export const routes: AppRoute[] = [
     children: [
       { path: "/files", element: <FilesPage />, label: "Files", nav: "both", withAppShell: true, fullBleed: true },
       { path: "/chat", element: <ChatPage />, label: "Chat", nav: "both", withAppShell: true, fullBleed: true },
+      { path: "/workflows", element: <WorkflowsPage />, label: "Workflows", nav: "both", withAppShell: true },
       { path: "/billing", element: <BillingPage />, label: "Billing", nav: "both", withAppShell: true },
       { path: "/profile", element: <ProfilePage />, label: "Profile", nav: "both", withAppShell: true },
       { path: "/support", element: <SupportPage />, label: "Support", nav: "mobile", withAppShell: true },

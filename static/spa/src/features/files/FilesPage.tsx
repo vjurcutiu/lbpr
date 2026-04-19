@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   DndContext,
   DragOverlay,
@@ -111,10 +112,9 @@ import {
 } from "./utils/pageHelpers";
 import { WorkflowActionBar } from "@/features/workflows/components/WorkflowActionBar";
 import { WorkflowLauncher } from "@/features/workflows/components/WorkflowLauncher";
-import { WorkflowRunShelf } from "@/features/workflows/components/WorkflowRunShelf";
 import { useWorkflowSelection } from "@/features/workflows/hooks/useWorkflowSelection";
-import { createWorkflowRun, listWorkflowRuns, listWorkflows } from "@/features/workflows/api";
-import type { WorkflowManifest, WorkflowRun } from "@/features/workflows/types";
+import { createWorkflowRun, listWorkflows } from "@/features/workflows/api";
+import type { WorkflowManifest } from "@/features/workflows/types";
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
 import { API_BASE, getJSON } from "@/shared/api";
 import { loadBool, saveBool, loadJSON, saveJSON } from "@/shared/persist";
@@ -163,7 +163,6 @@ export default function FilesPage() {
   );
   const workflowSelection = useWorkflowSelection(workflowSelectionInput);
   const [workflowCatalog, setWorkflowCatalog] = useState<WorkflowManifest[]>([]);
-  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
   const [workflowLoading, setWorkflowLoading] = useState(false);
   const [workflowSubmitting, setWorkflowSubmitting] = useState(false);
   const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
@@ -421,9 +420,8 @@ const internalDragPreviewLabels = useMemo(() => {
   const loadWorkflowInfra = useCallback(async () => {
     setWorkflowLoading(true);
     try {
-      const [catalog, runs] = await Promise.all([listWorkflows(), listWorkflowRuns(6)]);
+      const catalog = await listWorkflows();
       setWorkflowCatalog(catalog);
-      setWorkflowRuns(runs.items || []);
     } catch (err) {
       console.error("[files.workflow] load error", err);
       toast.error("Failed to load workflow starters", { description: parseErr(err) });
@@ -447,7 +445,6 @@ const internalDragPreviewLabels = useMemo(() => {
           selection: workflowSelectionInput,
           inputs: focus.trim() ? { focus: focus.trim() } : {},
         });
-        setWorkflowRuns((prev) => [run, ...prev.filter((item) => item.id !== run.id)].slice(0, 6));
         setWorkflowLauncherOpen(false);
         setActiveWorkflow(null);
         toast.success(`${workflow.title} ready`, {
@@ -1795,7 +1792,13 @@ const breadcrumb = useMemo(() => {
         loading={workflowLoading || workflowSubmitting}
         onLaunch={openWorkflowLauncher}
       />
-      <WorkflowRunShelf runs={workflowRuns} />
+      <div className="border-b bg-background/80 px-3 py-2 text-xs text-muted-foreground">
+        Workflow jobs and results now live in{' '}
+        <Link to="/workflows" className="font-medium text-foreground underline underline-offset-4">
+          Workflows
+        </Link>
+        . Launch them here from your current file selection, then review every run in one place.
+      </div>
 {/* Main split */}
 <DndContext
   sensors={sensors}

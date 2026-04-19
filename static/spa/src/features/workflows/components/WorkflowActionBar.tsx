@@ -39,7 +39,7 @@ export function WorkflowActionBar({ workflows, selection, loading = false, onLau
             </Badge>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Each workflow uses the same shared contract, launcher, and run cards so parallel feature branches stay merge-friendly.
+            Run a workflow on the files or folders you have selected, then review every job and result from the Workflows tab.
           </p>
         </div>
 
