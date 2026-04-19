@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Copy, Files, TriangleAlert } from "lucide-react";
@@ -5,7 +6,6 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 
 import type { WorkflowResult } from "../types";
 
@@ -48,6 +48,18 @@ function formatSourceLabel(source: SourceFileMeta) {
   return source.folder_path ? `${base} · ${source.folder_path}` : base;
 }
 
+function Section({ title, icon: Icon, children }: { title: string; icon?: typeof Files; children: ReactNode }) {
+  return (
+    <section className="border-t border-border/70 pt-3 first:border-t-0 first:pt-0">
+      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
+        {Icon ? <Icon className="h-3 w-3" /> : null}
+        {title}
+      </div>
+      <div className="mt-2">{children}</div>
+    </section>
+  );
+}
+
 export function WorkflowResultDetails({ result }: { result: WorkflowResult }) {
   const sourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
   const warnings = asArray<string>(result.metadata?.warnings).filter(Boolean);
@@ -67,16 +79,20 @@ export function WorkflowResultDetails({ result }: { result: WorkflowResult }) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {!!warnings.length && (
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-amber-800 dark:text-amber-200">
-            <TriangleAlert className="h-3.5 w-3.5" />
+        <div className="border border-amber-500/20 bg-amber-500/8 px-3 py-3">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800 dark:text-amber-200">
+            <TriangleAlert className="h-3 w-3" />
             Notes
           </div>
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {warnings.map((warning) => (
-              <Badge key={warning} variant="outline" className="whitespace-normal text-left text-[11px] text-amber-900 dark:text-amber-100">
+              <Badge
+                key={warning}
+                variant="outline"
+                className="whitespace-normal rounded-none px-1.5 py-0 text-left text-[10px] font-normal text-amber-900 dark:text-amber-100"
+              >
                 {warning}
               </Badge>
             ))}
@@ -85,94 +101,91 @@ export function WorkflowResultDetails({ result }: { result: WorkflowResult }) {
       )}
 
       {!!sourceFiles.length && (
-        <div className="space-y-2 rounded-2xl border bg-muted/20 p-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            <Files className="h-3.5 w-3.5" />
-            Source material used
-          </div>
-          <div className="flex flex-wrap gap-2">
+        <Section title="Source material used" icon={Files}>
+          <div className="flex flex-wrap gap-1">
             {sourceFiles.map((source, idx) => (
-              <Badge key={`${source.file_id || source.name || "source"}-${idx}`} variant="secondary" className="max-w-full whitespace-normal rounded-full text-left">
+              <Badge
+                key={`${source.file_id || source.name || "source"}-${idx}`}
+                variant="secondary"
+                className="max-w-full whitespace-normal rounded-none px-1.5 py-0 text-left text-[10px] font-normal"
+              >
                 {formatSourceLabel(source)}
               </Badge>
             ))}
           </div>
-        </div>
+        </Section>
       )}
 
       {!!fields.length && (
-        <div className="space-y-3 rounded-2xl border bg-muted/20 p-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Structured output</div>
-          <div className="grid gap-2 sm:grid-cols-2">
+        <Section title="Structured output">
+          <div className="grid gap-0 border border-border/70 sm:grid-cols-2 sm:divide-x sm:divide-border/70">
             {fields.map((field, idx) => (
-              <div key={`${field.field || "field"}-${idx}`} className="rounded-2xl border bg-background p-3">
-                <div className="text-xs font-medium text-muted-foreground">{field.field || "Field"}</div>
-                <div className="mt-1 text-sm leading-6">{field.value || "—"}</div>
-                {field.confidence ? <div className="mt-1 text-[11px] uppercase tracking-wide text-muted-foreground">{field.confidence} confidence</div> : null}
+              <div key={`${field.field || "field"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0 sm:[&:nth-child(-n+2)]:border-t-0">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{field.field || "Field"}</div>
+                <div className="mt-1 text-sm leading-5 text-foreground">{field.value || "—"}</div>
+                {field.confidence ? (
+                  <div className="mt-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{field.confidence} confidence</div>
+                ) : null}
               </div>
             ))}
           </div>
-        </div>
+        </Section>
       )}
 
       {!!differences.length && (
-        <div className="space-y-3 rounded-2xl border bg-muted/20 p-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Difference summary</div>
-          <div className="space-y-2">
+        <Section title="Difference summary">
+          <div className="border border-border/70">
             {differences.map((difference, idx) => (
-              <div key={`${difference.topic || "difference"}-${idx}`} className="rounded-2xl border bg-background p-3">
-                <div className="text-sm font-medium">{difference.topic || "Difference"}</div>
-                <div className="mt-2 grid gap-2 md:grid-cols-2">
+              <div key={`${difference.topic || "difference"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0">
+                <div className="text-sm font-medium leading-5 text-foreground">{difference.topic || "Difference"}</div>
+                <div className="mt-2 grid gap-3 md:grid-cols-2">
                   <div>
-                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">File A</div>
-                    <div className="text-sm leading-6">{difference.file_a || "—"}</div>
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">File A</div>
+                    <div className="mt-1 text-sm leading-5">{difference.file_a || "—"}</div>
                   </div>
                   <div>
-                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">File B</div>
-                    <div className="text-sm leading-6">{difference.file_b || "—"}</div>
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">File B</div>
+                    <div className="mt-1 text-sm leading-5">{difference.file_b || "—"}</div>
                   </div>
                 </div>
-                {difference.impact ? <div className="mt-2 text-sm leading-6 text-muted-foreground">{difference.impact}</div> : null}
+                {difference.impact ? <div className="mt-2 text-sm leading-5 text-muted-foreground">{difference.impact}</div> : null}
               </div>
             ))}
           </div>
-        </div>
+        </Section>
       )}
 
       {!!planItems.length && (
-        <div className="space-y-3 rounded-2xl border bg-muted/20 p-3">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Execution plan</div>
-          <div className="space-y-2">
+        <Section title="Execution plan">
+          <div className="border border-border/70">
             {planItems.map((item, idx) => (
-              <div key={`${item.action || "plan-item"}-${idx}`} className="rounded-2xl border bg-background p-3">
-                <div className="text-sm font-medium">{item.action || "Action item"}</div>
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-                  {item.priority ? <Badge variant="outline">{item.priority}</Badge> : null}
-                  {item.owner ? <Badge variant="outline">Owner: {item.owner}</Badge> : null}
-                  {item.timeline ? <Badge variant="outline">{item.timeline}</Badge> : null}
+              <div key={`${item.action || "plan-item"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0">
+                <div className="text-sm font-medium leading-5 text-foreground">{item.action || "Action item"}</div>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                  {item.priority ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{item.priority}</Badge> : null}
+                  {item.owner ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">Owner: {item.owner}</Badge> : null}
+                  {item.timeline ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{item.timeline}</Badge> : null}
                 </div>
               </div>
             ))}
           </div>
-        </div>
+        </Section>
       )}
 
       {preview ? (
-        <>
-          <Separator />
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Output preview</div>
-            <Button variant="outline" size="sm" onClick={copyPreview}>
-              <Copy className="mr-1.5 h-4 w-4" />
-              Copy output
+        <Section title="Output preview">
+          <div className="mb-2 flex items-center justify-end">
+            <Button variant="outline" size="sm" className="h-8 rounded-none px-3 text-xs" onClick={copyPreview}>
+              <Copy className="mr-1 h-4 w-4" />
+              Copy
             </Button>
           </div>
-          <div className="max-h-[420px] overflow-auto rounded-2xl border bg-background px-4 py-3 text-sm shadow-sm">
-            <div className="prose prose-sm max-w-none dark:prose-invert">
+          <div className="border border-border/70 px-3 py-3 text-sm leading-6">
+            <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:mb-2 prose-headings:mt-3 prose-p:my-2 prose-li:my-0.5 prose-ul:my-2">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview}</ReactMarkdown>
             </div>
           </div>
-        </>
+        </Section>
       ) : null}
     </div>
   );

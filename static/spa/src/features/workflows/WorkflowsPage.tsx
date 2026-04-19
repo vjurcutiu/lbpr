@@ -1,30 +1,26 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  CheckCircle2,
-  Clock3,
   FolderSearch,
   RefreshCw,
-  ShieldCheck,
-  Sparkles,
-  XCircle,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { parseErr } from "@/features/files/utils/formatters";
 
 import { listWorkflowRuns, listWorkflows } from "./api";
-import { getWorkflowIcon } from "./registry";
-import type { WorkflowCapability, WorkflowManifest, WorkflowRun } from "./types";
-import { WorkflowRunCard } from "./components/WorkflowRunCard";
+import { WorkflowResultDetails } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
+import { getWorkflowIcon } from "./registry";
+import type { WorkflowCapability, WorkflowManifest, WorkflowRun, WorkflowStatus } from "./types";
 
 function formatSelectionRequirements(workflow: WorkflowManifest) {
   const parts: string[] = [];
@@ -77,11 +73,205 @@ function formatRelativeTime(iso: string) {
   return rtf.format(days, "day");
 }
 
+function formatSelection(run: WorkflowRun) {
+  const files = run.selection.file_ids.length;
+  const folders = run.selection.folder_paths.length;
+  const parts: string[] = [];
+  if (files) parts.push(`${files} file${files === 1 ? "" : "s"}`);
+  if (folders) parts.push(`${folders} folder${folders === 1 ? "" : "s"}`);
+  return parts.join(" • ") || "No source selection";
+}
+
+function renderStatusCopy(run: WorkflowRun) {
+  if (run.status === "completed") {
+    return run.result?.summary || "This run finished and is ready to review.";
+  }
+  if (run.status === "failed") {
+    return run.error || "This run did not complete. Review the selection or launch it again.";
+  }
+  if (run.status === "running") {
+    return "This run is in progress. Results will appear here as soon as processing finishes.";
+  }
+  return "This run is queued and will start automatically.";
+}
+
+function sameLocalDay(iso: string, now = new Date()) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return false;
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+}
+
+type RunView = "all" | "active" | "completed" | "attention";
+
+function filterRunsByView(runs: WorkflowRun[], view: RunView) {
+  switch (view) {
+    case "active":
+      return runs.filter((run) => run.status === "queued" || run.status === "running");
+    case "completed":
+      return runs.filter((run) => run.status === "completed");
+    case "attention":
+      return runs.filter((run) => run.status === "failed");
+    default:
+      return runs;
+  }
+}
+
+function matchesSearch(run: WorkflowRun, query: string) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+
+  const haystack = [
+    run.title,
+    run.workflow_id,
+    run.result?.summary,
+    run.error,
+    run.selection.current_folder,
+    formatCapability(run.capability),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(needle);
+}
+
+function statusAccent(status: WorkflowStatus) {
+  switch (status) {
+    case "completed":
+      return "bg-emerald-500/8 text-emerald-700 dark:text-emerald-300";
+    case "failed":
+      return "bg-destructive/8 text-destructive";
+    case "running":
+      return "bg-sky-500/8 text-sky-700 dark:text-sky-300";
+    case "queued":
+      return "bg-amber-500/8 text-amber-700 dark:text-amber-300";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
+}
+
+function PaneHeader({
+  title,
+  meta,
+  action,
+}: {
+  title: string;
+  meta?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-3">
+      <div className="min-w-0">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">{title}</div>
+        {meta ? <div className="truncate text-xs text-muted-foreground">{meta}</div> : null}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function RunListItem({
+  run,
+  active,
+  onSelect,
+}: {
+  run: WorkflowRun;
+  active: boolean;
+  onSelect: (runId: string) => void;
+}) {
+  const Icon = getWorkflowIcon(run.workflow_id);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(run.id)}
+      className={cn(
+        "w-full border-l-2 px-3 py-3 text-left transition-colors",
+        active ? "border-l-primary bg-accent/30" : "border-l-transparent hover:bg-muted/25"
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <div
+          className={cn(
+            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center border border-border/70 bg-background",
+            statusAccent(run.status)
+          )}
+        >
+          <Icon className="h-4 w-4" />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium leading-5 text-foreground">{run.title}</div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span>{formatCapability(run.capability)}</span>
+                <span className="h-1 w-1 rounded-full bg-border" />
+                <span>{formatRelativeTime(run.updated_at)}</span>
+              </div>
+            </div>
+            <WorkflowStatusBadge status={run.status} className="shrink-0 px-1.5 py-0 text-[10px]" />
+          </div>
+
+          <p className="mt-1.5 line-clamp-2 text-sm leading-5 text-muted-foreground">{renderStatusCopy(run)}</p>
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span>{formatSelection(run)}</span>
+            <span className="h-1 w-1 rounded-full bg-border" />
+            <span className="truncate">{run.selection.current_folder || "Root"}</span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function WorkflowCatalogItem({ workflow }: { workflow: WorkflowManifest }) {
+  const Icon = getWorkflowIcon(workflow.workflow_id);
+
+  return (
+    <div className="border-b border-border/70 px-3 py-3 last:border-b-0">
+      <div className="flex items-start gap-2">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-border/70 bg-primary/5 text-primary">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium leading-5 text-foreground">{workflow.title}</div>
+          <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{workflow.description}</div>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
+              {formatCapability(workflow.capability)}
+            </Badge>
+            {formatSelectionRequirements(workflow)
+              .slice(0, 1)
+              .map((item) => (
+                <Badge
+                  key={item}
+                  variant="secondary"
+                  className="rounded-none px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                >
+                  {item}
+                </Badge>
+              ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function WorkflowsPage() {
   const [catalog, setCatalog] = useState<WorkflowManifest[]>([]);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [view, setView] = useState<RunView>("all");
+  const [search, setSearch] = useState("");
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
   const loadPage = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
@@ -113,294 +303,263 @@ export default function WorkflowsPage() {
   }, [loadPage]);
 
   const stats = useMemo(() => {
-    const completed = runs.filter((run) => run.status === "completed").length;
-    const failed = runs.filter((run) => run.status === "failed").length;
-    const inFlight = runs.filter((run) => run.status === "queued" || run.status === "running").length;
-    const successRate = runs.length ? Math.round((completed / runs.length) * 100) : 0;
-    return { completed, failed, inFlight, successRate };
-  }, [runs]);
+    const completed = runs.filter((run) => run.status === "completed");
+    const failed = runs.filter((run) => run.status === "failed");
+    const inFlight = runs.filter((run) => run.status === "queued" || run.status === "running");
+    const completedToday = completed.filter((run) => sameLocalDay(run.updated_at)).length;
+    const terminalCount = completed.length + failed.length;
+    const successRate = terminalCount ? Math.round((completed.length / terminalCount) * 100) : 0;
 
-  const runsByView = useMemo(() => {
     return {
-      all: runs,
-      active: runs.filter((run) => run.status === "queued" || run.status === "running"),
-      completed: runs.filter((run) => run.status === "completed"),
-      attention: runs.filter((run) => run.status === "failed"),
+      completed: completed.length,
+      failed: failed.length,
+      inFlight: inFlight.length,
+      completedToday,
+      successRate,
     };
   }, [runs]);
 
-  const latestRun = runs[0] || null;
+  const runsByView = useMemo(
+    () => ({
+      all: runs,
+      active: filterRunsByView(runs, "active"),
+      completed: filterRunsByView(runs, "completed"),
+      attention: filterRunsByView(runs, "attention"),
+    }),
+    [runs]
+  );
+
+  const visibleRuns = useMemo(() => {
+    return filterRunsByView(runs, view).filter((run) => matchesSearch(run, search));
+  }, [runs, search, view]);
+
+  useEffect(() => {
+    if (!visibleRuns.length) {
+      setSelectedRunId(null);
+      return;
+    }
+    if (!selectedRunId || !visibleRuns.some((run) => run.id === selectedRunId)) {
+      setSelectedRunId(visibleRuns[0]?.id ?? null);
+    }
+  }, [selectedRunId, visibleRuns]);
+
+  const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
 
   return (
-    <div className="flex w-full flex-col gap-6">
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-[28px] border bg-gradient-to-br from-background via-background to-muted/40 p-6 shadow-sm md:p-7">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-medium text-muted-foreground">
-              <Sparkles className="h-3.5 w-3.5 text-primary" />
-              Production-ready workflow hub
-            </Badge>
-            <Badge variant="outline" className="rounded-full px-3 py-1 text-xs text-muted-foreground">
-              Auto-refreshes every 15 seconds
-            </Badge>
-          </div>
+    <div className="h-full min-h-0">
+      <div className="grid h-full min-h-0 border border-border/70 bg-background xl:grid-cols-[320px_minmax(0,1fr)_280px] xl:divide-x xl:divide-border/70">
 
-          <div className="mt-5 space-y-3">
-            <h1 className="text-2xl font-semibold tracking-tight md:text-4xl">Workflows</h1>
-            <p className="max-w-3xl text-sm leading-6 text-muted-foreground md:text-base">
-              Turn selected files into summaries, comparisons, drafts, reports, and action plans — then track every run, review the output, and reopen the latest result from one customer-facing workspace.
-            </p>
-          </div>
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            {[
-              {
-                title: "Launch from Files",
-                body: "Start from the files you already selected, so every run stays grounded in the right source material.",
-              },
-              {
-                title: "Review results here",
-                body: "Each run keeps its summary, output preview, and source context in one place for easy follow-up.",
-              },
-              {
-                title: "Share-ready outputs",
-                body: "Use workflows to move from raw documents to deliverables your team can act on faster.",
-              },
-            ].map((item) => (
-              <div key={item.title} className="rounded-3xl border bg-background/80 p-4 shadow-sm">
-                <div className="text-sm font-medium">{item.title}</div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-          <Card className="rounded-[28px] border shadow-sm">
-            <CardHeader className="pb-3">
-              <CardDescription>Latest activity</CardDescription>
-              <CardTitle className="text-xl">{latestRun ? latestRun.title : "No runs yet"}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              {latestRun ? (
-                <>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <WorkflowStatusBadge status={latestRun.status} />
-                    <Badge variant="outline" className="rounded-full text-muted-foreground">
-                      Updated {formatRelativeTime(latestRun.updated_at)}
-                    </Badge>
-                  </div>
-                  <p className="leading-6 text-muted-foreground">
-                    {latestRun.result?.summary || latestRun.error || "This run is still in progress."}
-                  </p>
-                </>
-              ) : (
-                <p className="leading-6 text-muted-foreground">
-                  Start a workflow from the Files view and the latest run will appear here automatically.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-[28px] border shadow-sm">
-            <CardHeader className="pb-3">
-              <CardDescription>Quick actions</CardDescription>
-              <CardTitle className="text-xl">Keep work moving</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
-              <Button asChild variant="default" className="rounded-full">
-                <Link to="/files">
-                  <FolderSearch className="mr-2 h-4 w-4" />
-                  Open Files
-                </Link>
-              </Button>
-              <Button variant="outline" className="rounded-full" onClick={() => loadPage({ silent: true })} disabled={loading || refreshing}>
-                <RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />
-                Refresh now
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="rounded-3xl border shadow-sm">
-          <CardHeader className="pb-2">
-            <CardDescription>Available workflows</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-3xl">
-              <Sparkles className="h-6 w-6 text-primary" />
-              {catalog.length}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Shared workflow starters available from the Files view.
-          </CardContent>
-        </Card>
-        <Card className="rounded-3xl border shadow-sm">
-          <CardHeader className="pb-2">
-            <CardDescription>Runs tracked</CardDescription>
-            <CardTitle className="text-3xl">{runs.length}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Recent workflow activity stored here for quick review.
-          </CardContent>
-        </Card>
-        <Card className="rounded-3xl border shadow-sm">
-          <CardHeader className="pb-2">
-            <CardDescription>Completion rate</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-3xl">
-              <CheckCircle2 className="h-6 w-6 text-primary" />
-              {stats.successRate}%
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Based on the recent runs shown on this page.
-          </CardContent>
-        </Card>
-        <Card className="rounded-3xl border shadow-sm">
-          <CardHeader className="pb-2">
-            <CardDescription>Needs attention</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-3xl">
-              <XCircle className="h-6 w-6 text-destructive" />
-              {stats.failed + stats.inFlight}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Includes queued, running, and failed runs that may need a follow-up.
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-        <Card className="min-h-[420px] rounded-[28px] border shadow-sm">
-          <CardHeader className="space-y-3 pb-0">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <CardTitle>Run history</CardTitle>
-                <CardDescription>
-                  Review workflow output, reopen the latest result, and keep an eye on anything still in progress.
-                </CardDescription>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <Badge variant="outline" className="rounded-full">
-                  <Clock3 className="h-3.5 w-3.5" />
-                  Updates every 15 seconds
-                </Badge>
-                {latestRun ? <span>Latest update {formatRelativeTime(latestRun.updated_at)}</span> : null}
+          <section className="flex min-h-[220px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0">
+            <PaneHeader
+              title="Run inbox"
+              meta={`Recent activity • ${stats.inFlight ? `${stats.inFlight} running` : "idle"} • ${stats.failed} failed • ${stats.completedToday} done today`}
+              action={
+                <div className="flex items-center gap-1">
+                  <Button asChild size="sm" className="h-8 rounded-none px-3 text-xs">
+                    <Link to="/files">
+                      <FolderSearch className="mr-1 h-3 w-3" />
+                      New workflow
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-none px-3 text-xs"
+                    onClick={() => loadPage({ silent: true })}
+                    disabled={loading || refreshing}
+                  >
+                    <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
+                    Refresh
+                  </Button>
+                </div>
+              }
+            />
+            <div className="shrink-0 border-b border-border/70 px-3 py-3">
+              <Tabs value={view} onValueChange={(value) => setView(value as RunView)}>
+                <TabsList className="h-auto w-full justify-start rounded-none bg-muted/40 p-1">
+                  <TabsTrigger value="all" className="h-7 rounded-none px-2 text-xs">All {runsByView.all.length}</TabsTrigger>
+                  <TabsTrigger value="active" className="h-7 rounded-none px-2 text-xs">Active {runsByView.active.length}</TabsTrigger>
+                  <TabsTrigger value="completed" className="h-7 rounded-none px-2 text-xs">Done {runsByView.completed.length}</TabsTrigger>
+                  <TabsTrigger value="attention" className="h-7 rounded-none px-2 text-xs">Failed {runsByView.attention.length}</TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <div className="relative mt-2">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search runs"
+                  className="h-8 rounded-none border-border/80 bg-background pl-8 text-sm shadow-none"
+                />
               </div>
             </div>
-          </CardHeader>
-          <CardContent className="pt-5">
-            {loading ? (
-              <div className="rounded-3xl border border-dashed p-8 text-sm text-muted-foreground">
-                Loading workflow runs…
-              </div>
-            ) : (
-              <Tabs defaultValue="all" className="gap-4">
-                <TabsList className="h-auto flex-wrap rounded-2xl p-1">
-                  <TabsTrigger value="all" className="rounded-xl">All ({runsByView.all.length})</TabsTrigger>
-                  <TabsTrigger value="active" className="rounded-xl">In progress ({runsByView.active.length})</TabsTrigger>
-                  <TabsTrigger value="completed" className="rounded-xl">Completed ({runsByView.completed.length})</TabsTrigger>
-                  <TabsTrigger value="attention" className="rounded-xl">Needs review ({runsByView.attention.length})</TabsTrigger>
-                </TabsList>
+            <div className="min-h-0 flex-1">
+              {loading ? (
+                <div className="p-3 text-sm text-muted-foreground">Loading workflow runs…</div>
+              ) : visibleRuns.length ? (
+                <ScrollArea className="h-full">
+                  <div className="divide-y divide-border/70">
+                    {visibleRuns.map((run) => (
+                      <RunListItem key={run.id} run={run} active={run.id === selectedRunId} onSelect={setSelectedRunId} />
+                    ))}
+                  </div>
+                </ScrollArea>
+              ) : (
+                <div className="p-3 text-sm leading-5 text-muted-foreground">
+                  {search.trim()
+                    ? "No workflow runs match this search yet."
+                    : view === "all"
+                      ? "No workflow runs yet. Start one from Files and it will appear here."
+                      : view === "active"
+                        ? "No runs are currently queued or running."
+                        : view === "completed"
+                          ? "Completed workflow output will appear here once a run finishes."
+                          : "Nothing needs review right now."}
+                </div>
+              )}
+            </div>
+          </section>
 
-                {(["all", "active", "completed", "attention"] as const).map((view) => (
-                  <TabsContent key={view} value={view}>
-                    {runsByView[view].length ? (
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        {runsByView[view].map((run) => (
-                          <WorkflowRunCard key={run.id} run={run} />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="rounded-3xl border border-dashed p-8 text-sm text-muted-foreground">
-                        {view === "all" && "No workflow runs yet. Start one from the Files view and it will appear here."}
-                        {view === "active" && "No runs are currently queued or running."}
-                        {view === "completed" && "Completed workflow output will appear here once a run finishes."}
-                        {view === "attention" && "Nothing needs review right now."}
-                      </div>
-                    )}
-                  </TabsContent>
-                ))}
-              </Tabs>
-            )}
-          </CardContent>
-        </Card>
+          <section className="flex min-h-[320px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0">
+            <PaneHeader
+              title="Run details"
+              meta={selectedRun ? `Updated ${formatRelativeTime(selectedRun.updated_at)}` : "Select a run to review output"}
+              action={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 rounded-none px-3 text-xs"
+                  onClick={() => loadPage({ silent: true })}
+                  disabled={loading || refreshing}
+                >
+                  <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
+                  Sync
+                </Button>
+              }
+            />
 
-        <div className="space-y-6">
-          <Card className="rounded-[28px] border shadow-sm">
-            <CardHeader>
-              <CardTitle>Workflow catalog</CardTitle>
-              <CardDescription>
-                The launchers below are also available from the Files view, using your current selection.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {catalog.map((workflow, index) => {
-                const Icon = getWorkflowIcon(workflow.workflow_id);
-                return (
-                  <div key={workflow.workflow_id} className="space-y-3">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl border bg-primary/5 text-primary">
-                        <Icon className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-2">
-                        <div>
-                          <div className="text-sm font-medium">{workflow.title}</div>
-                          <p className="mt-1 text-sm leading-6 text-muted-foreground">{workflow.description}</p>
+            {selectedRun ? (
+              <>
+                <div className="shrink-0 border-b border-border/70 px-3 py-3">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-start gap-2">
+                        <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center border border-border/70 bg-background", statusAccent(selectedRun.status))}>
+                          {(() => {
+                            const Icon = getWorkflowIcon(selectedRun.workflow_id);
+                            return <Icon className="h-4 w-4" />;
+                          })()}
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <Badge variant="secondary" className="rounded-full">{formatCapability(workflow.capability)}</Badge>
-                          {workflow.tags.map((tag) => (
-                            <Badge key={tag} variant="outline" className="rounded-full">
-                              {tag}
-                            </Badge>
-                          ))}
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {formatSelectionRequirements(workflow).map((item) => (
-                            <Badge key={item} variant="outline" className="whitespace-normal rounded-full text-left text-[11px] text-muted-foreground">
-                              {item}
-                            </Badge>
-                          ))}
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold leading-5 text-foreground">{selectedRun.title}</div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                            <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
+                            <span>{formatCapability(selectedRun.capability)}</span>
+                            <span className="h-1 w-1 rounded-full bg-border" />
+                            <span>{formatSelection(selectedRun)}</span>
+                            <span className="h-1 w-1 rounded-full bg-border" />
+                            <span>{selectedRun.selection.current_folder || "Root"}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                    {index < catalog.length - 1 ? <Separator /> : null}
+
+                    <Button asChild variant="outline" size="sm" className="h-8 rounded-none px-3 text-xs">
+                      <Link to="/files">Launch from Files</Link>
+                    </Button>
                   </div>
-                );
-              })}
-
-              <Button asChild className="w-full rounded-full" variant="outline">
-                <Link to="/files">
-                  Select files and launch a workflow
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-[28px] border shadow-sm">
-            <CardHeader>
-              <CardTitle>Built for customer-facing work</CardTitle>
-              <CardDescription>
-                The workflow view is designed to feel clear, trustworthy, and easy to review with stakeholders.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm">
-              {[
-                "Every run keeps its source context visible, so outputs stay tied to the files that informed them.",
-                "Results are grouped into summaries, structured output, and next steps so teams can act quickly.",
-                "Run history lives outside chat, which makes it easier to revisit deliverables without digging through old conversations.",
-              ].map((item) => (
-                <div key={item} className="flex items-start gap-3 rounded-2xl border bg-muted/20 p-3">
-                  <ShieldCheck className="mt-0.5 h-4 w-4 text-primary" />
-                  <p className="leading-6 text-muted-foreground">{item}</p>
+                  <div className="mt-3 border-t border-border/70 pt-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Overview</div>
+                    <p className="mt-1.5 text-sm leading-5 text-foreground">{renderStatusCopy(selectedRun)}</p>
+                  </div>
                 </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
+
+                {(selectedRun.result?.bullets?.length || selectedRun.result?.next_actions?.length) ? (
+                  <div className="grid shrink-0 border-b border-border/70 lg:grid-cols-2 lg:divide-x lg:divide-border/70">
+                    <div className="px-3 py-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Takeaways</div>
+                      <div className="mt-2 space-y-2">
+                        {(selectedRun.result?.bullets || []).slice(0, 3).map((item, index) => (
+                          <div key={`${item}-${index}`} className="text-sm leading-5 text-foreground">
+                            {item}
+                          </div>
+                        ))}
+                        {!selectedRun.result?.bullets?.length ? (
+                          <div className="text-sm leading-5 text-muted-foreground">No takeaways yet for this run.</div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-border/70 px-3 py-3 lg:border-t-0">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Next steps</div>
+                      <div className="mt-2 space-y-2">
+                        {(selectedRun.result?.next_actions || []).slice(0, 3).map((item, index) => (
+                          <div key={`${item}-${index}`} className="text-sm leading-5 text-foreground">
+                            {item}
+                          </div>
+                        ))}
+                        {!selectedRun.result?.next_actions?.length ? (
+                          <div className="text-sm leading-5 text-muted-foreground">No recommended next steps yet for this run.</div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="min-h-0 flex-1 overflow-hidden">
+                  <ScrollArea className="h-full">
+                    <div className="p-3">
+                      {selectedRun.result ? (
+                        <WorkflowResultDetails result={selectedRun.result} />
+                      ) : selectedRun.status === "failed" ? (
+                        <div className="border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm leading-5 text-destructive">
+                          {selectedRun.error || "This workflow failed before returning an output."}
+                        </div>
+                      ) : (
+                        <div className="text-sm leading-5 text-muted-foreground">
+                          This run is still in progress. Refresh to pick up the latest result.
+                        </div>
+                      )}
+                    </div>
+                  </ScrollArea>
+                </div>
+              </>
+            ) : (
+              <div className="p-3 text-sm leading-5 text-muted-foreground">
+                Start a workflow from Files, or select a run from the inbox to review the latest output.
+              </div>
+            )}
+          </section>
+
+          <section className="flex min-h-[220px] min-w-0 flex-col xl:min-h-0">
+            <PaneHeader
+              title="Available flows"
+              meta="Launchers already available in Files"
+              action={
+                <Button asChild variant="ghost" size="sm" className="h-8 rounded-none px-3 text-xs">
+                  <Link to="/files">
+                    Open
+                    <ArrowRight className="ml-1 h-3 w-3" />
+                  </Link>
+                </Button>
+              }
+            />
+            <div className="min-h-0 flex-1">
+              {catalog.length ? (
+                <ScrollArea className="h-full">
+                  <div>
+                    {catalog.map((workflow) => (
+                      <WorkflowCatalogItem key={workflow.workflow_id} workflow={workflow} />
+                    ))}
+                  </div>
+                </ScrollArea>
+              ) : (
+                <div className="p-3 text-sm leading-5 text-muted-foreground">
+                  Workflow starters will appear here once the catalog loads.
+                </div>
+              )}
+            </div>
+          </section>
       </div>
     </div>
   );

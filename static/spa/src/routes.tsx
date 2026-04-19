@@ -53,7 +53,7 @@ export const routes: AppRoute[] = [
     children: [
       { path: "/files", element: <FilesPage />, label: "Files", nav: "both", withAppShell: true, fullBleed: true },
       { path: "/chat", element: <ChatPage />, label: "Chat", nav: "both", withAppShell: true, fullBleed: true },
-      { path: "/workflows", element: <WorkflowsPage />, label: "Workflows", nav: "both", withAppShell: true },
+      { path: "/workflows", element: <WorkflowsPage />, label: "Workflows", nav: "both", withAppShell: true, fullBleed: true },
       { path: "/billing", element: <BillingPage />, label: "Billing", nav: "both", withAppShell: true },
       { path: "/profile", element: <ProfilePage />, label: "Profile", nav: "both", withAppShell: true },
       { path: "/support", element: <SupportPage />, label: "Support", nav: "mobile", withAppShell: true },
