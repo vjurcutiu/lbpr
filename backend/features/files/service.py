@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import io
 import logging
 import os
@@ -28,7 +27,7 @@ from core import tracker as uptrack
 from core.tokenizer import count_tokens
 from core.rate_limit import add_upload_tokens
 from core.plan import sync_caps_and_plan
-from core.background_jobs import submit as submit_background_job
+from core.background_jobs import submit_async as submit_background_job
 from core.business_metrics import (
     record_file_upload_completed,
     record_file_upload_error,
@@ -363,9 +362,6 @@ async def _process_upload_job_async(
             log.debug("upload_tempfile_cleanup_failed", object=object_name, path=temp_path, error=str(e))
 
 
-def _process_upload_job_sync(**kwargs) -> None:
-    asyncio.run(_process_upload_job_async(**kwargs))
-
 
 async def upload_file(
     uid: str,
@@ -438,7 +434,7 @@ async def upload_file(
 
         submit_background_job(
             f"upload:{object_name}",
-            _process_upload_job_sync,
+            _process_upload_job_async,
             uid=uid,
             object_name=object_name,
             filename=filename,

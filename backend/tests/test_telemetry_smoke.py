@@ -145,7 +145,19 @@ def test_upload_success_emits_upload_and_ingest_metrics(auth_client, fake_busine
     monkeypatch.setattr(files_service, "count_tokens", lambda text: 2)
     monkeypatch.setattr(files_service, "tokenize_text", lambda uid, text: text)
     monkeypatch.setattr(files_service.index_store, "upsert_file", lambda *args, **kwargs: None)
+    def run_inline_background_job(job_name, coro_fn, *args, **kwargs):
+        import asyncio
+
+        asyncio.run(coro_fn(*args, **kwargs))
+
+        class _Done:
+            def result(self):
+                return None
+
+        return _Done()
+
     monkeypatch.setattr(files_service.orchestrator, "ingest_request", fake_ingest_request)
+    monkeypatch.setattr(files_service, "submit_background_job", run_inline_background_job)
     monkeypatch.setattr(files_service.uptrack, "create_job", noop_async)
     monkeypatch.setattr(files_service.uptrack, "set_phase", noop_async)
     monkeypatch.setattr(files_service.uptrack, "incr_bytes", noop_async)

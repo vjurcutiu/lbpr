@@ -150,7 +150,7 @@ async def lifespan(app: FastAPI):
     start_background_jobs()
     yield
     stop_background_jobs(wait=False)
-    await redis_utils.close()
+    await redis_utils.close_all()
     shutdown_telemetry()
 
 def create_app() -> FastAPI:
