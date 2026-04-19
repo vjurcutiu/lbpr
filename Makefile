@@ -19,7 +19,7 @@ NET  := $(PROJECT)_appnet
 -include .env.local
 export
 
-.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check synczip synczip-working telemetry-seed grafana-init grafana-plan grafana-apply
+.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check synczip synczip-working telemetry-seed grafana-init grafana-plan grafana-apply git-hooks-install git-hooks-uninstall
 
 help:
 	@echo "Targets:"
@@ -53,6 +53,10 @@ help:
 	@echo "  make grafana-init         - terraform init for Grafana dashboards as code"
 	@echo "  make grafana-plan         - terraform plan for Grafana dashboards as code"
 	@echo "  make grafana-apply        - terraform apply for Grafana dashboards as code"
+	@echo ""
+	@echo "Git hooks:"
+	@echo "  make git-hooks-install    - enable repo-managed hooks from .githooks"
+	@echo "  make git-hooks-uninstall  - stop using repo-managed hooks from .githooks"
 
 # ----- Doppler (local dev) -----
 
@@ -141,3 +145,18 @@ grafana-plan:
 
 grafana-apply:
 	cd infra/terraform/grafana && terraform apply
+
+git-hooks-install:
+	@mkdir -p .githooks
+	@chmod +x .githooks/post-commit 2>/dev/null || true
+	@git config core.hooksPath .githooks
+	@echo "Git hooks enabled via .githooks"
+
+git-hooks-uninstall:
+	@current_hooks_path="$$(git config --get core.hooksPath || true)"; \
+	if [ "$$current_hooks_path" = ".githooks" ]; then \
+		git config --unset core.hooksPath; \
+		echo "Git hooks disabled for .githooks"; \
+	else \
+		echo "core.hooksPath is not set to .githooks; nothing changed"; \
+	fi

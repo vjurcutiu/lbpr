@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set +e
+
+say() {
+  printf '[post-commit] %s\n' "$*"
+}
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$repo_root" ] || [ ! -d "$repo_root" ]; then
+  exit 0
+fi
+
+cd "$repo_root" || exit 0
+
+if ! command -v make >/dev/null 2>&1; then
+  say "skipped: 'make' is not installed, so 'make synczip' was not run."
+  exit 0
+fi
+
+if ! make -n synczip >/dev/null 2>&1; then
+  say "skipped: 'make synczip' is unavailable in this clone, so nothing was run."
+  exit 0
+fi
+
+say "running: make synczip"
+make synczip
+status=$?
+
+if [ "$status" -eq 0 ]; then
+  say "done: 'make synczip' completed successfully."
+else
+  say "failed: 'make synczip' exited with status $status."
+fi
+
+exit 0
