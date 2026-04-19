@@ -22,6 +22,7 @@ class _Instruments:
     plan_limit_hit_total: Any
     messages_used_total: Any
     upload_tokens_used_total: Any
+    file_processing_tokens_used_total: Any
     chat_duration_ms: Any
     ingest_duration_ms: Any
     openai_call_total: Any
@@ -107,7 +108,12 @@ def init_business_metrics() -> None:
         upload_tokens_used_total=meter.create_counter(
             "lbpr_upload_tokens_used_total",
             unit="1",
-            description="Upload tokens consumed against plan quotas.",
+            description="Legacy upload-token metric consumed against plan quotas.",
+        ),
+        file_processing_tokens_used_total=meter.create_counter(
+            "lbpr_file_processing_tokens_used_total",
+            unit="1",
+            description="Unified file processing tokens consumed against plan quotas.",
         ),
         chat_duration_ms=meter.create_histogram(
             "lbpr_chat_duration_ms",
@@ -248,6 +254,18 @@ def record_upload_tokens_used(*, amount: int, plan: str) -> None:
     if amount <= 0:
         return
     _ins().upload_tokens_used_total.add(amount, {"plan": _clean_str(plan, default="free").lower()})
+
+
+def record_file_processing_tokens_used(*, amount: int, plan: str, category: str = "general") -> None:
+    if amount <= 0:
+        return
+    _ins().file_processing_tokens_used_total.add(
+        amount,
+        {
+            "plan": _clean_str(plan, default="free").lower(),
+            "category": _clean_str(category),
+        },
+    )
 
 
 def record_chat_duration(*, flow: str, dur_ms: int | float, status: str) -> None:

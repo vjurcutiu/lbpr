@@ -19,13 +19,17 @@ import { Check, Crown, MessageSquare, UploadCloud, AlertTriangle, Loader2, Info,
 type LimitsResp = {
   plan: "FREE" | "PRO";
   window: string; // YYYYMM
-  caps: { messages: number; upload_tokens: number; transcribe_seconds?: number; ocr_images?: number };
-  usage: { messages: number; upload_tokens: number; transcribe_seconds?: number; ocr_images?: number };
+  caps: { messages: number; file_processing_tokens?: number; upload_tokens: number; transcribe_seconds?: number; ocr_images?: number };
+  usage: { messages: number; file_processing_tokens?: number; upload_tokens: number; transcribe_seconds?: number; ocr_images?: number };
 };
 
 /* ------------------------------ Helpers ----------------------------- */
 function fmtInt(n?: number) {
   try { return new Intl.NumberFormat().format(n ?? 0); } catch { return String(n ?? 0); }
+}
+
+function fileProcessingValue(bucket: { file_processing_tokens?: number; upload_tokens?: number } | null | undefined): number {
+  return Number(bucket?.file_processing_tokens ?? bucket?.upload_tokens ?? 0);
 }
 
 function formatMoney(amount?: number, currency?: string) {
@@ -271,8 +275,8 @@ export default function BillingPage() {
             />
             <QuickStat
               icon={<UploadCloud className="h-4 w-4" />}
-              label="Upload tokens"
-              value={limits ? `${fmtInt(limits.usage.upload_tokens)}/${fmtInt(limits.caps.upload_tokens)}` : "—"}
+              label="File processing tokens"
+              value={limits ? `${fmtInt(fileProcessingValue(limits.usage))}/${fmtInt(fileProcessingValue(limits.caps))}` : "—"}
             />
             <QuickStat
               icon={<Mic className="h-4 w-4" />}

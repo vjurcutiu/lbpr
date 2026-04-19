@@ -113,12 +113,14 @@ def _plan_limits(plan: Plan) -> Dict[str, int]:
     if plan == "PRO":
         return {
             "messages": settings.LIMITS_PRO_MESSAGES,
+            "file_processing_tokens": settings.LIMITS_PRO_UPLOAD_TOKENS,
             "upload_tokens": settings.LIMITS_PRO_UPLOAD_TOKENS,
             "transcribe_seconds": settings.LIMITS_PRO_TRANSCRIBE_SECONDS,
             "ocr_images": settings.LIMITS_PRO_OCR_IMAGES,
         }
     return {
         "messages": settings.LIMITS_FREE_MESSAGES,
+        "file_processing_tokens": settings.LIMITS_FREE_UPLOAD_TOKENS,
         "upload_tokens": settings.LIMITS_FREE_UPLOAD_TOKENS,
         "transcribe_seconds": settings.LIMITS_FREE_TRANSCRIBE_SECONDS,
         "ocr_images": settings.LIMITS_FREE_OCR_IMAGES,
@@ -172,6 +174,7 @@ async def _refresh_and_handle_transition(uid: str, cache_ttl_sec: int = 300) -> 
             uid,
             cap_messages=int(caps["messages"]),
             cap_upload_tokens=int(caps["upload_tokens"]),
+            cap_file_processing_tokens=int(caps.get("file_processing_tokens", caps["upload_tokens"])),
             cap_transcribe_seconds=int(caps.get("transcribe_seconds", 0)),
             cap_ocr_images=int(caps.get("ocr_images", 0)),
         )

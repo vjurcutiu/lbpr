@@ -233,7 +233,17 @@ def _llm_result(
             """
         ).strip()
 
-        payload = _extract_json_payload(model.generate(system=system, user=user))
+        response = model.generate_with_usage(system=system, user=user)
+        payload = _extract_json_payload(response.text)
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        metadata = dict(metadata)
+        metadata["llm_usage"] = {
+            "prompt_tokens": int(response.usage.prompt_tokens or 0),
+            "completion_tokens": int(response.usage.completion_tokens or 0),
+            "total_tokens": int(response.usage.total_tokens or 0),
+            "operation": str(response.operation or "responses.create"),
+            "approximate": bool(response.usage.approximate),
+        }
         return _result(
             run,
             str(payload.get("summary") or "").strip(),
@@ -241,7 +251,7 @@ def _llm_result(
             _coerce_list(payload.get("next_actions")),
             sources=sources,
             preview_markdown=str(payload.get("preview_markdown") or "").strip(),
-            metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
+            metadata=metadata,
         )
     except Exception:
         log.exception("workflow_llm_failed", workflow_id=run.workflow_id)

@@ -20,16 +20,27 @@ LIMITS_NO_STORE_HEADERS = {
 def _limits_payload(plan: str, caps: dict, snap: dict) -> dict:
     usage = {
         "messages": int(snap.get("messages_used", 0)),
-        "upload_tokens": int(snap.get("upload_tokens_used", 0)),
+        "file_processing_tokens": int(snap.get("file_processing_tokens_used", snap.get("upload_tokens_used", 0))),
+        "upload_tokens": int(snap.get("file_processing_tokens_used", snap.get("upload_tokens_used", 0))),
+        "upload_ingest_tokens": int(snap.get("upload_ingest_tokens_used", 0)),
+        "workflow_input_tokens": int(snap.get("workflow_input_tokens_used", 0)),
+        "workflow_output_tokens": int(snap.get("workflow_output_tokens_used", 0)),
+        "workflow_rag_overhead_tokens": int(snap.get("workflow_rag_overhead_tokens_used", 0)),
         "transcribe_seconds": int(snap.get("transcribe_seconds_used", 0)),
         "ocr_images": int(snap.get("ocr_images_used", 0)),
     }
+    file_processing_cap = int(caps.get("file_processing_tokens", caps.get("upload_tokens", 0)))
     remaining = {
         "messages": max(0, int(caps["messages"]) - usage["messages"]),
-        "upload_tokens": max(0, int(caps["upload_tokens"]) - usage["upload_tokens"]),
+        "file_processing_tokens": max(0, file_processing_cap - usage["file_processing_tokens"]),
+        "upload_tokens": max(0, file_processing_cap - usage["file_processing_tokens"]),
         "transcribe_seconds": max(0, int(caps["transcribe_seconds"]) - usage["transcribe_seconds"]),
         "ocr_images": max(0, int(caps.get("ocr_images", 0)) - usage["ocr_images"]),
     }
+
+    payload_caps = dict(caps)
+    payload_caps.setdefault("file_processing_tokens", file_processing_cap)
+    payload_caps.setdefault("upload_tokens", file_processing_cap)
 
     return {
         "plan": plan,
@@ -38,7 +49,7 @@ def _limits_payload(plan: str, caps: dict, snap: dict) -> dict:
             "start_ts": int(snap.get("period_start_ts", 0)),
             "end_ts": int(snap.get("period_end_ts", 0)),
         },
-        "caps": caps,
+        "caps": payload_caps,
         "usage": usage,
         "remaining": remaining,
     }

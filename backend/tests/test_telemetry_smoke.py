@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import pytest
 import core.business_metrics as business_metrics
-from core.rate_limit import add_message, add_upload_tokens
+from core.rate_limit import add_file_processing_tokens, add_message, add_upload_tokens
 from features.rag.schemas import IngestResponse, QueryResponse, Source
 from tests.telemetry_testkit import FakeBusinessInstruments, assert_call
 
@@ -199,11 +199,11 @@ async def test_add_message_allowed_records_usage(fake_business_metrics, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_add_upload_tokens_limit_records_plan_limit(fake_business_metrics, monkeypatch):
+async def test_add_file_processing_tokens_limit_records_plan_limit(fake_business_metrics, monkeypatch):
     import core.rate_limit as rate_limit
 
     async def fake_load_meta(uid: str):
-        return {"plan": "free", "cap_upload_tokens": "100", "free_no_refresh": "1", "billing_anchor_ts": "0"}
+        return {"plan": "free", "cap_upload_tokens": "100", "cap_file_processing_tokens": "100", "free_no_refresh": "1", "billing_anchor_ts": "0"}
 
     async def fake_check_and_add(uid: str, metric: str, inc: int, cap: int, pstart: int, pend: int, period_id: str):
         return False, 100
@@ -211,9 +211,9 @@ async def test_add_upload_tokens_limit_records_plan_limit(fake_business_metrics,
     monkeypatch.setattr(rate_limit, "_load_meta", fake_load_meta)
     monkeypatch.setattr(rate_limit, "_check_and_add", fake_check_and_add)
 
-    ok, used, cap = await add_upload_tokens("u_test", 25)
+    ok, used, cap = await add_file_processing_tokens("u_test", 25, category="workflow")
     assert ok is False
     assert used == 100
     assert cap == 100
-    assert_call(fake_business_metrics.plan_limit_hit_total.calls, amount=1, metric="upload_tokens", plan="free")
-    assert fake_business_metrics.upload_tokens_used_total.calls == []
+    assert_call(fake_business_metrics.plan_limit_hit_total.calls, amount=1, metric="file_processing_tokens", plan="free")
+    assert fake_business_metrics.file_processing_tokens_used_total.calls == []

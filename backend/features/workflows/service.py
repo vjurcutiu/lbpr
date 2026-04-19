@@ -10,6 +10,8 @@ from collections import defaultdict
 from fastapi import HTTPException
 
 from core.background_jobs import submit as submit_background_job
+from core.plan import sync_caps_and_plan
+from core.rate_limit import add_file_processing_tokens, usage_snapshot
 from core.business_metrics import (
     record_workflow_completed,
     record_workflow_duration,
@@ -29,6 +31,7 @@ _RUNS_BY_UID: dict[str, list[WorkflowRun]] = defaultdict(list)
 _LOCK = threading.Lock()
 _MAX_RUNS_PER_USER = 25
 _MAX_SOURCE_FILES = 8
+_WORKFLOW_TARGETED_RAG_OVERHEAD_TOKENS = 192
 _EXTRACTABLE_CONTENT_TYPES = {
     "application/json",
     "application/xml",
@@ -91,6 +94,54 @@ def _is_within_folder(file_item: FileItem, folder_path: str) -> bool:
     current = _normalize_folder_path(file_item.folder_path)
     return bool(target) and (current == target or current.startswith(target + "/"))
 
+
+
+
+def _remaining_file_processing_tokens(snap: dict[str, object]) -> int:
+    cap = int(snap.get("cap_file_processing_tokens") or snap.get("cap_upload_tokens") or 0)
+    used = int(snap.get("file_processing_tokens_used") or snap.get("upload_tokens_used") or 0)
+    return max(0, cap - used)
+
+
+def _workflow_usage_breakdown(run: WorkflowRun, source_stats: dict[str, object]) -> tuple[int, dict[str, int], dict[str, object]]:
+    metadata = dict((run.result.metadata if run.result else {}) or {})
+    llm_usage = metadata.get("llm_usage") if isinstance(metadata.get("llm_usage"), dict) else {}
+    prompt_tokens = max(0, int(llm_usage.get("prompt_tokens") or 0))
+    completion_tokens = max(0, int(llm_usage.get("completion_tokens") or 0))
+    total_tokens = max(0, int(llm_usage.get("total_tokens") or (prompt_tokens + completion_tokens)))
+
+    source_strategy = str(source_stats.get("source_strategy") or "coverage")
+    rag_overhead_tokens = _WORKFLOW_TARGETED_RAG_OVERHEAD_TOKENS if "targeted_rag" in source_strategy else 0
+
+    billed_total = total_tokens + rag_overhead_tokens
+    breakdown = {
+        "workflow_input_tokens": prompt_tokens,
+        "workflow_output_tokens": completion_tokens,
+        "workflow_rag_overhead_tokens": rag_overhead_tokens,
+    }
+    details = {
+        "billed_total_tokens": billed_total,
+        "source_strategy": source_strategy,
+        "rag_overhead_tokens": rag_overhead_tokens,
+        "llm_prompt_tokens": prompt_tokens,
+        "llm_completion_tokens": completion_tokens,
+        "llm_total_tokens": total_tokens,
+    }
+    return billed_total, breakdown, details
+
+
+def _attach_usage_details(run: WorkflowRun, *, usage_details: dict[str, object], used: int | None = None, cap: int | None = None) -> None:
+    if run.result is None:
+        return
+    metadata = dict(run.result.metadata or {})
+    payload = dict(usage_details or {})
+    if used is not None:
+        payload["period_used_tokens"] = int(used)
+    if cap is not None:
+        payload["period_cap_tokens"] = int(cap)
+        payload["period_remaining_tokens"] = max(0, int(cap) - int(used or 0))
+    metadata["usage_accounting"] = payload
+    run.result.metadata = metadata
 
 def _dedupe_files(items: list[FileItem]) -> list[FileItem]:
     seen: set[str] = set()
@@ -270,6 +321,16 @@ def _execute_run(uid: str, run_id: str) -> None:
     try:
         run.mark_running()
         _persist_run(uid, run)
+        try:
+            asyncio.run(sync_caps_and_plan(uid))
+            snap = asyncio.run(usage_snapshot(uid))
+            if _remaining_file_processing_tokens(snap) <= 0:
+                raise HTTPException(status_code=402, detail="File processing usage limit reached for this billing period.")
+        except HTTPException:
+            raise
+        except Exception:
+            log.debug("workflow_limits_prefetch_failed", uid=uid, workflow_id=manifest.workflow_id, exc_info=True)
+
         source_documents, source_stats = _load_source_documents(
             uid,
             run.selection,
@@ -282,6 +343,21 @@ def _execute_run(uid: str, run_id: str) -> None:
         result = handler(run, source_documents)
         run.mark_completed(result)
         _augment_result_metadata(run, source_documents, source_stats)
+        billed_total, breakdown, usage_details = _workflow_usage_breakdown(run, source_stats)
+        if billed_total > 0:
+            ok, used, cap = asyncio.run(
+                add_file_processing_tokens(
+                    uid,
+                    billed_total,
+                    category="workflow",
+                    breakdown=breakdown,
+                )
+            )
+            if not ok:
+                raise HTTPException(status_code=402, detail="File processing usage limit reached for this billing period.")
+            _attach_usage_details(run, usage_details=usage_details, used=used, cap=cap)
+        else:
+            _attach_usage_details(run, usage_details=usage_details)
         _persist_run(uid, run)
 
         dur_ms = (time.perf_counter() - started_at) * 1000
@@ -293,6 +369,8 @@ def _execute_run(uid: str, run_id: str) -> None:
             capability=manifest.capability,
             run_id=run.id,
             status=run.status,
+            billed_total_tokens=billed_total,
+            source_strategy=usage_details.get("source_strategy"),
         )
     except HTTPException as exc:
         detail = getattr(exc, "detail", None) or str(exc) or "Workflow failed"

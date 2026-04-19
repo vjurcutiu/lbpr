@@ -4,9 +4,11 @@ from __future__ import annotations
 import os
 import asyncio
 import time
+from dataclasses import dataclass
 from typing import List, Dict, Optional, Any
 
 from core.business_metrics import record_openai_duration
+from core.tokenizer import count_tokens
 
 try:
     from openai import OpenAI  # official SDK (>=1.0)
@@ -14,6 +16,63 @@ except Exception:  # pragma: no cover
     OpenAI = None  # type: ignore
 
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
+
+
+@dataclass
+class OpenAIUsage:
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    approximate: bool = False
+
+
+@dataclass
+class OpenAITextResponse:
+    text: str
+    usage: OpenAIUsage
+    operation: str
+
+
+def _usage_from_responses(resp: Any, *, fallback_text: str, prompt_text: str) -> OpenAIUsage:
+    usage = getattr(resp, "usage", None)
+    input_tokens = getattr(usage, "input_tokens", None) if usage is not None else None
+    output_tokens = getattr(usage, "output_tokens", None) if usage is not None else None
+    total_tokens = getattr(usage, "total_tokens", None) if usage is not None else None
+    if isinstance(usage, dict):
+        input_tokens = usage.get("input_tokens", input_tokens)
+        output_tokens = usage.get("output_tokens", output_tokens)
+        total_tokens = usage.get("total_tokens", total_tokens)
+    prompt_tokens = int(input_tokens or 0)
+    completion_tokens = int(output_tokens or 0)
+    total = int(total_tokens or 0)
+    if prompt_tokens > 0 or completion_tokens > 0 or total > 0:
+        if total <= 0:
+            total = prompt_tokens + completion_tokens
+        return OpenAIUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens, total_tokens=total, approximate=False)
+    prompt_est = count_tokens(prompt_text)
+    completion_est = count_tokens(fallback_text) if fallback_text else 0
+    return OpenAIUsage(prompt_tokens=prompt_est, completion_tokens=completion_est, total_tokens=prompt_est + completion_est, approximate=True)
+
+
+def _usage_from_chat_completions(resp: Any, *, fallback_text: str, prompt_text: str) -> OpenAIUsage:
+    usage = getattr(resp, "usage", None)
+    prompt_tokens = getattr(usage, "prompt_tokens", None) if usage is not None else None
+    completion_tokens = getattr(usage, "completion_tokens", None) if usage is not None else None
+    total_tokens = getattr(usage, "total_tokens", None) if usage is not None else None
+    if isinstance(usage, dict):
+        prompt_tokens = usage.get("prompt_tokens", prompt_tokens)
+        completion_tokens = usage.get("completion_tokens", completion_tokens)
+        total_tokens = usage.get("total_tokens", total_tokens)
+    prompt = int(prompt_tokens or 0)
+    completion = int(completion_tokens or 0)
+    total = int(total_tokens or 0)
+    if prompt > 0 or completion > 0 or total > 0:
+        if total <= 0:
+            total = prompt + completion
+        return OpenAIUsage(prompt_tokens=prompt, completion_tokens=completion, total_tokens=total, approximate=False)
+    prompt_est = count_tokens(prompt_text)
+    completion_est = count_tokens(fallback_text) if fallback_text else 0
+    return OpenAIUsage(prompt_tokens=prompt_est, completion_tokens=completion_est, total_tokens=prompt_est + completion_est, approximate=True)
 
 def _normalize_history(history: Optional[List[Dict[str, str]]]) -> List[Dict[str, str]]:
     if not history:
@@ -43,47 +102,42 @@ class OpenAIChat:
         self.model = model or DEFAULT_MODEL
 
     # ---------- public APIs ----------
-    def generate(
+    def generate_with_usage(
         self,
         *,
         system: str,
         user: str,
         history: Optional[List[Dict[str, str]]] = None,
-    ) -> str:
-        """Synchronous text generation.
-
-        Prefers the Responses API; falls back to Chat Completions for older deployments.
-        """
-        # Compose messages
+    ) -> OpenAITextResponse:
+        """Synchronous text generation with best-effort usage accounting."""
         messages: List[Dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.extend(_normalize_history(history))
         messages.append({"role": "user", "content": user})
+        prompt_text = "\n\n".join(f"{m['role']}: {m['content']}" for m in messages)
 
-        # Try Responses API first
+        t0 = time.perf_counter()
         try:
-            t0 = time.perf_counter()
             resp = self.client.responses.create(
                 model=self.model,
                 instructions=system or None,
                 input=[{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "system"],
             )
-            # responses API consolidates output; easiest is output_text
             text = getattr(resp, "output_text", None)
             if not text:
-                # best-effort extract
                 text = "".join(
                     [getattr(item, "content", "") if hasattr(item, "content") else "" for item in getattr(resp, "output", [])]
                 )
             record_openai_duration(operation="responses.create", dur_ms=(time.perf_counter() - t0) * 1000, status="ok")
-            return text or ""
+            return OpenAITextResponse(
+                text=text or "",
+                usage=_usage_from_responses(resp, fallback_text=text or "", prompt_text=prompt_text),
+                operation="responses.create",
+            )
         except Exception:
             record_openai_duration(operation="responses.create", dur_ms=(time.perf_counter() - t0) * 1000, status="error")
-            # Fall back to Chat Completions for environments pinned to older SDKs
-            pass
 
-        # Fallback: Chat Completions
         t1 = time.perf_counter()
         try:
             cc = self.client.chat.completions.create(  # type: ignore[attr-defined]
@@ -91,11 +145,25 @@ class OpenAIChat:
                 messages=messages,
                 temperature=0.2,
             )
+            text = cc.choices[0].message.content or ""
             record_openai_duration(operation="chat.completions.create", dur_ms=(time.perf_counter() - t1) * 1000, status="ok")
-            return cc.choices[0].message.content or ""
+            return OpenAITextResponse(
+                text=text,
+                usage=_usage_from_chat_completions(cc, fallback_text=text, prompt_text=prompt_text),
+                operation="chat.completions.create",
+            )
         except Exception:
             record_openai_duration(operation="chat.completions.create", dur_ms=(time.perf_counter() - t1) * 1000, status="error")
             raise
+
+    def generate(
+        self,
+        *,
+        system: str,
+        user: str,
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        return self.generate_with_usage(system=system, user=user, history=history).text
 
     async def simple_answer(
         self,

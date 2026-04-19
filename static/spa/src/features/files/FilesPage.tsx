@@ -265,10 +265,11 @@ const internalDragPreviewLabels = useMemo(() => {
   type LimitsResp = {
     plan: "FREE" | "PRO";
     window: string;
-    caps: { messages: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
-    usage: { messages: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
-    remaining: { messages: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
+    caps: { messages: number; file_processing_tokens?: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
+    usage: { messages: number; file_processing_tokens?: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
+    remaining: { messages: number; file_processing_tokens?: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
   };
+  const fileProcessingValue = (bucket: { file_processing_tokens?: number; upload_tokens?: number } | null | undefined) => Number(bucket?.file_processing_tokens ?? bucket?.upload_tokens ?? 0);
   type PendingAction = "upload" | "ocr" | "transcribe";
   type PendingFile = { file: File; action: PendingAction; estTokens: number; estSeconds: number; estImages: number };
   const [limits, setLimits] = useState<LimitsResp | null>(null);
@@ -2471,10 +2472,10 @@ const breadcrumb = useMemo(() => {
               <div className="rounded-md border p-3 text-sm space-y-2">
                 <div className="font-medium">Quota impact (estimates)</div>
                 <div className="grid grid-cols-[1fr_auto_auto] gap-x-3 gap-y-1 text-sm">
-                  <div className="text-muted-foreground">Upload tokens</div>
+                  <div className="text-muted-foreground">File processing tokens</div>
                   <div className="text-muted-foreground">+{new Intl.NumberFormat().format(pendingTotals.tokens)}</div>
                   <div className="text-muted-foreground">
-                    {limits ? `Remaining after: ${new Intl.NumberFormat().format(Math.max(0, (limits.caps.upload_tokens || 0) - (limits.usage.upload_tokens || 0) - pendingTotals.tokens))} / ${new Intl.NumberFormat().format(limits.caps.upload_tokens || 0)}` : "Remaining after: —"}
+                    {limits ? `Remaining after: ${new Intl.NumberFormat().format(Math.max(0, fileProcessingValue(limits.caps) - fileProcessingValue(limits.usage) - pendingTotals.tokens))} / ${new Intl.NumberFormat().format(fileProcessingValue(limits.caps))}` : "Remaining after: —"}
                   </div>
                   <div className="text-muted-foreground">Transcribe minutes</div>
                   <div className="text-muted-foreground">+{new Intl.NumberFormat().format(Math.round(pendingTotals.seconds / 60))} min</div>

@@ -15,6 +15,7 @@ async def test_limits_me_is_no_store(monkeypatch):
     def fake_plan_limits(plan: str):
         return {
             "messages": 10000,
+            "file_processing_tokens": 20000000,
             "upload_tokens": 20000000,
             "transcribe_seconds": 60000,
             "ocr_images": 1000,
@@ -26,6 +27,7 @@ async def test_limits_me_is_no_store(monkeypatch):
             "period_start_ts": 0,
             "period_end_ts": 1,
             "messages_used": 2,
+            "file_processing_tokens_used": 10,
             "upload_tokens_used": 10,
             "transcribe_seconds_used": 3,
             "ocr_images_used": 1,
