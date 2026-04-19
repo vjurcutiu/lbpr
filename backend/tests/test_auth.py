@@ -250,3 +250,31 @@ def test_auth_happy_path_with_redis_backend(client):
 
     r4 = client.get("/session", headers={"cookie": cookie})
     assert r4.status_code == 401
+
+
+
+def test_create_session_survives_user_doc_provision_failure(client, monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("firestore slow or unavailable")
+
+    monkeypatch.setattr(auth_routes, "ensure_user_doc", boom)
+
+    r = client.post("/auth/session", json={"id_token": "good-token"})
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+    assert "set-cookie" in r.headers
+
+
+@pytest.mark.timeout(5)
+def test_create_session_returns_even_when_user_doc_provision_is_slow(client, monkeypatch):
+    def slow_ensure(*args, **kwargs):
+        time.sleep(0.2)
+
+    monkeypatch.setattr(auth_routes, "ensure_user_doc", slow_ensure)
+
+    started = time.perf_counter()
+    r = client.post("/auth/session", json={"id_token": "good-token"})
+    elapsed = time.perf_counter() - started
+
+    assert r.status_code == 200
+    assert elapsed < 1.0

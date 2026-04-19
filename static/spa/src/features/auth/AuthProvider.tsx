@@ -28,10 +28,11 @@ type AuthContextType = {
   syncFromFirebase: (options?: SyncFromFirebaseOptions) => Promise<boolean>;
 };
 
+const SESSION_LOAD_TIMEOUT_MS = 10000;
+const SESSION_EXCHANGE_TIMEOUT_MS = 15000;
+
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// Module-scoped dedupe so React StrictMode remounts in dev don't immediately double-post
-// /auth/session for the exact same Firebase token.
 let sharedSessionExchangeInFlight: Promise<boolean> | null = null;
 let sharedLastSessionExchange: { uid: string | null; idToken: string | null } = {
   uid: null,
@@ -45,7 +46,6 @@ function shouldRequireVerifiedEmail(fbUser: {
 }): boolean {
   const providers = fbUser?.providerData?.map((p) => p.providerId) ?? [];
   const hasPasswordProvider = providers.includes("password");
-  // Only gate email/password accounts that have an email.
   return hasPasswordProvider && !!fbUser.email;
 }
 
@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const load = useCallback(async (): Promise<User | null> => {
     try {
-      const data = await getJSON<SessionResponse>("/session");
+      const data = await getJSON<SessionResponse>("/session", { timeoutMs: SESSION_LOAD_TIMEOUT_MS });
       const nextUser = data?.user ?? null;
       serverUserRef.current = nextUser;
       setUser(nextUser);
@@ -90,7 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           await logoutFirebase();
         } catch {
-          // no-op
         }
         return false;
       }
@@ -121,11 +120,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return true;
           }
 
-          await postJSON("/auth/session", { id_token: idToken });
+          await postJSON("/auth/session", { id_token: idToken }, { timeoutMs: SESSION_EXCHANGE_TIMEOUT_MS });
           sharedLastSessionExchange = { uid: tokenSource.uid, idToken };
           await load();
           return true;
         } catch {
+          sharedLastSessionExchange = { uid: null, idToken: null };
           serverUserRef.current = null;
           setUser(null);
           return false;
@@ -152,7 +152,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await (initialSessionLoadRef.current ?? Promise.resolve(null));
       } catch {
-        // ignore initial session load failures; sync decision falls back to Firebase state.
       }
 
       if (!active) return;
@@ -196,8 +195,6 @@ export function useAuthContext() {
 
   if (ctx) return ctx;
 
-  // Some unit tests render components without wrapping <AuthProvider/>.
-  // In test mode, return a safe default context rather than throwing.
   if (import.meta.env.MODE === "test") {
     return {
       user: null,

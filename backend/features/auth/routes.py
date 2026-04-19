@@ -1,8 +1,9 @@
 # features/auth/routes.py
 import os
+import time
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Response, Request, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Response, Request, HTTPException
 
 from features.auth.invites import invites
 from features.auth.models import (
@@ -20,31 +21,18 @@ from features.auth.sessions import sessions
 from core.config import settings
 from core.user_store import ensure_user_doc
 from core.business_metrics import record_auth_session_error, record_auth_session_success
+from core.logging import get_logger
 
 router = APIRouter(tags=["auth"])
+log = get_logger(__name__)
 
 
 def _magic_create_http_enabled() -> bool:
-    """Whether the HTTP endpoint for creating magic links is enabled.
-
-    Recommended (Option A): keep this **disabled** and use the in-container
-    CLI (backend/admin_magic_link.py) instead.
-    """
-
     v = (os.getenv("MAGIC_LINK_HTTP_CREATE_ENABLED", "0") or "0").strip().lower()
     return v in {"1", "true", "yes", "on"}
 
 
 def _require_admin_key(req: Request, *, require_configured: bool = False):
-    """Admin-key guard for admin-only endpoints.
-
-    Header:
-      x-admin-key: <MAGIC_LINK_ADMIN_KEY>
-
-    If require_configured=True and MAGIC_LINK_ADMIN_KEY is missing, raise 500
-    to avoid accidentally exposing an unguarded admin endpoint.
-    """
-
     admin_key = os.getenv("MAGIC_LINK_ADMIN_KEY", "").strip()
     if not admin_key:
         if require_configured:
@@ -60,25 +48,40 @@ def _default_magic_ttl_seconds() -> int:
     except Exception:
         return 86400
 
+
+def _provision_user_doc(uid: str, *, email: str | None, name: str | None, picture: str | None, email_verified: bool | None) -> None:
+    started = time.perf_counter()
+    try:
+        ensure_user_doc(uid, email=email, name=name, picture=picture, email_verified=email_verified)
+        log.info("auth_user_doc_provisioned", uid=uid, dur_ms=round((time.perf_counter() - started) * 1000, 2))
+    except Exception:
+        log.exception("auth_user_doc_provision_failed", uid=uid, dur_ms=round((time.perf_counter() - started) * 1000, 2))
+
+
 @router.get("/session", response_model=EnvelopeOut)
 def read_session(user: SessionOut = Depends(get_current_user)) -> EnvelopeOut:
     return EnvelopeOut(user=user)
 
+
 @router.post("/auth/session")
-def create_session(resp: Response, payload: CreateSessionIn, svc: AuthService = Depends(get_auth_service)):
+def create_session(resp: Response, payload: CreateSessionIn, background_tasks: BackgroundTasks, svc: AuthService = Depends(get_auth_service)):
+    started = time.perf_counter()
     try:
         user = svc.verify_id_token(payload.id_token)
     except Exception:
         record_auth_session_error(reason="invalid_id_token")
         raise HTTPException(status_code=401, detail="Invalid ID token")
 
-    # Enforce email verification for email/password accounts
-    # If there's an email and it's not verified, block session creation
     if user.email and user.email_verified is False:
         record_auth_session_error(reason="email_unverified")
         raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
 
-    ensure_user_doc(
+    cs = cookie_settings()
+    sid = sessions.create(user, ttl_seconds=cs["max_age"])
+    resp.set_cookie(settings.COOKIE_NAME, sid, **cs)
+
+    background_tasks.add_task(
+        _provision_user_doc,
         user.uid,
         email=user.email,
         name=user.name,
@@ -86,10 +89,10 @@ def create_session(resp: Response, payload: CreateSessionIn, svc: AuthService = 
         email_verified=user.email_verified,
     )
 
-    sid = sessions.create(user, ttl_seconds=cookie_settings()["max_age"])
-    resp.set_cookie(settings.COOKIE_NAME, sid, **cookie_settings())
     record_auth_session_success()
+    log.info("auth_session_created", uid=user.uid, email_verified=user.email_verified, method="id_token", dur_ms=round((time.perf_counter() - started) * 1000, 2))
     return {"ok": True}
+
 
 @router.post("/auth/logout")
 def logout(resp: Response, req: Request, svc: AuthService = Depends(get_auth_service)):
@@ -100,11 +103,7 @@ def logout(resp: Response, req: Request, svc: AuthService = Depends(get_auth_ser
             user = sessions.get_user(sid)
         except Exception:
             user = None
-
-        # Revoke server-side session
         sessions.revoke(sid)
-
-        # Optional: also revoke Firebase refresh tokens for defense-in-depth
         try:
             if user:
                 svc.revoke_user(user.uid)
@@ -116,28 +115,9 @@ def logout(resp: Response, req: Request, svc: AuthService = Depends(get_auth_ser
     return {"ok": True}
 
 
-# --- Magic-link (SMS) sign-in -------------------------------------------------
-
-
 @router.post("/auth/magic/create", response_model=MagicCreateOut)
-def create_magic_link(
-    payload: MagicCreateIn,
-    req: Request,
-    svc: AuthService = Depends(get_auth_service),
-) -> MagicCreateOut:
-    """Create a one-time code and return a link (intended to be sent via SMS).
-
-    Security:
-    - By default, this HTTP endpoint is **disabled** (MAGIC_LINK_HTTP_CREATE_ENABLED=0)
-      and you should use the in-container CLI (backend/admin_magic_link.py).
-    - If you explicitly enable it, it requires `x-admin-key` and MAGIC_LINK_ADMIN_KEY
-      must be configured.
-
-    Provide either payload.uid or payload.phone_number.
-    """
-
+def create_magic_link(payload: MagicCreateIn, req: Request, svc: AuthService = Depends(get_auth_service)) -> MagicCreateOut:
     if not _magic_create_http_enabled():
-        # Fail closed: don't expose an admin provisioning endpoint to the internet.
         raise HTTPException(status_code=404, detail="Not found")
 
     _require_admin_key(req, require_configured=True)
@@ -157,7 +137,6 @@ def create_magic_link(
     code, ttl_used = invites.create(uid, ttl_seconds=ttl)
 
     base = (payload.base_url or os.getenv("PUBLIC_APP_URL", "") or "").strip().rstrip("/")
-    # Fall back to Origin for local/dev tooling if base isn't provided.
     if not base:
         origin = (req.headers.get("origin") or "").strip().rstrip("/")
         if origin:
@@ -174,12 +153,7 @@ def create_magic_link(
 
 
 @router.post("/auth/magic/exchange", response_model=MagicExchangeOut)
-def exchange_magic_code(
-    payload: MagicExchangeIn,
-    svc: AuthService = Depends(get_auth_service),
-) -> MagicExchangeOut:
-    """Exchange a one-time code for a Firebase custom token."""
-
+def exchange_magic_code(payload: MagicExchangeIn, svc: AuthService = Depends(get_auth_service)) -> MagicExchangeOut:
     code = (payload.code or "").strip()
     uid = invites.consume(code)
     if not uid:

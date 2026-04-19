@@ -28,6 +28,10 @@ export function friendlyAuthMessage(
 
   const c = (inferred || "").toLowerCase();
 
+  if (msg && /(timed out|server session|sign-in could not be completed)/i.test(msg)) {
+    return msg;
+  }
+
   // Common across flows
   if (c.includes("network-request-failed")) {
     return "Network error. Check your connection and try again.";

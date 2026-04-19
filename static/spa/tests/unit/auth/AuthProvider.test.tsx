@@ -189,4 +189,32 @@ describe("AuthProvider", () => {
     });
     expect(screen.getByTestId("uid")).toHaveTextContent("");
   });
+
+  it("allows a second sync attempt after a failed exchange", async () => {
+    apiMock.mockGetJSON.mockResolvedValueOnce({ user: null });
+    apiMock.mockGetJSON.mockResolvedValueOnce({ user: { uid: "server-after" } });
+
+    const getIdToken = vi.fn().mockResolvedValue("ID_TOKEN");
+    fbMock.mockAuth.currentUser = { getIdToken };
+
+    apiMock.mockPostJSON.mockRejectedValueOnce(new Error("timed out"));
+    apiMock.mockPostJSON.mockResolvedValueOnce({ ok: true });
+
+    renderProvider();
+
+    const fbUser = {
+      uid: "u-pass",
+      email: "ok@example.com",
+      emailVerified: true,
+      providerData: [{ providerId: "password" }],
+    };
+
+    await fbMock.getAuthCb()!(fbUser);
+    await fbMock.getAuthCb()!(fbUser);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("uid")).toHaveTextContent("server-after");
+    });
+    expect(apiMock.mockPostJSON).toHaveBeenCalledTimes(2);
+  });
 });

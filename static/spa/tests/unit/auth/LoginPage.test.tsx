@@ -113,11 +113,46 @@ describe("LoginPage", () => {
   it("calls Google sign-in when clicking Continue with Google", async () => {
     const user = userEvent.setup();
     mockLoginWithGoogle.mockResolvedValue({});
+    mockSyncFromFirebase.mockResolvedValue(true);
 
     renderAt(<LoginPage />, "/login");
 
     await user.click(screen.getByRole("button", { name: /Continue with Google/i }));
     expect(mockLoginWithGoogle).toHaveBeenCalledTimes(1);
+  });
+
+  it("completes Google sign-in by syncing the server session and redirecting", async () => {
+    const user = userEvent.setup();
+    setCurrentUser({ uid: "google-user" });
+    mockLoginWithGoogle.mockResolvedValue({});
+    mockSyncFromFirebase.mockResolvedValue(true);
+
+    renderAt(<LoginPage />, "/login?returnTo=%2Ffiles");
+
+    await user.click(screen.getByRole("button", { name: /Continue with Google/i }));
+
+    expect(mockSyncFromFirebase).toHaveBeenCalledWith({
+      force: true,
+      forceRefreshToken: true,
+      fbUser: mockAuth.currentUser,
+    });
+    expect(window.location.replace).toHaveBeenCalledWith("/files");
+  });
+
+  it("shows a clear message when the server session cannot be established", async () => {
+    const user = userEvent.setup();
+    setCurrentUser({ emailVerified: true, getIdToken: vi.fn().mockResolvedValue("ID_TOKEN") });
+    mockSignInWithEmailPassword.mockResolvedValue({});
+    mockSyncFromFirebase.mockResolvedValue(false);
+
+    renderAt(<LoginPage />, "/login?returnTo=%2Ffiles");
+
+    await user.type(screen.getByLabelText(/email/i), "test@example.com");
+    await user.type(screen.getByLabelText(/password/i), "secret123");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(await screen.findByText(/Could not establish your server session/i)).toBeInTheDocument();
+    expect(window.location.replace).not.toHaveBeenCalled();
   });
 });
 

@@ -7,7 +7,6 @@ import { auth, signInWithEmailPassword, loginWithGoogle } from "./firebase";
 import { friendlyAuthMessage } from "./errorMessages";
 import GoogleIcon from "./GoogleIcon";
 
-
 const fieldClass =
   "w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-100";
 const primaryButtonClass =
@@ -59,6 +58,15 @@ export default function LoginPage() {
     setGoogleLoading(true);
     try {
       await loginWithGoogle();
+      const synced = await syncFromFirebase({
+        force: true,
+        forceRefreshToken: true,
+        fbUser: auth.currentUser,
+      });
+      if (!synced) {
+        throw new Error("Could not establish your server session. Please try again.");
+      }
+      window.location.replace(returnTo);
     } catch (e: any) {
       console.warn("[auth:login:google] Firebase error:", e);
       setErr(friendlyAuthMessage(e, "login"));
@@ -77,29 +85,12 @@ export default function LoginPage() {
         <form className="space-y-4" onSubmit={onSubmit}>
           <label className="block space-y-2">
             <span className="text-sm font-medium text-slate-700">Email</span>
-            <input
-              autoFocus
-              required
-              type="email"
-              autoComplete="email"
-              className={fieldClass}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@company.com"
-            />
+            <input autoFocus required type="email" autoComplete="email" className={fieldClass} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
           </label>
 
           <label className="block space-y-2">
             <span className="text-sm font-medium text-slate-700">Password</span>
-            <input
-              required
-              type="password"
-              autoComplete="off"
-              className={fieldClass}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
-            />
+            <input required type="password" autoComplete="off" className={fieldClass} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Enter your password" />
           </label>
 
           {needsVerify ? (
@@ -109,9 +100,7 @@ export default function LoginPage() {
           ) : null}
 
           {err ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {err}
-            </div>
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{err}</div>
           ) : null}
 
           <button type="submit" disabled={loading} className={primaryButtonClass}>
@@ -119,30 +108,19 @@ export default function LoginPage() {
           </button>
 
           <div className="space-y-3">
-            <button
-              type="button"
-              onClick={onGoogle}
-              disabled={googleLoading}
-              className={secondaryButtonClass}
-            >
+            <button type="button" onClick={onGoogle} disabled={googleLoading} className={secondaryButtonClass}>
               <GoogleIcon className="h-5 w-5" />
               {googleLoading ? "Opening Google…" : "Continue with Google"}
             </button>
 
-            <Link
-              to={`/phone?returnTo=${encodeURIComponent(returnTo)}`}
-              className={secondaryButtonClass}
-            >
+            <Link to={`/phone?returnTo=${encodeURIComponent(returnTo)}`} className={secondaryButtonClass}>
               Continue with phone
             </Link>
           </div>
 
           <div className="text-center text-sm leading-6 text-slate-600">
             New here?{" "}
-            <Link
-              to={`/signup?returnTo=${encodeURIComponent(returnTo)}`}
-              className="font-medium text-slate-950 underline decoration-slate-300 underline-offset-4 transition hover:decoration-slate-950"
-            >
+            <Link to={`/signup?returnTo=${encodeURIComponent(returnTo)}`} className="font-medium text-slate-950 underline decoration-slate-300 underline-offset-4 transition hover:decoration-slate-950">
               Create your free workspace
             </Link>
             .
