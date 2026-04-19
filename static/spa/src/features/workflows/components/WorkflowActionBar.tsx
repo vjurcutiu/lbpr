@@ -1,4 +1,5 @@
-import { Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
+import { ArrowRight, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,22 +29,24 @@ export function WorkflowActionBar({ workflows, selection, loading = false, onLau
   if (!workflows.length) return null;
 
   return (
-    <div className="border-b bg-muted/30 px-3 py-3">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <div className="border-b bg-gradient-to-r from-background via-background to-muted/20 px-3 py-4">
+      <div className="flex flex-col gap-4 rounded-3xl border bg-background/80 p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Sparkles className="h-4 w-4 text-primary" />
+          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+            <div className="flex h-8 w-8 items-center justify-center rounded-2xl border bg-primary/5 text-primary">
+              <Sparkles className="h-4 w-4" />
+            </div>
             Workflow starters
-            <Badge variant="outline" className="font-normal text-muted-foreground">
+            <Badge variant="outline" className="rounded-full font-normal text-muted-foreground">
               {selection.label}
             </Badge>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Run a workflow on the files or folders you have selected, then review every job and result from the Workflows tab.
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+            Turn the files you already selected into a polished summary, comparison, draft, report, or action plan. Every run is saved in the Workflows view.
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {workflows.map((workflow) => {
             const Icon = getWorkflowIcon(workflow.workflow_id);
             const runnable = isRunnable(workflow, selection);
@@ -53,8 +56,8 @@ export function WorkflowActionBar({ workflows, selection, loading = false, onLau
                 size="sm"
                 variant={runnable ? "default" : "outline"}
                 disabled={loading || !runnable}
-                className={cn(!runnable && "opacity-70")}
-                title={runnable ? workflow.description : "Adjust the file selection to use this workflow"}
+                className={cn("rounded-full px-4", !runnable && "opacity-70")}
+                title={runnable ? workflow.description : "Adjust the current selection to use this workflow"}
                 onClick={() => onLaunch(workflow)}
               >
                 <Icon className="h-4 w-4" />
@@ -62,6 +65,13 @@ export function WorkflowActionBar({ workflows, selection, loading = false, onLau
               </Button>
             );
           })}
+
+          <Button asChild size="sm" variant="outline" className="rounded-full">
+            <Link to="/workflows">
+              View all runs
+              <ArrowRight className="ml-1.5 h-4 w-4" />
+            </Link>
+          </Button>
         </div>
       </div>
     </div>

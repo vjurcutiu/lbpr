@@ -532,7 +532,7 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
     WorkflowManifest(
         workflow_id="summarize_documents",
         title="Summarize",
-        description="Turn selected files or folders into a concise brief with cited follow-ups.",
+        description="Create a clear brief from selected files or folders, with key takeaways, risks, and follow-up questions.",
         capability="summarize",
         launcher={
             "prompt_label": "Summary goal",
@@ -540,12 +540,12 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
             "submit_label": "Generate summary",
             "suggested_prompts": ["Executive summary", "Risks and open questions", "Customer-ready recap"],
         },
-        tags=["starter", "files", "chat"],
+        tags=["briefing", "multi-file", "cited"],
     ),
     WorkflowManifest(
         workflow_id="compare_documents",
         title="Compare",
-        description="Highlight major differences between two selected files.",
+        description="Surface the most important differences between two files, including missing content and likely impact.",
         capability="compare",
         selection={"min_total_items": 2, "max_total_items": 2, "exact_file_count": 2, "allow_folders": False},
         launcher={
@@ -554,12 +554,12 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
             "submit_label": "Compare files",
             "suggested_prompts": ["Changes only", "Important differences", "Missing content"],
         },
-        tags=["starter", "files"],
+        tags=["review", "side-by-side"],
     ),
     WorkflowManifest(
         workflow_id="extract_information",
         title="Extract Info",
-        description="Pull structured facts from the selected material.",
+        description="Pull structured details from the selected material so they can be reused faster.",
         capability="extract",
         launcher={
             "prompt_label": "Fields to extract",
@@ -567,12 +567,12 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
             "submit_label": "Extract",
             "suggested_prompts": ["Key dates and deadlines", "Contacts and companies", "Totals and obligations"],
         },
-        tags=["starter", "files"],
+        tags=["structured output", "fields"],
     ),
     WorkflowManifest(
         workflow_id="draft_from_sources",
         title="Draft",
-        description="Create a first draft grounded in the selected source material.",
+        description="Generate a first-pass email, memo, SOP, or write-up grounded in the selected files.",
         capability="draft",
         launcher={
             "prompt_label": "What are you drafting?",
@@ -580,12 +580,12 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
             "submit_label": "Create draft",
             "suggested_prompts": ["Internal memo", "Customer email", "SOP draft"],
         },
-        tags=["starter", "files", "chat"],
+        tags=["first draft", "source-grounded"],
     ),
     WorkflowManifest(
         workflow_id="generate_report",
         title="Generate Report",
-        description="Package selected material into a reusable report structure.",
+        description="Turn selected material into a shareable report or stakeholder-ready brief.",
         capability="report",
         launcher={
             "prompt_label": "Report audience",
@@ -593,12 +593,12 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
             "submit_label": "Generate report",
             "suggested_prompts": ["Leadership brief", "Internal status report", "Customer-ready summary"],
         },
-        tags=["starter", "files"],
+        tags=["shareable", "stakeholder-ready"],
     ),
     WorkflowManifest(
         workflow_id="create_action_plan",
         title="Action Plan",
-        description="Convert the selected material into next steps and priorities.",
+        description="Convert the selected material into prioritized next steps, owners, and timelines.",
         capability="plan",
         launcher={
             "prompt_label": "Planning goal",
@@ -606,7 +606,7 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
             "submit_label": "Build plan",
             "suggested_prompts": ["Immediate next steps", "Owner-ready checklist", "Priority roadmap"],
         },
-        tags=["starter", "files"],
+        tags=["priorities", "next steps"],
     ),
 ]
 

@@ -1793,11 +1793,11 @@ const breadcrumb = useMemo(() => {
         onLaunch={openWorkflowLauncher}
       />
       <div className="border-b bg-background/80 px-3 py-2 text-xs text-muted-foreground">
-        Workflow jobs and results now live in{' '}
+        Launch a workflow from your current file selection, then track the run and review the finished output in{' '}
         <Link to="/workflows" className="font-medium text-foreground underline underline-offset-4">
           Workflows
         </Link>
-        . Launch them here from your current file selection, then review every run in one place.
+        .
       </div>
 {/* Main split */}
 <DndContext
