@@ -55,8 +55,8 @@ help:
 	@echo "  make grafana-apply        - terraform apply for Grafana dashboards as code"
 	@echo ""
 	@echo "Git hooks:"
-	@echo "  make git-hooks-install    - enable repo-managed hooks from .githooks"
-	@echo "  make git-hooks-uninstall  - stop using repo-managed hooks from .githooks"
+	@echo "  make git-hooks-install    - set Git to use .githooks for this clone"
+	@echo "  make git-hooks-uninstall  - unset repo-managed hooks path for this clone"
 
 # ----- Doppler (local dev) -----
 
@@ -146,17 +146,11 @@ grafana-plan:
 grafana-apply:
 	cd infra/terraform/grafana && terraform apply
 
+
 git-hooks-install:
-	@mkdir -p .githooks
-	@chmod +x .githooks/post-commit 2>/dev/null || true
-	@git config core.hooksPath .githooks
-	@echo "Git hooks enabled via .githooks"
+	git config core.hooksPath .githooks
+	@echo Git hooks path set to .githooks for this clone.
 
 git-hooks-uninstall:
-	@current_hooks_path="$$(git config --get core.hooksPath || true)"; \
-	if [ "$$current_hooks_path" = ".githooks" ]; then \
-		git config --unset core.hooksPath; \
-		echo "Git hooks disabled for .githooks"; \
-	else \
-		echo "core.hooksPath is not set to .githooks; nothing changed"; \
-	fi
+	git config --unset core.hooksPath
+	@echo Git hooks path unset for this clone.
