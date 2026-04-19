@@ -3,6 +3,7 @@ import re
 import time
 import os
 import pytest
+import features.auth.routes as auth_routes
 
 # --- Original tests -----------------------------------------------------------
 
@@ -30,6 +31,23 @@ def test_create_session_and_read(client):
     data = r2.json()
     # NOTE: the fake returns uid="u_test"
     assert data["user"]["uid"] == "u_test"
+
+
+def test_create_session_provisions_user_doc(client, monkeypatch):
+    captured = {}
+
+    def fake_ensure_user_doc(uid, **kwargs):
+        captured["uid"] = uid
+        captured.update(kwargs)
+
+    monkeypatch.setattr(auth_routes, "ensure_user_doc", fake_ensure_user_doc)
+
+    r = client.post("/auth/session", json={"id_token": "good-token"})
+    assert r.status_code == 200
+    assert captured["uid"] == "u_test"
+    assert captured["email"] == "test@example.com"
+    assert captured["name"] == "Testy McTestface"
+    assert captured["email_verified"] is True
 
 def test_bad_id_token(client):
     r = client.post("/auth/session", json={"id_token": "bad"})

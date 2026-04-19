@@ -12,6 +12,7 @@ from core.config import settings
 from core.namespaces import pinecone_namespace
 from features.auth.service import AuthService
 from features.auth.sessions import sessions
+from core.user_store import USERS_COLLECTION
 
 log = logging.getLogger("profile.account_delete")
 
@@ -95,7 +96,7 @@ def _collect_user_datasets(uid: str) -> set[str]:
         return datasets
     db = fs.client()
     try:
-        docs = db.collection("customers").document(uid).collection("files").limit(5000).stream()
+        docs = db.collection(USERS_COLLECTION).document(uid).collection("files").limit(5000).stream()
         for doc in docs:
             data = doc.to_dict() or {}
             ds = str(data.get("dataset") or "").strip()
@@ -113,11 +114,12 @@ def _delete_firestore_user_data(uid: str) -> int:
     db = fs.client()
     deleted = 0
 
+    user_ref = db.collection(USERS_COLLECTION).document(uid)
+    deleted += _delete_document_tree(user_ref)
+
     customer_ref = db.collection("customers").document(uid)
     deleted += _delete_document_tree(customer_ref)
 
-    profile_ref = db.collection("profiles").document(uid)
-    deleted += _delete_document_tree(profile_ref)
 
     log.info("account_delete_firestore_ok", uid=uid, deleted=deleted)
     return deleted

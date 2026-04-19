@@ -14,6 +14,13 @@ service cloud.firestore {
       }
     }
 
+
+    // ---------- Canonical App User Record ----------
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false; // managed by the backend/admin SDK
+    }
+
     // ---------- Per-User Stripe Mirror ----------
     match /customers/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;

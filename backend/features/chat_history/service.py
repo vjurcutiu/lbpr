@@ -8,8 +8,9 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from .models import ChatMessageOut, ConversationOut
+from core.user_store import USERS_COLLECTION
 
-ROOT_COLLECTION = "customers"
+ROOT_COLLECTION = USERS_COLLECTION
 
 _MEM_LOCK = threading.Lock()
 _MEM_CONVERSATIONS: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}

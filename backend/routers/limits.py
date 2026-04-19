@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from features.auth.deps import get_current_user
 from features.auth.models import SessionOut
 from core.plan import get_user_plan, plan_limits, sync_caps_and_plan
@@ -9,15 +10,14 @@ from core.rate_limit import usage_snapshot
 
 router = APIRouter(prefix="/limits", tags=["limits"])
 
-@router.get("/me")
-async def get_limits_me(user: SessionOut = Depends(get_current_user)):
-    # Ensure caps/anchor in Redis match latest billing state
-    await sync_caps_and_plan(user.uid)
+LIMITS_NO_STORE_HEADERS = {
+    "Cache-Control": "private, no-store, no-cache, max-age=0, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 
-    plan = await get_user_plan(user.uid)
-    caps = plan_limits(plan)
-    snap = await usage_snapshot(user.uid)
 
+def _limits_payload(plan: str, caps: dict, snap: dict) -> dict:
     usage = {
         "messages": int(snap.get("messages_used", 0)),
         "upload_tokens": int(snap.get("upload_tokens_used", 0)),
@@ -43,9 +43,21 @@ async def get_limits_me(user: SessionOut = Depends(get_current_user)):
         "remaining": remaining,
     }
 
+
+@router.get("/me")
+async def get_limits_me(user: SessionOut = Depends(get_current_user)):
+    # Ensure caps/anchor in Redis match latest billing state
+    await sync_caps_and_plan(user.uid)
+
+    plan = await get_user_plan(user.uid)
+    caps = plan_limits(plan)
+    snap = await usage_snapshot(user.uid)
+    return JSONResponse(content=_limits_payload(plan, caps, snap), headers=LIMITS_NO_STORE_HEADERS)
+
+
 @router.post("/sync")
 async def sync_limits_now(user: SessionOut = Depends(get_current_user)):
     """Manual Firestore → Redis sync + snapshot (debugging helper)."""
     info = await sync_caps_and_plan(user.uid)
     snap = await usage_snapshot(user.uid)
-    return {"info": info, "snapshot": snap}
+    return JSONResponse(content={"info": info, "snapshot": snap}, headers=LIMITS_NO_STORE_HEADERS)

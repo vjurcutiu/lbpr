@@ -18,6 +18,7 @@ from features.auth.deps import get_current_user, get_auth_service
 from features.auth.service import AuthService, cookie_settings
 from features.auth.sessions import sessions
 from core.config import settings
+from core.user_store import ensure_user_doc
 from core.business_metrics import record_auth_session_error, record_auth_session_success
 
 router = APIRouter(tags=["auth"])
@@ -76,6 +77,14 @@ def create_session(resp: Response, payload: CreateSessionIn, svc: AuthService = 
     if user.email and user.email_verified is False:
         record_auth_session_error(reason="email_unverified")
         raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
+
+    ensure_user_doc(
+        user.uid,
+        email=user.email,
+        name=user.name,
+        picture=user.picture,
+        email_verified=user.email_verified,
+    )
 
     sid = sessions.create(user, ttl_seconds=cookie_settings()["max_age"])
     resp.set_cookie(settings.COOKIE_NAME, sid, **cookie_settings())

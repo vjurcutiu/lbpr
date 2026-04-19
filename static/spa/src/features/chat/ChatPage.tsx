@@ -55,7 +55,7 @@ type LimitsMe = {
 
 async function fetchLimits(): Promise<LimitsMe | null> {
   try {
-    const res = await fetch("/api/limits/me", { credentials: "include" });
+    const res = await fetch("/api/limits/me", { credentials: "include", cache: "no-store" });
     if (!res.ok) return null;
     return (await res.json()) as LimitsMe;
   } catch {

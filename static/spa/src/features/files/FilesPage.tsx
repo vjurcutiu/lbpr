@@ -544,7 +544,7 @@ const internalDragPreviewLabels = useMemo(() => {
   const refreshLimits = useCallback(async () => {
     setLimitsLoading(true);
     try {
-      const lim = await getJSON<LimitsResp>("/limits/me");
+      const lim = await getJSON<LimitsResp>("/limits/me", { cache: "no-store" });
       setLimits(lim);
     } catch {
       // Limits are best-effort; user may be signed out or backend unreachable.

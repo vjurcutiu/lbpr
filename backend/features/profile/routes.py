@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from core.config import settings
+from core.user_store import USERS_COLLECTION, ensure_user_doc
 from features.auth.deps import get_auth_service, get_current_user
 from features.auth.models import SessionOut
 from features.auth.service import AuthService, cookie_settings
@@ -40,7 +41,7 @@ def _load_profile_overrides(uid: str) -> Dict[str, Any]:
         return {}
     try:
         db = fs.client()
-        snap = db.collection("profiles").document(uid).get()
+        snap = db.collection(USERS_COLLECTION).document(uid).get()
         data = snap.to_dict() or {}
         out: Dict[str, Any] = {}
         if data.get("name"):
@@ -64,7 +65,7 @@ def _save_profile_overrides(uid: str, *, name: Optional[str], picture: Optional[
             payload["name"] = name
         if picture is not None:
             payload["picture"] = picture
-        db.collection("profiles").document(uid).set(payload, merge=True)
+        db.collection(USERS_COLLECTION).document(uid).set(payload, merge=True)
     except Exception:
         log.exception("profile_save_error", uid=uid)
 
@@ -72,6 +73,7 @@ def _save_profile_overrides(uid: str, *, name: Optional[str], picture: Optional[
 @router.get("/me", response_model=ProfileOut)
 def read_me(user: SessionOut = Depends(get_current_user)) -> ProfileOut:
     """Return the current user's profile (uid/email from session; name/picture with Firestore overrides)."""
+    ensure_user_doc(user.uid, email=user.email, name=user.name, picture=user.picture, email_verified=user.email_verified)
     overrides = _load_profile_overrides(user.uid)
     return ProfileOut(
         uid=user.uid,

@@ -6,6 +6,7 @@ import types
 import pytest
 
 import core.plan as plan
+from core.user_store import USERS_COLLECTION
 
 
 class _DocSnapshot:
@@ -75,7 +76,7 @@ class _FakeDB:
         self._customers = customers or {}
 
     def collection(self, name):
-        if name == plan.USER_COLLECTION:
+        if name == USERS_COLLECTION:
             return _UserCollection(self._users)
         if name == "customers":
             return _CustomerCollection(self._customers)

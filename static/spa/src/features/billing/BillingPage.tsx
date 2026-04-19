@@ -125,7 +125,7 @@ export default function BillingPage() {
     setLoading(true);
     (async () => {
       try {
-        const lim = await getJSON<LimitsResp>("/limits/me");
+        const lim = await getJSON<LimitsResp>("/limits/me", { cache: "no-store" });
         if (!cancel) setLimits(lim);
       } catch (_e) {
         if (!cancel) setLimits(null);
@@ -173,7 +173,7 @@ export default function BillingPage() {
       if (inflightRef.current) return;
       inflightRef.current = true;
       try {
-        const lim = await getJSON<LimitsResp>("/limits/me");
+        const lim = await getJSON<LimitsResp>("/limits/me", { cache: "no-store" });
         setLimits(lim);
       } catch {
         // ignore

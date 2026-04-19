@@ -6,6 +6,7 @@ from typing import Literal, Optional, Dict, Any
 
 from core.redis_utils import get_client
 from core.config import settings
+from core.user_store import USERS_COLLECTION
 from core.rate_limit import (
     reset_usage_current_window,
     set_caps,
@@ -19,7 +20,6 @@ Plan = Literal["FREE", "PRO"]
 
 ACTIVE_STATUSES = {"active", "trialing", "past_due"}
 SUB_COLLECTION = "subscriptions"
-USER_COLLECTION = "users"
 PLAN_OVERRIDE_FIELD = "plan_override"
 
 
@@ -68,7 +68,7 @@ async def _fetch_sub_snapshot(uid: str) -> Dict[str, Any]:
         from firebase_admin import firestore  # type: ignore
         db = firestore.client()
 
-        user_doc = db.collection(USER_COLLECTION).document(uid).get()
+        user_doc = db.collection(USERS_COLLECTION).document(uid).get()
         user_data = user_doc.to_dict() or {}
         override = _normalize_plan_override(user_data.get(PLAN_OVERRIDE_FIELD))
         if override is not None:

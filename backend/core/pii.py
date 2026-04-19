@@ -14,6 +14,7 @@ from core.config import settings
 from core.request_context import get_request_context
 
 from firebase_admin import firestore
+from core.user_store import USERS_COLLECTION
 
 log = logging.getLogger("pii")
 audit_log = logging.getLogger("pii.audit")
@@ -120,16 +121,16 @@ def _has_tokens(text: str) -> bool:
 
 # ------------------------- Firestore token vault ---------------------------
 
-def _cust_ref(uid: str):
-    return firestore.client().collection("customers").document(uid)
+def _user_ref(uid: str):
+    return firestore.client().collection(USERS_COLLECTION).document(uid)
 
 
 def _token_ref(uid: str, token: str):
-    return _cust_ref(uid).collection("pii_tokens").document(token)
+    return _user_ref(uid).collection("pii_tokens").document(token)
 
 
 def _hash_ref(uid: str, h: str):
-    return _cust_ref(uid).collection("pii_hash").document(h)
+    return _user_ref(uid).collection("pii_hash").document(h)
 
 
 # Small per-process cache to reduce decrypt traffic.

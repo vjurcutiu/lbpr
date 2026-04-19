@@ -8,10 +8,12 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 log = logging.getLogger("files.index")
 
 # Firestore layout (Phase 3)
-#   customers/{uid}/files/{fileDocId}
-#   customers/{uid}/folders/{folderDocId}
+#   users/{uid}/files/{fileDocId}
+#   users/{uid}/folders/{folderDocId}
 
-ROOT_COLLECTION = "customers"
+from core.user_store import USERS_COLLECTION
+
+ROOT_COLLECTION = USERS_COLLECTION
 
 
 def _doc_id(s: str) -> str:
