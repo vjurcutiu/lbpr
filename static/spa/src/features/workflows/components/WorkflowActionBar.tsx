@@ -32,18 +32,18 @@ export function WorkflowActionBar({ workflows, selection, loading = false, onLau
     <div className="border-b bg-gradient-to-r from-background via-background to-muted/20 px-3 py-4">
       <div className="flex flex-col gap-4 rounded-3xl border bg-background/80 p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
             <div className="flex h-8 w-8 items-center justify-center rounded-2xl border bg-primary/5 text-primary">
               <Sparkles className="h-4 w-4" />
             </div>
-            Workflow starters
-            <Badge variant="outline" className="rounded-full font-normal text-muted-foreground">
-              {selection.label}
-            </Badge>
+            <span className="font-medium text-foreground">Workflows</span>
+            <span className="text-muted-foreground">Select one file or more to start a workflow.</span>
+            {selection.totalCount > 0 ? (
+              <Badge variant="outline" className="rounded-full font-normal text-muted-foreground">
+                {selection.label}
+              </Badge>
+            ) : null}
           </div>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Turn the files you already selected into a polished summary, comparison, draft, report, or action plan. Every run is saved in the Workflows view.
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -56,7 +56,10 @@ export function WorkflowActionBar({ workflows, selection, loading = false, onLau
                 size="sm"
                 variant={runnable ? "default" : "outline"}
                 disabled={loading || !runnable}
-                className={cn("rounded-full px-4", !runnable && "opacity-70")}
+                className={cn(
+                  "rounded-full px-4",
+                  !runnable && "app-theme-action-button text-muted-foreground disabled:opacity-100",
+                )}
                 title={runnable ? workflow.description : "Adjust the current selection to use this workflow"}
                 onClick={() => onLaunch(workflow)}
               >
