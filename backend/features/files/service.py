@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
+import os
+import tempfile
 import time
 import uuid
 from datetime import datetime
@@ -25,6 +28,7 @@ from core import tracker as uptrack
 from core.tokenizer import count_tokens
 from core.rate_limit import add_upload_tokens
 from core.plan import sync_caps_and_plan
+from core.background_jobs import submit as submit_background_job
 from core.business_metrics import (
     record_file_upload_completed,
     record_file_upload_error,
@@ -175,23 +179,208 @@ async def _extract_text(uid: str, job_id: str, name: str, content_type: Optional
     return None
 
 
+async def _set_job_total_bytes(job_id: str, total_bytes: int) -> None:
+    try:
+        from core.redis_utils import get_client as _get_client  # type: ignore
+
+        rds = await _get_client()
+        await rds.hset(f"ut:job:{job_id}", mapping={"total_bytes": str(total_bytes), "pct": "100"})
+        log.debug("upload_set_total_bytes", object=job_id, total_bytes=total_bytes)
+    except Exception as e:
+        log.warning("upload_set_total_bytes_failed", object=job_id, error=str(e))
+
+
+async def _process_upload_job_async(
+    *,
+    uid: str,
+    object_name: str,
+    filename: str,
+    dataset: str,
+    folder_path: str,
+    display_name: str,
+    content_type: str,
+    temp_path: str,
+    sha256: str,
+    total: int,
+    accepted_at: float,
+) -> None:
+    bkt = _bucket()
+    blob = bkt.blob(object_name)
+
+    try:
+        with open(temp_path, "rb") as fh:
+            data = fh.read()
+
+        await uptrack.set_phase(object_name, "extract", pct=30)
+        text = await _extract_text(uid, object_name, filename, content_type, data)
+
+        if text:
+            tokens = count_tokens(text or "")
+            await sync_caps_and_plan(uid)
+            try:
+                ok, used, cap = await add_upload_tokens(uid, tokens)
+                log.info(
+                    "usage_upload_tokens_add",
+                    uid=uid,
+                    object=object_name,
+                    filename=filename,
+                    dataset=dataset,
+                    tokens=tokens,
+                    allowed=ok,
+                    used_upload_tokens=used,
+                    cap_upload_tokens=cap,
+                )
+                if not ok:
+                    msg = f"Upload budget exceeded ({used}/{cap} tokens). Upgrade to continue."
+                    await uptrack.mark_error(object_name, msg)
+                    record_file_upload_error(stage="limit", flow="upload")
+                    log.warning("upload_tokens_exhausted_abort", uid=uid, object=object_name)
+                    return
+            except Exception:
+                log.exception("usage_upload_tokens_error", uid=uid, object=object_name)
+
+        tokenized_text = tokenize_text(uid, text) if text else text
+
+        await uptrack.set_phase(object_name, "upload", pct=60)
+        md = {
+            "checksum": sha256,
+            "owner_uid": uid,
+            "dataset": dataset,
+            "content_type": content_type or "",
+            "original_name": filename,
+            "display_name": display_name,
+            "folder_path": folder_path,
+            "initial_name": filename,
+        }
+        blob.metadata = md
+        blob.upload_from_string(data, content_type=content_type or "application/octet-stream")
+        await uptrack.set_phase(object_name, "upload", pct=75)
+        log.info("upload_storage_ok", object=object_name, size=total)
+
+        if text:
+            try:
+                from features.workflows import toolkit as workflow_toolkit
+
+                workflow_toolkit.persist_chunk_artifact(
+                    uid,
+                    file_id=object_name,
+                    text=text,
+                    name=filename,
+                    folder_path=folder_path,
+                    content_type=content_type or "application/octet-stream",
+                )
+            except Exception as e:
+                log.debug("workflow_chunk_artifact_upload_failed", uid=uid, object=object_name, error=str(e))
+
+        try:
+            try:
+                blob.reload()
+            except Exception:
+                pass
+            index_store.upsert_file(
+                uid,
+                storage_path=object_name,
+                original_name=filename,
+                display_name=display_name,
+                folder_path=folder_path,
+                size=int(blob.size or total or 0),
+                content_type=str(blob.content_type or content_type or ""),
+                dataset=dataset,
+                checksum=sha256,
+                created_at=getattr(blob, "time_created", None) or datetime.utcnow(),
+            )
+        except Exception as e:
+            log.debug("files_index_upsert_failed", uid=uid, object=object_name, error=str(e))
+
+        try:
+            if tokenized_text:
+                log.info("upload_extract_ok", object=object_name, chars=len(tokenized_text))
+                await uptrack.set_phase(object_name, "embed", pct=85)
+                ingest_t0 = time.perf_counter()
+                record_ingest_started(flow="upload")
+                try:
+                    orchestrator.ingest_request(
+                        IngestRequest(
+                            dataset=dataset,
+                            text=str(tokenized_text),
+                            doc_id=object_name,
+                            metadata={
+                                "owner_uid": uid,
+                                "source": "upload",
+                                "title": filename,
+                                "filename": filename,
+                                "file_id": object_name,
+                                "dataset": dataset,
+                                "checksum": sha256,
+                                "content_type": content_type or "",
+                                "display_name": display_name,
+                                "folder_path": folder_path,
+                            },
+                        ),
+                        uid=uid,
+                    )
+                    await uptrack.set_phase(object_name, "upsert", pct=95)
+                    record_ingest_completed(flow="upload")
+                    record_ingest_duration(flow="upload", dur_ms=(time.perf_counter() - ingest_t0) * 1000, status="ok")
+                    log.info("upload_ingest_ok", object=object_name)
+                except Exception as e:
+                    record_ingest_error(flow="upload", stage="orchestrator")
+                    record_ingest_duration(flow="upload", dur_ms=(time.perf_counter() - ingest_t0) * 1000, status="error")
+                    log.warning("upload_ingest_error", object=object_name, error=str(e))
+            else:
+                log.info(
+                    "upload_text_skipped",
+                    object=object_name,
+                    reason="no extractable text",
+                    ctype=content_type or "",
+                    size=total,
+                )
+                await uptrack.set_phase(object_name, "upsert", pct=95)
+        except Exception as e:
+            await uptrack.mark_error(object_name, f"Extract/ingest error: {e}")
+            record_file_upload_error(stage="extract_or_ingest", flow="upload")
+            log.exception("upload_extract_error", object=object_name)
+            return
+
+        await uptrack.mark_done(object_name)
+        record_file_upload_completed(flow="upload")
+        log.info("upload_done", object=object_name, dur_ms=int((time.perf_counter() - accepted_at) * 1000))
+    except HTTPException as exc:
+        detail = getattr(exc, "detail", None) or str(exc) or "Upload failed"
+        await uptrack.mark_error(object_name, str(detail))
+        record_file_upload_error(stage="http_exception", flow="upload")
+        log.warning("upload_background_http_error", object=object_name, detail=detail)
+    except Exception as e:
+        await uptrack.mark_error(object_name, f"Upload failed: {e}")
+        record_file_upload_error(stage="background", flow="upload")
+        log.exception("upload_background_error", object=object_name)
+    finally:
+        try:
+            os.remove(temp_path)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            log.debug("upload_tempfile_cleanup_failed", object=object_name, path=temp_path, error=str(e))
+
+
+def _process_upload_job_sync(**kwargs) -> None:
+    asyncio.run(_process_upload_job_async(**kwargs))
+
+
 async def upload_file(
     uid: str,
     file: UploadFile,
     dataset: str = "default",
     folder: Optional[str] = None,
 ) -> UploadResponse:
-    """Upload a single file; store folder/display_name metadata; index into Firestore (Phase 3)."""
+    """Receive a single file and queue the expensive processing work in the shared background job pool."""
 
     upload_t0 = time.perf_counter()
     record_file_upload_started(flow="upload")
 
-    # Raw user-provided values (may contain PII)
     raw_filename = file.filename or "file"
     raw_folder_path = index_store.normalize_folder_path(folder)
-    raw_display_name = index_store.build_display_name(raw_folder_path, raw_filename)
 
-    # Stored values (tokenized when PII is enabled)
     if settings.PII_TOKENIZE_FILENAMES:
         filename = tokenize_text(uid, raw_filename)
         folder_path = tokenize_text(uid, raw_folder_path) if raw_folder_path else ""
@@ -200,9 +389,7 @@ async def upload_file(
         folder_path = raw_folder_path
     display_name = index_store.build_display_name(folder_path, filename)
 
-    object_name = _object_path(uid, raw_filename)  # storage object path, used as stable doc_id
-    bkt = _bucket()
-    blob = bkt.blob(object_name)
+    object_name = _object_path(uid, raw_filename)
 
     log.info(
         "upload_start",
@@ -215,207 +402,65 @@ async def upload_file(
         display_name=display_name,
     )
 
-    # Prepare job
-    total_guess = 0
-    try:
-        _ = await file.read(0)
-    except Exception as e:
-        log.debug("upload_file_read0_fail", error=str(e))
-
     await uptrack.create_job(
         job_id=object_name,
         uid=uid,
         filename=filename,
         dataset=dataset,
-        total_bytes=int(total_guess),
+        total_bytes=0,
     )
 
-    # Read in chunks to compute checksum and bytes
     import hashlib as _hashlib
 
     h = _hashlib.sha256()
-    chunks: List[bytes] = []
     total = 0
-    CHUNK = 1024 * 1024  # 1 MB
+    CHUNK = 1024 * 1024
     await uptrack.set_phase(object_name, "receive", pct=0)
 
-    while True:
-        buf = await file.read(CHUNK)
-        if not buf:
-            break
-        chunks.append(buf)
-        h.update(buf)
-        total += len(buf)
-        await uptrack.incr_bytes(object_name, len(buf))
-        if total % (5 * CHUNK) < CHUNK:
-            log.debug("upload_progress", object=object_name, bytes=total)
-
-    sha256 = h.hexdigest()
-    data = b"".join(chunks)
-
-    # Update the 'total_bytes' now that we know it
+    fd, temp_path = tempfile.mkstemp(prefix="lbpr-upload-", suffix=".bin")
+    os.close(fd)
     try:
-        from core.redis_utils import get_client as _get_client  # type: ignore
+        with open(temp_path, "wb") as tmp:
+            while True:
+                buf = await file.read(CHUNK)
+                if not buf:
+                    break
+                tmp.write(buf)
+                h.update(buf)
+                total += len(buf)
+                await uptrack.incr_bytes(object_name, len(buf))
+                if total % (5 * CHUNK) < CHUNK:
+                    log.debug("upload_progress", object=object_name, bytes=total)
 
-        rds = await _get_client()
-        await rds.hset(f"ut:job:{object_name}", mapping={"total_bytes": str(total), "pct": "100"})
-        log.debug("upload_set_total_bytes", object=object_name, total_bytes=total, sha256=sha256)
+        sha256 = h.hexdigest()
+        await _set_job_total_bytes(object_name, total)
+        await uptrack.set_phase(object_name, "queued", pct=5)
+
+        submit_background_job(
+            f"upload:{object_name}",
+            _process_upload_job_sync,
+            uid=uid,
+            object_name=object_name,
+            filename=filename,
+            dataset=dataset,
+            folder_path=folder_path,
+            display_name=display_name,
+            content_type=file.content_type or "application/octet-stream",
+            temp_path=temp_path,
+            sha256=sha256,
+            total=total,
+            accepted_at=upload_t0,
+        )
+        return UploadResponse(job_id=object_name)
     except Exception as e:
-        log.warning("upload_set_total_bytes_failed", object=object_name, error=str(e))
-
-    # Enforce limits BEFORE storing
-    await uptrack.set_phase(object_name, "extract", pct=30)
-    text = await _extract_text(uid, object_name, filename, file.content_type, data)
-
-    if text:
-        tokens = count_tokens(text or "")
-        await sync_caps_and_plan(uid)
         try:
-            ok, used, cap = await add_upload_tokens(uid, tokens)
-            log.info(
-                "usage_upload_tokens_add",
-                uid=uid,
-                object=object_name,
-                filename=filename,
-                dataset=dataset,
-                tokens=tokens,
-                allowed=ok,
-                used_upload_tokens=used,
-                cap_upload_tokens=cap,
-            )
-            if not ok:
-                msg = f"Upload budget exceeded ({used}/{cap} tokens). Upgrade to continue."
-                await uptrack.mark_error(object_name, msg)
-                record_file_upload_error(stage="limit", flow="upload")
-                log.warning("upload_tokens_exhausted_abort", uid=uid, object=object_name)
-                return UploadResponse(job_id=object_name)
-        except Exception:
-            log.exception("usage_upload_tokens_error", uid=uid, object=object_name)
-
-    # Tokenize extracted text BEFORE it is sent to embedding/vector store.
-    # We still do usage accounting on the raw extracted text above.
-    tokenized_text = tokenize_text(uid, text) if text else text
-
-    # Store in Firebase
-    try:
-        await uptrack.set_phase(object_name, "upload", pct=60)
-
-        md = {
-            "checksum": sha256,
-            "owner_uid": uid,
-            "dataset": dataset,
-            "content_type": file.content_type or "",
-            # Existing semantics: original_name is the filename clients should show
-            "original_name": filename,
-            # NEW semantics: display_name can include folders (virtual path)
-            "display_name": display_name,
-            "folder_path": folder_path,
-            # Keep initial_name as a stable hint for later
-            "initial_name": filename,
-        }
-
-        blob.metadata = md
-        blob.upload_from_string(data, content_type=file.content_type or "application/octet-stream")
-        await uptrack.set_phase(object_name, "upload", pct=75)
-        log.info("upload_storage_ok", object=object_name, size=total)
-        if text:
-            try:
-                from features.workflows import toolkit as workflow_toolkit
-
-                workflow_toolkit.persist_chunk_artifact(
-                    uid,
-                    file_id=object_name,
-                    text=text,
-                    name=filename,
-                    folder_path=folder_path,
-                    content_type=file.content_type or "application/octet-stream",
-                )
-            except Exception as e:
-                log.debug("workflow_chunk_artifact_upload_failed", uid=uid, object=object_name, error=str(e))
-    except Exception as e:
-        await uptrack.mark_error(object_name, f"Storage error: {e}")
-        record_file_upload_error(stage="storage", flow="upload")
-        log.exception("upload_storage_error", object=object_name)
-        raise
-
-    # Index metadata in Firestore (Phase 3)
-    try:
-        try:
-            blob.reload()
+            os.remove(temp_path)
         except Exception:
             pass
-        index_store.upsert_file(
-            uid,
-            storage_path=object_name,
-            original_name=filename,
-            display_name=display_name,
-            folder_path=folder_path,
-            size=int(blob.size or total or 0),
-            content_type=str(blob.content_type or file.content_type or ""),
-            dataset=dataset,
-            checksum=sha256,
-            created_at=getattr(blob, "time_created", None) or datetime.utcnow(),
-        )
-    except Exception as e:
-        log.debug("files_index_upsert_failed", uid=uid, object=object_name, error=str(e))
-
-    # If we have text, embed & ingest (we already charged tokens above).
-    try:
-        if tokenized_text:
-            log.info("upload_extract_ok", object=object_name, chars=len(tokenized_text))
-            await uptrack.set_phase(object_name, "embed", pct=85)
-            ingest_t0 = time.perf_counter()
-            record_ingest_started(flow="upload")
-            try:
-                orchestrator.ingest_request(
-                    IngestRequest(
-                        dataset=dataset,
-                        text=str(tokenized_text),
-                        doc_id=object_name,  # stable per file
-                        metadata={
-                            "owner_uid": uid,
-                            "source": "upload",
-                            "title": filename,
-                            "filename": filename,
-                            "file_id": object_name,
-                            "dataset": dataset,
-                            "checksum": sha256,
-                            "content_type": file.content_type or "",
-                            # UI-oriented names (best-effort)
-                            "display_name": display_name,
-                            "folder_path": folder_path,
-                        },
-                    ),
-                    uid=uid,
-                )
-                await uptrack.set_phase(object_name, "upsert", pct=95)
-                record_ingest_completed(flow="upload")
-                record_ingest_duration(flow="upload", dur_ms=(time.perf_counter() - ingest_t0) * 1000, status="ok")
-                log.info("upload_ingest_ok", object=object_name)
-            except Exception as e:
-                record_ingest_error(flow="upload", stage="orchestrator")
-                record_ingest_duration(flow="upload", dur_ms=(time.perf_counter() - ingest_t0) * 1000, status="error")
-                log.warning("upload_ingest_error", object=object_name, error=str(e))
-        else:
-            log.info(
-                "upload_text_skipped",
-                object=object_name,
-                reason="no extractable text",
-                ctype=file.content_type or "",
-                size=total,
-            )
-            await uptrack.set_phase(object_name, "upsert", pct=95)
-    except Exception as e:
-        await uptrack.mark_error(object_name, f"Extract/ingest error: {e}")
-        record_file_upload_error(stage="extract_or_ingest", flow="upload")
-        log.exception("upload_extract_error", object=object_name)
+        await uptrack.mark_error(object_name, f"Failed to queue upload: {e}")
+        record_file_upload_error(stage="queue", flow="upload")
+        log.exception("upload_queue_error", object=object_name)
         raise
-
-    await uptrack.mark_done(object_name)
-    record_file_upload_completed(flow="upload")
-    log.info("upload_done", object=object_name, dur_ms=int((time.perf_counter() - upload_t0) * 1000))
-
-    return UploadResponse(job_id=object_name)
 
 
 def _fileitem_from_index_row(row: dict) -> FileItem:

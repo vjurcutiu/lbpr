@@ -12,6 +12,7 @@ from core.logging import setup_logging
 from core import redis_utils
 from core.request_context import set_request_context, reset_request_context
 from core.telemetry import current_trace_id_hex, setup_telemetry, shutdown_telemetry
+from core.background_jobs import start_background_jobs, stop_background_jobs
 
 from routers import health
 from routers.limits import router as limits_router
@@ -146,7 +147,9 @@ async def lifespan(app: FastAPI):
     log.info("app_boot", **safe_settings_snapshot())
     init_firebase()
     await redis_utils.init(settings.REDIS_URL)
+    start_background_jobs()
     yield
+    stop_background_jobs(wait=False)
     await redis_utils.close()
     shutdown_telemetry()
 

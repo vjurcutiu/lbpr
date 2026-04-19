@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Background job execution
+    BACKGROUND_JOB_WORKERS: int = 2
+
     # -------- Plans / Limits (monthly window, per-user) --------
     # Default "FREE" limits
     LIMITS_FREE_MESSAGES: int = 200              # number of chat messages per calendar month

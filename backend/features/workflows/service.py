@@ -9,6 +9,7 @@ from collections import defaultdict
 
 from fastapi import HTTPException
 
+from core.background_jobs import submit as submit_background_job
 from core.business_metrics import (
     record_workflow_completed,
     record_workflow_duration,
@@ -254,19 +255,15 @@ def _augment_result_metadata(run: WorkflowRun, docs: list[WorkflowSourceFile], s
     run.result.preview_markdown = _append_preview_warnings(run.result.preview_markdown, warnings)
 
 
-def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
-    manifest = _validate_selection(payload)
-    handler = WORKFLOW_HANDLERS[payload.workflow_id]
+def _execute_run(uid: str, run_id: str) -> None:
+    run = get_run(uid, run_id)
+    manifest = WORKFLOW_INDEX.get(run.workflow_id)
+    if manifest is None:
+        run.mark_failed("Unknown workflow")
+        _persist_run(uid, run)
+        return
 
-    run = WorkflowRun(
-        workflow_id=manifest.workflow_id,
-        title=manifest.title,
-        capability=manifest.capability,
-        selection=payload.selection,
-        inputs=payload.inputs,
-    )
-    _persist_run(uid, run)
-
+    handler = WORKFLOW_HANDLERS[run.workflow_id]
     started_at = time.perf_counter()
     record_workflow_started(workflow_id=manifest.workflow_id, capability=manifest.capability)
 
@@ -275,16 +272,18 @@ def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
         _persist_run(uid, run)
         source_documents, source_stats = _load_source_documents(
             uid,
-            payload.selection,
+            run.selection,
             workflow_id=manifest.workflow_id,
-            inputs=payload.inputs,
+            inputs=run.inputs,
         )
         if manifest.selection.exact_file_count is not None and len(source_documents) < manifest.selection.exact_file_count:
             raise HTTPException(status_code=400, detail="Could not extract usable text from every selected file for this workflow")
+
         result = handler(run, source_documents)
         run.mark_completed(result)
         _augment_result_metadata(run, source_documents, source_stats)
         _persist_run(uid, run)
+
         dur_ms = (time.perf_counter() - started_at) * 1000
         record_workflow_completed(workflow_id=manifest.workflow_id, capability=manifest.capability)
         record_workflow_duration(workflow_id=manifest.workflow_id, capability=manifest.capability, dur_ms=dur_ms, status="ok")
@@ -295,9 +294,20 @@ def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
             run_id=run.id,
             status=run.status,
         )
-        return run
-    except HTTPException:
-        raise
+    except HTTPException as exc:
+        detail = getattr(exc, "detail", None) or str(exc) or "Workflow failed"
+        run.mark_failed(str(detail))
+        _persist_run(uid, run)
+        dur_ms = (time.perf_counter() - started_at) * 1000
+        record_workflow_failed(workflow_id=manifest.workflow_id, capability=manifest.capability, stage="http_exception")
+        record_workflow_duration(workflow_id=manifest.workflow_id, capability=manifest.capability, dur_ms=dur_ms, status="error")
+        log.warning(
+            "workflow_run_failed_http",
+            workflow_id=manifest.workflow_id,
+            capability=manifest.capability,
+            run_id=run.id,
+            detail=detail,
+        )
     except Exception as exc:
         run.mark_failed(str(exc) or "Workflow failed")
         _persist_run(uid, run)
@@ -310,4 +320,26 @@ def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
             capability=manifest.capability,
             run_id=run.id,
         )
-        raise HTTPException(status_code=500, detail="Workflow execution failed") from exc
+
+
+def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
+    manifest = _validate_selection(payload)
+
+    run = WorkflowRun(
+        workflow_id=manifest.workflow_id,
+        title=manifest.title,
+        capability=manifest.capability,
+        selection=payload.selection,
+        inputs=payload.inputs,
+    )
+    _persist_run(uid, run)
+
+    try:
+        submit_background_job(f"workflow:{run.id}", _execute_run, uid, run.id)
+    except Exception as exc:
+        run.mark_failed("Failed to queue workflow")
+        _persist_run(uid, run)
+        log.exception("workflow_run_queue_failed", workflow_id=manifest.workflow_id, capability=manifest.capability, run_id=run.id)
+        raise HTTPException(status_code=500, detail="Failed to queue workflow") from exc
+
+    return run

@@ -24,7 +24,7 @@ def list_workflow_runs(
     return service.list_runs(user.uid, limit=limit)
 
 
-@router.post("/runs", response_model=WorkflowRun)
+@router.post("/runs", response_model=WorkflowRun, status_code=202)
 def create_workflow_run(payload: WorkflowRunCreate, user: SessionOut = Depends(get_current_user)) -> WorkflowRun:
     return service.create_run(user.uid, payload)
 

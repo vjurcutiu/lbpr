@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 import os
 import logging
 import uuid
@@ -14,19 +14,32 @@ from core.namespaces import pinecone_namespace
 log = logging.getLogger("rag.orchestrator")
 
 _store = get_store()
-_sparse = SparseEncoder()
+_sparse: Optional[SparseEncoder] = None
 
 FUSION = (os.getenv("RAG_HYBRID_FUSION") or "rrf").lower()
 ALPHA = float(os.getenv("RAG_HYBRID_ALPHA") or "0.5")
+
+def _get_sparse() -> Optional[SparseEncoder]:
+    global _sparse
+    if _sparse is not None:
+        return _sparse
+    try:
+        _sparse = SparseEncoder()
+        return _sparse
+    except Exception as e:
+        log.warning("sparse_encoder_init_failed", extra={"error": str(e)})
+        return None
 
 def _ingest_impl(dataset: str, doc_id: str, chunks: List[Dict], meta_base: Dict):
     texts = [c["text"] for c in chunks]
     vectors = embed_texts(texts)
     sparse_list = []
-    try:
-        sparse_list = [_sparse.encode_doc(t) for t in texts]
-    except Exception as e:
-        log.warning("ingest_sparse_failed", extra={"dataset": dataset, "doc_id": doc_id, "error": str(e)})
+    sparse = _get_sparse()
+    if sparse is not None:
+        try:
+            sparse_list = [sparse.encode_doc(t) for t in texts]
+        except Exception as e:
+            log.warning("ingest_sparse_failed", extra={"dataset": dataset, "doc_id": doc_id, "error": str(e)})
     entries = []
     for c, v, sv in zip(chunks, vectors, sparse_list or [{} for _ in range(len(vectors))]):
         span = c.get("span") or {"start": 0, "end": 0}
@@ -76,10 +89,12 @@ def query_request(req: QueryRequest, uid: str) -> QueryResponse:
     dataset_ns = pinecone_namespace(uid, req.dataset)
     qvec = embed_one(req.query)
     qsparse = {}
-    try:
-        qsparse = _sparse.encode_query(req.query)
-    except Exception as e:
-        log.warning("query_sparse_failed", extra={"dataset": dataset_ns, "error": str(e)})
+    sparse = _get_sparse()
+    if sparse is not None:
+        try:
+            qsparse = sparse.encode_query(req.query)
+        except Exception as e:
+            log.warning("query_sparse_failed", extra={"dataset": dataset_ns, "error": str(e)})
     filter_dict = {"doc_id": {"$in": [doc_id for doc_id in req.doc_ids if str(doc_id).strip()]}} if req.doc_ids else None
     results: List[Tuple[float, Dict]] = _store.query_hybrid(
         dataset_ns,

@@ -24,6 +24,19 @@ def fake_business_metrics(monkeypatch):
     monkeypatch.setattr(business_metrics, '_INSTRUMENTS', None)
 
 
+
+
+@pytest.fixture()
+def inline_workflow_jobs(monkeypatch):
+    def _run_inline(job_name, fn, *args, **kwargs):
+        fn(*args, **kwargs)
+        class _Done:
+            def result(self):
+                return None
+        return _Done()
+
+    monkeypatch.setattr(workflow_service, 'submit_background_job', _run_inline)
+
 @pytest.fixture()
 def stub_workflow_sources(monkeypatch):
     monkeypatch.setattr(workflow_registry, 'OpenAIChat', None)
@@ -55,7 +68,7 @@ def stub_workflow_sources(monkeypatch):
     monkeypatch.setattr(workflow_service, '_load_source_documents', _fake_loader)
 
 
-def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, stub_workflow_sources):
+def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, inline_workflow_jobs, stub_workflow_sources):
     catalog = auth_client.get('/v1/workflows')
     assert catalog.status_code == 200, catalog.text
     workflow_ids = [item['workflow_id'] for item in catalog.json()]
@@ -74,10 +87,10 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
             'inputs': {'focus': 'key risks and decisions'},
         },
     )
-    assert create.status_code == 200, create.text
+    assert create.status_code == 202, create.text
     run = create.json()
     assert run['workflow_id'] == 'summarize_documents'
-    assert run['status'] == 'completed'
+    assert run['status'] in {'queued', 'completed'}
     assert run['result']['summary']
     assert run['result']['metadata']['source_files'][0]['name'] == 'Q1-plan.txt'
     assert run['result']['preview_markdown']

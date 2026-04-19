@@ -19,6 +19,18 @@ Plan = Literal["FREE", "PRO"]
 
 ACTIVE_STATUSES = {"active", "trialing", "past_due"}
 SUB_COLLECTION = "subscriptions"
+USER_COLLECTION = "users"
+PLAN_OVERRIDE_FIELD = "plan_override"
+
+
+def _normalize_plan_override(value: Any) -> Optional[Plan]:
+    try:
+        normalized = str(value or "").strip().upper()
+    except Exception:
+        return None
+    if normalized in ("FREE", "PRO"):
+        return normalized  # type: ignore[return-value]
+    return None
 
 
 def _as_unix_ts(v: Any) -> int:
@@ -50,10 +62,21 @@ async def _fetch_sub_snapshot(uid: str) -> Dict[str, Any]:
         "current_period_end": 0,
         "cancel_at_period_end": False,
         "cancel_at": 0,
+        "override": False,
     }
     try:
         from firebase_admin import firestore  # type: ignore
         db = firestore.client()
+
+        user_doc = db.collection(USER_COLLECTION).document(uid).get()
+        user_data = user_doc.to_dict() or {}
+        override = _normalize_plan_override(user_data.get(PLAN_OVERRIDE_FIELD))
+        if override is not None:
+            out["plan"] = override
+            out["status"] = "override"
+            out["override"] = True
+            return out
+
         subs = (
             db.collection("customers")
               .document(uid)
