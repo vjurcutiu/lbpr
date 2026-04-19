@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 
 import type { WorkflowRun } from "../types";
 import { getWorkflowIcon } from "../registry";
+import { WorkflowResultDetails } from "./WorkflowResultDetails";
 
 function StatusIcon({ status }: { status: WorkflowRun["status"] }) {
   if (status === "completed") return <CheckCircle2 className="h-4 w-4 text-primary" />;
@@ -46,15 +47,9 @@ export function WorkflowRunCard({ run }: Props) {
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3 px-4 text-sm">
-        {run.result?.summary ? <p>{run.result.summary}</p> : null}
-        {run.result?.bullets?.length ? (
-          <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
-            {run.result.bullets.slice(0, 3).map((bullet) => (
-              <li key={bullet}>{bullet}</li>
-            ))}
-          </ul>
-        ) : null}
+      <CardContent className="space-y-4 px-4 text-sm">
+        {run.result?.summary ? <p className="text-sm">{run.result.summary}</p> : null}
+        {run.result ? <WorkflowResultDetails result={run.result} /> : null}
         {run.error ? <p className="text-destructive">{run.error}</p> : null}
       </CardContent>
     </Card>

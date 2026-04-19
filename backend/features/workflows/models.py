@@ -62,6 +62,17 @@ class WorkflowRunCreate(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkflowSourceFile(BaseModel):
+    file_id: str
+    name: str
+    folder_path: str | None = None
+    content_type: str | None = None
+    excerpt: str
+    full_text_chars: int = 0
+    excerpt_chars: int = 0
+    truncated: bool = False
+
+
 class WorkflowResult(BaseModel):
     summary: str
     bullets: list[str] = Field(default_factory=list)

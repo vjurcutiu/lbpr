@@ -3,6 +3,9 @@ from __future__ import annotations
 import pytest
 
 import core.business_metrics as business_metrics
+from features.workflows import registry as workflow_registry
+from features.workflows import service as workflow_service
+from features.workflows.models import WorkflowSourceFile
 from tests.telemetry_testkit import FakeBusinessInstruments, assert_call
 
 
@@ -21,7 +24,38 @@ def fake_business_metrics(monkeypatch):
     monkeypatch.setattr(business_metrics, '_INSTRUMENTS', None)
 
 
-def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics):
+@pytest.fixture()
+def stub_workflow_sources(monkeypatch):
+    monkeypatch.setattr(workflow_registry, 'OpenAIChat', None)
+
+    def _fake_loader(uid, selection):
+        docs = [
+            WorkflowSourceFile(
+                file_id='file-1',
+                name='Q1-plan.txt',
+                folder_path='contracts',
+                content_type='text/plain',
+                excerpt='The project requires legal review, budget confirmation, and a phased rollout before launch.',
+                full_text_chars=98,
+                excerpt_chars=98,
+                truncated=False,
+            )
+        ]
+        return docs, {
+            'selected_files': 1,
+            'used_source_files': 1,
+            'warnings': [],
+            'skipped_source_files': [],
+            'truncated_source_files': [],
+            'max_source_files': 8,
+            'max_total_source_chars': 32000,
+            'max_chars_per_file': 7000,
+        }
+
+    monkeypatch.setattr(workflow_service, '_load_source_documents', _fake_loader)
+
+
+def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, stub_workflow_sources):
     catalog = auth_client.get('/v1/workflows')
     assert catalog.status_code == 200, catalog.text
     workflow_ids = [item['workflow_id'] for item in catalog.json()]
@@ -45,7 +79,8 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics):
     assert run['workflow_id'] == 'summarize_documents'
     assert run['status'] == 'completed'
     assert run['result']['summary']
-    assert 'key risks and decisions' in '\n'.join(run['result']['bullets'])
+    assert run['result']['metadata']['source_files'][0]['name'] == 'Q1-plan.txt'
+    assert run['result']['preview_markdown']
 
     listed = auth_client.get('/v1/workflows/runs')
     assert listed.status_code == 200, listed.text

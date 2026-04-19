@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 import threading
 import time
 from collections import defaultdict
@@ -13,22 +15,31 @@ from core.business_metrics import (
     record_workflow_failed,
     record_workflow_started,
 )
+from features.files import service as files_service
+from features.files.schemas import FileItem
 
-from .models import WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList
+from .models import WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList, WorkflowSelectionIn, WorkflowSourceFile
 from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX
 
 log = logging.getLogger("workflows.service")
 
-
 _RUNS_BY_UID: dict[str, list[WorkflowRun]] = defaultdict(list)
 _LOCK = threading.Lock()
 _MAX_RUNS_PER_USER = 25
-
+_MAX_SOURCE_FILES = 8
+_MAX_TOTAL_SOURCE_CHARS = 32000
+_MAX_CHARS_PER_FILE = 7000
+_EXTRACTABLE_CONTENT_TYPES = {
+    "application/json",
+    "application/xml",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+_EXTRACTABLE_SUFFIXES = (".txt", ".md", ".markdown", ".json", ".xml", ".csv", ".pdf", ".docx")
 
 
 def list_workflows() -> list[WorkflowManifest]:
     return list(WORKFLOW_INDEX.values())
-
 
 
 def list_runs(uid: str, limit: int = 10) -> WorkflowRunList:
@@ -37,14 +48,12 @@ def list_runs(uid: str, limit: int = 10) -> WorkflowRunList:
     return WorkflowRunList(items=items[: max(1, min(limit, 50))])
 
 
-
 def get_run(uid: str, run_id: str) -> WorkflowRun:
     with _LOCK:
         for run in _RUNS_BY_UID.get(uid, []):
             if run.id == run_id:
                 return run
     raise HTTPException(status_code=404, detail="Workflow run not found")
-
 
 
 def _validate_selection(payload: WorkflowRunCreate) -> WorkflowManifest:
@@ -67,12 +76,208 @@ def _validate_selection(payload: WorkflowRunCreate) -> WorkflowManifest:
     return manifest
 
 
-
 def _persist_run(uid: str, run: WorkflowRun) -> None:
     with _LOCK:
         existing = [item for item in _RUNS_BY_UID.get(uid, []) if item.id != run.id]
         _RUNS_BY_UID[uid] = [run, *existing][:_MAX_RUNS_PER_USER]
 
+
+def _normalize_folder_path(path: str | None) -> str:
+    return str(path or "").strip().strip("/")
+
+
+def _is_within_folder(file_item: FileItem, folder_path: str) -> bool:
+    target = _normalize_folder_path(folder_path)
+    current = _normalize_folder_path(file_item.folder_path)
+    return bool(target) and (current == target or current.startswith(target + "/"))
+
+
+def _dedupe_files(items: list[FileItem]) -> list[FileItem]:
+    seen: set[str] = set()
+    out: list[FileItem] = []
+    for item in items:
+        if item.id in seen:
+            continue
+        seen.add(item.id)
+        out.append(item)
+    return out
+
+
+def _resolve_selected_files(uid: str, selection: WorkflowSelectionIn) -> list[FileItem]:
+    all_files = files_service.list_files(uid)
+    by_id = {item.id: item for item in all_files}
+    selected: list[FileItem] = []
+
+    for file_id in selection.file_ids:
+        item = by_id.get(file_id)
+        if item is not None:
+            selected.append(item)
+
+    for folder_path in selection.folder_paths:
+        selected.extend(item for item in all_files if _is_within_folder(item, folder_path))
+
+    selected = _dedupe_files(selected)
+    if not selected:
+        raise HTTPException(status_code=400, detail="No files were found for the current workflow selection")
+    return selected
+
+
+def _looks_extractable(file_item: FileItem) -> bool:
+    content_type = (file_item.content_type or "").lower()
+    name = (file_item.original_name or file_item.name or file_item.id).lower()
+    if content_type.startswith("text/"):
+        return True
+    if content_type in _EXTRACTABLE_CONTENT_TYPES:
+        return True
+    return name.endswith(_EXTRACTABLE_SUFFIXES)
+
+
+def _base_name(file_item: FileItem) -> str:
+    raw = file_item.original_name or file_item.name or file_item.id.rsplit("/", 1)[-1]
+    return raw.rsplit("/", 1)[-1]
+
+
+def _normalize_excerpt(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()
+
+
+def _extract_text_for_file(uid: str, file_item: FileItem) -> str | None:
+    data, content_type = files_service.get_file_bytes(uid, file_item.id)
+    name = _base_name(file_item)
+    text = asyncio.run(
+        files_service._extract_text(  # type: ignore[attr-defined]
+            uid,
+            f"workflow:{file_item.id}",
+            name,
+            content_type or file_item.content_type,
+            data,
+            charge_usage=False,
+        )
+    )
+    normalized = _normalize_excerpt(text or "")
+    return normalized or None
+
+
+def _load_source_documents(uid: str, selection: WorkflowSelectionIn) -> tuple[list[WorkflowSourceFile], dict[str, object]]:
+    selected_files = _resolve_selected_files(uid, selection)
+    limited_files = selected_files[:_MAX_SOURCE_FILES]
+    warnings: list[str] = []
+    if len(selected_files) > _MAX_SOURCE_FILES:
+        warnings.append(f"Used the first {_MAX_SOURCE_FILES} files from the selection to keep the workflow responsive.")
+
+    remaining_chars = _MAX_TOTAL_SOURCE_CHARS
+    documents: list[WorkflowSourceFile] = []
+    skipped_files: list[str] = []
+    truncated_files: list[str] = []
+
+    for item in limited_files:
+        if remaining_chars <= 0:
+            truncated_files.append(_base_name(item))
+            continue
+        if not _looks_extractable(item):
+            skipped_files.append(_base_name(item))
+            continue
+        try:
+            text = _extract_text_for_file(uid, item)
+        except FileNotFoundError:
+            skipped_files.append(_base_name(item))
+            continue
+        except Exception as exc:
+            log.warning("workflow_file_extract_failed", uid=uid, file_id=item.id, error=str(exc))
+            skipped_files.append(_base_name(item))
+            continue
+        if not text:
+            skipped_files.append(_base_name(item))
+            continue
+
+        excerpt_limit = min(_MAX_CHARS_PER_FILE, remaining_chars)
+        excerpt = text[:excerpt_limit].strip()
+        if not excerpt:
+            skipped_files.append(_base_name(item))
+            continue
+
+        truncated = len(excerpt) < len(text)
+        if truncated:
+            truncated_files.append(_base_name(item))
+        remaining_chars -= len(excerpt)
+        documents.append(
+            WorkflowSourceFile(
+                file_id=item.id,
+                name=_base_name(item),
+                folder_path=_normalize_folder_path(item.folder_path) or None,
+                content_type=item.content_type or None,
+                excerpt=excerpt,
+                full_text_chars=len(text),
+                excerpt_chars=len(excerpt),
+                truncated=truncated,
+            )
+        )
+
+    if not documents:
+        raise HTTPException(
+            status_code=400,
+            detail="No extractable text was found in the selected files. Try text, searchable PDF, or DOCX files.",
+        )
+
+    if skipped_files:
+        warnings.append(f"Skipped {len(skipped_files)} file(s) that could not provide usable text.")
+    if truncated_files:
+        warnings.append("Some files were truncated to keep the workflow result fast and focused.")
+
+    stats: dict[str, object] = {
+        "selected_files": len(selected_files),
+        "used_source_files": len(documents),
+        "warnings": warnings,
+        "skipped_source_files": skipped_files,
+        "truncated_source_files": truncated_files,
+        "max_source_files": _MAX_SOURCE_FILES,
+        "max_total_source_chars": _MAX_TOTAL_SOURCE_CHARS,
+        "max_chars_per_file": _MAX_CHARS_PER_FILE,
+    }
+    return documents, stats
+
+
+def _append_preview_warnings(preview_markdown: str, warnings: list[str]) -> str:
+    if not warnings:
+        return preview_markdown
+    suffix = "\n\n## Workflow notes\n" + "\n".join(f"- {item}" for item in warnings)
+    return (preview_markdown or "").strip() + suffix
+
+
+def _augment_result_metadata(run: WorkflowRun, docs: list[WorkflowSourceFile], stats: dict[str, object]) -> None:
+    if run.result is None:
+        return
+    metadata = dict(run.result.metadata or {})
+    metadata.setdefault(
+        "source_files",
+        [
+            {
+                "file_id": doc.file_id,
+                "name": doc.name,
+                "folder_path": doc.folder_path,
+                "content_type": doc.content_type,
+                "excerpt_chars": doc.excerpt_chars,
+                "full_text_chars": doc.full_text_chars,
+                "truncated": doc.truncated,
+            }
+            for doc in docs
+        ],
+    )
+    metadata.setdefault(
+        "selection",
+        {
+            "file_ids": list(run.selection.file_ids),
+            "folder_paths": list(run.selection.folder_paths),
+            "current_folder": run.selection.current_folder,
+        },
+    )
+    metadata.update(stats)
+    warnings = [str(item) for item in metadata.get("warnings") or [] if str(item).strip()]
+    run.result.metadata = metadata
+    run.result.preview_markdown = _append_preview_warnings(run.result.preview_markdown, warnings)
 
 
 def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
@@ -94,8 +299,12 @@ def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
     try:
         run.mark_running()
         _persist_run(uid, run)
-        result = handler(run)
+        source_documents, source_stats = _load_source_documents(uid, payload.selection)
+        if manifest.selection.exact_file_count is not None and len(source_documents) < manifest.selection.exact_file_count:
+            raise HTTPException(status_code=400, detail="Could not extract usable text from every selected file for this workflow")
+        result = handler(run, source_documents)
         run.mark_completed(result)
+        _augment_result_metadata(run, source_documents, source_stats)
         _persist_run(uid, run)
         dur_ms = (time.perf_counter() - started_at) * 1000
         record_workflow_completed(workflow_id=manifest.workflow_id, capability=manifest.capability)
