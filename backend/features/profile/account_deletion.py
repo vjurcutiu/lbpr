@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
 import logging
 import os
 from dataclasses import asdict, dataclass
 from typing import Any, Optional
+
+import httpx
 
 from core.config import settings
 from core.namespaces import pinecone_namespace
@@ -20,6 +23,7 @@ class DeleteAccountSummary:
     pinecone_namespaces_deleted: int = 0
     redis_keys_deleted: int = 0
     sessions_revoked: int = 0
+    stripe_subscriptions_canceled: int = 0
 
     def to_dict(self) -> dict[str, int]:
         return asdict(self)
@@ -273,6 +277,137 @@ def _delete_pinecone_user_data(uid: str, *, datasets: set[str]) -> int:
     return deleted
 
 
+def _stripe_api_key() -> str:
+    return str(getattr(settings, "STRIPE_API_KEY", None) or os.getenv("STRIPE_API_KEY") or "").strip()
+
+
+def _stripe_headers() -> dict[str, str]:
+    api_key = _stripe_api_key()
+    if not api_key:
+        raise RuntimeError("STRIPE_API_KEY is not configured")
+    token = base64.b64encode(f"{api_key}:".encode("utf-8")).decode("ascii")
+    return {
+        "Authorization": f"Basic {token}",
+        "User-Agent": "lbpr-account-delete/1.0",
+    }
+
+
+def _stripe_request(method: str, path: str, *, params: Optional[dict[str, Any]] = None, data: Optional[dict[str, Any]] = None) -> Any:
+    with httpx.Client(base_url="https://api.stripe.com", timeout=20.0, headers=_stripe_headers()) as client:
+        resp = client.request(method, path, params=params, data=data)
+    if resp.status_code == 404:
+        return None
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        detail = None
+        try:
+            payload = resp.json()
+            detail = ((payload or {}).get("error") or {}).get("message")
+        except Exception:
+            detail = None
+        raise RuntimeError(detail or resp.text or str(exc)) from exc
+    if not resp.content:
+        return None
+    return resp.json()
+
+
+def _collect_stripe_targets(uid: str) -> tuple[Optional[str], list[str]]:
+    fs = _get_firestore_module()
+    if fs is None:
+        return None, []
+
+    db = fs.client()
+    customer_data = (db.collection("customers").document(uid).get().to_dict() or {})
+    stripe_id = str(customer_data.get("stripeId") or "").strip() or None
+
+    fallback_subscription_ids: list[str] = []
+    try:
+        docs = db.collection("customers").document(uid).collection("subscriptions").limit(100).stream()
+        for doc in docs:
+            data = doc.to_dict() or {}
+            status = str(data.get("status") or "").strip().lower()
+            if status == "canceled":
+                continue
+            fallback_subscription_ids.append(doc.id)
+    except Exception:
+        log.exception("account_delete_collect_stripe_subscriptions_failed", uid=uid)
+
+    return stripe_id, fallback_subscription_ids
+
+
+def _list_stripe_subscription_ids(customer_id: str) -> list[str]:
+    subscription_ids: list[str] = []
+    starting_after: Optional[str] = None
+
+    while True:
+        params: dict[str, Any] = {
+            "customer": customer_id,
+            "status": "all",
+            "limit": 100,
+        }
+        if starting_after:
+            params["starting_after"] = starting_after
+        payload = _stripe_request("GET", "/v1/subscriptions", params=params) or {}
+        data = payload.get("data") or []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            status = str(item.get("status") or "").strip().lower()
+            sub_id = str(item.get("id") or "").strip()
+            if sub_id and status != "canceled":
+                subscription_ids.append(sub_id)
+        if not payload.get("has_more") or not data:
+            break
+        starting_after = str(data[-1].get("id") or "").strip() or None
+        if not starting_after:
+            break
+
+    return subscription_ids
+
+
+def _cancel_stripe_subscription(subscription_id: str) -> bool:
+    try:
+        _stripe_request(
+            "DELETE",
+            f"/v1/subscriptions/{subscription_id}",
+            data={
+                "cancellation_details[comment]": "User deleted their account in LexBot.",
+            },
+        )
+        return True
+    except RuntimeError as exc:
+        if "No such subscription" in str(exc):
+            return False
+        raise
+
+
+def _cancel_stripe_billing(uid: str) -> int:
+    stripe_id, fallback_subscription_ids = _collect_stripe_targets(uid)
+    if not stripe_id and not fallback_subscription_ids:
+        return 0
+
+    if not _stripe_api_key():
+        raise RuntimeError("Cannot cancel Stripe billing during account deletion because STRIPE_API_KEY is not configured.")
+
+    subscription_ids = set(fallback_subscription_ids)
+    if stripe_id:
+        try:
+            subscription_ids.update(_list_stripe_subscription_ids(stripe_id))
+        except Exception:
+            log.exception("account_delete_list_stripe_subscriptions_failed", uid=uid, stripe_id=stripe_id)
+            if not subscription_ids:
+                raise
+
+    canceled = 0
+    for subscription_id in sorted(subscription_ids):
+        if _cancel_stripe_subscription(subscription_id):
+            canceled += 1
+
+    log.info("account_delete_stripe_ok", uid=uid, stripe_id=stripe_id, canceled=canceled)
+    return canceled
+
+
 def delete_account_data(uid: str, *, auth_svc: AuthService, current_sid: Optional[str] = None) -> dict[str, int]:
     uid = str(uid or "").strip()
     if not uid:
@@ -282,6 +417,7 @@ def delete_account_data(uid: str, *, auth_svc: AuthService, current_sid: Optiona
     datasets = _collect_user_datasets(uid)
 
     try:
+        summary.stripe_subscriptions_canceled = _cancel_stripe_billing(uid)
         summary.pinecone_namespaces_deleted = _delete_pinecone_user_data(uid, datasets=datasets)
         summary.storage_objects_deleted = _delete_storage_prefix(uid)
         summary.firestore_docs_deleted = _delete_firestore_user_data(uid)

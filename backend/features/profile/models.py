@@ -23,6 +23,7 @@ class DeleteAccountIn(BaseModel):
 
 class DeleteAccountOut(BaseModel):
     ok: bool = True
+    stripe_subscriptions_canceled: int = 0
     storage_objects_deleted: int = 0
     firestore_docs_deleted: int = 0
     pinecone_namespaces_deleted: int = 0

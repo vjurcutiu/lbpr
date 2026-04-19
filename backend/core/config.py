@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     # Firebase
     FIREBASE_PROJECT_ID: str = ""
+    STRIPE_API_KEY: str | None = None
     FIREBASE_CREDENTIALS: str | None = None
     FIREBASE_CREDENTIALS_DEFAULT: str | None = "/run/secrets/firebase_sa.json"
     FIREBASE_STORAGE_BUCKET: str | None = None

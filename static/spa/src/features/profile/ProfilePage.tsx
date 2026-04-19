@@ -627,7 +627,7 @@ export default function ProfilePage() {
         <CardHeader>
           <CardTitle className="text-destructive">Delete account</CardTitle>
           <CardDescription>
-            Permanently delete your account, chats, and files. This cannot be undone.
+            Permanently delete your account, chats, and files. If you have an active paid plan, your Stripe subscription will be cancelled immediately. This cannot be undone.
           </CardDescription>
         </CardHeader>
         <CardFooter className="justify-end">
@@ -642,7 +642,7 @@ export default function ProfilePage() {
           <DialogHeader>
             <DialogTitle>Delete account</DialogTitle>
             <DialogDescription>
-              This permanently removes your account and its associated data. Type <span className="font-semibold text-foreground">DELETE</span> to confirm.
+              This permanently removes your account and its associated data. Any active Stripe subscription tied to this account will be cancelled immediately. Type <span className="font-semibold text-foreground">DELETE</span> to confirm.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
