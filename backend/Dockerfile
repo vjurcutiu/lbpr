@@ -3,14 +3,17 @@ FROM python:3.11-slim AS base
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    NLTK_DATA=/usr/local/share/nltk_data
 
 # Minimal system deps
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/*
 
-# install only runtime deps
+# install runtime deps and pre-bake NLTK assets used by pinecone-text BM25
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt \
+    && mkdir -p "$NLTK_DATA" \
+    && python -c "import nltk; [nltk.download(pkg, download_dir='/usr/local/share/nltk_data') for pkg in ('punkt_tab', 'stopwords')]"
 
 # copy app code
 COPY . .
