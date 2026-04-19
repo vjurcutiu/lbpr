@@ -261,6 +261,7 @@ async def chat(req: ChatRequest, request: Request, user: SessionOut = Depends(ge
             k=req.k,
             with_sources=req.with_sources,
             exclude_doc_ids=exclude_doc_ids,  # empty
+            doc_ids=[],
             per_doc=True,  # keep per-doc diversification
         ), uid=uid)
         if req.with_sources and rag_resp.sources:

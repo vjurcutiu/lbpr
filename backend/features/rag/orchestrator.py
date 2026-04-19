@@ -80,8 +80,15 @@ def query_request(req: QueryRequest, uid: str) -> QueryResponse:
         qsparse = _sparse.encode_query(req.query)
     except Exception as e:
         log.warning("query_sparse_failed", extra={"dataset": dataset_ns, "error": str(e)})
+    filter_dict = {"doc_id": {"$in": [doc_id for doc_id in req.doc_ids if str(doc_id).strip()]}} if req.doc_ids else None
     results: List[Tuple[float, Dict]] = _store.query_hybrid(
-        dataset_ns, qvec, qsparse, k=max(req.k, 20), fusion=FUSION, alpha=ALPHA
+        dataset_ns,
+        qvec,
+        qsparse,
+        k=max(req.k, 20),
+        fusion=FUSION,
+        alpha=ALPHA,
+        filter=filter_dict,
     )
     results = _dedupe_and_filter(results, k=req.k, exclude_doc_ids=req.exclude_doc_ids, per_doc=req.per_doc)
     sources: List[Source] = []

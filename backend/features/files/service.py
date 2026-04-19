@@ -318,6 +318,20 @@ async def upload_file(
         blob.upload_from_string(data, content_type=file.content_type or "application/octet-stream")
         await uptrack.set_phase(object_name, "upload", pct=75)
         log.info("upload_storage_ok", object=object_name, size=total)
+        if text:
+            try:
+                from features.workflows import toolkit as workflow_toolkit
+
+                workflow_toolkit.persist_chunk_artifact(
+                    uid,
+                    file_id=object_name,
+                    text=text,
+                    name=filename,
+                    folder_path=folder_path,
+                    content_type=file.content_type or "application/octet-stream",
+                )
+            except Exception as e:
+                log.debug("workflow_chunk_artifact_upload_failed", uid=uid, object=object_name, error=str(e))
     except Exception as e:
         await uptrack.mark_error(object_name, f"Storage error: {e}")
         record_file_upload_error(stage="storage", flow="upload")
@@ -1143,6 +1157,13 @@ def delete_file(uid: str, file_id: str) -> bool:
     blob.delete()
 
     try:
+        from features.workflows import toolkit as workflow_toolkit
+
+        workflow_toolkit.delete_chunk_artifact(uid, file_id)
+    except Exception:
+        pass
+
+    try:
         index_store.delete_file(uid, file_id)
     except Exception:
         pass
@@ -1498,6 +1519,20 @@ async def _copy_one_file(
     try:
         data = src_blob.download_as_bytes()
         text = await _extract_text(uid, new_object, unique_name, content_type, data, charge_usage=False)
+        if text:
+            try:
+                from features.workflows import toolkit as workflow_toolkit
+
+                workflow_toolkit.persist_chunk_artifact(
+                    uid,
+                    file_id=new_object,
+                    text=text,
+                    name=unique_name,
+                    folder_path=dst_folder,
+                    content_type=content_type,
+                )
+            except Exception as e:
+                log.debug("workflow_chunk_artifact_copy_failed", uid=uid, file_id=new_object, error=str(e))
         tokenized_text = tokenize_text(uid, text) if text else text
         if tokenized_text:
             orchestrator.ingest_request(

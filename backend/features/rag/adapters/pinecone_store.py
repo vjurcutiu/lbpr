@@ -141,22 +141,28 @@ class PineconeVectorStore:
         out.sort(key=lambda t: t[0], reverse=True)
         return out
 
-    def query_dense(self, dataset: str, q_dense: List[float], k: int = 5):
+    def query_dense(self, dataset: str, q_dense: List[float], k: int = 5, filter: Optional[Dict] = None):
         idx = self._index_handle(required_dim=len(q_dense or []))
         op_t0 = time.perf_counter()
         try:
-            res = idx.query(vector=q_dense, top_k=k, include_metadata=True, namespace=str(dataset))
+            query_kwargs = {"vector": q_dense, "top_k": k, "include_metadata": True, "namespace": str(dataset)}
+            if filter:
+                query_kwargs["filter"] = filter
+            res = idx.query(**query_kwargs)
             record_pinecone_duration(operation="query_dense", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
             return self._to_hits(res)
         except Exception:
             record_pinecone_duration(operation="query_dense", dur_ms=(time.perf_counter() - op_t0) * 1000, status="error")
             raise
 
-    def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
+    def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5, filter: Optional[Dict] = None):
         idx = self._index_handle()
         op_t0 = time.perf_counter()
         try:
-            res = idx.query(sparse_vector=q_sparse, top_k=k, include_metadata=True, namespace=str(dataset))
+            query_kwargs = {"sparse_vector": q_sparse, "top_k": k, "include_metadata": True, "namespace": str(dataset)}
+            if filter:
+                query_kwargs["filter"] = filter
+            res = idx.query(**query_kwargs)
             record_pinecone_duration(operation="query_sparse", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
             return self._to_hits(res)
         except PineconeApiException as e:
@@ -183,26 +189,30 @@ class PineconeVectorStore:
         k: int = 5,
         fusion: str = "rrf",
         alpha: float = 0.5,
+        filter: Optional[Dict] = None,
     ):
         idx = self._index_handle(required_dim=len(q_dense or []))
         op_t0 = time.perf_counter()
         try:
             if fusion == "alpha":
                 # Single-call hybrid with convex scaling.
-                res = idx.query(
-                    vector=q_dense,
-                    sparse_vector=q_sparse,
-                    top_k=k,
-                    include_metadata=True,
-                    namespace=str(dataset),
-                )
+                query_kwargs = {
+                    "vector": q_dense,
+                    "sparse_vector": q_sparse,
+                    "top_k": k,
+                    "include_metadata": True,
+                    "namespace": str(dataset),
+                }
+                if filter:
+                    query_kwargs["filter"] = filter
+                res = idx.query(**query_kwargs)
                 hits = self._to_hits(res)
                 record_pinecone_duration(operation="query_hybrid", dur_ms=(time.perf_counter() - op_t0) * 1000, status="ok")
                 return hits
 
             # Default: two queries + RRF fusion. (Sparse may be unsupported; then it just contributes 0.)
-            topd = self.query_dense(dataset, q_dense, k=max(k, 20))
-            tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
+            topd = self.query_dense(dataset, q_dense, k=max(k, 20), filter=filter)
+            tops = self.query_sparse(dataset, q_sparse, k=max(k, 20), filter=filter)
             dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
             sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]
 

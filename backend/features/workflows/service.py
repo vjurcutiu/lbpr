@@ -19,6 +19,7 @@ from features.files import service as files_service
 from features.files.schemas import FileItem
 
 from .models import WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList, WorkflowSelectionIn, WorkflowSourceFile
+from . import toolkit as workflow_toolkit
 from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX
 
 log = logging.getLogger("workflows.service")
@@ -27,8 +28,6 @@ _RUNS_BY_UID: dict[str, list[WorkflowRun]] = defaultdict(list)
 _LOCK = threading.Lock()
 _MAX_RUNS_PER_USER = 25
 _MAX_SOURCE_FILES = 8
-_MAX_TOTAL_SOURCE_CHARS = 32000
-_MAX_CHARS_PER_FILE = 7000
 _EXTRACTABLE_CONTENT_TYPES = {
     "application/json",
     "application/xml",
@@ -161,82 +160,54 @@ def _extract_text_for_file(uid: str, file_item: FileItem) -> str | None:
     return normalized or None
 
 
-def _load_source_documents(uid: str, selection: WorkflowSelectionIn) -> tuple[list[WorkflowSourceFile], dict[str, object]]:
+def _load_source_documents(
+    uid: str,
+    selection: WorkflowSelectionIn,
+    *,
+    workflow_id: str = "",
+    inputs: dict[str, object] | None = None,
+) -> tuple[list[WorkflowSourceFile], dict[str, object]]:
     selected_files = _resolve_selected_files(uid, selection)
     limited_files = selected_files[:_MAX_SOURCE_FILES]
     warnings: list[str] = []
     if len(selected_files) > _MAX_SOURCE_FILES:
         warnings.append(f"Used the first {_MAX_SOURCE_FILES} files from the selection to keep the workflow responsive.")
 
-    remaining_chars = _MAX_TOTAL_SOURCE_CHARS
-    documents: list[WorkflowSourceFile] = []
-    skipped_files: list[str] = []
-    truncated_files: list[str] = []
+    usable_files = [item for item in limited_files if _looks_extractable(item)]
+    skipped_files = [_base_name(item) for item in limited_files if not _looks_extractable(item)]
+    focus = str((inputs or {}).get("focus") or "").strip()
 
-    for item in limited_files:
-        if remaining_chars <= 0:
-            truncated_files.append(_base_name(item))
-            continue
-        if not _looks_extractable(item):
-            skipped_files.append(_base_name(item))
-            continue
-        try:
-            text = _extract_text_for_file(uid, item)
-        except FileNotFoundError:
-            skipped_files.append(_base_name(item))
-            continue
-        except Exception as exc:
-            log.warning("workflow_file_extract_failed", uid=uid, file_id=item.id, error=str(exc))
-            skipped_files.append(_base_name(item))
-            continue
-        if not text:
-            skipped_files.append(_base_name(item))
-            continue
-
-        excerpt_limit = min(_MAX_CHARS_PER_FILE, remaining_chars)
-        excerpt = text[:excerpt_limit].strip()
-        if not excerpt:
-            skipped_files.append(_base_name(item))
-            continue
-
-        truncated = len(excerpt) < len(text)
-        if truncated:
-            truncated_files.append(_base_name(item))
-        remaining_chars -= len(excerpt)
-        documents.append(
-            WorkflowSourceFile(
-                file_id=item.id,
-                name=_base_name(item),
-                folder_path=_normalize_folder_path(item.folder_path) or None,
-                content_type=item.content_type or None,
-                excerpt=excerpt,
-                full_text_chars=len(text),
-                excerpt_chars=len(excerpt),
-                truncated=truncated,
-            )
-        )
-
+    documents, toolkit_stats = workflow_toolkit.build_sources(
+        uid,
+        usable_files,
+        workflow_id=workflow_id,
+        focus=focus,
+    )
     if not documents:
         raise HTTPException(
             status_code=400,
             detail="No extractable text was found in the selected files. Try text, searchable PDF, or DOCX files.",
         )
 
-    if skipped_files:
-        warnings.append(f"Skipped {len(skipped_files)} file(s) that could not provide usable text.")
-    if truncated_files:
-        warnings.append("Some files were truncated to keep the workflow result fast and focused.")
+    skipped_source_files = skipped_files + [str(item) for item in toolkit_stats.get("skipped_source_files") or [] if str(item).strip()]
+    if skipped_source_files:
+        warnings.append(f"Skipped {len(skipped_source_files)} file(s) that could not provide usable text.")
+    warnings.extend(str(item) for item in toolkit_stats.get("warnings") or [] if str(item).strip())
 
     stats: dict[str, object] = {
         "selected_files": len(selected_files),
         "used_source_files": len(documents),
         "warnings": warnings,
-        "skipped_source_files": skipped_files,
-        "truncated_source_files": truncated_files,
+        "skipped_source_files": skipped_source_files,
+        "truncated_source_files": [doc.name for doc in documents if doc.truncated],
         "max_source_files": _MAX_SOURCE_FILES,
-        "max_total_source_chars": _MAX_TOTAL_SOURCE_CHARS,
-        "max_chars_per_file": _MAX_CHARS_PER_FILE,
+        "max_total_source_chars": None,
+        "max_chars_per_file": None,
     }
+    for key, value in toolkit_stats.items():
+        if key in {"warnings", "skipped_source_files"}:
+            continue
+        stats[key] = value
     return documents, stats
 
 
@@ -262,6 +233,9 @@ def _augment_result_metadata(run: WorkflowRun, docs: list[WorkflowSourceFile], s
                 "excerpt_chars": doc.excerpt_chars,
                 "full_text_chars": doc.full_text_chars,
                 "truncated": doc.truncated,
+                "source_kind": doc.source_kind,
+                "chunk_count": doc.chunk_count,
+                "chunk_ids": list(doc.chunk_ids),
             }
             for doc in docs
         ],
@@ -299,7 +273,12 @@ def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
     try:
         run.mark_running()
         _persist_run(uid, run)
-        source_documents, source_stats = _load_source_documents(uid, payload.selection)
+        source_documents, source_stats = _load_source_documents(
+            uid,
+            payload.selection,
+            workflow_id=manifest.workflow_id,
+            inputs=payload.inputs,
+        )
         if manifest.selection.exact_file_count is not None and len(source_documents) < manifest.selection.exact_file_count:
             raise HTTPException(status_code=400, detail="Could not extract usable text from every selected file for this workflow")
         result = handler(run, source_documents)

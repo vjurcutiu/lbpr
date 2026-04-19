@@ -71,6 +71,9 @@ class WorkflowSourceFile(BaseModel):
     full_text_chars: int = 0
     excerpt_chars: int = 0
     truncated: bool = False
+    source_kind: Literal["excerpt", "coverage", "retrieved"] = "excerpt"
+    chunk_ids: list[str] = Field(default_factory=list)
+    chunk_count: int = 0
 
 
 class WorkflowResult(BaseModel):

@@ -19,6 +19,8 @@ class QueryRequest(BaseModel):
     with_sources: bool = True
     # Kept for compatibility, but chat flow will not auto-populate this anymore.
     exclude_doc_ids: List[str] = Field(default_factory=list)
+    # Optionally restrict retrieval to a known set of documents.
+    doc_ids: List[str] = Field(default_factory=list)
     # Diversify by document (one top chunk per doc) to avoid repetitive chunks.
     per_doc: bool = Field(default=True)
 

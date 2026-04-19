@@ -53,14 +53,20 @@ class InMemoryVectorStore:
         dm = {i: v for i, v in zip(di, dv)}
         return sum(v * dm.get(i, 0.0) for i, v in zip(qi, qv))
 
-    def query_dense(self, dataset: str, query_vec: List[float], k: int = 5):
+    def query_dense(self, dataset: str, query_vec: List[float], k: int = 5, filter: Optional[Dict] = None):
         entries = self._data.get(dataset, [])
+        if filter and isinstance(filter.get("doc_id"), dict) and "$in" in filter.get("doc_id", {}):
+            allowed = set(filter["doc_id"]["$in"] or [])
+            entries = [entry for entry in entries if entry.get("doc_id") in allowed]
         scored = [(self._cosine(query_vec, e["vector"]), e) for e in entries]
         scored.sort(key=lambda t: t[0], reverse=True)
         return scored[:k]
 
-    def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5):
+    def query_sparse(self, dataset: str, q_sparse: Dict, k: int = 5, filter: Optional[Dict] = None):
         entries = self._data.get(dataset, [])
+        if filter and isinstance(filter.get("doc_id"), dict) and "$in" in filter.get("doc_id", {}):
+            allowed = set(filter["doc_id"]["$in"] or [])
+            entries = [entry for entry in entries if entry.get("doc_id") in allowed]
         scored = [(self._sparse_dot(q_sparse, e.get("sparse") or {}), e) for e in entries]
         scored.sort(key=lambda t: t[0], reverse=True)
         return scored[:k]
@@ -82,9 +88,10 @@ class InMemoryVectorStore:
         k: int = 5,
         fusion: str = "rrf",
         alpha: float = 0.5,
+        filter: Optional[Dict] = None,
     ):
-        topd = self.query_dense(dataset, q_dense, k=max(k, 20))
-        tops = self.query_sparse(dataset, q_sparse, k=max(k, 20))
+        topd = self.query_dense(dataset, q_dense, k=max(k, 20), filter=filter)
+        tops = self.query_sparse(dataset, q_sparse, k=max(k, 20), filter=filter)
         if fusion == "alpha":
             dense_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in topd]
             sparse_ids = [f"{e['doc_id']}::{e['chunk_id']}" for _, e in tops]

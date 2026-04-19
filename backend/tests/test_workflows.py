@@ -28,7 +28,7 @@ def fake_business_metrics(monkeypatch):
 def stub_workflow_sources(monkeypatch):
     monkeypatch.setattr(workflow_registry, 'OpenAIChat', None)
 
-    def _fake_loader(uid, selection):
+    def _fake_loader(uid, selection, **kwargs):
         docs = [
             WorkflowSourceFile(
                 file_id='file-1',

@@ -78,6 +78,7 @@ async def query(req: QueryRequest, request: Request, user: SessionOut = Depends(
             k=req.k,
             with_sources=req.with_sources,
             exclude_doc_ids=req.exclude_doc_ids,
+            doc_ids=req.doc_ids,
             per_doc=req.per_doc,
         )
         resp = orchestrator.query_request(req2, user.uid)
