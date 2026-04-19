@@ -77,19 +77,6 @@ function formatWorkflowSelection(run: WorkflowRun) {
   return parts.join(" • ") || "No source selection";
 }
 
-function renderWorkflowStatusCopy(run: WorkflowRun) {
-  if (run.status === "completed") {
-    return run.result?.summary || "Finished and ready to review.";
-  }
-  if (run.status === "failed") {
-    return run.error || "This run needs review.";
-  }
-  if (run.status === "running") {
-    return "Working through the selected files now.";
-  }
-  return "Queued and waiting to start.";
-}
-
 export function UploadTrackerPanel({
   open,
   onClose,
@@ -348,7 +335,7 @@ export function UploadTrackerPanel({
           <div className="px-2 py-8 text-center text-sm text-muted-foreground">
             {batchFilenames.length > 0 && !showHistory
               ? "This batch has no visible items yet. Waiting for the server to create tasks…"
-              : "No recent tasks yet. Upload a file or launch a workflow to see activity here."}
+              : "No tasks right now."}
           </div>
         ) : null}
 
@@ -438,7 +425,6 @@ export function UploadTrackerPanel({
                       </div>
                       <WorkflowStatusBadge status={run.status} className="shrink-0" />
                     </div>
-                    <p className="mt-2 text-sm leading-5 text-muted-foreground">{renderWorkflowStatusCopy(run)}</p>
                     <div className="mt-2 text-[11px] text-muted-foreground">Updated {formatRelativeTime(run.updated_at)}</div>
                   </div>
                 );
