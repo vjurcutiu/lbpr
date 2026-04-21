@@ -271,12 +271,12 @@ export default function BillingPage() {
             <QuickStat
               icon={<MessageSquare className="h-4 w-4" />}
               label="Messages used"
-              value={limits ? `${fmtInt(limits.usage.messages)}/${fmtInt(limits.caps.messages)}` : "—"}
+              value={limits ? <UsageStatValue used={limits.usage.messages} cap={limits.caps.messages} /> : "—"}
             />
             <QuickStat
               icon={<UploadCloud className="h-4 w-4" />}
               label="File processing tokens"
-              value={limits ? `${fmtInt(fileProcessingValue(limits.usage))}/${fmtInt(fileProcessingValue(limits.caps))}` : "—"}
+              value={limits ? <UsageStatValue used={fileProcessingValue(limits.usage)} cap={fileProcessingValue(limits.caps)} /> : "—"}
             />
             <QuickStat
               icon={<Mic className="h-4 w-4" />}
@@ -288,7 +288,7 @@ export default function BillingPage() {
                 if (u == null || c == null) return "—";
                 const uMin = Math.round(u / 60);
                 const cMin = Math.round(c / 60);
-                return `${fmtInt(uMin)}/${fmtInt(cMin)} min`;
+                return <UsageStatValue used={uMin} cap={cMin} suffix="min" />;
               })()}
             />
             <QuickStat
@@ -299,7 +299,7 @@ export default function BillingPage() {
                 const u = limits.usage.ocr_images;
                 const c = limits.caps.ocr_images;
                 if (u == null || c == null) return "—";
-                return `${fmtInt(u)}/${fmtInt(c)}`;
+                return <UsageStatValue used={u} cap={c} />;
               })()}
             />
             <QuickStat
@@ -328,7 +328,7 @@ export default function BillingPage() {
           {/* features */}
           <ul className="text-sm space-y-2 mb-6 flex-1">
             <li>• 50 messages</li>
-            <li>• 100,000 upload tokens (≈75 pages)</li>
+            <li>• 100,000 file processing tokens (≈75 pages)</li>
             <li>• 5 minutes transcription</li>
             <li>• 5 OCR images</li>
             <li>• Get started — no credit card</li>
@@ -371,7 +371,7 @@ export default function BillingPage() {
           {/* features */}
           <ul className="text-sm space-y-2 mb-6 flex-1">
             <li>• 10,000 messages / month</li>
-            <li>• 20,000,000 upload tokens (≈15,000 pages) / month</li>
+            <li>• 20,000,000 file processing tokens (≈15,000 pages) / month</li>
             <li>• 1,000 minutes transcription / month</li>
             <li>• 1,000 OCR images / month</li>
             <li>• Pseudonymization to protect sensitive data (PII)</li>
@@ -442,14 +442,33 @@ export default function BillingPage() {
   );
 }
 
-function QuickStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string; }) {
+function QuickStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode; }) {
   return (
-    <div className="rounded-xl border p-4 flex items-center gap-3">
-      <div className="shrink-0">{icon}</div>
-      <div>
+    <div className="rounded-xl border p-4 flex items-start gap-3 min-w-0">
+      <div className="shrink-0 mt-0.5">{icon}</div>
+      <div className="min-w-0 flex-1">
         <div className="text-sm text-muted-foreground">{label}</div>
-        <div className="text-lg font-medium">{value}</div>
+        <div className="mt-1 min-w-0 text-base md:text-lg font-medium leading-tight break-words">{value}</div>
       </div>
+    </div>
+  );
+}
+
+function UsageStatValue({
+  used,
+  cap,
+  suffix,
+}: {
+  used: number;
+  cap: number;
+  suffix?: string;
+}) {
+  return (
+    <div className="min-w-0 flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
+      <span className="shrink-0">{fmtInt(used)}</span>
+      <span className="text-muted-foreground/70">/</span>
+      <span className="break-all">{fmtInt(cap)}</span>
+      {suffix ? <span className="text-sm text-muted-foreground">{suffix}</span> : null}
     </div>
   );
 }
