@@ -119,7 +119,7 @@ export function FileTree({
   onPasteInto?: (path: string) => void;
   onDeleteFolder?: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
-  onDropFilesTo: (folderPath: string, files: File[]) => void;
+  onDropFilesTo: (folderPath: string, dataTransfer: DataTransfer) => void;
 }) {
   const children = useMemo(() => (node?.children || []) as TreeNode[], [node]);
 
@@ -236,7 +236,7 @@ function FolderRow({
   onPasteInto?: (path: string) => void;
   onDeleteFolder?: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
-  onDropFilesTo: (folderPath: string, files: File[]) => void;
+  onDropFilesTo: (folderPath: string, dataTransfer: DataTransfer) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuKey, setMenuKey] = useState(0);
@@ -320,8 +320,7 @@ function FolderRow({
               if (!isExternalFilesDrag(e.dataTransfer)) return;
               e.preventDefault();
               e.stopPropagation();
-              const fs = Array.from(e.dataTransfer.files || []);
-              if (fs.length) onDropFilesTo(node.path, fs);
+              onDropFilesTo(node.path, e.dataTransfer);
             }}
             title={node.path || "Root"}
           >

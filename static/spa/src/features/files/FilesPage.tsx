@@ -101,6 +101,7 @@ import { FilesTopBar } from "./components/FilesTopBar";
 import { FilesFolderHeader } from "./components/FilesFolderHeader";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { CurrentFolderDrop, FolderRow, FileRow } from "./components/FilesListRows";
+import { extractExternalDropFiles, type UploadTargetFile } from "./utils/externalDrop";
 import { DEBUG_CTXMENU, ctxLog, ctxEvtSummary, safeAction } from "./utils/contextMenuDebug";
 import {
   basename,
@@ -128,6 +129,24 @@ const LS_BATCH = "files:batchFilenames";
 const LS_LAST_FOLDER = "files:lastFolder";
 const LS_OCR_LANGUAGES = "files:ocrLanguages";
 const LS_OCR_DOCMODE = "files:ocrDocMode";
+
+function uploadStartDescription(files: Array<File | UploadTargetFile>, defaultFolder = "") {
+  const normalizedDefault = normalizeFolderPath(defaultFolder);
+  const targetFolders = new Set(
+    files.map((item) => normalizeFolderPath(item instanceof File ? normalizedDefault : item.destinationFolder))
+  );
+  const folderCount = targetFolders.size;
+  const firstFolder = [...targetFolders][0] || "";
+  const itemCount = files.length;
+
+  if (folderCount <= 1) {
+    return firstFolder
+      ? `${itemCount === 1 ? "Target" : "Targets"} “${firstFolder}”.`
+      : `${itemCount === 1 ? "Target" : "Targets"} Root.`;
+  }
+
+  return `Preserving folder structure across ${folderCount} folders.`;
+}
 
 function formatViewerDate(value?: string | null) {
   if (!value) return null;
@@ -301,11 +320,17 @@ const internalDragPreviewLabels = useMemo(() => {
   };
   const fileProcessingValue = (bucket: { file_processing_tokens?: number; upload_tokens?: number } | null | undefined) => Number(bucket?.file_processing_tokens ?? bucket?.upload_tokens ?? 0);
   type PendingAction = "upload" | "ocr" | "transcribe";
-  type PendingFile = { file: File; action: PendingAction; estTokens: number; estSeconds: number; estImages: number };
+  type PendingFile = {
+    file: File;
+    destinationFolder: string;
+    action: PendingAction;
+    estTokens: number;
+    estSeconds: number;
+    estImages: number;
+  };
   const [limits, setLimits] = useState<LimitsResp | null>(null);
   const [limitsLoading, setLimitsLoading] = useState(false);
   const [uploadConfirmOpen, setUploadConfirmOpen] = useState(false);
-  const [pendingFolder, setPendingFolder] = useState<string>("");
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [pendingComputing, setPendingComputing] = useState(false);
   const [pendingSummary, setPendingSummary] = useState<{ upload: number; ocr: number; transcribe: number }>({
@@ -342,6 +367,7 @@ const internalDragPreviewLabels = useMemo(() => {
   // Drag overlay (OS files only)
   const rootRef = useRef<HTMLDivElement>(null);
   const [dragActive, setDragActive] = useState(false);
+  const dragDepthRef = useRef(0);
   // Delete modal
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -651,16 +677,16 @@ const internalDragPreviewLabels = useMemo(() => {
     return "upload";
   };
   const preparePending = useCallback(
-    async (fs: File[], folder: string) => {
-      if (!fs.length) return;
+    async (entries: UploadTargetFile[]) => {
+      if (!entries.length) return;
       setPendingComputing(true);
-      setPendingFolder(folder || "");
       setPendingFiles([]);
       setPendingSummary({ upload: 0, ocr: 0, transcribe: 0 });
       // Refresh limits right before showing the prompt
       refreshLimits();
       const out: PendingFile[] = [];
-      for (const f of fs) {
+      for (const entry of entries) {
+        const f = entry.file;
         const action = classifyFile(f);
         let estTokens = 0;
         let estSeconds = 0;
@@ -688,7 +714,7 @@ const internalDragPreviewLabels = useMemo(() => {
           // Very rough transcript token estimate: ~3.25 tokens/sec (150 wpm-ish).
           estTokens = Math.max(0, Math.round(estSeconds * 3.25));
         }
-        out.push({ file: f, action, estTokens, estSeconds, estImages });
+        out.push({ file: f, destinationFolder: entry.destinationFolder, action, estTokens, estSeconds, estImages });
       }
       setPendingFiles(out);
       setPendingSummary({
@@ -701,50 +727,88 @@ const internalDragPreviewLabels = useMemo(() => {
     },
     [refreshLimits]
   );
+  const preparePendingForFolder = useCallback(
+    async (files: File[], folder: string) => {
+      if (!files.length) return;
+      await preparePending(
+        files.map((file) => ({ file, relativePath: file.name, destinationFolder: normalizeFolderPath(folder) }))
+      );
+    },
+    [preparePending]
+  );
+  const handleExternalDrop = useCallback(
+    async (dt: DataTransfer | null, folder: string) => {
+      const entries = await extractExternalDropFiles(dt, folder);
+      if (!entries.length) {
+        toast.error("Nothing to upload", { description: "The dropped item did not contain any files." });
+        return;
+      }
+      await preparePending(entries);
+    },
+    [preparePending]
+  );
+  const clearExternalDrag = useCallback(() => {
+    dragDepthRef.current = 0;
+    setDragActive(false);
+  }, []);
   // Drag overlay (OS files only, within Files tab)
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
+    const isFilesDrag = (dataTransfer: DataTransfer | null) => isExternalFilesDrag(dataTransfer);
     const onDragEnter = (e: DragEvent) => {
-      if (!e.dataTransfer) return;
-      if (Array.from(e.dataTransfer.types).includes("Files")) {
-        e.preventDefault();
-        setDragActive(true);
-      }
+      if (!isFilesDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      setDragActive(true);
     };
     const onDragOver = (e: DragEvent) => {
-      if (!e.dataTransfer) return;
-      if (Array.from(e.dataTransfer.types).includes("Files")) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "copy";
-        setDragActive(true);
-      }
+      if (!isFilesDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = "copy";
+      setDragActive(true);
     };
     const onDragLeave = (e: DragEvent) => {
-      // only hide when leaving the root container entirely
-      if ((e as any).relatedTarget === null) return;
-      if (!el.contains((e as any).relatedTarget)) setDragActive(false);
+      if (!isFilesDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setDragActive(false);
     };
-    const onDrop = (e: DragEvent) => {
-      if (!e.dataTransfer) return;
-      if (Array.from(e.dataTransfer.types).includes("Files")) {
-        e.preventDefault();
-        const fs = Array.from(e.dataTransfer.files || []);
-        setDragActive(false);
-        preparePending(fs, selectedFolder);
-      }
+    const onDrop = async (e: DragEvent) => {
+      if (!isFilesDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      clearExternalDrag();
+      await handleExternalDrop(e.dataTransfer, selectedFolder);
     };
+    const onWindowDragOver = (e: DragEvent) => {
+      if (!isFilesDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    };
+    const onWindowDrop = (e: DragEvent) => {
+      if (!isFilesDrag(e.dataTransfer)) return;
+      e.preventDefault();
+      clearExternalDrag();
+    };
+    const onWindowDragEnd = () => clearExternalDrag();
     el.addEventListener("dragenter", onDragEnter);
     el.addEventListener("dragover", onDragOver);
     el.addEventListener("dragleave", onDragLeave);
     el.addEventListener("drop", onDrop);
+    window.addEventListener("dragover", onWindowDragOver);
+    window.addEventListener("drop", onWindowDrop);
+    window.addEventListener("dragend", onWindowDragEnd);
     return () => {
       el.removeEventListener("dragenter", onDragEnter);
       el.removeEventListener("dragover", onDragOver);
       el.removeEventListener("dragleave", onDragLeave);
       el.removeEventListener("drop", onDrop);
+      window.removeEventListener("dragover", onWindowDragOver);
+      window.removeEventListener("drop", onWindowDrop);
+      window.removeEventListener("dragend", onWindowDragEnd);
     };
-  }, [selectedFolder, preparePending]);
+  }, [clearExternalDrag, handleExternalDrop, selectedFolder]);
   const totalSize = useMemo(() => files.reduce((acc, f) => acc + (f.size || 0), 0), [files]);
   const runningUploads = useMemo(() => optimisticJobs.some((j) => j.status === "running"), [optimisticJobs]);
   const runningWorkflows = useMemo(
@@ -1141,6 +1205,13 @@ const breadcrumb = useMemo(() => {
     }
     return totals;
   }, [pendingFiles]);
+  const pendingTargetSummary = useMemo(() => {
+    const folders = Array.from(new Set(pendingFiles.map((p) => normalizeFolderPath(p.destinationFolder))));
+    return {
+      folderCount: folders.length,
+      primaryFolder: folders[0] || "",
+    };
+  }, [pendingFiles]);
   // --- Upload helpers
   const makeTempJob = (file: File, dataset: string = "default"): UploadJob => {
     const now = Math.floor(Date.now() / 1000);
@@ -1160,10 +1231,11 @@ const breadcrumb = useMemo(() => {
       updated_at: now,
     };
   };
-  const handleFiles = useCallback(
-    async (fs: File[], folder: string) => {
-      if (fs.length === 0) return;
+  const handleUploads = useCallback(
+    async (items: UploadTargetFile[]) => {
+      if (items.length === 0) return;
       setUploading(true);
+      const temps = items.map(({ file }) => makeTempJob(file));
       try {
         // Prefetch existing jobs so the tracker opens populated
         try {
@@ -1171,27 +1243,42 @@ const breadcrumb = useMemo(() => {
           setSeedFetched(existing);
         } catch {}
         // optimistic entries
-        const temps = fs.map(makeTempJob);
         setOptimisticJobs(temps);
-        setBatchFilenames(fs.map((f) => f.name));
+        setBatchFilenames(items.map((item) => item.relativePath || item.file.name));
         setTrackerOpen(true);
-        toast.message(fs.length === 1 ? "Upload queued" : `${fs.length} uploads queued`, {
-          description: uploadStartDescription(fs, folder),
+        toast.message(items.length === 1 ? "Upload queued" : `${items.length} uploads queued`, {
+          description: uploadStartDescription(items),
         });
-        // kick uploads
-        if (fs.length === 1) {
-          const { job_id } = await uploadFileToFolder(fs[0], folder || undefined);
-          const tempId = temps[0].job_id;
+
+        const groups = new Map<string, Array<{ item: UploadTargetFile; tempJobId: string }>>();
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const key = normalizeFolderPath(item.destinationFolder);
+          const group = groups.get(key) || [];
+          group.push({ item, tempJobId: temps[i].job_id });
+          groups.set(key, group);
+        }
+
+        for (const [folder, group] of groups) {
           const now = Math.floor(Date.now() / 1000);
-          setOptimisticJobs((list) => list.map((j) => (j.job_id === tempId ? { ...j, job_id, updated_at: now } : j)));
-        } else {
-          const { jobs } = await uploadFilesToFolder(fs, folder || undefined);
-          const now = Math.floor(Date.now() / 1000);
-          const idMap = new Map<string, string>();
-          for (let i = 0; i < temps.length; i++) {
-            if (jobs[i]) idMap.set(temps[i].job_id, jobs[i]);
+          if (group.length === 1) {
+            const { job_id } = await uploadFileToFolder(group[0].item.file, folder || undefined);
+            setOptimisticJobs((list) =>
+              list.map((job) => (job.job_id === group[0].tempJobId ? { ...job, job_id, updated_at: now } : job))
+            );
+            continue;
           }
-          setOptimisticJobs((list) => list.map((j) => (idMap.has(j.job_id) ? { ...j, job_id: idMap.get(j.job_id)!, updated_at: now } : j)));
+          const { jobs } = await uploadFilesToFolder(
+            group.map(({ item }) => item.file),
+            folder || undefined
+          );
+          const idMap = new Map<string, string>();
+          for (let i = 0; i < group.length; i++) {
+            if (jobs[i]) idMap.set(group[i].tempJobId, jobs[i]);
+          }
+          setOptimisticJobs((list) =>
+            list.map((job) => (idMap.has(job.job_id) ? { ...job, job_id: idMap.get(job.job_id)!, updated_at: now } : job))
+          );
         }
         setTrackerRefreshKey(Date.now());
         await refresh();
@@ -1208,7 +1295,7 @@ const breadcrumb = useMemo(() => {
         if (inputRef.current) inputRef.current.value = "";
       }
     },
-    [optimisticJobs, refresh]
+    [refresh]
   );
   const startUploadTo = (folder: string) => {
     uploadTargetRef.current = folder || "";
@@ -1217,7 +1304,7 @@ const breadcrumb = useMemo(() => {
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fs = Array.from(e.target.files || []);
     const folder = uploadTargetRef.current || selectedFolder || "";
-    await preparePending(fs, folder);
+    await preparePendingForFolder(fs, folder);
     // Reset so picking the same file again triggers onChange
     if (inputRef.current) inputRef.current.value = "";
   };
@@ -1227,26 +1314,27 @@ const breadcrumb = useMemo(() => {
       return;
     }
     setUploadConfirmOpen(false);
-    const folder = pendingFolder || "";
-    const uploads = pendingFiles.filter((p) => p.action === "upload").map((p) => p.file);
-    const images = pendingFiles.filter((p) => p.action === "ocr").map((p) => p.file);
-    const audios = pendingFiles.filter((p) => p.action === "transcribe").map((p) => p.file);
+    const uploads = pendingFiles
+      .filter((p) => p.action === "upload")
+      .map((p) => ({ file: p.file, destinationFolder: p.destinationFolder, relativePath: p.file.name }));
+    const images = pendingFiles.filter((p) => p.action === "ocr");
+    const audios = pendingFiles.filter((p) => p.action === "transcribe");
     // 1) Regular file uploads
     if (uploads.length) {
-      await handleFiles(uploads, folder);
+      await handleUploads(uploads);
     }
     // 2) OCR images -> save extracted text into files
     for (const img of images) {
       try {
         const mode: OcrMode = ocrDocMode ? "document" : "text";
-        const resp = await runOcr(img, { languages: parseLanguageCodes(ocrLanguages), mode });
-        const base = img.name.replace(/\.[^/.]+$/, "") || "ocr";
+        const resp = await runOcr(img.file, { languages: parseLanguageCodes(ocrLanguages), mode });
+        const base = img.file.name.replace(/\.[^/.]+$/, "") || "ocr";
         const filename = `${base}.ocr.txt`;
         const blob = new Blob([resp.text || ""], { type: "text/plain;charset=utf-8" });
         const out = new File([blob], filename, { type: "text/plain" });
-        await uploadFileToFolder(out, folder || undefined);
+        await uploadFileToFolder(out, img.destinationFolder || undefined);
         toast.success("OCR saved", {
-          description: folder ? `Saved ${filename} into “${folder}”.` : `Saved ${filename} into Root.`,
+          description: img.destinationFolder ? `Saved ${filename} into “${img.destinationFolder}”.` : `Saved ${filename} into Root.`,
         });
       } catch (e) {
         toast.error("OCR failed", { description: parseErr(e) });
@@ -1255,21 +1343,23 @@ const breadcrumb = useMemo(() => {
     // 3) Transcribe audio -> save transcript into files
     for (const au of audios) {
       try {
-        const resp = await transcribeAudio(au, {
+        const resp = await transcribeAudio(au.file, {
           languages: parseLanguageCodes(transcribeLanguages),
           diarization: transcribeDiarization,
           model: (transcribeModel || "").trim() || undefined,
         });
-        const base = au.name.replace(/\.[^/.]+$/, "") || "transcript";
+        const base = au.file.name.replace(/\.[^/.]+$/, "") || "transcript";
         const filename = `${base}.transcript.txt`;
         const blob = new Blob([resp.text || ""], { type: "text/plain;charset=utf-8" });
         const out = new File([blob], filename, { type: "text/plain" });
-        await uploadFileToFolder(out, folder || undefined);
+        await uploadFileToFolder(out, au.destinationFolder || undefined);
         toast.success("Transcript saved", {
           description:
             typeof resp.billed_seconds === "number"
-              ? `Saved ${filename}. Billed ${Math.max(0, Math.round(resp.billed_seconds))}s.`
-              : `Saved ${filename}.`,
+              ? `${au.destinationFolder ? `Saved ${filename} into “${au.destinationFolder}”. ` : `Saved ${filename} into Root. `}Billed ${Math.max(0, Math.round(resp.billed_seconds))}s.`
+              : au.destinationFolder
+                ? `Saved ${filename} into “${au.destinationFolder}”.`
+                : `Saved ${filename} into Root.`,
         });
       } catch (e) {
         toast.error("Transcription failed", { description: parseErr(e) });
@@ -1282,8 +1372,7 @@ const breadcrumb = useMemo(() => {
     setPendingFiles([]);
   }, [
     pendingFiles,
-    pendingFolder,
-    handleFiles,
+    handleUploads,
     ocrDocMode,
     ocrLanguages,
     transcribeLanguages,
@@ -1824,8 +1913,8 @@ const breadcrumb = useMemo(() => {
     if (!isExternalFilesDrag(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
-    const fs = Array.from(e.dataTransfer.files || []);
-    if (fs.length) preparePending(fs, selectedFolder);
+    clearExternalDrag();
+    void handleExternalDrop(e.dataTransfer, selectedFolder);
   };
   // --- Background context menu actions
   const bgUpload = () => startUploadTo(selectedFolder);
@@ -1992,7 +2081,10 @@ const breadcrumb = useMemo(() => {
                   onPasteInto={(p) => pasteIntoFolder(p)}
                   onDeleteFolder={(p) => requestDeleteFolder(p)}
                   onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
-                  onDropFilesTo={(folderPath, fs) => preparePending(fs, folderPath)}
+                  onDropFilesTo={(folderPath, dataTransfer) => {
+                    clearExternalDrag();
+                    void handleExternalDrop(dataTransfer, folderPath);
+                  }}
                 />
               </div>
             </aside>
@@ -2216,7 +2308,10 @@ const breadcrumb = useMemo(() => {
                             onUploadHere={() => startUploadTo(n.path)}
                             onNewFolderHere={() => requestNewFolder(n.path)}
                             onMoveFilesTo={(fileIds) => moveFilesToFolder(fileIds, n.path)}
-                            onDropFilesHere={(fs) => handleFiles(fs, n.path)}
+                            onDropFilesHere={(dataTransfer) => {
+                              clearExternalDrag();
+                              void handleExternalDrop(dataTransfer, n.path);
+                            }}
                             dragGroupCount={activeInternalDrag?.kind === "folder" ? activeInternalDrag.count : 0}
                             dragGroupActive={
                               activeInternalDrag?.kind === "folder" &&
@@ -2492,7 +2587,7 @@ const breadcrumb = useMemo(() => {
                 "Preparing quota preview…"
               ) : (
                 <span>
-                  This action will upload files to {pendingFolder ? `“${pendingFolder}”` : "Root"}. Images will be OCR’d and saved as <span className="font-mono">.ocr.txt</span>. Audio will be transcribed and saved as <span className="font-mono">.transcript.txt</span>.
+                  This action will upload files to {pendingTargetSummary.folderCount > 1 ? `${pendingTargetSummary.folderCount} folders` : pendingTargetSummary.primaryFolder ? `“${pendingTargetSummary.primaryFolder}”` : "Root"}. Images will be OCR’d and saved as <span className="font-mono">.ocr.txt</span>. Audio will be transcribed and saved as <span className="font-mono">.transcript.txt</span>.
                 </span>
               )}
             </AlertDialogDescription>
@@ -2614,7 +2709,10 @@ const breadcrumb = useMemo(() => {
               onPasteInto={(p) => pasteIntoFolder(p)}
               onDeleteFolder={(p) => requestDeleteFolder(p)}
               onMoveFilesTo={(fileIds, folderPath) => moveFilesToFolder(fileIds, folderPath)}
-              onDropFilesTo={(folderPath, fs) => preparePending(fs, folderPath)}
+              onDropFilesTo={(folderPath, dataTransfer) => {
+                clearExternalDrag();
+                void handleExternalDrop(dataTransfer, folderPath);
+              }}
             />
           </div>
         </DialogContent>

@@ -78,7 +78,7 @@ type FolderRowProps = SharedRowProps & {
   onUploadHere: () => void;
   onNewFolderHere: () => void;
   onMoveFilesTo?: (fileIds: string[]) => void;
-  onDropFilesHere: (files: File[]) => void;
+  onDropFilesHere: (dataTransfer: DataTransfer) => void;
   suppressClickUntilRef: MutableRefObject<number>;
   dragGroupActive?: boolean;
   dragGroupCount?: number;
@@ -172,8 +172,7 @@ export function FolderRow({
             if (!isExternalFilesDrag(event.dataTransfer)) return;
             event.preventDefault();
             event.stopPropagation();
-            const files = Array.from(event.dataTransfer.files || []);
-            if (files.length) onDropFilesHere(files);
+            onDropFilesHere(event.dataTransfer);
           }}
         >
           <div
