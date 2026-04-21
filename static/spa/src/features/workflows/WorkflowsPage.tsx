@@ -27,9 +27,29 @@ import type {
   WorkflowManifest,
   WorkflowRun,
   WorkflowSelection,
+  WorkflowSuggestedAction,
   WorkflowStatus,
 } from "./types";
 import { summarizeWorkflowSelection } from "./utils/selection";
+
+function asObjectArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+function evidenceBackedTakeaways(run: WorkflowRun) {
+  const evidence = asObjectArray<{ claim?: string; sources?: string[] }>(run.result?.metadata?.evidence_highlights);
+  const items = evidence
+    .map((item) => {
+      const claim = String(item.claim || "").trim();
+      if (!claim) return null;
+      const sources = asObjectArray<string>(item.sources)
+        .map((source) => String(source || "").trim())
+        .filter(Boolean);
+      return sources.length ? `${claim} (${sources.join(", ")})` : claim;
+    })
+    .filter((item): item is string => Boolean(item));
+  return items.length ? items : (run.result?.bullets || []);
+}
 
 function formatSelectionRequirements(workflow: WorkflowManifest) {
   const parts: string[] = [];
@@ -352,13 +372,13 @@ export default function WorkflowsPage() {
   );
 
   const handleRunWorkflow = useCallback(
-    async (workflow: WorkflowManifest, focus: string, selection: WorkflowSelection) => {
+    async (workflow: WorkflowManifest, inputs: Record<string, unknown>, selection: WorkflowSelection) => {
       setWorkflowSubmitting(true);
       try {
         const run = await createWorkflowRun({
           workflow_id: workflow.workflow_id,
           selection,
-          inputs: focus.trim() ? { focus: focus.trim() } : {},
+          inputs,
         });
         setRuns((prev) => [run, ...prev.filter((item) => item.id !== run.id)].slice(0, 24));
         setSelectedRunId(run.id);
@@ -375,6 +395,24 @@ export default function WorkflowsPage() {
       }
     },
     []
+  );
+
+  const handleWorkflowAction = useCallback(
+    async (action: WorkflowSuggestedAction, selection: WorkflowSelection) => {
+      const workflow = catalog.find((item) => item.workflow_id === action.workflow_id);
+      if (!workflow) {
+        toast.error("That follow-up flow is not available right now.");
+        return;
+      }
+      await handleRunWorkflow(
+        workflow,
+        {
+          ...(action.focus ? { focus: action.focus } : {}),
+        },
+        selection,
+      );
+    },
+    [catalog, handleRunWorkflow]
   );
 
   useEffect(() => {
@@ -576,12 +614,12 @@ export default function WorkflowsPage() {
                   <div className="px-3 py-3">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Takeaways</div>
                     <div className="mt-2 space-y-2">
-                      {(selectedRun.result?.bullets || []).slice(0, 3).map((item, index) => (
+                      {evidenceBackedTakeaways(selectedRun).slice(0, 3).map((item, index) => (
                         <div key={`${item}-${index}`} className="text-sm leading-5 text-foreground">
                           {item}
                         </div>
                       ))}
-                      {!selectedRun.result?.bullets?.length ? (
+                      {!evidenceBackedTakeaways(selectedRun).length ? (
                         <div className="text-sm leading-5 text-muted-foreground">No takeaways yet for this run.</div>
                       ) : null}
                     </div>
@@ -607,7 +645,11 @@ export default function WorkflowsPage() {
                 <ScrollArea className="h-full">
                   <div className="p-3">
                     {selectedRun.result ? (
-                      <WorkflowResultDetails result={selectedRun.result} />
+                      <WorkflowResultDetails
+                        result={selectedRun.result}
+                        selection={selectedRun.selection}
+                        onWorkflowAction={handleWorkflowAction}
+                      />
                     ) : selectedRun.status === "failed" ? (
                       <div className="border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm leading-5 text-destructive">
                         {selectedRun.error || "This workflow failed before returning an output."}

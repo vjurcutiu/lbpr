@@ -29,11 +29,27 @@ class WorkflowSelectionRequirements(BaseModel):
     allow_folders: bool = True
 
 
+class WorkflowLauncherFieldOption(BaseModel):
+    value: str
+    label: str
+    description: str | None = None
+
+
+class WorkflowLauncherField(BaseModel):
+    key: str
+    label: str
+    kind: Literal["select"] = "select"
+    placeholder: str | None = None
+    default_value: str | None = None
+    options: list[WorkflowLauncherFieldOption] = Field(default_factory=list)
+
+
 class WorkflowLauncherSchema(BaseModel):
     prompt_label: str = "Focus"
     prompt_placeholder: str = "What should this workflow focus on?"
     submit_label: str = "Run workflow"
     suggested_prompts: list[str] = Field(default_factory=list)
+    fields: list[WorkflowLauncherField] = Field(default_factory=list)
 
 
 class WorkflowManifest(BaseModel):

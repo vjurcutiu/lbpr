@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Copy, Files, TriangleAlert } from "lucide-react";
@@ -6,8 +6,9 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import type { WorkflowResult } from "../types";
+import type { WorkflowResult, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
 type SourceFileMeta = {
   file_id?: string;
@@ -39,6 +40,22 @@ type PlanItemMeta = {
   timeline?: string;
 };
 
+type SummaryLayerMeta = {
+  key?: string;
+  label?: string;
+  text?: string;
+};
+
+type EvidenceMeta = {
+  claim?: string;
+  importance?: string;
+  sources?: string[];
+  evidence?: Array<{
+    source_name?: string;
+    excerpt?: string;
+  }>;
+};
+
 function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -60,13 +77,61 @@ function Section({ title, icon: Icon, children }: { title: string; icon?: typeof
   );
 }
 
-export function WorkflowResultDetails({ result }: { result: WorkflowResult }) {
+type Props = {
+  result: WorkflowResult;
+  selection?: WorkflowSelection;
+  onWorkflowAction?: (action: WorkflowSuggestedAction, selection: WorkflowSelection) => void;
+};
+
+export function WorkflowResultDetails({ result, selection, onWorkflowAction }: Props) {
   const sourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
   const warnings = asArray<string>(result.metadata?.warnings).filter(Boolean);
   const fields = asArray<FieldMeta>(result.metadata?.fields);
   const differences = asArray<DifferenceMeta>(result.metadata?.differences);
   const planItems = asArray<PlanItemMeta>(result.metadata?.plan_items);
+  const summaryLayers = useMemo(() => {
+    return asArray<SummaryLayerMeta>(result.metadata?.summary_layers)
+      .map((layer) => ({
+        key: String(layer.key || "").trim(),
+        label: String(layer.label || "").trim(),
+        text: String(layer.text || "").trim(),
+      }))
+      .filter((layer) => layer.key && layer.text);
+  }, [result.metadata]);
+  const summaryProfile = (result.metadata?.summary_profile || {}) as Record<string, unknown>;
+  const defaultLayer = String(summaryProfile.default_layer || summaryLayers[0]?.key || "snapshot");
+  const [activeLayer, setActiveLayer] = useState(defaultLayer);
+  const evidenceHighlights = useMemo(() => {
+    return asArray<EvidenceMeta>(result.metadata?.evidence_highlights)
+      .map((item) => ({
+        claim: String(item.claim || "").trim(),
+        importance: String(item.importance || "medium").trim(),
+        sources: asArray<string>(item.sources).map((source) => String(source || "").trim()).filter(Boolean),
+        evidence: asArray<{ source_name?: string; excerpt?: string }>(item.evidence)
+          .map((evidence) => ({
+            source_name: String(evidence.source_name || "Source").trim(),
+            excerpt: String(evidence.excerpt || "").trim(),
+          }))
+          .filter((evidence) => evidence.excerpt),
+      }))
+      .filter((item) => item.claim);
+  }, [result.metadata]);
+  const suggestedActions = useMemo(() => {
+    return asArray<WorkflowSuggestedAction>(result.metadata?.suggested_actions)
+      .map((action) => ({
+        kind: String(action.kind || "workflow").trim(),
+        label: String(action.label || "").trim(),
+        workflow_id: String(action.workflow_id || "").trim(),
+        focus: String(action.focus || "").trim(),
+        description: String(action.description || "").trim(),
+      }))
+      .filter((action) => action.label && action.workflow_id);
+  }, [result.metadata]);
   const preview = (result.preview_markdown || "").trim();
+
+  useEffect(() => {
+    setActiveLayer(defaultLayer);
+  }, [defaultLayer, result]);
 
   const copyPreview = async () => {
     if (!preview) return;
@@ -98,6 +163,82 @@ export function WorkflowResultDetails({ result }: { result: WorkflowResult }) {
             ))}
           </div>
         </div>
+      )}
+
+      {!!summaryLayers.length && (
+        <Section title="Layered briefing">
+          <div className="space-y-3 border border-border/70 px-3 py-3">
+            <div className="flex flex-wrap gap-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+              {summaryProfile.audience ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">Audience: {String(summaryProfile.audience).replace(/_/g, " ")}</Badge> : null}
+              {summaryProfile.depth ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">Default: {String(summaryProfile.depth).replace(/_/g, " ")}</Badge> : null}
+            </div>
+            <Tabs value={activeLayer} onValueChange={setActiveLayer}>
+              <TabsList className="h-auto w-full justify-start rounded-none bg-muted/40 p-1">
+                {summaryLayers.map((layer) => (
+                  <TabsTrigger key={layer.key} value={layer.key} className="h-7 rounded-none px-2 text-xs">
+                    {layer.label || layer.key}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              {summaryLayers.map((layer) => (
+                <TabsContent key={layer.key} value={layer.key} className="mt-3">
+                  <div className="text-sm leading-6 whitespace-pre-wrap">{layer.text}</div>
+                </TabsContent>
+              ))}
+            </Tabs>
+          </div>
+        </Section>
+      )}
+
+      {!!evidenceHighlights.length && (
+        <Section title="Evidence-backed takeaways">
+          <div className="grid gap-2">
+            {evidenceHighlights.map((item, idx) => (
+              <div key={`${item.claim}-${idx}`} className="border border-border/70 px-3 py-3">
+                <div className="text-sm font-medium leading-5 text-foreground">{item.claim}</div>
+                {!!item.sources?.length && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {item.sources.map((source) => (
+                      <Badge key={`${item.claim}-${source}`} variant="secondary" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
+                        {source}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {!!item.evidence?.length && (
+                  <div className="mt-3 grid gap-2">
+                    {item.evidence.map((evidence, evidenceIdx) => (
+                      <div key={`${item.claim}-${evidence.source_name}-${evidenceIdx}`} className="border-l-2 border-border/70 pl-3 text-sm leading-6 text-muted-foreground">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">{evidence.source_name}</div>
+                        <div className="mt-1">{evidence.excerpt}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {!!suggestedActions.length && selection && onWorkflowAction && (
+        <Section title="Continue with">
+          <div className="grid gap-2 md:grid-cols-3">
+            {suggestedActions.map((action) => (
+              <Button
+                key={`${action.workflow_id}-${action.label}`}
+                variant="outline"
+                className="h-auto rounded-none px-3 py-3 text-left"
+                onClick={() => onWorkflowAction(action, selection)}
+              >
+                <div>
+                  <div className="text-sm font-medium leading-5">{action.label}</div>
+                  {action.description ? <div className="mt-1 text-xs leading-5 text-muted-foreground">{action.description}</div> : null}
+                </div>
+              </Button>
+            ))}
+          </div>
+        </Section>
       )}
 
       {!!sourceFiles.length && (

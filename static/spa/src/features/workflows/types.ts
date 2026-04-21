@@ -20,6 +20,22 @@ export type WorkflowLauncherSchema = {
   prompt_placeholder: string;
   submit_label: string;
   suggested_prompts: string[];
+  fields: WorkflowLauncherField[];
+};
+
+export type WorkflowLauncherFieldOption = {
+  value: string;
+  label: string;
+  description?: string | null;
+};
+
+export type WorkflowLauncherField = {
+  key: string;
+  label: string;
+  kind: "select";
+  placeholder?: string | null;
+  default_value?: string | null;
+  options: WorkflowLauncherFieldOption[];
 };
 
 export type WorkflowManifest = {
@@ -68,4 +84,12 @@ export type CreateWorkflowRunRequest = {
   workflow_id: string;
   selection: WorkflowSelection;
   inputs?: Record<string, unknown>;
+};
+
+export type WorkflowSuggestedAction = {
+  label?: string;
+  workflow_id?: string;
+  focus?: string;
+  description?: string;
+  kind?: string;
 };

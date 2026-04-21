@@ -142,6 +142,10 @@ def _trim_run_doc_for_firestore(payload: dict[str, Any]) -> dict[str, Any]:
                 "max_source_files",
                 "max_total_source_chars",
                 "max_chars_per_file",
+                "summary_profile",
+                "summary_layers",
+                "evidence_highlights",
+                "suggested_actions",
             }
             preserved = {key: metadata.get(key) for key in keep_keys if key in metadata}
             preserved["firestore_trimmed"] = True

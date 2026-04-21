@@ -196,9 +196,13 @@ def fake_workflow_firestore(monkeypatch):
 def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, inline_workflow_jobs, stub_workflow_sources):
     catalog = auth_client.get('/v1/workflows')
     assert catalog.status_code == 200, catalog.text
-    workflow_ids = [item['workflow_id'] for item in catalog.json()]
+    payload = catalog.json()
+    workflow_ids = [item['workflow_id'] for item in payload]
     assert 'summarize_documents' in workflow_ids
     assert 'compare_documents' in workflow_ids
+    summarize = next(item for item in payload if item['workflow_id'] == 'summarize_documents')
+    assert summarize['launcher']['fields'][0]['key'] == 'audience'
+    assert summarize['launcher']['fields'][1]['key'] == 'depth'
 
     create = auth_client.post(
         '/v1/workflows/runs',
@@ -209,7 +213,7 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
                 'folder_paths': ['contracts'],
                 'current_folder': 'contracts',
             },
-            'inputs': {'focus': 'key risks and decisions'},
+            'inputs': {'focus': 'key risks and decisions', 'audience': 'client', 'depth': 'concise'},
         },
     )
     assert create.status_code == 202, create.text
@@ -219,6 +223,11 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
     assert run['result']['summary']
     assert run['result']['metadata']['source_files'][0]['name'] == 'Q1-plan.txt'
     assert run['result']['preview_markdown']
+    assert run['result']['metadata']['summary_profile']['audience'] == 'client'
+    assert run['result']['metadata']['summary_profile']['depth'] == 'concise'
+    assert run['result']['metadata']['summary_layers'][0]['key'] == 'snapshot'
+    assert run['result']['metadata']['evidence_highlights'][0]['claim']
+    assert run['result']['metadata']['suggested_actions'][0]['workflow_id'] == 'generate_report'
 
     listed = auth_client.get('/v1/workflows/runs')
     assert listed.status_code == 200, listed.text

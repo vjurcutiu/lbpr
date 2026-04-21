@@ -460,13 +460,13 @@ const internalDragPreviewLabels = useMemo(() => {
     setWorkflowLauncherOpen(true);
   }, []);
   const handleRunWorkflow = useCallback(
-    async (workflow: WorkflowManifest, focus: string, selection: WorkflowSelection) => {
+    async (workflow: WorkflowManifest, inputs: Record<string, unknown>, selection: WorkflowSelection) => {
       setWorkflowSubmitting(true);
       try {
         const run = await createWorkflowRun({
           workflow_id: workflow.workflow_id,
           selection,
-          inputs: focus.trim() ? { focus: focus.trim() } : {},
+          inputs,
         });
         setSeedWorkflowRuns((prev) => {
           const next = [run, ...prev.filter((item) => item.id !== run.id)];

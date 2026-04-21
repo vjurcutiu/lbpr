@@ -18,6 +18,23 @@ log = logging.getLogger("workflows.registry")
 
 WorkflowHandler = Callable[[WorkflowRun, list[WorkflowSourceFile]], WorkflowResult]
 
+_SUMMARY_AUDIENCE_LABELS = {
+    "leadership": "Leadership",
+    "team": "Internal team",
+    "client": "Client",
+    "new_hire": "New hire",
+}
+_SUMMARY_DEPTH_LABELS = {
+    "concise": "30-second brief",
+    "standard": "3-minute brief",
+    "detailed": "Deep dive",
+}
+_SUMMARY_DEPTH_DEFAULT_LAYER = {
+    "concise": "snapshot",
+    "standard": "standard",
+    "detailed": "deep_dive",
+}
+
 _STOPWORDS = {
     "about", "after", "again", "against", "also", "between", "could", "first", "from", "have", "into",
     "just", "more", "most", "other", "over", "same", "should", "that", "their", "there", "these", "this",
@@ -159,6 +176,236 @@ def _first_insight_lines(sources: list[WorkflowSourceFile], *, limit: int = 4) -
     return lines
 
 
+def _input_text(run: WorkflowRun, key: str, default: str) -> str:
+    value = str(run.inputs.get(key) or "").strip()
+    return value or default
+
+
+def _summary_profile(run: WorkflowRun) -> tuple[str, str, str]:
+    audience = _input_text(run, "audience", "leadership")
+    depth = _input_text(run, "depth", "standard")
+    focus = _focus_text(run, "an executive-friendly summary")
+    return audience, depth, focus
+
+
+def _summary_evidence_from_sources(sources: list[WorkflowSourceFile], *, limit: int = 4) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for source in sources:
+        evidence_lines = _first_insight_lines([source], limit=2)
+        if not evidence_lines:
+            continue
+        claim = evidence_lines[0]
+        evidence = [{"source_name": _source_label(source), "excerpt": line} for line in evidence_lines[:2]]
+        items.append(
+            {
+                "claim": claim,
+                "importance": "high" if source.source_kind == "retrieved" else "medium",
+                "sources": [_source_label(source)],
+                "evidence": evidence,
+            }
+        )
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _summary_layers_from_result(result: WorkflowResult, sources: list[WorkflowSourceFile]) -> list[dict[str, str]]:
+    snapshot = (result.summary or "").strip()
+    standard_parts = [snapshot] if snapshot else []
+    standard_parts.extend(f"• {item}" for item in (result.bullets or [])[:4])
+    deep_insights = _first_insight_lines(sources, limit=6)
+    deep_text = "\n".join(f"- {item}" for item in deep_insights) if deep_insights else "- Review the cited source material for more detail."
+    return [
+        {"key": "snapshot", "label": _SUMMARY_DEPTH_LABELS["concise"], "text": snapshot or "No summary available yet."},
+        {
+            "key": "standard",
+            "label": _SUMMARY_DEPTH_LABELS["standard"],
+            "text": "\n".join(part for part in standard_parts if part).strip() or snapshot or "No standard brief available yet.",
+        },
+        {"key": "deep_dive", "label": _SUMMARY_DEPTH_LABELS["detailed"], "text": deep_text},
+    ]
+
+
+def _normalize_summary_layers(value: Any, *, fallback: list[dict[str, str]]) -> list[dict[str, str]]:
+    cleaned: list[dict[str, str]] = []
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            key = str(item.get("key") or "").strip()
+            label = str(item.get("label") or "").strip()
+            text = str(item.get("text") or "").strip()
+            if key and text:
+                cleaned.append({"key": key, "label": label or key.replace("_", " ").title(), "text": text})
+    if cleaned:
+        return cleaned
+    return fallback
+
+
+def _normalize_evidence_highlights(value: Any, *, fallback: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    cleaned: list[dict[str, Any]] = []
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            claim = str(item.get("claim") or "").strip()
+            if not claim:
+                continue
+            sources = [str(source).strip() for source in item.get("sources") or [] if str(source).strip()]
+            evidence_items: list[dict[str, str]] = []
+            for evidence in item.get("evidence") or []:
+                if not isinstance(evidence, dict):
+                    continue
+                excerpt = str(evidence.get("excerpt") or "").strip()
+                if not excerpt:
+                    continue
+                evidence_items.append(
+                    {
+                        "source_name": str(evidence.get("source_name") or "Source").strip(),
+                        "excerpt": excerpt,
+                    }
+                )
+            cleaned.append(
+                {
+                    "claim": claim,
+                    "importance": str(item.get("importance") or "medium").strip() or "medium",
+                    "sources": sources,
+                    "evidence": evidence_items,
+                }
+            )
+    return cleaned or fallback
+
+
+def _summary_actions(focus: str, audience: str) -> list[dict[str, str]]:
+    audience_label = _SUMMARY_AUDIENCE_LABELS.get(audience, audience.replace("_", " ").title())
+    return [
+        {
+            "kind": "workflow",
+            "label": "Generate report",
+            "workflow_id": "generate_report",
+            "focus": f"{audience_label} brief grounded in this summary. Keep the emphasis on {focus}.",
+            "description": "Turn this summary into a more presentation-ready deliverable.",
+        },
+        {
+            "kind": "workflow",
+            "label": "Create action plan",
+            "workflow_id": "create_action_plan",
+            "focus": f"Owner-ready follow-up plan based on this summary, with priorities and timelines for {focus}.",
+            "description": "Convert the summary into concrete next steps.",
+        },
+        {
+            "kind": "workflow",
+            "label": "Draft memo",
+            "workflow_id": "draft_from_sources",
+            "focus": f"Write an internal memo for {audience_label.lower()} that captures the summary and its implications for {focus}.",
+            "description": "Start a reusable draft from the same source material.",
+        },
+    ]
+
+
+def _render_summary_preview(
+    run: WorkflowRun,
+    *,
+    summary: str,
+    bullets: list[str],
+    next_actions: list[str],
+    sources: list[WorkflowSourceFile],
+    layers: list[dict[str, str]],
+    evidence_highlights: list[dict[str, Any]],
+    audience: str,
+) -> str:
+    lines = [f"# {run.title}", ""]
+    lines.append(f"Audience: {_SUMMARY_AUDIENCE_LABELS.get(audience, audience.replace('_', ' ').title())}")
+    lines.append("")
+    for layer in layers:
+        lines.append(f"## {layer.get('label') or layer.get('key', 'Summary').replace('_', ' ').title()}")
+        lines.append(str(layer.get("text") or "").strip())
+        lines.append("")
+    if bullets:
+        lines.append("## Evidence-backed highlights")
+        lines.extend(f"- {item}" for item in bullets)
+        lines.append("")
+    if evidence_highlights:
+        lines.append("## Supporting evidence")
+        for item in evidence_highlights:
+            claim = str(item.get("claim") or "").strip()
+            sources_line = ", ".join(str(source).strip() for source in item.get("sources") or [] if str(source).strip())
+            if claim:
+                lines.append(f"- {claim}{f' [{sources_line}]' if sources_line else ''}")
+            for evidence in item.get("evidence") or []:
+                if not isinstance(evidence, dict):
+                    continue
+                excerpt = str(evidence.get("excerpt") or "").strip()
+                if not excerpt:
+                    continue
+                source_name = str(evidence.get("source_name") or "Source").strip()
+                lines.append(f"  - {source_name}: {excerpt}")
+        lines.append("")
+    if next_actions:
+        lines.append("## Suggested next steps")
+        lines.extend(f"- {item}" for item in next_actions)
+        lines.append("")
+    if sources:
+        lines.append("## Sources used")
+        lines.extend(_source_manifest_lines(sources))
+    return "\n".join(line for line in lines if line is not None).strip()
+
+
+def _normalize_summary_result(run: WorkflowRun, result: WorkflowResult, sources: list[WorkflowSourceFile]) -> WorkflowResult:
+    audience, depth, focus = _summary_profile(run)
+    metadata = dict(result.metadata or {})
+    profile = metadata.get("summary_profile") if isinstance(metadata.get("summary_profile"), dict) else {}
+    profile = {
+        "audience": str(profile.get("audience") or audience).strip() or audience,
+        "depth": str(profile.get("depth") or depth).strip() or depth,
+        "focus": str(profile.get("focus") or focus).strip() or focus,
+        "default_layer": str(profile.get("default_layer") or _SUMMARY_DEPTH_DEFAULT_LAYER.get(depth, "standard")).strip() or "standard",
+    }
+    metadata["summary_profile"] = profile
+    metadata["audience"] = profile["audience"]
+    metadata["depth"] = profile["depth"]
+    metadata["focus"] = profile["focus"]
+
+    layers = _normalize_summary_layers(
+        metadata.get("summary_layers"),
+        fallback=_summary_layers_from_result(result, sources),
+    )
+    metadata["summary_layers"] = layers
+
+    evidence_highlights = _normalize_evidence_highlights(
+        metadata.get("evidence_highlights"),
+        fallback=_summary_evidence_from_sources(sources),
+    )
+    metadata["evidence_highlights"] = evidence_highlights
+
+    if evidence_highlights:
+        result.bullets = [
+            f"{item['claim']} ({', '.join(item['sources'])})" if item.get("sources") else str(item["claim"])
+            for item in evidence_highlights[:4]
+            if str(item.get("claim") or "").strip()
+        ] or result.bullets
+
+    suggested_actions = metadata.get("suggested_actions")
+    if not isinstance(suggested_actions, list) or not suggested_actions:
+        suggested_actions = _summary_actions(profile["focus"], profile["audience"])
+    metadata["suggested_actions"] = suggested_actions
+    if not result.next_actions:
+        result.next_actions = [str(item.get("label") or "").strip() for item in suggested_actions if isinstance(item, dict) and str(item.get("label") or "").strip()]
+
+    result.metadata = metadata
+    result.preview_markdown = _render_summary_preview(
+        run,
+        summary=result.summary,
+        bullets=result.bullets,
+        next_actions=result.next_actions,
+        sources=sources,
+        layers=layers,
+        evidence_highlights=evidence_highlights,
+        audience=profile["audience"],
+    )
+    return result
+
+
 def _common_terms(left: WorkflowSourceFile, right: WorkflowSourceFile, *, limit: int = 4) -> list[str]:
     left_terms = set(_top_terms(left.excerpt, limit=12))
     right_terms = set(_top_terms(right.excerpt, limit=12))
@@ -259,34 +506,56 @@ def _llm_result(
 
 
 def summarize_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> WorkflowResult:
-    focus = _focus_text(run, "an executive-friendly summary")
+    audience, depth, focus = _summary_profile(run)
+    audience_label = _SUMMARY_AUDIENCE_LABELS.get(audience, audience.replace("_", " ").title())
+    depth_label = _SUMMARY_DEPTH_LABELS.get(depth, depth.replace("_", " ").title())
 
     def fallback() -> WorkflowResult:
-        insights = _first_insight_lines(sources, limit=4)
-        bullets = insights or [f"Used {_source_label(source)} as source material." for source in sources[:3]]
-        next_actions = [
-            "Open the source files that contain the most important claims and verify the key points.",
-            "Use Generate Report if you need a more presentation-ready deliverable.",
-        ]
-        return _result(
+        evidence_highlights = _summary_evidence_from_sources(sources)
+        bullets = [
+            f"{item['claim']} ({', '.join(item['sources'])})" if item.get("sources") else str(item["claim"])
+            for item in evidence_highlights[:4]
+        ] or [f"Used {_source_label(source)} as source material." for source in sources[:3]]
+        next_actions = [item["label"] for item in _summary_actions(focus, audience)]
+        result = _result(
             run,
-            summary=f"Generated a concise summary across {len(sources)} selected file(s), focused on {focus}.",
+            summary=f"Generated a {depth_label.lower()} for {audience_label.lower()} across {len(sources)} selected file(s), focused on {focus}.",
             bullets=bullets,
             next_actions=next_actions,
             sources=sources,
-            metadata={"focus": focus},
+            metadata={
+                "focus": focus,
+                "audience": audience,
+                "depth": depth,
+                "summary_layers": _summary_layers_from_result(
+                    WorkflowResult(summary=f"Generated a {depth_label.lower()} for {audience_label.lower()} across {len(sources)} selected file(s), focused on {focus}.", bullets=bullets, next_actions=next_actions),
+                    sources,
+                ),
+                "evidence_highlights": evidence_highlights,
+                "suggested_actions": _summary_actions(focus, audience),
+            },
         )
+        return _normalize_summary_result(run, result, sources)
 
-    return _llm_result(
+    result = _llm_result(
         run,
         sources,
-        task_brief=f"Create a grounded summary of the selected material with emphasis on {focus}.",
+        task_brief=(
+            f"Create a grounded summary for {audience_label.lower()} that emphasizes {focus}. "
+            f"The requested default depth is {depth_label.lower()}."
+        ),
         output_requirements=(
-            "Include 3-6 bullets, 2-4 next actions, and markdown with headings for Summary, Highlights, and Sources used. "
-            "Keep the summary concise but specific."
+            "Include 3-5 bullets that each state a concrete claim and mention the supporting source name in parentheses. "
+            "Include 2-4 next actions. In metadata, include: "
+            "summary_profile with audience, depth, focus, and default_layer; "
+            "summary_layers as an array with snapshot, standard, and deep_dive items (each with key, label, text); "
+            "evidence_highlights as an array of objects with claim, importance, sources, and evidence where evidence is an array of {source_name, excerpt}; "
+            "and suggested_actions as workflow actions with label, workflow_id, focus, and description. "
+            "The markdown should include separate sections for the quick brief, the fuller brief, supporting evidence, next steps, and sources used."
         ),
         fallback_factory=fallback,
     )
+    return _normalize_summary_result(run, result, sources)
 
 
 def compare_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> WorkflowResult:
@@ -549,6 +818,29 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
             "prompt_placeholder": "Executive summary, detailed notes, customer-ready recap…",
             "submit_label": "Generate summary",
             "suggested_prompts": ["Executive summary", "Risks and open questions", "Customer-ready recap"],
+            "fields": [
+                {
+                    "key": "audience",
+                    "label": "Audience",
+                    "default_value": "leadership",
+                    "options": [
+                        {"value": "leadership", "label": "Leadership"},
+                        {"value": "team", "label": "Internal team"},
+                        {"value": "client", "label": "Client"},
+                        {"value": "new_hire", "label": "New hire"},
+                    ],
+                },
+                {
+                    "key": "depth",
+                    "label": "Depth",
+                    "default_value": "standard",
+                    "options": [
+                        {"value": "concise", "label": "30-second brief"},
+                        {"value": "standard", "label": "3-minute brief"},
+                        {"value": "detailed", "label": "Deep dive"},
+                    ],
+                },
+            ],
         },
         tags=["briefing", "multi-file", "cited"],
     ),
