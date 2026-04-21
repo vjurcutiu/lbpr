@@ -179,7 +179,7 @@ export function FolderRow({
             ref={setDragRef}
             style={style}
             className={cn(
-              "group grid grid-cols-[1.25rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
+              "group grid grid-cols-[1.25rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default select-none",
               "hover:bg-muted/40",
               selected && "bg-muted/60",
               "transition-opacity",
@@ -338,7 +338,7 @@ export function FileRow({
           ref={setNodeRef}
           style={style}
           className={cn(
-            "group grid grid-cols-[1.25rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default",
+            "group grid grid-cols-[1.25rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default select-none",
             "hover:bg-muted/40",
             selected && "bg-muted/60",
             "transition-opacity",

@@ -328,7 +328,7 @@ function FolderRow({
               ref={setDragRef}
               style={rowStyle}
               className={cn(
-                "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left",
+                "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left select-none",
                 "hover:bg-muted/40",
                 selected && "bg-muted/50",
                 isDragging && "opacity-60"
