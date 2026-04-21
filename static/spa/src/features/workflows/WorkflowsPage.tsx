@@ -619,9 +619,9 @@ export default function WorkflowsPage() {
   const showFlows = !isMobile || mobilePanel === "flows";
 
   return (
-    <div className="h-full min-h-0">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {isMobile ? (
-        <div className="sticky top-0 z-20 border border-border/70 border-b-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+        <div className="sticky top-0 z-20 shrink-0 border border-border/70 border-b-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="border-b border-border/70 px-4 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
@@ -670,10 +670,11 @@ export default function WorkflowsPage() {
         </div>
       ) : null}
 
-      <div className={cn(
-        "border border-border/70 bg-background",
-        isMobile ? "border-t-0" : "grid h-full min-h-0 xl:grid-cols-[320px_minmax(0,1fr)_280px] xl:divide-x xl:divide-border/70"
-      )}>
+      <div className={cn("min-h-0 flex-1", isMobile ? "overflow-y-auto overscroll-contain" : "overflow-hidden")}>
+        <div className={cn(
+          "border border-border/70 bg-background",
+          isMobile ? "border-t-0" : "grid h-full min-h-0 xl:grid-cols-[320px_minmax(0,1fr)_280px] xl:divide-x xl:divide-border/70"
+        )}>
         <section className={cn("flex min-h-[220px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showInbox && "hidden")}>
           <PaneHeader
             title="Run inbox"
@@ -964,6 +965,7 @@ export default function WorkflowsPage() {
             )}
           </div>
         </section>
+        </div>
       </div>
 
       <WorkflowLauncher
