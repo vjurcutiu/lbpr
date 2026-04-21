@@ -565,85 +565,82 @@ export default function WorkflowsPage() {
           />
 
           {selectedRun ? (
-            <>
-              <div className="shrink-0 border-b border-border/70 px-3 py-3">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex items-start gap-2">
-                      <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center border border-border/70 bg-background", statusAccent(selectedRun.status))}>
-                        {(() => {
-                          const Icon = getWorkflowIcon(selectedRun.workflow_id);
-                          return <Icon className="h-4 w-4" />;
-                        })()}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold leading-5 text-foreground">{selectedRun.title}</div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
-                          <span>{formatCapability(selectedRun.capability)}</span>
-                          <span className="h-1 w-1 rounded-full bg-border" />
-                          <span>{formatSelection(selectedRun)}</span>
-                          <span className="h-1 w-1 rounded-full bg-border" />
-                          <span>{selectedRun.selection.current_folder || "Root"}</span>
+            <div className="min-h-0 flex-1 overflow-hidden bg-muted/10">
+              <ScrollArea className="h-full">
+                <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-6 md:px-8 lg:px-12 xl:px-16">
+                  <div className="border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-8">
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start gap-3">
+                          <div className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center border border-border/70 bg-background", statusAccent(selectedRun.status))}>
+                            {(() => {
+                              const Icon = getWorkflowIcon(selectedRun.workflow_id);
+                              return <Icon className="h-5 w-5" />;
+                            })()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-lg font-semibold leading-7 text-foreground md:text-[1.35rem]">{selectedRun.title}</div>
+                            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                              <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
+                              <span>{formatCapability(selectedRun.capability)}</span>
+                              <span className="h-1 w-1 rounded-full bg-border" />
+                              <span>{formatSelection(selectedRun)}</span>
+                              <span className="h-1 w-1 rounded-full bg-border" />
+                              <span>{selectedRun.selection.current_folder || "Root"}</span>
+                            </div>
+                            <p className="mt-4 max-w-3xl text-[15px] leading-7 text-foreground/90">{renderStatusCopy(selectedRun)}</p>
+                          </div>
                         </div>
                       </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 rounded-none px-4 text-xs"
+                        onClick={() => {
+                          const workflow = catalog.find((item) => item.workflow_id === selectedRun.workflow_id);
+                          if (workflow) openWorkflowLauncher(workflow);
+                        }}
+                        disabled={!catalog.some((item) => item.workflow_id === selectedRun.workflow_id)}
+                      >
+                        Run again
+                      </Button>
                     </div>
-                  </div>
 
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 rounded-none px-3 text-xs"
-                    onClick={() => {
-                      const workflow = catalog.find((item) => item.workflow_id === selectedRun.workflow_id);
-                      if (workflow) openWorkflowLauncher(workflow);
-                    }}
-                    disabled={!catalog.some((item) => item.workflow_id === selectedRun.workflow_id)}
-                  >
-                    Run again
-                  </Button>
-                </div>
-                <div className="mt-3 border-t border-border/70 pt-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Overview</div>
-                  <p className="mt-1.5 text-sm leading-5 text-foreground">{renderStatusCopy(selectedRun)}</p>
-                </div>
-              </div>
-
-              {(selectedRun.result?.bullets?.length || selectedRun.result?.next_actions?.length) ? (
-                <div className="grid shrink-0 border-b border-border/70 lg:grid-cols-2 lg:divide-x lg:divide-border/70">
-                  <div className="px-3 py-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Takeaways</div>
-                    <div className="mt-2 space-y-2">
-                      {evidenceBackedTakeaways(selectedRun).slice(0, 3).map((item, index) => (
-                        <div key={`${item}-${index}`} className="text-sm leading-5 text-foreground">
-                          {item}
+                    {(selectedRun.result?.bullets?.length || selectedRun.result?.next_actions?.length) ? (
+                      <div className="mt-6 grid gap-4 border-t border-border/70 pt-6 lg:grid-cols-2 lg:gap-6">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Takeaways</div>
+                          <div className="mt-3 space-y-3">
+                            {evidenceBackedTakeaways(selectedRun).slice(0, 3).map((item, index) => (
+                              <div key={`${item}-${index}`} className="text-[15px] leading-7 text-foreground">
+                                {item}
+                              </div>
+                            ))}
+                            {!evidenceBackedTakeaways(selectedRun).length ? (
+                              <div className="text-[15px] leading-7 text-muted-foreground">No takeaways yet for this run.</div>
+                            ) : null}
+                          </div>
                         </div>
-                      ))}
-                      {!evidenceBackedTakeaways(selectedRun).length ? (
-                        <div className="text-sm leading-5 text-muted-foreground">No takeaways yet for this run.</div>
-                      ) : null}
-                    </div>
-                  </div>
 
-                  <div className="border-t border-border/70 px-3 py-3 lg:border-t-0">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Next steps</div>
-                    <div className="mt-2 space-y-2">
-                      {(selectedRun.result?.next_actions || []).slice(0, 3).map((item, index) => (
-                        <div key={`${item}-${index}`} className="text-sm leading-5 text-foreground">
-                          {item}
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Next steps</div>
+                          <div className="mt-3 space-y-3">
+                            {(selectedRun.result?.next_actions || []).slice(0, 3).map((item, index) => (
+                              <div key={`${item}-${index}`} className="text-[15px] leading-7 text-foreground">
+                                {item}
+                              </div>
+                            ))}
+                            {!selectedRun.result?.next_actions?.length ? (
+                              <div className="text-[15px] leading-7 text-muted-foreground">No recommended next steps yet for this run.</div>
+                            ) : null}
+                          </div>
                         </div>
-                      ))}
-                      {!selectedRun.result?.next_actions?.length ? (
-                        <div className="text-sm leading-5 text-muted-foreground">No recommended next steps yet for this run.</div>
-                      ) : null}
-                    </div>
+                      </div>
+                    ) : null}
                   </div>
-                </div>
-              ) : null}
 
-              <div className="min-h-0 flex-1 overflow-hidden">
-                <ScrollArea className="h-full">
-                  <div className="p-3">
+                  <div className="border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-8">
                     {selectedRun.result ? (
                       <WorkflowResultDetails
                         result={selectedRun.result}
@@ -651,20 +648,20 @@ export default function WorkflowsPage() {
                         onWorkflowAction={handleWorkflowAction}
                       />
                     ) : selectedRun.status === "failed" ? (
-                      <div className="border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm leading-5 text-destructive">
+                      <div className="border border-destructive/20 bg-destructive/5 px-4 py-4 text-[15px] leading-7 text-destructive">
                         {selectedRun.error || "This workflow failed before returning an output."}
                       </div>
                     ) : (
-                      <div className="text-sm leading-5 text-muted-foreground">
+                      <div className="text-[15px] leading-7 text-muted-foreground">
                         This run is still in progress. Refresh to pick up the latest result.
                       </div>
                     )}
                   </div>
-                </ScrollArea>
-              </div>
-            </>
+                </div>
+              </ScrollArea>
+            </div>
           ) : (
-            <div className="p-3 text-sm leading-5 text-muted-foreground">
+            <div className="p-5 text-sm leading-6 text-muted-foreground md:px-8 md:py-6">
               Choose a flow on the right to start a run here, or select a run from the inbox to review the latest output.
             </div>
           )}
