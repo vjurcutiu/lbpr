@@ -113,8 +113,8 @@ export function WorkflowLauncher({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader className="space-y-4">
+      <DialogContent className="flex w-[calc(100vw-2rem)] max-w-xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden p-0 sm:max-w-xl">
+        <DialogHeader className="space-y-4 px-6 pt-6">
           <div className="flex items-start gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl border bg-primary/5 text-primary">
               {Icon ? <Icon className="h-5 w-5" /> : null}
@@ -166,72 +166,74 @@ export function WorkflowLauncher({
           </div>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {selectionMode === "picker" ? (
-            <WorkflowFilePicker
-              files={availableFiles}
-              selection={editableSelection}
-              loading={filesLoading}
-              disabled={submitting}
-              onSelectionChange={setEditableSelection}
-            />
-          ) : null}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="space-y-4">
+            {selectionMode === "picker" ? (
+              <WorkflowFilePicker
+                files={availableFiles}
+                selection={editableSelection}
+                loading={filesLoading}
+                disabled={submitting}
+                onSelectionChange={setEditableSelection}
+              />
+            ) : null}
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              {workflow?.launcher.prompt_label ?? "Focus"}
-            </label>
-            <Textarea
-              rows={4}
-              placeholder={workflow?.launcher.prompt_placeholder ?? "What should this workflow focus on?"}
-              value={focus}
-              onChange={(event) => setFocus(event.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              Optional. Add a goal, audience, or output preference to steer the result.
-            </p>
-          </div>
-
-          {!!launcherFields.length && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {launcherFields.map((field) => (
-                <div key={field.key} className="space-y-2">
-                  <label className="text-sm font-medium">{field.label}</label>
-                  <Select
-                    value={fieldValues[field.key] || field.default_value || field.options[0]?.value || ""}
-                    onValueChange={(value) => setFieldValues((prev) => ({ ...prev, [field.key]: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={field.placeholder || `Select ${field.label.toLowerCase()}`} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {field.options.map((option) => (
-                        <SelectItem key={`${field.key}-${option.value}`} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!!suggestions.length && (
             <div className="space-y-2">
-              <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Try one of these</div>
-              <div className="flex flex-wrap gap-2">
-                {suggestions.map((suggestion) => (
-                  <Button key={suggestion} variant="outline" size="sm" className="rounded-full" onClick={() => setFocus(suggestion)}>
-                    {suggestion}
-                  </Button>
+              <label className="text-sm font-medium">
+                {workflow?.launcher.prompt_label ?? "Focus"}
+              </label>
+              <Textarea
+                rows={4}
+                placeholder={workflow?.launcher.prompt_placeholder ?? "What should this workflow focus on?"}
+                value={focus}
+                onChange={(event) => setFocus(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Optional. Add a goal, audience, or output preference to steer the result.
+              </p>
+            </div>
+
+            {!!launcherFields.length && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {launcherFields.map((field) => (
+                  <div key={field.key} className="space-y-2">
+                    <label className="text-sm font-medium">{field.label}</label>
+                    <Select
+                      value={fieldValues[field.key] || field.default_value || field.options[0]?.value || ""}
+                      onValueChange={(value) => setFieldValues((prev) => ({ ...prev, [field.key]: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={field.placeholder || `Select ${field.label.toLowerCase()}`} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {field.options.map((option) => (
+                          <SelectItem key={`${field.key}-${option.value}`} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+
+            {!!suggestions.length && (
+              <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Try one of these</div>
+                <div className="flex flex-wrap gap-2">
+                  {suggestions.map((suggestion) => (
+                    <Button key={suggestion} variant="outline" size="sm" className="rounded-full" onClick={() => setFocus(suggestion)}>
+                      {suggestion}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t px-6 py-4">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
