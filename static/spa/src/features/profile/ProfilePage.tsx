@@ -639,36 +639,44 @@ export default function ProfilePage() {
 
       <Dialog open={deleteDialogOpen} onOpenChange={(open) => { if (!deleteBusy) { setDeleteDialogOpen(open); if (!open) setDeleteConfirm(""); } }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete account</DialogTitle>
-            <DialogDescription>
-              This permanently removes your account and its associated data. Any active Stripe subscription tied to this account will be cancelled immediately. Type <span className="font-semibold text-foreground">DELETE</span> to confirm.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="delete-account-confirm">Confirmation</Label>
-            <Input
-              id="delete-account-confirm"
-              value={deleteConfirm}
-              onChange={(e) => setDeleteConfirm(e.target.value)}
-              placeholder="DELETE"
-              autoComplete="off"
-              disabled={deleteBusy}
-            />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="secondary" onClick={() => { setDeleteDialogOpen(false); setDeleteConfirm(""); }} disabled={deleteBusy}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={onDeleteAccount}
-              disabled={deleteBusy || deleteConfirm.trim().toUpperCase() !== "DELETE"}
-            >
-              {deleteBusy ? "Deleting…" : "Delete account"}
-            </Button>
-          </DialogFooter>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onDeleteAccount();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Delete account</DialogTitle>
+              <DialogDescription>
+                This permanently removes your account and its associated data. Any active Stripe subscription tied to this account will be cancelled immediately. Type <span className="font-semibold text-foreground">DELETE</span> to confirm.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="delete-account-confirm">Confirmation</Label>
+              <Input
+                id="delete-account-confirm"
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                placeholder="DELETE"
+                autoComplete="off"
+                autoFocus
+                disabled={deleteBusy}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={() => { setDeleteDialogOpen(false); setDeleteConfirm(""); }} disabled={deleteBusy}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="destructive"
+                disabled={deleteBusy || deleteConfirm.trim().toUpperCase() !== "DELETE"}
+              >
+                {deleteBusy ? "Deleting…" : "Delete account"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

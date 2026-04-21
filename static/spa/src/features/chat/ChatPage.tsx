@@ -468,75 +468,75 @@ function LeftSidebar({
 
       <Dialog open={!!renameId} onOpenChange={(open) => !open && setRenameId(null)}>
         <DialogContent className="max-w-md rounded-3xl border border-border bg-background p-0 shadow-[0_32px_80px_rgba(15,23,42,0.18)] dark:shadow-[0_36px_96px_rgba(0,0,0,0.45)]">
-          <DialogHeader className="px-6 pt-6">
-            <DialogTitle className="text-base font-semibold">Rename conversation</DialogTitle>
-            <DialogDescription>
-              Give this chat a clearer name so it is easier to find later.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="px-6 py-2">
-            <input
-              value={renameVal}
-              onChange={(e) => setRenameVal(e.target.value)}
-              autoFocus
-              className="w-full rounded-2xl border border-input bg-background px-3 py-2.5 outline-none transition focus:ring-2 focus:ring-ring/50"
-              placeholder="Conversation title"
-              onKeyDown={async (e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (renameId) {
-                    await onRename(renameId, renameVal.trim() || "Untitled");
-                    setRenameId(null);
-                  }
-                }
-              }}
-            />
-          </div>
-          <DialogFooter className="px-6 pb-6">
-            <Button variant="outline" onClick={() => setRenameId(null)}>Cancel</Button>
-            <Button
-              onClick={async () => {
-                if (renameId) {
-                  await onRename(renameId, renameVal.trim() || "Untitled");
-                  setRenameId(null);
-                }
-              }}
-            >
-              Save
-            </Button>
-          </DialogFooter>
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (renameId) {
+                await onRename(renameId, renameVal.trim() || "Untitled");
+                setRenameId(null);
+              }
+            }}
+          >
+            <DialogHeader className="px-6 pt-6">
+              <DialogTitle className="text-base font-semibold">Rename conversation</DialogTitle>
+              <DialogDescription>
+                Give this chat a clearer name so it is easier to find later.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="px-6 py-2">
+              <input
+                value={renameVal}
+                onChange={(e) => setRenameVal(e.target.value)}
+                autoFocus
+                className="w-full rounded-2xl border border-input bg-background px-3 py-2.5 outline-none transition focus:ring-2 focus:ring-ring/50"
+                placeholder="Conversation title"
+              />
+            </div>
+            <DialogFooter className="px-6 pb-6">
+              <Button type="button" variant="outline" onClick={() => setRenameId(null)}>Cancel</Button>
+              <Button type="submit">
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
       <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <DialogContent className="max-w-md rounded-3xl border border-border bg-background p-0 shadow-[0_32px_80px_rgba(15,23,42,0.18)] dark:shadow-[0_36px_96px_rgba(0,0,0,0.45)]">
-          <DialogHeader className="px-6 pt-6">
-            <DialogTitle className="text-base font-semibold">Delete conversation</DialogTitle>
-            <DialogDescription>
-              This permanently removes the selected chat and its local message history.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="px-6 py-2 text-sm text-muted-foreground">
-            Are you sure you want to delete{" "}
-            <span className="font-medium text-foreground">
-              “{(deleteId && sMap.get(deleteId)?.title) || "Untitled"}”
-            </span>
-            ? This action cannot be undone.
-          </div>
-          <DialogFooter className="px-6 pb-6">
-            <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              onClick={async () => {
-                if (deleteId) {
-                  await onDelete(deleteId);
-                  setDeleteId(null);
-                }
-              }}
-            >
-              Delete
-            </Button>
-          </DialogFooter>
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (deleteId) {
+                await onDelete(deleteId);
+                setDeleteId(null);
+              }
+            }}
+          >
+            <DialogHeader className="px-6 pt-6">
+              <DialogTitle className="text-base font-semibold">Delete conversation</DialogTitle>
+              <DialogDescription>
+                This permanently removes the selected chat and its local message history.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="px-6 py-2 text-sm text-muted-foreground">
+              Are you sure you want to delete{" "}
+              <span className="font-medium text-foreground">
+                “{(deleteId && sMap.get(deleteId)?.title) || "Untitled"}”
+              </span>
+              ? This action cannot be undone.
+            </div>
+            <DialogFooter className="px-6 pb-6">
+              <Button type="button" variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
+              <Button
+                type="submit"
+                variant="destructive"
+                autoFocus
+              >
+                Delete
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </aside>

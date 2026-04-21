@@ -68,6 +68,12 @@ export default function ReauthDialog({ open, onClose, onOpenChange, onSuccess, i
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!user) return;
+
+    if (hasPhoneProvider && !hasPasswordProvider && !hasGoogleProvider && phoneStep === "enter") {
+      await onSendPhoneCode();
+      return;
+    }
+
     setErr(null);
     setLoading(true);
     try {
@@ -171,6 +177,7 @@ export default function ReauthDialog({ open, onClose, onOpenChange, onSuccess, i
                 value={pw}
                 onChange={(e) => setPw(e.target.value)}
                 disabled={loading}
+                autoFocus
                 placeholder="Enter your current password"
               />
             </div>
@@ -189,9 +196,10 @@ export default function ReauthDialog({ open, onClose, onOpenChange, onSuccess, i
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     disabled={loading}
+                    autoFocus
                     placeholder="+40 712 345 678"
                   />
-                  <Button type="button" onClick={onSendPhoneCode} disabled={loading || !phone.trim()}>
+                  <Button type="submit" disabled={loading || !phone.trim()}>
                     {loading ? "Sending…" : "Send code"}
                   </Button>
                 </>
@@ -206,6 +214,7 @@ export default function ReauthDialog({ open, onClose, onOpenChange, onSuccess, i
                     value={sms}
                     onChange={(e) => setSms(e.target.value)}
                     disabled={loading}
+                    autoFocus
                     placeholder="123456"
                   />
                 </>
@@ -215,7 +224,7 @@ export default function ReauthDialog({ open, onClose, onOpenChange, onSuccess, i
 
           <DialogFooter className="gap-2 sm:gap-3">
             {(hasGoogleProvider || (!hasPasswordProvider && !hasPhoneProvider && !hasGoogleProvider)) && (
-              <Button type="button" variant="secondary" onClick={onGoogle} disabled={loading}>
+              <Button type="button" variant="secondary" onClick={onGoogle} disabled={loading} autoFocus>
                 Continue with Google
               </Button>
             )}

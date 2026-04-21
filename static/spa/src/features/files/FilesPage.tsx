@@ -2413,6 +2413,7 @@ const breadcrumb = useMemo(() => {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              autoFocus
               onClick={performDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={deleting}
@@ -2434,6 +2435,7 @@ const breadcrumb = useMemo(() => {
           <AlertDialogFooter>
             <AlertDialogCancel disabled={folderDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              autoFocus
               onClick={performDeleteFolder}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={folderDeleting}
@@ -2446,67 +2448,78 @@ const breadcrumb = useMemo(() => {
       {/* New folder */}
       <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>New folder</DialogTitle>
-            <DialogDescription>
-              Create a folder in {newFolderParent ? `“${newFolderParent}”` : "Root"}.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Input
-              autoFocus
-              placeholder="Folder name"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") performNewFolder();
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNewFolderOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={performNewFolder} disabled={!newFolderName.trim()}>
-              Create
-            </Button>
-          </DialogFooter>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void performNewFolder();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>New folder</DialogTitle>
+              <DialogDescription>
+                Create a folder in {newFolderParent ? `“${newFolderParent}”` : "Root"}.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Input
+                autoFocus
+                placeholder="Folder name"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setNewFolderOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!newFolderName.trim()}>
+                Create
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
       {/* Move */}
       <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Move file</DialogTitle>
-            <DialogDescription>
-              Choose a destination folder for <span className="font-medium">{moveFile ? basename(moveFile.name) : ""}</span>.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Input
-              placeholder="Destination folder (blank = Root)"
-              value={moveDest}
-              onChange={(e) => setMoveDest(e.target.value)}
-              list="folder-options"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") performMove();
-              }}
-            />
-            <datalist id="folder-options">
-              {derivedFolderPaths.filter((p) => p).map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
-            <div className="text-xs text-muted-foreground">Tip: right-click folders to upload or create subfolders.</div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setMoveOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={performMove} disabled={!moveFile}>
-              Move
-            </Button>
-          </DialogFooter>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void performMove();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Move file</DialogTitle>
+              <DialogDescription>
+                Choose a destination folder for <span className="font-medium">{moveFile ? basename(moveFile.name) : ""}</span>.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Input
+                autoFocus
+                placeholder="Destination folder (blank = Root)"
+                value={moveDest}
+                onChange={(e) => setMoveDest(e.target.value)}
+                list="folder-options"
+              />
+              <datalist id="folder-options">
+                {derivedFolderPaths.filter((p) => p).map((p) => (
+                  <option key={p} value={p} />
+                ))}
+              </datalist>
+              <div className="text-xs text-muted-foreground">Tip: right-click folders to upload or create subfolders.</div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setMoveOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!moveFile}>
+                Move
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
       {/* Rename folder */}
@@ -2522,59 +2535,69 @@ const breadcrumb = useMemo(() => {
         }}
       >
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Rename folder</DialogTitle>
-            <DialogDescription>
-              Rename <span className="font-medium">{renameFolderPath || ""}</span>.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Input
-              autoFocus
-              placeholder="New folder name"
-              value={renameFolderValue}
-              onChange={(e) => setRenameFolderValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") performRenameFolder();
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameFolderOpen(false)} disabled={renamingFolder}>
-              Cancel
-            </Button>
-            <Button onClick={performRenameFolder} disabled={!renameFolderValue.trim() || renamingFolder}>
-              {renamingFolder ? "Renaming…" : "Rename"}
-            </Button>
-          </DialogFooter>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void performRenameFolder();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Rename folder</DialogTitle>
+              <DialogDescription>
+                Rename <span className="font-medium">{renameFolderPath || ""}</span>.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Input
+                autoFocus
+                placeholder="New folder name"
+                value={renameFolderValue}
+                onChange={(e) => setRenameFolderValue(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setRenameFolderOpen(false)} disabled={renamingFolder}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!renameFolderValue.trim() || renamingFolder}>
+                {renamingFolder ? "Renaming…" : "Rename"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
       {/* Rename */}
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Rename file</DialogTitle>
-            <DialogDescription>Rename the file (folder stays the same).</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Input
-              autoFocus
-              placeholder="New name"
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") performRename();
-              }}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRenameOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={performRename} disabled={!renameValue.trim() || !renameFile}>
-              Rename
-            </Button>
-          </DialogFooter>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void performRename();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Rename file</DialogTitle>
+              <DialogDescription>Rename the file (folder stays the same).</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Input
+                autoFocus
+                placeholder="New name"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setRenameOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!renameValue.trim() || !renameFile}>
+                Rename
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
       {/* Universal upload: quota preview */}
@@ -2634,7 +2657,7 @@ const breadcrumb = useMemo(() => {
           )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={pendingComputing || uploading}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={executePending} disabled={pendingComputing || uploading || limitsLoading}>
+            <AlertDialogAction autoFocus onClick={executePending} disabled={pendingComputing || uploading || limitsLoading}>
               {limitsLoading ? "Checking…" : "Confirm"}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -2736,15 +2759,22 @@ const breadcrumb = useMemo(() => {
         }}
       >
         <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Transcribe audio</DialogTitle>
-            <DialogDescription>
-              Upload an audio/video file and generate a text transcript. You can optionally save the transcript back into this folder.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex-1 min-h-0 overflow-auto space-y-4 pr-1">
+          <form
+            className="flex min-h-0 flex-1 flex-col"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void runTranscription();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Transcribe audio</DialogTitle>
+              <DialogDescription>
+                Upload an audio/video file and generate a text transcript. You can optionally save the transcript back into this folder.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 min-h-0 overflow-auto space-y-4 pr-1">
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" onClick={pickTranscribeFile} disabled={transcribeBusy}>
+              <Button type="button" variant="outline" size="sm" onClick={pickTranscribeFile} disabled={transcribeBusy}>
                 Choose file
               </Button>
               <div className="min-w-0 text-sm">
@@ -2759,7 +2789,7 @@ const breadcrumb = useMemo(() => {
               </div>
               <div className="flex-1" />
               <Button
-                onClick={runTranscription}
+                type="submit"
                 disabled={!transcribeFile || transcribeBusy}
                 size="sm"
               >
@@ -2810,6 +2840,7 @@ const breadcrumb = useMemo(() => {
                   <div className="text-sm font-medium">Transcript</div>
                   <div className="flex-1" />
                   <Button
+                    type="button"
                     variant="outline"
                     size="sm"
                     onClick={async () => {
@@ -2826,7 +2857,7 @@ const breadcrumb = useMemo(() => {
                     <Copy className="h-4 w-4" />
                     <span className="ml-1.5">Copy</span>
                   </Button>
-                  <Button size="sm" onClick={saveTranscriptToFiles} disabled={savingTranscript || !transcribeText.trim()}>
+                  <Button type="button" size="sm" onClick={saveTranscriptToFiles} disabled={savingTranscript || !transcribeText.trim()}>
                     {savingTranscript ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                     <span className="ml-1.5">Save to files</span>
                   </Button>
@@ -2854,11 +2885,12 @@ const breadcrumb = useMemo(() => {
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTranscribeOpen(false)} disabled={transcribeBusy}>
-              Close
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setTranscribeOpen(false)} disabled={transcribeBusy}>
+                Close
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
       {/* OCR modal */}
@@ -2877,15 +2909,22 @@ const breadcrumb = useMemo(() => {
         }}
       >
         <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>OCR (image → text)</DialogTitle>
-            <DialogDescription>
-              Choose an image and extract its text using Google OCR. You can copy the result or save it back into this folder.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex-1 min-h-0 overflow-auto space-y-4 pr-1">
+          <form
+            className="flex min-h-0 flex-1 flex-col"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void runOcrFromPicker();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>OCR (image → text)</DialogTitle>
+              <DialogDescription>
+                Choose an image and extract its text using Google OCR. You can copy the result or save it back into this folder.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 min-h-0 overflow-auto space-y-4 pr-1">
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" size="sm" onClick={pickOcrFile} disabled={ocrBusy}>
+              <Button type="button" variant="outline" size="sm" onClick={pickOcrFile} disabled={ocrBusy}>
                 Choose image
               </Button>
               <div className="min-w-0 text-sm">
@@ -2899,7 +2938,7 @@ const breadcrumb = useMemo(() => {
                 )}
               </div>
               <div className="flex-1" />
-              <Button onClick={runOcrFromPicker} disabled={!ocrFile || ocrBusy} size="sm">
+              <Button type="submit" disabled={!ocrFile || ocrBusy} size="sm">
                 {ocrBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanText className="h-4 w-4" />}
                 <span className="ml-1.5">{ocrBusy ? "Running…" : ocrText ? "Re-run OCR" : "Run OCR"}</span>
               </Button>
@@ -2935,6 +2974,7 @@ const breadcrumb = useMemo(() => {
                   <div className="text-sm font-medium">Extracted text</div>
                   <div className="flex-1" />
                   <Button
+                    type="button"
                     variant="outline"
                     size="sm"
                     onClick={async () => {
@@ -2951,7 +2991,7 @@ const breadcrumb = useMemo(() => {
                     <Copy className="h-4 w-4" />
                     <span className="ml-1.5">Copy</span>
                   </Button>
-                  <Button size="sm" onClick={saveOcrToFiles} disabled={savingOcr || !ocrText.trim()}>
+                  <Button type="button" size="sm" onClick={saveOcrToFiles} disabled={savingOcr || !ocrText.trim()}>
                     {savingOcr ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                     <span className="ml-1.5">Save to files</span>
                   </Button>
@@ -2965,11 +3005,12 @@ const breadcrumb = useMemo(() => {
               </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOcrOpen(false)} disabled={ocrBusy}>
-              Close
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOcrOpen(false)} disabled={ocrBusy}>
+                Close
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
       {/* File viewer modal */}

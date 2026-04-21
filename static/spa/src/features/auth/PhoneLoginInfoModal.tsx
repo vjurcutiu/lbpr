@@ -60,14 +60,14 @@ export default function PhoneLoginInfoModal({ open, onOpenChange, phoneNumber, h
 
         <DialogFooter>
           {!hideProfileCta ? (
-            <Button asChild variant="secondary">
+            <Button asChild variant="secondary" autoFocus>
               <Link to="/profile" onClick={() => onOpenChange(false)}>
                 Go to profile
               </Link>
             </Button>
           ) : null}
 
-          <Button onClick={() => onOpenChange(false)}>Got it</Button>
+          <Button autoFocus onClick={() => onOpenChange(false)}>Got it</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
