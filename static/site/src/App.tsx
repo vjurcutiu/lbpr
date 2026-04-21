@@ -39,6 +39,31 @@ const comparisonRows: ComparisonRow[] = [
   { label: 'Help', free: 'Self-serve', pro: 'Phone and email support (≤24h SLA)' },
 ];
 
+const workflowCards = [
+  {
+    title: 'Summarize',
+    description: 'Turn one file or a whole set of files into a clean brief with key points, risks, and next steps.',
+  },
+  {
+    title: 'Compare',
+    description: 'See what changed between two documents without manually scanning every page and clause.',
+  },
+  {
+    title: 'Extract info',
+    description: 'Pull out dates, names, obligations, totals, or custom fields from unstructured source material.',
+  },
+  {
+    title: 'Generate report',
+    description: 'Package findings into a shareable update, brief, or handoff that is grounded in the original files.',
+  },
+];
+
+const workflowSteps = [
+  'Select the files you want to work with.',
+  'Choose a workflow instead of starting from a blank prompt.',
+  'Review a structured result with sources and next actions.',
+];
+
 function normalizePathname(pathname: string): string {
   if (!pathname || pathname === '/') return '/';
   return pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
@@ -53,6 +78,7 @@ function AppHeader() {
         </a>
         <nav className="site-nav" aria-label="Primary">
           <a href="/#workflow">How it works</a>
+          <a href="/#workflows">Workflows</a>
           <a href="/#platform">Capabilities</a>
           <a href="/#pricing">Pricing</a>
         </nav>
@@ -211,6 +237,40 @@ function HomePage() {
               <InfoCard title="3. Ask better questions">
                 Get fast answers grounded in your content so research, operations, and client work move forward with less hunting around.
               </InfoCard>
+            </div>
+          </div>
+        </section>
+
+        <section id="workflows" className="page-section page-section--dense">
+          <div className="site-shell">
+            <SectionHeading
+              eyebrow="Workflows"
+              title="Launch repeatable work without starting from scratch"
+              description="Lexbot Pro gives teams guided workflows for the jobs they run again and again, so they can go from file selection to a structured output faster than a blank chat or manual review."
+            />
+
+            <div className="workflow-layout">
+              <div className="workflow-card-grid">
+                {workflowCards.map((card) => (
+                  <article key={card.title} className="workflow-card">
+                    <div className="workflow-card__badge">Workflow</div>
+                    <h3>{card.title}</h3>
+                    <p>{card.description}</p>
+                  </article>
+                ))}
+              </div>
+
+              <aside className="workflow-panel">
+                <div className="workflow-panel__label">How teams use them</div>
+                <ol className="workflow-step-list">
+                  {workflowSteps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+                <p className="workflow-panel__note">
+                  Start with summarizing and extraction, then move into reporting, handoffs, and other higher-value flows as the workload grows.
+                </p>
+              </aside>
             </div>
           </div>
         </section>
