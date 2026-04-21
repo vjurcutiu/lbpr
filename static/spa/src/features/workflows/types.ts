@@ -54,6 +54,26 @@ export type WorkflowSelection = {
   current_folder: string;
 };
 
+
+export type WorkflowArtifactSummary = {
+  id: string;
+  run_id: string;
+  workflow_id: string;
+  title: string;
+  capability: WorkflowCapability;
+  file_name: string;
+  format: "markdown";
+  content_type: string;
+  byte_size: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkflowArtifact = WorkflowArtifactSummary & {
+  content: string;
+  metadata: Record<string, unknown>;
+};
+
 export type WorkflowResult = {
   summary: string;
   bullets: string[];
@@ -71,6 +91,7 @@ export type WorkflowRun = {
   selection: WorkflowSelection;
   inputs: Record<string, unknown>;
   result: WorkflowResult | null;
+  artifact?: WorkflowArtifactSummary | null;
   error?: string | null;
   created_at: string;
   updated_at: string;

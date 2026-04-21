@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Copy, Files, TriangleAlert } from "lucide-react";
+import { Copy, Download, Files, Save, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import type { WorkflowResult, WorkflowRun, WorkflowSelection, WorkflowSuggestedAction } from "../types";
+import type { WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
 type SourceFileMeta = {
   file_id?: string;
@@ -81,10 +81,14 @@ type Props = {
   result: WorkflowResult;
   selection?: WorkflowSelection;
   sourceRun?: WorkflowRun;
+  artifact?: WorkflowArtifactSummary | null;
+  artifactBusy?: boolean;
+  onSaveArtifact?: () => void;
+  onDownloadArtifact?: () => void;
   onWorkflowAction?: (action: WorkflowSuggestedAction, selection: WorkflowSelection, sourceRun: WorkflowRun) => void;
 };
 
-export function WorkflowResultDetails({ result, selection, sourceRun, onWorkflowAction }: Props) {
+export function WorkflowResultDetails({ result, selection, sourceRun, artifact, artifactBusy = false, onSaveArtifact, onDownloadArtifact, onWorkflowAction }: Props) {
   const sourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
   const warnings = asArray<string>(result.metadata?.warnings).filter(Boolean);
   const fields = asArray<FieldMeta>(result.metadata?.fields);
@@ -146,6 +150,41 @@ export function WorkflowResultDetails({ result, selection, sourceRun, onWorkflow
 
   return (
     <div className="space-y-3">
+      {(onSaveArtifact || onDownloadArtifact) && (
+        <Section title="Artifact">
+          <div className="flex flex-wrap items-center justify-between gap-3 border border-border/70 px-3 py-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium leading-5 text-foreground">
+                {artifact ? "Saved artifact ready" : "Save this output as an artifact"}
+              </div>
+              <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                {artifact
+                  ? `${artifact.file_name} • ${Math.max(1, Math.round((artifact.byte_size || 0) / 1024))} KB`
+                  : "Persist this workflow output and make it downloadable as a markdown file."}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {artifact ? (
+                <Badge variant="secondary" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
+                  Saved
+                </Badge>
+              ) : null}
+              {!artifact && onSaveArtifact ? (
+                <Button variant="outline" size="sm" className="h-8 rounded-none px-3 text-xs" onClick={onSaveArtifact} disabled={artifactBusy}>
+                  <Save className="mr-1 h-4 w-4" />
+                  Save artifact
+                </Button>
+              ) : null}
+              {onDownloadArtifact ? (
+                <Button size="sm" className="h-8 rounded-none px-3 text-xs" onClick={onDownloadArtifact} disabled={artifactBusy}>
+                  <Download className="mr-1 h-4 w-4" />
+                  {artifact ? "Download" : "Save & download"}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </Section>
+      )}
       {!!warnings.length && (
         <div className="border border-amber-500/20 bg-amber-500/8 px-3 py-3">
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800 dark:text-amber-200">

@@ -9,6 +9,7 @@ import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException
 
@@ -26,14 +27,25 @@ from features.files import service as files_service
 from features.files.schemas import FileItem
 
 from . import toolkit as workflow_toolkit
-from .models import WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList, WorkflowSelectionIn, WorkflowSourceFile
+from .models import (
+    WorkflowArtifact,
+    WorkflowArtifactSummary,
+    WorkflowManifest,
+    WorkflowRun,
+    WorkflowRunCreate,
+    WorkflowRunList,
+    WorkflowSelectionIn,
+    WorkflowSourceFile,
+)
 from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX
 
 log = logging.getLogger("workflows.service")
 
 ROOT_COLLECTION = USERS_COLLECTION
 _WORKFLOW_RUNS_SUBCOLLECTION = "workflow_runs"
+_WORKFLOW_ARTIFACTS_SUBCOLLECTION = "workflow_artifacts"
 _RUNS_BY_UID: dict[str, list[WorkflowRun]] = defaultdict(list)
+_ARTIFACTS_BY_UID: dict[str, list[WorkflowArtifact]] = defaultdict(list)
 _LOCK = threading.Lock()
 _MAX_RUNS_PER_USER = 25
 _MAX_SOURCE_FILES = 8
@@ -63,6 +75,86 @@ def _get_firestore_handles():
 def _workflow_runs_ref(db, uid: str):
     return db.collection(ROOT_COLLECTION).document(uid).collection(_WORKFLOW_RUNS_SUBCOLLECTION)
 
+
+def _workflow_artifacts_ref(db, uid: str):
+    return db.collection(ROOT_COLLECTION).document(uid).collection(_WORKFLOW_ARTIFACTS_SUBCOLLECTION)
+
+
+def _artifact_summary(artifact: WorkflowArtifact) -> WorkflowArtifactSummary:
+    return WorkflowArtifactSummary(**artifact.model_dump(exclude={"content", "metadata"}))
+
+
+def _slugify_filename(value: str, fallback: str = "workflow-output") -> str:
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip().lower()).strip("-._")
+    safe = re.sub(r"-{2,}", "-", safe)
+    return safe or fallback
+
+
+def _build_artifact_content(run: WorkflowRun) -> str:
+    result = run.result
+    if result is None:
+        return ""
+
+    preview = str(result.preview_markdown or "").strip()
+    if preview:
+        return preview
+
+    lines = [f"# {run.title}"]
+    summary = str(result.summary or "").strip()
+    if summary:
+        lines.extend(["", summary])
+
+    bullets = [str(item).strip() for item in result.bullets or [] if str(item).strip()]
+    if bullets:
+        lines.extend(["", "## Key points", *[f"- {item}" for item in bullets]])
+
+    next_actions = [str(item).strip() for item in result.next_actions or [] if str(item).strip()]
+    if next_actions:
+        lines.extend(["", "## Next actions", *[f"- {item}" for item in next_actions]])
+
+    return "\n".join(lines).strip()
+
+
+def _build_artifact_from_run(run: WorkflowRun) -> WorkflowArtifact:
+    if run.result is None:
+        raise HTTPException(status_code=400, detail="This workflow run does not have an output to save yet.")
+
+    content = _build_artifact_content(run)
+    if not content:
+        raise HTTPException(status_code=400, detail="This workflow output is empty and cannot be saved yet.")
+
+    file_name = f"{_slugify_filename(run.title, fallback=run.workflow_id)}.md"
+    artifact_id = (run.artifact.id if run.artifact else "") or f"wf_art_{uuid4().hex[:12]}"
+    metadata = {
+        "run_id": run.id,
+        "selection": {
+            "file_ids": list(run.selection.file_ids),
+            "folder_paths": list(run.selection.folder_paths),
+            "current_folder": run.selection.current_folder,
+        },
+        "source_summary": {
+            "file_count": len(run.selection.file_ids),
+            "folder_count": len(run.selection.folder_paths),
+        },
+    }
+    if run.result.metadata:
+        metadata["workflow_result_metadata"] = _sanitize_jsonish(run.result.metadata)
+
+    now = datetime.now(UTC)
+    created_at = run.artifact.created_at if run.artifact else now
+    return WorkflowArtifact(
+        id=artifact_id,
+        run_id=run.id,
+        workflow_id=run.workflow_id,
+        title=run.title,
+        capability=run.capability,
+        file_name=file_name,
+        byte_size=len(content.encode("utf-8")),
+        content=content,
+        metadata=metadata,
+        created_at=created_at,
+        updated_at=now,
+    )
 
 
 def _parse_datetime(value: Any) -> datetime:
@@ -155,6 +247,45 @@ def _trim_run_doc_for_firestore(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 
+def _trim_artifact_doc_for_firestore(payload: dict[str, Any]) -> dict[str, Any]:
+    trimmed = _sanitize_jsonish(payload) or {}
+    encoded = json.dumps(trimmed, ensure_ascii=False, default=str).encode("utf-8")
+    if len(encoded) <= _MAX_FIRESTORE_DOC_BYTES:
+        return trimmed
+
+    content = str(trimmed.get("content") or "")
+    if len(content) > 200_000:
+        trimmed["content"] = content[:200_000].rstrip() + "\n\n...[truncated for Firestore storage]"
+        trimmed["byte_size"] = len(str(trimmed.get("content") or "").encode("utf-8"))
+
+    metadata = trimmed.get("metadata")
+    if isinstance(metadata, dict):
+        metadata = dict(metadata)
+        metadata["firestore_trimmed"] = True
+        trimmed["metadata"] = metadata
+
+    return trimmed
+
+
+def _artifact_to_doc(artifact: WorkflowArtifact) -> dict[str, Any]:
+    payload = artifact.model_dump(mode="json")
+    payload["created_at"] = _to_iso_utc(artifact.created_at)
+    payload["updated_at"] = _to_iso_utc(artifact.updated_at)
+    payload["created_at_ts"] = _parse_datetime(artifact.created_at)
+    payload["updated_at_ts"] = _parse_datetime(artifact.updated_at)
+    return _trim_artifact_doc_for_firestore(payload)
+
+
+def _artifact_from_doc(doc_id: str, data: dict[str, Any]) -> WorkflowArtifact:
+    payload = dict(data or {})
+    payload["id"] = str(payload.get("id") or doc_id)
+    payload["created_at"] = _to_iso_utc(payload.get("created_at") or payload.get("created_at_ts"))
+    payload["updated_at"] = _to_iso_utc(payload.get("updated_at") or payload.get("updated_at_ts"))
+    payload.pop("created_at_ts", None)
+    payload.pop("updated_at_ts", None)
+    return WorkflowArtifact(**payload)
+
+
 def _run_to_doc(run: WorkflowRun) -> dict[str, Any]:
     payload = run.model_dump(mode="json")
     payload["created_at"] = _to_iso_utc(run.created_at)
@@ -187,6 +318,52 @@ def _cached_runs(uid: str) -> list[WorkflowRun]:
     with _LOCK:
         return list(_RUNS_BY_UID.get(uid, []))
 
+
+def _cache_artifact(uid: str, artifact: WorkflowArtifact) -> None:
+    with _LOCK:
+        existing = [item for item in _ARTIFACTS_BY_UID.get(uid, []) if item.id != artifact.id]
+        _ARTIFACTS_BY_UID[uid] = [artifact, *existing][:_MAX_RUNS_PER_USER]
+
+
+def _cached_artifacts(uid: str) -> list[WorkflowArtifact]:
+    with _LOCK:
+        return list(_ARTIFACTS_BY_UID.get(uid, []))
+
+
+def _persist_artifact(uid: str, artifact: WorkflowArtifact) -> None:
+    _cache_artifact(uid, artifact)
+
+    db, _fs = _get_firestore_handles()
+    if db is None:
+        return
+
+    try:
+        _workflow_artifacts_ref(db, uid).document(artifact.id).set(_artifact_to_doc(artifact), merge=True)
+    except Exception:
+        log.warning("workflow_artifact_persist_firestore_failed", uid=uid, artifact_id=artifact.id, exc_info=True)
+
+
+def get_artifact(uid: str, artifact_id: str) -> WorkflowArtifact:
+    db, _fs = _get_firestore_handles()
+    if db is not None:
+        try:
+            snap = _workflow_artifacts_ref(db, uid).document(artifact_id).get()
+            if getattr(snap, "exists", False):
+                return _artifact_from_doc(artifact_id, snap.to_dict() or {})
+        except Exception:
+            log.warning("workflow_artifact_get_firestore_failed", uid=uid, artifact_id=artifact_id, exc_info=True)
+
+    for artifact in _cached_artifacts(uid):
+        if artifact.id == artifact_id:
+            return artifact
+    raise HTTPException(status_code=404, detail="Workflow artifact not found")
+
+
+def _upsert_artifact_for_run(uid: str, run: WorkflowRun) -> WorkflowArtifact:
+    artifact = _build_artifact_from_run(run)
+    _persist_artifact(uid, artifact)
+    run.artifact = _artifact_summary(artifact)
+    return artifact
 
 
 def list_workflows() -> list[WorkflowManifest]:
@@ -235,6 +412,26 @@ def get_run(uid: str, run_id: str) -> WorkflowRun:
             return run
     raise HTTPException(status_code=404, detail="Workflow run not found")
 
+
+
+def save_artifact_for_run(uid: str, run_id: str) -> WorkflowArtifact:
+    run = get_run(uid, run_id)
+    if run.status != "completed" or run.result is None:
+        raise HTTPException(status_code=400, detail="Only completed workflow runs can be saved as artifacts.")
+
+    existing_id = run.artifact.id if run.artifact else ""
+    if existing_id:
+        try:
+            artifact = get_artifact(uid, existing_id)
+            run.artifact = _artifact_summary(artifact)
+            _persist_run(uid, run)
+            return artifact
+        except HTTPException:
+            run.artifact = None
+
+    artifact = _upsert_artifact_for_run(uid, run)
+    _persist_run(uid, run)
+    return artifact
 
 
 def _validate_selection(payload: WorkflowRunCreate) -> WorkflowManifest:
@@ -558,6 +755,12 @@ def _execute_run(uid: str, run_id: str) -> None:
             _attach_usage_details(run, usage_details=usage_details, used=used, cap=cap)
         else:
             _attach_usage_details(run, usage_details=usage_details)
+
+        try:
+            _upsert_artifact_for_run(uid, run)
+        except Exception:
+            log.warning("workflow_artifact_auto_save_failed", uid=uid, run_id=run.id, exc_info=True)
+
         _persist_run(uid, run)
 
         dur_ms = (time.perf_counter() - started_at) * 1000

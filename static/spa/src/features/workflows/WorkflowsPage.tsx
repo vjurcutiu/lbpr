@@ -19,7 +19,7 @@ import { listFiles, type FileItem } from "@/features/files/api";
 import { parseErr } from "@/features/files/utils/formatters";
 import { cn } from "@/lib/utils";
 
-import { createWorkflowRun, listWorkflowRuns, listWorkflows } from "./api";
+import { createWorkflowRun, downloadWorkflowArtifact, listWorkflowRuns, listWorkflows, saveWorkflowArtifact } from "./api";
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
@@ -389,6 +389,7 @@ export default function WorkflowsPage() {
   const [launcherFiles, setLauncherFiles] = useState<FileItem[]>([]);
   const [launcherFilesLoading, setLauncherFilesLoading] = useState(false);
   const [workflowSubmitting, setWorkflowSubmitting] = useState(false);
+  const [artifactBusyRunId, setArtifactBusyRunId] = useState<string | null>(null);
 
   const emptyLauncherSelection = useMemo(
     () => summarizeWorkflowSelection({ file_ids: [], folder_paths: [], current_folder: "" }),
@@ -493,6 +494,44 @@ export default function WorkflowsPage() {
     },
     [catalog, openWorkflowLauncher]
   );
+
+  const handleSaveArtifact = useCallback(async (run: WorkflowRun) => {
+    if (!run.result || run.status !== "completed") return;
+    setArtifactBusyRunId(run.id);
+    try {
+      const artifact = await saveWorkflowArtifact(run.id);
+      setRuns((prev) => prev.map((item) => (item.id === run.id ? { ...item, artifact } : item)));
+      toast.success("Artifact saved", {
+        description: `${artifact.file_name} is now attached to this workflow run.`,
+      });
+      return artifact;
+    } catch (err) {
+      console.error("[workflows] save artifact error", err);
+      toast.error("Failed to save artifact", { description: parseErr(err) });
+      return null;
+    } finally {
+      setArtifactBusyRunId((current) => (current === run.id ? null : current));
+    }
+  }, []);
+
+  const handleDownloadArtifact = useCallback(async (run: WorkflowRun) => {
+    if (!run.result || run.status !== "completed") return;
+    setArtifactBusyRunId(run.id);
+    try {
+      let artifact = run.artifact || null;
+      if (!artifact) {
+        artifact = await saveWorkflowArtifact(run.id);
+        setRuns((prev) => prev.map((item) => (item.id === run.id ? { ...item, artifact } : item)));
+      }
+      await downloadWorkflowArtifact(artifact.id);
+      toast.success("Artifact download started", { description: artifact.file_name });
+    } catch (err) {
+      console.error("[workflows] download artifact error", err);
+      toast.error("Failed to download artifact", { description: parseErr(err) });
+    } finally {
+      setArtifactBusyRunId((current) => (current === run.id ? null : current));
+    }
+  }, []);
 
   useEffect(() => {
     loadPage();
@@ -684,6 +723,11 @@ export default function WorkflowsPage() {
                             <div className="text-lg font-semibold leading-7 text-foreground md:text-[1.35rem]">{selectedRun.title}</div>
                             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                               <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
+                              {selectedRun.artifact ? (
+                                <Badge variant="secondary" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
+                                  Artifact saved
+                                </Badge>
+                              ) : null}
                               <span>{formatCapability(selectedRun.capability)}</span>
                               <span className="h-1 w-1 rounded-full bg-border" />
                               <span>{formatSelection(selectedRun)}</span>
@@ -766,6 +810,10 @@ export default function WorkflowsPage() {
                         result={selectedRun.result}
                         selection={selectedRun.selection}
                         sourceRun={selectedRun}
+                        artifact={selectedRun.artifact || null}
+                        artifactBusy={artifactBusyRunId === selectedRun.id}
+                        onSaveArtifact={() => { void handleSaveArtifact(selectedRun); }}
+                        onDownloadArtifact={() => { void handleDownloadArtifact(selectedRun); }}
                         onWorkflowAction={handleWorkflowAction}
                       />
                     ) : selectedRun.status === "failed" ? (

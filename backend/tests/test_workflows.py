@@ -120,8 +120,10 @@ class _FakeFirestoreModule:
 @pytest.fixture(autouse=True)
 def clear_workflow_run_state():
     workflow_service._RUNS_BY_UID.clear()
+    workflow_service._ARTIFACTS_BY_UID.clear()
     yield
     workflow_service._RUNS_BY_UID.clear()
+    workflow_service._ARTIFACTS_BY_UID.clear()
 
 
 @pytest.fixture()
@@ -224,6 +226,8 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
     assert run['result']['metadata']['source_files'][0]['name'] == 'Q1-plan.txt'
     assert run['result']['preview_markdown']
     assert run['result']['metadata']['summary_profile']['audience'] == 'client'
+    assert run['artifact']['id'].startswith('wf_art_')
+    assert run['artifact']['file_name'].endswith('.md')
     assert run['result']['metadata']['summary_profile']['depth'] == 'concise'
     assert run['result']['metadata']['summary_layers'][0]['key'] == 'snapshot'
     assert run['result']['metadata']['evidence_highlights'][0]['claim']
@@ -275,6 +279,12 @@ def test_workflow_runs_persist_in_firestore(auth_client, inline_workflow_jobs, s
     assert stored['workflow_id'] == 'summarize_documents'
     assert stored['status'] == 'completed'
     assert stored['updated_at_ts']
+    assert stored['artifact']['id'].startswith('wf_art_')
+
+    artifact_id = run['artifact']['id']
+    artifact_doc = fake_workflow_firestore._docs[("users", "u_test", "workflow_artifacts", artifact_id)]
+    assert artifact_doc['run_id'] == run['id']
+    assert artifact_doc['file_name'].endswith('.md')
 
     workflow_service._RUNS_BY_UID.clear()
 
@@ -384,3 +394,37 @@ def test_workflow_usage_accounting(auth_client, fake_business_metrics, inline_wo
     assert calls == [
         ('u_test', 342, 'workflow', {'workflow_input_tokens': 120, 'workflow_output_tokens': 30, 'workflow_rag_overhead_tokens': 192})
     ]
+
+
+def test_workflow_artifact_routes(auth_client, inline_workflow_jobs, stub_workflow_sources, fake_workflow_firestore):
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'summarize_documents',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': ''},
+            'inputs': {'focus': 'key risks and decisions'},
+        },
+    )
+    assert create.status_code == 202, create.text
+    run = create.json()
+    artifact_id = run['artifact']['id']
+
+    artifact = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}')
+    assert artifact.status_code == 200, artifact.text
+    artifact_payload = artifact.json()
+    assert artifact_payload['run_id'] == run['id']
+    assert artifact_payload['content']
+    assert artifact_payload['file_name'].endswith('.md')
+
+    download = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}/download')
+    assert download.status_code == 200, download.text
+    assert 'attachment;' in download.headers['content-disposition']
+    assert artifact_payload['content'].encode('utf-8') == download.content
+
+    fake_workflow_firestore._docs.pop(("users", "u_test", "workflow_artifacts", artifact_id), None)
+    # Save again should recreate the artifact document and refresh the run summary.
+    save_again = auth_client.post(f"/v1/workflows/runs/{run['id']}/artifact")
+    assert save_again.status_code == 200, save_again.text
+    recreated = save_again.json()
+    assert recreated['id'] == artifact_id
+    assert fake_workflow_firestore._docs[("users", "u_test", "workflow_artifacts", artifact_id)]['run_id'] == run['id']

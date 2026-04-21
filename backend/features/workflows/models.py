@@ -16,6 +16,7 @@ WorkflowCapability = Literal[
     "plan",
 ]
 WorkflowStatus = Literal["queued", "running", "completed", "failed"]
+WorkflowArtifactFormat = Literal["markdown"]
 
 
 def utc_now() -> datetime:
@@ -92,6 +93,27 @@ class WorkflowSourceFile(BaseModel):
     chunk_count: int = 0
 
 
+
+
+class WorkflowArtifactSummary(BaseModel):
+    id: str
+    run_id: str
+    workflow_id: str
+    title: str
+    capability: WorkflowCapability
+    file_name: str
+    format: WorkflowArtifactFormat = "markdown"
+    content_type: str = "text/markdown; charset=utf-8"
+    byte_size: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class WorkflowArtifact(WorkflowArtifactSummary):
+    content: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class WorkflowResult(BaseModel):
     summary: str
     bullets: list[str] = Field(default_factory=list)
@@ -109,6 +131,7 @@ class WorkflowRun(BaseModel):
     selection: WorkflowSelectionIn
     inputs: dict[str, Any] = Field(default_factory=dict)
     result: WorkflowResult | None = None
+    artifact: WorkflowArtifactSummary | None = None
     error: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
