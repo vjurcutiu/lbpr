@@ -35,9 +35,12 @@ import {
   ArrowUp,
   Mic,
   ScanText,
+  CalendarDays,
+  FolderTree,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -125,6 +128,33 @@ const LS_BATCH = "files:batchFilenames";
 const LS_LAST_FOLDER = "files:lastFolder";
 const LS_OCR_LANGUAGES = "files:ocrLanguages";
 const LS_OCR_DOCMODE = "files:ocrDocMode";
+
+function formatViewerDate(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
+function formatViewerType(file: FileItem | null, payload?: Awaited<ReturnType<typeof getFileContent>>) {
+  const contentType = payload?.contentType || file?.content_type || "";
+  if (payload?.kind === "pdf" || contentType.includes("pdf")) return "PDF";
+  if (payload?.kind === "image" || contentType.startsWith("image/")) {
+    return (contentType.split("/")[1] || "Image").replace(/[-+.].*$/, "").toUpperCase();
+  }
+  if (payload?.kind === "text") {
+    const subtype = contentType.split("/")[1] || file?.name.split(".").pop() || "Text";
+    return subtype.replace(/[-+.].*$/, "").toUpperCase();
+  }
+  const ext = file?.name.split(".").pop()?.trim();
+  return ext ? ext.toUpperCase() : "File";
+}
 export default function FilesPage() {
   const isMobile = useMediaQuery("(max-width: 767px)");
   // Allow passing optional/merged props to FileTree during branch merges.
@@ -1737,6 +1767,15 @@ const breadcrumb = useMemo(() => {
   // --- Viewer modal
   const viewerFile = useMemo(() => (viewerId ? files.find((f) => f.id === viewerId) || null : null), [viewerId, files]);
   const viewerPayload = viewerId ? content[viewerId] : undefined;
+  const viewerTypeLabel = useMemo(() => formatViewerType(viewerFile, viewerPayload), [viewerFile, viewerPayload]);
+  const viewerFolderLabel = useMemo(() => {
+    if (!viewerFile) return "Root";
+    const folder = (viewerFile.folder_path || "").trim();
+    if (folder) return folder;
+    const parent = parentPath(viewerFile.name || "");
+    return parent || "Root";
+  }, [viewerFile]);
+  const viewerCreatedLabel = useMemo(() => formatViewerDate(viewerFile?.created_at), [viewerFile?.created_at]);
   const canSearchInFile = viewerPayload?.kind === "text";
   const matchCount = useMemo(() => {
     if (!canSearchInFile) return 0;
@@ -2836,7 +2875,7 @@ const breadcrumb = useMemo(() => {
         </DialogContent>
       </Dialog>
       {/* File viewer modal */}
-            <Dialog
+      <Dialog
         open={viewerOpen}
         onOpenChange={(open) => {
           setViewerOpen(open);
@@ -2849,92 +2888,126 @@ const breadcrumb = useMemo(() => {
       >
         <DialogContent
           showCloseButton={false}
-          className="p-0 w-[84rem] max-w-[96vw] h-[calc(100vh-2rem)] sm:h-[calc(100vh-4rem)] flex flex-col"
+          className="flex h-[calc(100vh-1.5rem)] max-h-[calc(100vh-1.5rem)] w-[90rem] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-[28px] border bg-background p-0 shadow-2xl sm:h-[calc(100vh-3rem)] sm:max-h-[calc(100vh-3rem)] sm:max-w-[96vw]"
         >
-          {/* Title + search + download */}
-          <div className="px-3 sm:px-4 py-2 border-b bg-background">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-              <div className="min-w-0 sm:max-w-[22rem]">
-                <div className="font-medium truncate" title={viewerFile ? viewerFile.name : ""}>
-                  {viewerFile ? basename(viewerFile.name) : ""}
+          <div className="border-b bg-gradient-to-b from-background via-background to-muted/20">
+            <div className="flex flex-col gap-4 px-4 py-4 sm:px-5 sm:py-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-primary/5 text-primary shadow-sm">
+                      <FileIconByName name={viewerFile?.name || "file"} className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="truncate text-sm font-semibold text-foreground sm:text-base" title={viewerFile?.name || ""}>
+                          {viewerFile ? basename(viewerFile.name) : "File preview"}
+                        </div>
+                        <Badge variant="outline" className="rounded-full bg-background/80 px-2.5 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                          {viewerTypeLabel}
+                        </Badge>
+                        {viewerPayload?.kind === "text" ? (
+                          <Badge variant="outline" className="rounded-full bg-primary/5 px-2.5 py-0.5 text-[11px] text-primary">
+                            Searchable
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground/80">{viewerFile ? fmtSize(viewerFile.size || 0) : ""}</span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <FolderTree className="h-3.5 w-3.5" />
+                          <span className="truncate max-w-[36rem]" title={viewerFolderLabel}>{viewerFolderLabel}</span>
+                        </span>
+                        {viewerCreatedLabel ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <CalendarDays className="h-3.5 w-3.5" />
+                            {viewerCreatedLabel}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              {/* Actions row (search + download + close) */}
-              <div className="flex items-center gap-2 min-w-0 sm:flex-1">
-                {/* In-file search */}
-                <div className="relative flex-1 min-w-0">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder={canSearchInFile ? "Search…" : "Search available for text files"}
-                  value={infileQuery}
-                  onChange={(e) => setInfileQuery(e.target.value)}
-                  className="pl-8 pr-24"
-                  disabled={!viewerFile || !canSearchInFile}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      if ((e as any).shiftKey) gotoPrev();
-                      else gotoNext();
-                    }
-                  }}
-                />
-                <div className="absolute right-24 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground select-none hidden sm:block">
-                  {infileQuery.trim() && canSearchInFile ? (matchCount > 0 ? `${infileIdx + 1}/${matchCount}` : "0/0") : ""}
-                </div>
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                  <button
-                    className="p-1 rounded hover:bg-muted disabled:opacity-50"
-                    title="Previous match (Shift+Enter)"
-                    onClick={gotoPrev}
-                    disabled={!canSearchInFile || matchCount === 0}
-                  >
-                    <ChevronUp className="h-4 w-4" />
-                  </button>
-                  <button
-                    className="p-1 rounded hover:bg-muted disabled:opacity-50"
-                    title="Next match (Enter)"
-                    onClick={gotoNext}
-                    disabled={!canSearchInFile || matchCount === 0}
-                  >
-                    <ChevronDown className="h-4 w-4" />
-                  </button>
-                  <button
-                    className="p-1 rounded hover:bg-muted disabled:opacity-50"
-                    title="Clear search"
-                    onClick={clearInfile}
-                    disabled={!infileQuery}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                </div>
-                {/* Download */}
-                {viewerFile && (
-                  <a
-                    className="inline-flex shrink-0"
-                    href={fileDownloadUrl(viewerFile.id)}
-                    title="Download"
-                    onClick={() => console.debug("[files] viewer download", { id: viewerFile.id })}
-                  >
-                    <Button variant="outline" size="icon" aria-label="Download">
-                      <Download className="h-4 w-4" />
-                    </Button>
-                  </a>
-                )}
-                {/* Close (reserved box so it never overlaps header content) */}
-                <div className="shrink-0 w-10 h-10 grid place-items-center">
+                <div className="flex shrink-0 items-center gap-2 self-end lg:self-start">
+                  {viewerFile && (
+                    <a
+                      className="inline-flex shrink-0"
+                      href={fileDownloadUrl(viewerFile.id)}
+                      title="Download"
+                      onClick={() => console.debug("[files] viewer download", { id: viewerFile.id })}
+                    >
+                      <Button variant="outline" size="sm" className="gap-2 rounded-xl">
+                        <Download className="h-4 w-4" />
+                        <span className="hidden sm:inline">Download</span>
+                      </Button>
+                    </a>
+                  )}
                   <DialogClose asChild>
-                    <Button variant="ghost" size="icon" aria-label="Close" title="Close">
+                    <Button variant="ghost" size="icon" aria-label="Close" title="Close" className="rounded-xl">
                       <X className="h-4 w-4" />
                     </Button>
                   </DialogClose>
                 </div>
               </div>
+
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div className="relative min-w-0 flex-1 lg:max-w-xl">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder={canSearchInFile ? "Search inside this file…" : "Search is available for text files"}
+                    value={infileQuery}
+                    onChange={(e) => setInfileQuery(e.target.value)}
+                    className="h-10 rounded-xl border bg-background pl-9 pr-28 shadow-sm"
+                    disabled={!viewerFile || !canSearchInFile}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        if ((e as any).shiftKey) gotoPrev();
+                        else gotoNext();
+                      }
+                    }}
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground select-none">
+                    {infileQuery.trim() && canSearchInFile ? (matchCount > 0 ? `${infileIdx + 1}/${matchCount}` : "0/0") : ""}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-2 lg:justify-end">
+                  <div className="text-xs text-muted-foreground">
+                    {canSearchInFile ? "Enter for next match, Shift+Enter for previous." : "Preview modes adapt to each file type."}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      className="rounded-lg border bg-background p-2 shadow-sm transition hover:bg-muted disabled:opacity-50"
+                      title="Previous match (Shift+Enter)"
+                      onClick={gotoPrev}
+                      disabled={!canSearchInFile || matchCount === 0}
+                    >
+                      <ChevronUp className="h-4 w-4" />
+                    </button>
+                    <button
+                      className="rounded-lg border bg-background p-2 shadow-sm transition hover:bg-muted disabled:opacity-50"
+                      title="Next match (Enter)"
+                      onClick={gotoNext}
+                      disabled={!canSearchInFile || matchCount === 0}
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                    <button
+                      className="rounded-lg border bg-background p-2 shadow-sm transition hover:bg-muted disabled:opacity-50"
+                      title="Clear search"
+                      onClick={clearInfile}
+                      disabled={!infileQuery}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          {/* Content */}
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <div className="h-full overflow-auto p-3 sm:p-4">
-              <div className="h-full w-full">
+
+          <div className="min-h-0 flex-1 bg-muted/20">
+            <div className="h-full overflow-auto px-3 py-3 sm:px-4 sm:py-4 lg:px-5 lg:py-5">
+              <div className="mx-auto flex min-h-full w-full max-w-[1280px] flex-col">
                 <FileViewer
                   payload={viewerId ? content[viewerId] : undefined}
                   file={viewerFile}
