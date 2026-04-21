@@ -77,6 +77,12 @@ function formatWorkflowSelection(run: WorkflowRun) {
   return parts.join(" • ") || "No source selection";
 }
 
+
+function workflowCompletionDescription(run: WorkflowRun) {
+  const artifactName = String(run.artifact?.file_name || "").trim();
+  return artifactName ? `${artifactName} is ready to review.` : "The output is ready to review.";
+}
+
 export function UploadTrackerPanel({
   open,
   onClose,
@@ -104,6 +110,8 @@ export function UploadTrackerPanel({
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>(seedWorkflowRuns || []);
   const [busy, setBusy] = useState(false);
   const prevStatusRef = useRef<Map<string, UploadJob["status"]>>(new Map());
+  const prevWorkflowStatusRef = useRef<Map<string, WorkflowRun["status"]>>(new Map());
+  const hasHydratedWorkflowStatusesRef = useRef(false);
 
   useEffect(() => {
     if (seedFetched && seedFetched.length > 0) {
@@ -120,8 +128,50 @@ export function UploadTrackerPanel({
     }
   }, [seedWorkflowRuns]);
 
+  useEffect(() => {
+    const nextMap = new Map<string, WorkflowRun["status"]>();
+    for (const run of workflowRuns) nextMap.set(run.id, run.status);
+
+    if (!hasHydratedWorkflowStatusesRef.current) {
+      prevWorkflowStatusRef.current = nextMap;
+      hasHydratedWorkflowStatusesRef.current = true;
+      return;
+    }
+
+    const prev = prevWorkflowStatusRef.current;
+    const completed = workflowRuns.filter((run) => {
+      const before = prev.get(run.id);
+      return (before === "queued" || before === "running") && run.status === "completed";
+    });
+    const failed = workflowRuns.filter((run) => {
+      const before = prev.get(run.id);
+      return (before === "queued" || before === "running") && run.status === "failed";
+    });
+
+    prevWorkflowStatusRef.current = nextMap;
+
+    if (completed.length === 1) {
+      toast.success(`${completed[0].title} finished`, {
+        description: workflowCompletionDescription(completed[0]),
+      });
+    } else if (completed.length > 1) {
+      toast.success(`${completed.length} workflows finished`, {
+        description: "Open Workflows to review the outputs.",
+      });
+    }
+
+    if (failed.length === 1) {
+      toast.error(`${failed[0].title} failed`, {
+        description: failed[0].error?.trim() || "Open Workflows to review the error.",
+      });
+    } else if (failed.length > 1) {
+      toast.error(`${failed.length} workflows failed`, {
+        description: "Open Workflows to review the errors.",
+      });
+    }
+  }, [workflowRuns]);
+
   const refresh = async () => {
-    if (!open) return;
     setBusy(true);
     try {
       const [items, workflowRes] = await Promise.all([listUploadJobs(), listWorkflowRuns(12)]);
@@ -147,13 +197,6 @@ export function UploadTrackerPanel({
       setBusy(false);
     }
   };
-
-  useEffect(() => {
-    if (open) refresh();
-  }, [open]);
-  useEffect(() => {
-    if (open) refresh();
-  }, [refreshKey]);
 
   const mergedJobs = useMemo(() => {
     const fetchedByFilename = new Map<string, UploadJob>();
@@ -205,8 +248,23 @@ export function UploadTrackerPanel({
     [mergedJobs, workflowRuns]
   );
 
+  const hasActiveOptimisticJobs = useMemo(() => optimistic.some((j) => j.status === "running"), [optimistic]);
+  const hasActiveSeedWorkflowRuns = useMemo(
+    () => seedWorkflowRuns.some((run) => run.status === "queued" || run.status === "running"),
+    [seedWorkflowRuns]
+  );
+  const shouldTrack = open || anyActive || hasActiveOptimisticJobs || hasActiveSeedWorkflowRuns;
+
   useEffect(() => {
-    if (!open) return;
+    if (shouldTrack) void refresh();
+  }, [shouldTrack]);
+  useEffect(() => {
+    if (shouldTrack) void refresh();
+  }, [refreshKey, shouldTrack]);
+
+
+  useEffect(() => {
+    if (!shouldTrack) return;
     let cancelled = false;
     let timer: number | null = null;
     let inflight = false;
@@ -230,7 +288,7 @@ export function UploadTrackerPanel({
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [open, anyActive, refreshKey]);
+  }, [shouldTrack, anyActive, refreshKey]);
 
   const uploadTotals = useMemo(() => {
     const all = mergedJobs.length;

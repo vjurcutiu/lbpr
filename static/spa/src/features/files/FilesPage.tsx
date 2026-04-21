@@ -476,8 +476,8 @@ const internalDragPreviewLabels = useMemo(() => {
         setTrackerRefreshKey(Date.now());
         setWorkflowLauncherOpen(false);
         setActiveWorkflow(null);
-        toast.success(`${workflow.title} started`, {
-          description: "You can follow the run in Tasks and review the finished output in Workflows.",
+        toast.message(`${workflow.title} queued`, {
+          description: `Queued for ${summarizeWorkflowSelectionLabel(selection)}. Follow it in Tasks and review the finished output in Workflows.`,
         });
       } catch (err) {
         console.error("[files.workflow] run error", err);
@@ -1145,8 +1145,8 @@ const breadcrumb = useMemo(() => {
         setOptimisticJobs(temps);
         setBatchFilenames(fs.map((f) => f.name));
         setTrackerOpen(true);
-        toast.message("Uploads started", {
-          description: folder ? `Uploading into “${folder}”` : "Uploading into Root",
+        toast.message(fs.length === 1 ? "Upload queued" : `${fs.length} uploads queued`, {
+          description: uploadStartDescription(fs, folder),
         });
         // kick uploads
         if (fs.length === 1) {
@@ -1169,7 +1169,7 @@ const breadcrumb = useMemo(() => {
         console.error(err);
         toast.error("Upload failed", { description: parseErr(err) });
         const now = Math.floor(Date.now() / 1000);
-        const tempIds = new Set(optimisticJobs.map((t) => t.job_id));
+        const tempIds = new Set(temps.map((t) => t.job_id));
         setOptimisticJobs((list) =>
           list.map((j) => (tempIds.has(j.job_id) ? { ...j, status: "error", phase: "error", updated_at: now, error: "Failed to start upload" } : j))
         );
@@ -1338,10 +1338,9 @@ const breadcrumb = useMemo(() => {
         )
       );
       toast.success("Transcription ready", {
-        description:
-          typeof resp.billed_seconds === "number"
-            ? `Billed ${Math.max(0, Math.round(resp.billed_seconds))}s.`
-            : "",
+        ...(typeof resp.billed_seconds === "number"
+          ? { description: `Billed ${Math.max(0, Math.round(resp.billed_seconds))}s.` }
+          : {}),
       });
       setTrackerRefreshKey(Date.now());
     } catch (err) {
@@ -1436,10 +1435,9 @@ const breadcrumb = useMemo(() => {
         )
       );
       toast.success("OCR ready", {
-        description:
-          typeof resp.images_charged === "number"
-            ? `Charged ${Math.max(0, resp.images_charged)} image${resp.images_charged === 1 ? "" : "s"}.`
-            : "",
+        ...(typeof resp.images_charged === "number"
+          ? { description: `Charged ${Math.max(0, resp.images_charged)} image${resp.images_charged === 1 ? "" : "s"}.` }
+          : {}),
       });
       setTrackerRefreshKey(Date.now());
     } catch (err) {

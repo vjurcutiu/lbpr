@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
@@ -66,6 +66,27 @@ function compactCopy(text: string, max = 320) {
 function workflowTitleForId(catalog: WorkflowManifest[], workflowId?: string, fallback = "Workflow") {
   if (!workflowId) return fallback;
   return catalog.find((item) => item.workflow_id === workflowId)?.title || fallback;
+}
+
+function summarizeWorkflowSelectionLabel(selection: WorkflowSelection) {
+  const files = selection.file_ids.length;
+  const folders = selection.folder_paths.length;
+  const parts: string[] = [];
+  if (files) parts.push(`${files} file${files === 1 ? "" : "s"}`);
+  if (folders) parts.push(`${folders} folder${folders === 1 ? "" : "s"}`);
+  return parts.join(" • ") || "the current selection";
+}
+
+function workflowQueuedDescription(selection: WorkflowSelection, chained: boolean) {
+  const target = summarizeWorkflowSelectionLabel(selection);
+  return chained
+    ? `Queued for ${target}. This chained run is linked to its source workflow.`
+    : `Queued for ${target}. You can follow it in the inbox.`;
+}
+
+function workflowCompletedDescription(run: WorkflowRun) {
+  const artifactName = String(run.artifact?.file_name || "").trim();
+  return artifactName ? `${artifactName} is ready to review.` : "The output is ready to review.";
 }
 
 function cleanLauncherInputs(inputs: Record<string, unknown> | undefined | null) {
@@ -408,6 +429,8 @@ export default function WorkflowsPage() {
   const [launcherFilesLoading, setLauncherFilesLoading] = useState(false);
   const [workflowSubmitting, setWorkflowSubmitting] = useState(false);
   const [artifactBusyRunId, setArtifactBusyRunId] = useState<string | null>(null);
+  const prevRunStatusRef = useRef<Map<string, WorkflowStatus>>(new Map());
+  const hasHydratedRunStatusesRef = useRef(false);
 
   const emptyLauncherSelection = useMemo(
     () => summarizeWorkflowSelection({ file_ids: [], folder_paths: [], current_folder: "" }),
@@ -481,10 +504,8 @@ export default function WorkflowsPage() {
         setLauncherInitialInputs({});
         setLauncherChainSource(null);
         if (isMobile) setMobilePanel("details");
-        toast.success(`${workflow.title} started`, {
-          description: launcherChainSource
-            ? "The chained run is now live in the inbox and linked to its source workflow."
-            : "You can follow the run in the inbox and review the finished output here.",
+        toast.message(`${workflow.title} queued`, {
+          description: workflowQueuedDescription(selection, !!launcherChainSource),
         });
       } catch (err) {
         console.error("[workflows] run error", err);
@@ -551,6 +572,49 @@ export default function WorkflowsPage() {
       setArtifactBusyRunId((current) => (current === run.id ? null : current));
     }
   }, []);
+
+  useEffect(() => {
+    const nextMap = new Map<string, WorkflowStatus>();
+    for (const run of runs) nextMap.set(run.id, run.status);
+
+    if (!hasHydratedRunStatusesRef.current) {
+      prevRunStatusRef.current = nextMap;
+      hasHydratedRunStatusesRef.current = true;
+      return;
+    }
+
+    const prev = prevRunStatusRef.current;
+    const completed = runs.filter((run) => {
+      const before = prev.get(run.id);
+      return (before === "queued" || before === "running") && run.status === "completed";
+    });
+    const failed = runs.filter((run) => {
+      const before = prev.get(run.id);
+      return (before === "queued" || before === "running") && run.status === "failed";
+    });
+
+    prevRunStatusRef.current = nextMap;
+
+    if (completed.length === 1) {
+      toast.success(`${completed[0].title} finished`, {
+        description: workflowCompletedDescription(completed[0]),
+      });
+    } else if (completed.length > 1) {
+      toast.success(`${completed.length} workflows finished`, {
+        description: "Open the inbox to review the outputs.",
+      });
+    }
+
+    if (failed.length === 1) {
+      toast.error(`${failed[0].title} failed`, {
+        description: failed[0].error?.trim() || "Open the inbox to review the error.",
+      });
+    } else if (failed.length > 1) {
+      toast.error(`${failed.length} workflows failed`, {
+        description: "Open the inbox to review the errors.",
+      });
+    }
+  }, [runs]);
 
   useEffect(() => {
     loadPage();
