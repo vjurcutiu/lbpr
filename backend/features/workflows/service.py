@@ -1,36 +1,43 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import threading
 import time
 from collections import defaultdict
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import HTTPException
 
 from core.background_jobs import submit as submit_background_job
-from core.plan import sync_caps_and_plan
-from core.rate_limit import add_file_processing_tokens, usage_snapshot
 from core.business_metrics import (
     record_workflow_completed,
     record_workflow_duration,
     record_workflow_failed,
     record_workflow_started,
 )
+from core.plan import sync_caps_and_plan
+from core.rate_limit import add_file_processing_tokens, usage_snapshot
+from core.user_store import USERS_COLLECTION
 from features.files import service as files_service
 from features.files.schemas import FileItem
 
-from .models import WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList, WorkflowSelectionIn, WorkflowSourceFile
 from . import toolkit as workflow_toolkit
+from .models import WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList, WorkflowSelectionIn, WorkflowSourceFile
 from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX
 
 log = logging.getLogger("workflows.service")
 
+ROOT_COLLECTION = USERS_COLLECTION
+_WORKFLOW_RUNS_SUBCOLLECTION = "workflow_runs"
 _RUNS_BY_UID: dict[str, list[WorkflowRun]] = defaultdict(list)
 _LOCK = threading.Lock()
 _MAX_RUNS_PER_USER = 25
 _MAX_SOURCE_FILES = 8
+_MAX_FIRESTORE_DOC_BYTES = 850_000
 _WORKFLOW_TARGETED_RAG_OVERHEAD_TOKENS = 192
 _EXTRACTABLE_CONTENT_TYPES = {
     "application/json",
@@ -41,22 +48,189 @@ _EXTRACTABLE_CONTENT_TYPES = {
 _EXTRACTABLE_SUFFIXES = (".txt", ".md", ".markdown", ".json", ".xml", ".csv", ".pdf", ".docx")
 
 
+def _get_firestore_handles():
+    try:
+        from firebase_admin import firestore  # type: ignore
+    except Exception:
+        return None, None
+
+    try:
+        return firestore.client(), firestore
+    except Exception:
+        return None, None
+
+
+def _workflow_runs_ref(db, uid: str):
+    return db.collection(ROOT_COLLECTION).document(uid).collection(_WORKFLOW_RUNS_SUBCOLLECTION)
+
+
+
+def _parse_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        dt = value
+    elif hasattr(value, "to_datetime"):
+        dt = value.to_datetime()  # Firestore Timestamp
+    else:
+        raw = str(value or "").strip()
+        if not raw:
+            return datetime.now(UTC)
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+
+def _to_iso_utc(value: Any) -> str:
+    dt = _parse_datetime(value)
+    return dt.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+
+def _sanitize_jsonish(value: Any) -> Any:
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False, default=str))
+    except Exception:
+        return value
+
+
+
+def _trim_run_doc_for_firestore(payload: dict[str, Any]) -> dict[str, Any]:
+    trimmed = _sanitize_jsonish(payload) or {}
+    result = trimmed.get("result")
+    if isinstance(result, dict):
+        metadata = result.get("metadata")
+        if isinstance(metadata, dict):
+            source_files = metadata.get("source_files")
+            if isinstance(source_files, list):
+                slim_sources: list[dict[str, Any]] = []
+                for item in source_files:
+                    if not isinstance(item, dict):
+                        continue
+                    slim = dict(item)
+                    if isinstance(slim.get("chunk_ids"), list) and slim["chunk_ids"]:
+                        slim["chunk_ids"] = []
+                        slim["chunk_ids_omitted"] = True
+                    slim_sources.append(slim)
+                metadata["source_files"] = slim_sources
+
+    encoded = json.dumps(trimmed, ensure_ascii=False, default=str).encode("utf-8")
+    if len(encoded) <= _MAX_FIRESTORE_DOC_BYTES:
+        return trimmed
+
+    if isinstance(result, dict):
+        preview_markdown = str(result.get("preview_markdown") or "")
+        if len(preview_markdown) > 120_000:
+            result["preview_markdown"] = preview_markdown[:120_000].rstrip() + "\n\n...[truncated for Firestore storage]"
+
+        metadata = result.get("metadata")
+        if isinstance(metadata, dict):
+            keep_keys = {
+                "warnings",
+                "selection",
+                "usage_accounting",
+                "llm_usage",
+                "source_strategy",
+                "selected_files",
+                "used_source_files",
+                "coverage_source_files",
+                "retrieved_source_files",
+                "chunk_artifacts_used",
+                "chunks_seen",
+                "skipped_source_files",
+                "truncated_source_files",
+                "max_source_files",
+                "max_total_source_chars",
+                "max_chars_per_file",
+            }
+            preserved = {key: metadata.get(key) for key in keep_keys if key in metadata}
+            preserved["firestore_trimmed"] = True
+            result["metadata"] = preserved
+
+    return trimmed
+
+
+
+def _run_to_doc(run: WorkflowRun) -> dict[str, Any]:
+    payload = run.model_dump(mode="json")
+    payload["created_at"] = _to_iso_utc(run.created_at)
+    payload["updated_at"] = _to_iso_utc(run.updated_at)
+    payload["created_at_ts"] = _parse_datetime(run.created_at)
+    payload["updated_at_ts"] = _parse_datetime(run.updated_at)
+    return _trim_run_doc_for_firestore(payload)
+
+
+
+def _run_from_doc(doc_id: str, data: dict[str, Any]) -> WorkflowRun:
+    payload = dict(data or {})
+    payload["id"] = str(payload.get("id") or doc_id)
+    payload["created_at"] = _to_iso_utc(payload.get("created_at") or payload.get("created_at_ts"))
+    payload["updated_at"] = _to_iso_utc(payload.get("updated_at") or payload.get("updated_at_ts"))
+    payload.pop("created_at_ts", None)
+    payload.pop("updated_at_ts", None)
+    return WorkflowRun(**payload)
+
+
+
+def _cache_run(uid: str, run: WorkflowRun) -> None:
+    with _LOCK:
+        existing = [item for item in _RUNS_BY_UID.get(uid, []) if item.id != run.id]
+        _RUNS_BY_UID[uid] = [run, *existing][:_MAX_RUNS_PER_USER]
+
+
+
+def _cached_runs(uid: str) -> list[WorkflowRun]:
+    with _LOCK:
+        return list(_RUNS_BY_UID.get(uid, []))
+
+
+
 def list_workflows() -> list[WorkflowManifest]:
     return list(WORKFLOW_INDEX.values())
 
 
+
 def list_runs(uid: str, limit: int = 10) -> WorkflowRunList:
-    with _LOCK:
-        items = list(_RUNS_BY_UID.get(uid, []))
-    return WorkflowRunList(items=items[: max(1, min(limit, 50))])
+    limit = max(1, min(limit, 50))
+    db, fs = _get_firestore_handles()
+    if db is not None and fs is not None:
+        rows: list[WorkflowRun] = []
+        try:
+            q = _workflow_runs_ref(db, uid).order_by("updated_at_ts", direction=fs.Query.DESCENDING).limit(int(limit))
+            for doc in q.stream():
+                rows.append(_run_from_doc(doc.id, doc.to_dict() or {}))
+        except Exception:
+            log.debug("workflow_runs_list_firestore_fallback", uid=uid, exc_info=True)
+            try:
+                q = _workflow_runs_ref(db, uid).limit(int(limit))
+                rows = [_run_from_doc(doc.id, doc.to_dict() or {}) for doc in q.stream()]
+                rows.sort(key=lambda item: item.updated_at, reverse=True)
+            except Exception:
+                log.warning("workflow_runs_list_firestore_failed", uid=uid, exc_info=True)
+                rows = []
+        if rows:
+            return WorkflowRunList(items=rows[:limit])
+
+    items = _cached_runs(uid)
+    return WorkflowRunList(items=items[:limit])
+
 
 
 def get_run(uid: str, run_id: str) -> WorkflowRun:
-    with _LOCK:
-        for run in _RUNS_BY_UID.get(uid, []):
-            if run.id == run_id:
-                return run
+    db, _fs = _get_firestore_handles()
+    if db is not None:
+        try:
+            snap = _workflow_runs_ref(db, uid).document(run_id).get()
+            if getattr(snap, "exists", False):
+                return _run_from_doc(run_id, snap.to_dict() or {})
+        except Exception:
+            log.warning("workflow_run_get_firestore_failed", uid=uid, run_id=run_id, exc_info=True)
+
+    for run in _cached_runs(uid):
+        if run.id == run_id:
+            return run
     raise HTTPException(status_code=404, detail="Workflow run not found")
+
 
 
 def _validate_selection(payload: WorkflowRunCreate) -> WorkflowManifest:
@@ -79,14 +253,24 @@ def _validate_selection(payload: WorkflowRunCreate) -> WorkflowManifest:
     return manifest
 
 
+
 def _persist_run(uid: str, run: WorkflowRun) -> None:
-    with _LOCK:
-        existing = [item for item in _RUNS_BY_UID.get(uid, []) if item.id != run.id]
-        _RUNS_BY_UID[uid] = [run, *existing][:_MAX_RUNS_PER_USER]
+    _cache_run(uid, run)
+
+    db, _fs = _get_firestore_handles()
+    if db is None:
+        return
+
+    try:
+        _workflow_runs_ref(db, uid).document(run.id).set(_run_to_doc(run), merge=True)
+    except Exception:
+        log.warning("workflow_run_persist_firestore_failed", uid=uid, run_id=run.id, exc_info=True)
+
 
 
 def _normalize_folder_path(path: str | None) -> str:
     return str(path or "").strip().strip("/")
+
 
 
 def _is_within_folder(file_item: FileItem, folder_path: str) -> bool:
@@ -96,11 +280,11 @@ def _is_within_folder(file_item: FileItem, folder_path: str) -> bool:
 
 
 
-
 def _remaining_file_processing_tokens(snap: dict[str, object]) -> int:
     cap = int(snap.get("cap_file_processing_tokens") or snap.get("cap_upload_tokens") or 0)
     used = int(snap.get("file_processing_tokens_used") or snap.get("upload_tokens_used") or 0)
     return max(0, cap - used)
+
 
 
 def _workflow_usage_breakdown(run: WorkflowRun, source_stats: dict[str, object]) -> tuple[int, dict[str, int], dict[str, object]]:
@@ -130,6 +314,7 @@ def _workflow_usage_breakdown(run: WorkflowRun, source_stats: dict[str, object])
     return billed_total, breakdown, details
 
 
+
 def _attach_usage_details(run: WorkflowRun, *, usage_details: dict[str, object], used: int | None = None, cap: int | None = None) -> None:
     if run.result is None:
         return
@@ -143,6 +328,8 @@ def _attach_usage_details(run: WorkflowRun, *, usage_details: dict[str, object],
     metadata["usage_accounting"] = payload
     run.result.metadata = metadata
 
+
+
 def _dedupe_files(items: list[FileItem]) -> list[FileItem]:
     seen: set[str] = set()
     out: list[FileItem] = []
@@ -152,6 +339,7 @@ def _dedupe_files(items: list[FileItem]) -> list[FileItem]:
         seen.add(item.id)
         out.append(item)
     return out
+
 
 
 def _resolve_selected_files(uid: str, selection: WorkflowSelectionIn) -> list[FileItem]:
@@ -173,6 +361,7 @@ def _resolve_selected_files(uid: str, selection: WorkflowSelectionIn) -> list[Fi
     return selected
 
 
+
 def _looks_extractable(file_item: FileItem) -> bool:
     content_type = (file_item.content_type or "").lower()
     name = (file_item.original_name or file_item.name or file_item.id).lower()
@@ -183,9 +372,11 @@ def _looks_extractable(file_item: FileItem) -> bool:
     return name.endswith(_EXTRACTABLE_SUFFIXES)
 
 
+
 def _base_name(file_item: FileItem) -> str:
     raw = file_item.original_name or file_item.name or file_item.id.rsplit("/", 1)[-1]
     return raw.rsplit("/", 1)[-1]
+
 
 
 def _normalize_excerpt(text: str) -> str:
@@ -193,6 +384,7 @@ def _normalize_excerpt(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]+", " ", text)
     return text.strip()
+
 
 
 def _extract_text_for_file(uid: str, file_item: FileItem) -> str | None:
@@ -210,6 +402,7 @@ def _extract_text_for_file(uid: str, file_item: FileItem) -> str | None:
     )
     normalized = _normalize_excerpt(text or "")
     return normalized or None
+
 
 
 def _load_source_documents(
@@ -263,11 +456,13 @@ def _load_source_documents(
     return documents, stats
 
 
+
 def _append_preview_warnings(preview_markdown: str, warnings: list[str]) -> str:
     if not warnings:
         return preview_markdown
     suffix = "\n\n## Workflow notes\n" + "\n".join(f"- {item}" for item in warnings)
     return (preview_markdown or "").strip() + suffix
+
 
 
 def _augment_result_metadata(run: WorkflowRun, docs: list[WorkflowSourceFile], stats: dict[str, object]) -> None:
@@ -304,6 +499,7 @@ def _augment_result_metadata(run: WorkflowRun, docs: list[WorkflowSourceFile], s
     warnings = [str(item) for item in metadata.get("warnings") or [] if str(item).strip()]
     run.result.metadata = metadata
     run.result.preview_markdown = _append_preview_warnings(run.result.preview_markdown, warnings)
+
 
 
 def _execute_run(uid: str, run_id: str) -> None:
@@ -400,6 +596,7 @@ def _execute_run(uid: str, run_id: str) -> None:
         )
 
 
+
 def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
     manifest = _validate_selection(payload)
 
@@ -420,4 +617,4 @@ def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
         log.exception("workflow_run_queue_failed", workflow_id=manifest.workflow_id, capability=manifest.capability, run_id=run.id)
         raise HTTPException(status_code=500, detail="Failed to queue workflow") from exc
 
-    return run
+    return get_run(uid, run.id)

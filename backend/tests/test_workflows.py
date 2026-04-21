@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 
 import core.business_metrics as business_metrics
@@ -7,6 +9,119 @@ from features.workflows import registry as workflow_registry
 from features.workflows import service as workflow_service
 from features.workflows.models import WorkflowSourceFile
 from tests.telemetry_testkit import FakeBusinessInstruments, assert_call
+
+
+class _FakeDocSnapshot:
+    def __init__(self, ref, data):
+        self.reference = ref
+        self.id = ref._doc_id
+        self._data = deepcopy(data) if data is not None else None
+        self.exists = data is not None
+
+    def to_dict(self):
+        return deepcopy(self._data) if self._data is not None else {}
+
+
+class _FakeQuery:
+    def __init__(self, collection, *, order_field=None, descending=False, limit_n=None):
+        self._collection = collection
+        self._order_field = order_field
+        self._descending = descending
+        self._limit_n = limit_n
+
+    def order_by(self, field, direction=None):
+        return _FakeQuery(
+            self._collection,
+            order_field=field,
+            descending=bool(direction == _FakeFirestoreModule.Query.DESCENDING),
+            limit_n=self._limit_n,
+        )
+
+    def limit(self, n):
+        return _FakeQuery(
+            self._collection,
+            order_field=self._order_field,
+            descending=self._descending,
+            limit_n=n,
+        )
+
+    def stream(self):
+        items = list(self._collection._iter_docs())
+        if self._order_field:
+            items.sort(
+                key=lambda item: item[1].get(self._order_field) or item[1].get("updated_at") or "",
+                reverse=self._descending,
+            )
+        if self._limit_n is not None:
+            items = items[: self._limit_n]
+        return [_FakeDocSnapshot(self._collection.document(doc_id), data) for doc_id, data in items]
+
+
+class _FakeDocumentRef:
+    def __init__(self, db, path):
+        self._db = db
+        self._path = tuple(path)
+        self._doc_id = str(path[-1])
+
+    def collection(self, name):
+        return _FakeCollectionRef(self._db, self._path + (name,))
+
+    def set(self, data, merge=True):
+        payload = deepcopy(data)
+        if merge and self._path in self._db._docs:
+            merged = deepcopy(self._db._docs[self._path])
+            merged.update(payload)
+            self._db._docs[self._path] = merged
+        else:
+            self._db._docs[self._path] = payload
+
+    def get(self):
+        return _FakeDocSnapshot(self, self._db._docs.get(self._path))
+
+    def delete(self):
+        self._db._docs.pop(self._path, None)
+
+
+class _FakeCollectionRef(_FakeQuery):
+    def __init__(self, db, path):
+        self._db = db
+        self._path = tuple(path)
+        super().__init__(self)
+
+    def document(self, doc_id):
+        return _FakeDocumentRef(self._db, self._path + (doc_id,))
+
+    def _iter_docs(self):
+        prefix_len = len(self._path)
+        for path, data in self._db._docs.items():
+            if len(path) == prefix_len + 1 and path[:prefix_len] == self._path:
+                yield str(path[-1]), deepcopy(data)
+
+
+class _FakeDB:
+    def __init__(self):
+        self._docs = {}
+
+    def collection(self, name):
+        return _FakeCollectionRef(self, (name,))
+
+
+class _FakeFirestoreModule:
+    class Query:
+        DESCENDING = "DESCENDING"
+
+    def __init__(self, db):
+        self._db = db
+
+    def client(self):
+        return self._db
+
+
+@pytest.fixture(autouse=True)
+def clear_workflow_run_state():
+    workflow_service._RUNS_BY_UID.clear()
+    yield
+    workflow_service._RUNS_BY_UID.clear()
 
 
 @pytest.fixture()
@@ -24,18 +139,19 @@ def fake_business_metrics(monkeypatch):
     monkeypatch.setattr(business_metrics, '_INSTRUMENTS', None)
 
 
-
-
 @pytest.fixture()
 def inline_workflow_jobs(monkeypatch):
     def _run_inline(job_name, fn, *args, **kwargs):
         fn(*args, **kwargs)
+
         class _Done:
             def result(self):
                 return None
+
         return _Done()
 
     monkeypatch.setattr(workflow_service, 'submit_background_job', _run_inline)
+
 
 @pytest.fixture()
 def stub_workflow_sources(monkeypatch):
@@ -66,6 +182,15 @@ def stub_workflow_sources(monkeypatch):
         }
 
     monkeypatch.setattr(workflow_service, '_load_source_documents', _fake_loader)
+
+
+@pytest.fixture()
+def fake_workflow_firestore(monkeypatch):
+    db = _FakeDB()
+    fs = _FakeFirestoreModule(db)
+    monkeypatch.setattr(workflow_service, '_get_firestore_handles', lambda: (db, fs))
+    return db
+
 
 
 def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, inline_workflow_jobs, stub_workflow_sources):
@@ -124,6 +249,40 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
     )
 
 
+
+def test_workflow_runs_persist_in_firestore(auth_client, inline_workflow_jobs, stub_workflow_sources, fake_workflow_firestore):
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'summarize_documents',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': ['contracts'], 'current_folder': 'contracts'},
+            'inputs': {'focus': 'key risks and decisions'},
+        },
+    )
+    assert create.status_code == 202, create.text
+    run = create.json()
+
+    stored = fake_workflow_firestore._docs[("users", "u_test", "workflow_runs", run['id'])]
+    assert stored['workflow_id'] == 'summarize_documents'
+    assert stored['status'] == 'completed'
+    assert stored['updated_at_ts']
+
+    workflow_service._RUNS_BY_UID.clear()
+
+    listed = auth_client.get('/v1/workflows/runs')
+    assert listed.status_code == 200, listed.text
+    items = listed.json()['items']
+    assert items and items[0]['id'] == run['id']
+    assert items[0]['status'] == 'completed'
+
+    fetched = auth_client.get(f"/v1/workflows/runs/{run['id']}")
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()['id'] == run['id']
+    assert fetched.json()['result']['metadata']['source_files'][0]['chunk_ids'] == []
+    assert fetched.json()['result']['metadata']['source_files'][0]['chunk_ids_omitted'] is True
+
+
+
 def test_compare_requires_exactly_two_files(auth_client):
     resp = auth_client.post(
         '/v1/workflows/runs',
@@ -135,6 +294,7 @@ def test_compare_requires_exactly_two_files(auth_client):
     )
     assert resp.status_code == 400
     assert 'specific number of files' in resp.text
+
 
 
 def test_workflow_usage_accounting(auth_client, fake_business_metrics, inline_workflow_jobs, monkeypatch):
