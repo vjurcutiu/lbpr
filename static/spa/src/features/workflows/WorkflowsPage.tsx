@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { listFiles, type FileItem } from "@/features/files/api";
+import { useMediaQuery } from "@/features/files/hooks/useMediaQuery";
 import { parseErr } from "@/features/files/utils/formatters";
 import { cn } from "@/lib/utils";
 
@@ -268,6 +269,19 @@ function PaneHeader({
   );
 }
 
+function PaneScroller({
+  mobile,
+  className,
+  children,
+}: {
+  mobile: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (mobile) return <div className={className}>{children}</div>;
+  return <ScrollArea className={cn("h-full", className)}>{children}</ScrollArea>;
+}
+
 function RunListItem({
   run,
   active,
@@ -376,7 +390,11 @@ function WorkflowCatalogItem({
   );
 }
 
+type MobilePanel = "inbox" | "details" | "flows";
+
 export default function WorkflowsPage() {
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("inbox");
   const [catalog, setCatalog] = useState<WorkflowManifest[]>([]);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -462,6 +480,7 @@ export default function WorkflowsPage() {
         setLauncherSelection(emptyLauncherSelection);
         setLauncherInitialInputs({});
         setLauncherChainSource(null);
+        if (isMobile) setMobilePanel("details");
         toast.success(`${workflow.title} started`, {
           description: launcherChainSource
             ? "The chained run is now live in the inbox and linked to its source workflow."
@@ -474,7 +493,7 @@ export default function WorkflowsPage() {
         setWorkflowSubmitting(false);
       }
     },
-    [emptyLauncherSelection, launcherChainSource]
+    [emptyLauncherSelection, isMobile, launcherChainSource]
   );
 
   const handleWorkflowAction = useCallback(
@@ -544,6 +563,10 @@ export default function WorkflowsPage() {
     return () => window.clearInterval(id);
   }, [loadPage]);
 
+  useEffect(() => {
+    if (!isMobile) setMobilePanel("inbox");
+  }, [isMobile]);
+
   const stats = useMemo(() => {
     const completed = runs.filter((run) => run.status === "completed");
     const failed = runs.filter((run) => run.status === "failed");
@@ -587,15 +610,75 @@ export default function WorkflowsPage() {
 
   const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
   const selectedRunChainSource = useMemo(() => chainSourceFromRun(selectedRun, catalog), [catalog, selectedRun]);
+  const handleSelectRun = useCallback((runId: string) => {
+    setSelectedRunId(runId);
+    if (isMobile) setMobilePanel("details");
+  }, [isMobile]);
+  const showInbox = !isMobile || mobilePanel === "inbox";
+  const showDetails = !isMobile || mobilePanel === "details";
+  const showFlows = !isMobile || mobilePanel === "flows";
 
   return (
     <div className="h-full min-h-0">
-      <div className="grid h-full min-h-0 border border-border/70 bg-background xl:grid-cols-[320px_minmax(0,1fr)_280px] xl:divide-x xl:divide-border/70">
-        <section className="flex min-h-[220px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0">
+      {isMobile ? (
+        <div className="sticky top-0 z-20 border border-border/70 border-b-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+          <div className="border-b border-border/70 px-4 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Workflows</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {stats.inFlight ? `${stats.inFlight} active run${stats.inFlight === 1 ? "" : "s"}` : "Track runs and launch flows from one place."}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  className="h-8 rounded-none px-3 text-xs"
+                  onClick={() => catalog[0] && openWorkflowLauncher(catalog[0])}
+                  disabled={!catalog.length || workflowSubmitting}
+                >
+                  <Sparkles className="mr-1 h-3 w-3" />
+                  New workflow
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-none px-3 text-xs"
+                  onClick={() => loadPage({ silent: true })}
+                  disabled={loading || refreshing}
+                >
+                  <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
+                  Refresh
+                </Button>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
+              <Badge variant="outline" className="rounded-none px-1.5 py-0 font-normal">{runs.length} total</Badge>
+              <Badge variant="outline" className="rounded-none px-1.5 py-0 font-normal">{stats.completedToday} done today</Badge>
+              <Badge variant="outline" className="rounded-none px-1.5 py-0 font-normal">{stats.successRate}% success</Badge>
+            </div>
+          </div>
+          <div className="px-4 py-3">
+            <Tabs value={mobilePanel} onValueChange={(value) => setMobilePanel(value as MobilePanel)}>
+              <TabsList className="grid h-auto w-full grid-cols-3 rounded-none bg-muted/40 p-1">
+                <TabsTrigger value="inbox" className="h-8 rounded-none px-2 text-xs">Inbox {runs.length}</TabsTrigger>
+                <TabsTrigger value="details" className="h-8 rounded-none px-2 text-xs">Details</TabsTrigger>
+                <TabsTrigger value="flows" className="h-8 rounded-none px-2 text-xs">Flows {catalog.length}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        </div>
+      ) : null}
+
+      <div className={cn(
+        "border border-border/70 bg-background",
+        isMobile ? "border-t-0" : "grid h-full min-h-0 xl:grid-cols-[320px_minmax(0,1fr)_280px] xl:divide-x xl:divide-border/70"
+      )}>
+        <section className={cn("flex min-h-[220px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showInbox && "hidden")}>
           <PaneHeader
             title="Run inbox"
             meta={`Recent activity • ${stats.inFlight ? `${stats.inFlight} running` : "idle"} • ${stats.failed} failed • ${stats.completedToday} done today`}
-            action={
+            action={!isMobile ? (
               <div className="flex items-center gap-1">
                 <Button
                   size="sm"
@@ -617,7 +700,7 @@ export default function WorkflowsPage() {
                   Refresh
                 </Button>
               </div>
-            }
+            ) : null}
           />
           <div className="shrink-0 border-b border-border/70 px-3 py-3">
             <Tabs value={view} onValueChange={(value) => setView(value as RunView)}>
@@ -642,13 +725,13 @@ export default function WorkflowsPage() {
             {loading ? (
               <div className="p-3 text-sm text-muted-foreground">Loading workflow runs…</div>
             ) : visibleRuns.length ? (
-              <ScrollArea className="h-full">
+              <PaneScroller mobile={isMobile} className="h-full">
                 <div className="divide-y divide-border/70">
                   {visibleRuns.map((run) => (
-                    <RunListItem key={run.id} run={run} active={run.id === selectedRunId} onSelect={setSelectedRunId} />
+                    <RunListItem key={run.id} run={run} active={run.id === selectedRunId} onSelect={handleSelectRun} />
                   ))}
                 </div>
-              </ScrollArea>
+              </PaneScroller>
             ) : (
               <div className="p-3 text-sm leading-5 text-muted-foreground">
                 {search.trim()
@@ -665,11 +748,11 @@ export default function WorkflowsPage() {
           </div>
         </section>
 
-        <section className="flex min-h-[320px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0">
+        <section className={cn("flex min-h-[320px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showDetails && "hidden")}>
           <PaneHeader
             title="Run details"
             meta={selectedRun ? `Updated ${formatRelativeTime(selectedRun.updated_at)}` : "Select a run to review output"}
-            action={
+            action={!isMobile ? (
               <Button
                 variant="ghost"
                 size="sm"
@@ -680,13 +763,13 @@ export default function WorkflowsPage() {
                 <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
                 Sync
               </Button>
-            }
+            ) : null}
           />
 
           {selectedRun ? (
             <div className="min-h-0 flex-1 overflow-hidden bg-muted/10">
-              <ScrollArea className="h-full">
-                <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-5 py-6 md:px-8 lg:px-12 xl:px-16">
+              <PaneScroller mobile={isMobile} className="h-full">
+                <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-5 md:px-8 lg:px-12 xl:px-16">
                   <div className="border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-8">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 flex-1">
@@ -710,6 +793,7 @@ export default function WorkflowsPage() {
                                   onClick={() => {
                                     if (runs.some((item) => item.id === selectedRunChainSource.parent_run_id)) {
                                       setSelectedRunId(selectedRunChainSource.parent_run_id);
+                                      if (isMobile) setMobilePanel("details");
                                     }
                                   }}
                                   disabled={!runs.some((item) => item.id === selectedRunChainSource.parent_run_id)}
@@ -827,16 +911,26 @@ export default function WorkflowsPage() {
                     )}
                   </div>
                 </div>
-              </ScrollArea>
+              </PaneScroller>
             </div>
           ) : (
             <div className="p-5 text-sm leading-6 text-muted-foreground md:px-8 md:py-6">
-              Choose a flow on the right to start a run here, or select a run from the inbox to review the latest output.
+              {isMobile ? (
+                <div className="space-y-3">
+                  <div>Choose a run from the inbox to review it, or open flows to launch a new workflow.</div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" className="h-8 rounded-none px-3 text-xs" onClick={() => setMobilePanel("inbox")}>Open inbox</Button>
+                    <Button size="sm" className="h-8 rounded-none px-3 text-xs" onClick={() => setMobilePanel("flows")}>Browse flows</Button>
+                  </div>
+                </div>
+              ) : (
+                "Choose a flow on the right to start a run here, or select a run from the inbox to review the latest output."
+              )}
             </div>
           )}
         </section>
 
-        <section className="flex min-h-[220px] min-w-0 flex-col xl:min-h-0">
+        <section className={cn("flex min-h-[220px] min-w-0 flex-col xl:min-h-0", !showFlows && "hidden")}>
           <PaneHeader
             title="Available flows"
             meta="Choose a flow, then pick files in the launcher"
@@ -851,7 +945,7 @@ export default function WorkflowsPage() {
           />
           <div className="min-h-0 flex-1">
             {catalog.length ? (
-              <ScrollArea className="h-full">
+              <PaneScroller mobile={isMobile} className="h-full">
                 <div>
                   {catalog.map((workflow) => (
                     <WorkflowCatalogItem
@@ -862,7 +956,7 @@ export default function WorkflowsPage() {
                     />
                   ))}
                 </div>
-              </ScrollArea>
+              </PaneScroller>
             ) : (
               <div className="p-3 text-sm leading-5 text-muted-foreground">
                 Workflow starters will appear here once the catalog loads.
