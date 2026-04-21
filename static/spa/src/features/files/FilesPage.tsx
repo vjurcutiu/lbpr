@@ -114,7 +114,7 @@ import { WorkflowActionBar } from "@/features/workflows/components/WorkflowActio
 import { WorkflowLauncher } from "@/features/workflows/components/WorkflowLauncher";
 import { useWorkflowSelection } from "@/features/workflows/hooks/useWorkflowSelection";
 import { createWorkflowRun, listWorkflowRuns, listWorkflows } from "@/features/workflows/api";
-import type { WorkflowManifest, WorkflowRun } from "@/features/workflows/types";
+import type { WorkflowManifest, WorkflowRun, WorkflowSelection } from "@/features/workflows/types";
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
 import { API_BASE, getJSON } from "@/shared/api";
 import { loadBool, saveBool, loadJSON, saveJSON } from "@/shared/persist";
@@ -460,12 +460,12 @@ const internalDragPreviewLabels = useMemo(() => {
     setWorkflowLauncherOpen(true);
   }, []);
   const handleRunWorkflow = useCallback(
-    async (workflow: WorkflowManifest, focus: string) => {
+    async (workflow: WorkflowManifest, focus: string, selection: WorkflowSelection) => {
       setWorkflowSubmitting(true);
       try {
         const run = await createWorkflowRun({
           workflow_id: workflow.workflow_id,
-          selection: workflowSelectionInput,
+          selection,
           inputs: focus.trim() ? { focus: focus.trim() } : {},
         });
         setSeedWorkflowRuns((prev) => {
@@ -486,7 +486,7 @@ const internalDragPreviewLabels = useMemo(() => {
         setWorkflowSubmitting(false);
       }
     },
-    [workflowSelectionInput]
+    []
   );
   const setClipboardFromSelection = useCallback(
     (op: "copy" | "move") => {

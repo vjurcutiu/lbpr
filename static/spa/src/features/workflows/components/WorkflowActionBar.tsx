@@ -8,15 +8,7 @@ import { cn } from "@/lib/utils";
 import { getWorkflowIcon } from "../registry";
 import type { WorkflowManifest } from "../types";
 import type { WorkflowSelectionSummary } from "../hooks/useWorkflowSelection";
-
-function isRunnable(workflow: WorkflowManifest, selection: WorkflowSelectionSummary) {
-  const req = workflow.selection;
-  if (selection.totalCount < req.min_total_items) return false;
-  if (req.max_total_items != null && selection.totalCount > req.max_total_items) return false;
-  if (req.exact_file_count != null && selection.fileCount !== req.exact_file_count) return false;
-  if (!req.allow_folders && selection.folderCount > 0) return false;
-  return true;
-}
+import { isWorkflowSelectionValid } from "../utils/selection";
 
 type Props = {
   workflows: WorkflowManifest[];
@@ -49,7 +41,7 @@ export function WorkflowActionBar({ workflows, selection, loading = false, onLau
         <div className="flex flex-wrap items-center gap-2">
           {workflows.map((workflow) => {
             const Icon = getWorkflowIcon(workflow.workflow_id);
-            const runnable = isRunnable(workflow, selection);
+            const runnable = isWorkflowSelectionValid(workflow, selection);
             return (
               <Button
                 key={workflow.workflow_id}

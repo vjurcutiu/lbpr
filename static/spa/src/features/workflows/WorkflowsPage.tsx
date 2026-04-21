@@ -2,9 +2,9 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  FolderSearch,
   RefreshCw,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -13,14 +13,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
+import { listFiles, type FileItem } from "@/features/files/api";
 import { parseErr } from "@/features/files/utils/formatters";
+import { cn } from "@/lib/utils";
 
-import { listWorkflowRuns, listWorkflows } from "./api";
+import { createWorkflowRun, listWorkflowRuns, listWorkflows } from "./api";
+import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
 import { getWorkflowIcon } from "./registry";
-import type { WorkflowCapability, WorkflowManifest, WorkflowRun, WorkflowStatus } from "./types";
+import type {
+  WorkflowCapability,
+  WorkflowManifest,
+  WorkflowRun,
+  WorkflowSelection,
+  WorkflowStatus,
+} from "./types";
+import { summarizeWorkflowSelection } from "./utils/selection";
 
 function formatSelectionRequirements(workflow: WorkflowManifest) {
   const parts: string[] = [];
@@ -230,24 +239,42 @@ function RunListItem({
   );
 }
 
-function WorkflowCatalogItem({ workflow }: { workflow: WorkflowManifest }) {
+function WorkflowCatalogItem({
+  workflow,
+  onLaunch,
+  disabled = false,
+}: {
+  workflow: WorkflowManifest;
+  onLaunch: (workflow: WorkflowManifest) => void;
+  disabled?: boolean;
+}) {
   const Icon = getWorkflowIcon(workflow.workflow_id);
 
   return (
-    <div className="border-b border-border/70 px-3 py-3 last:border-b-0">
+    <button
+      type="button"
+      onClick={() => onLaunch(workflow)}
+      disabled={disabled}
+      className="w-full border-b border-border/70 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/25 disabled:cursor-not-allowed disabled:opacity-70"
+    >
       <div className="flex items-start gap-2">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-border/70 bg-primary/5 text-primary">
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium leading-5 text-foreground">{workflow.title}</div>
-          <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{workflow.description}</div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-sm font-medium leading-5 text-foreground">{workflow.title}</div>
+              <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{workflow.description}</div>
+            </div>
+            <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
+          </div>
           <div className="mt-1.5 flex flex-wrap gap-1">
             <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
               {formatCapability(workflow.capability)}
             </Badge>
             {formatSelectionRequirements(workflow)
-              .slice(0, 1)
+              .slice(0, 2)
               .map((item) => (
                 <Badge
                   key={item}
@@ -260,7 +287,7 @@ function WorkflowCatalogItem({ workflow }: { workflow: WorkflowManifest }) {
           </div>
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -272,6 +299,16 @@ export default function WorkflowsPage() {
   const [view, setView] = useState<RunView>("all");
   const [search, setSearch] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
+  const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(null);
+  const [launcherFiles, setLauncherFiles] = useState<FileItem[]>([]);
+  const [launcherFilesLoading, setLauncherFilesLoading] = useState(false);
+  const [workflowSubmitting, setWorkflowSubmitting] = useState(false);
+
+  const emptyLauncherSelection = useMemo(
+    () => summarizeWorkflowSelection({ file_ids: [], folder_paths: [], current_folder: "" }),
+    []
+  );
 
   const loadPage = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
@@ -290,6 +327,55 @@ export default function WorkflowsPage() {
       else setLoading(false);
     }
   }, []);
+
+  const ensureLauncherFilesLoaded = useCallback(async () => {
+    if (launcherFiles.length || launcherFilesLoading) return;
+    setLauncherFilesLoading(true);
+    try {
+      const files = await listFiles();
+      setLauncherFiles(files || []);
+    } catch (err) {
+      console.error("[workflows] file picker load error", err);
+      toast.error("Failed to load files", { description: parseErr(err) });
+    } finally {
+      setLauncherFilesLoading(false);
+    }
+  }, [launcherFiles.length, launcherFilesLoading]);
+
+  const openWorkflowLauncher = useCallback(
+    (workflow: WorkflowManifest) => {
+      setActiveWorkflow(workflow);
+      setWorkflowLauncherOpen(true);
+      void ensureLauncherFilesLoaded();
+    },
+    [ensureLauncherFilesLoaded]
+  );
+
+  const handleRunWorkflow = useCallback(
+    async (workflow: WorkflowManifest, focus: string, selection: WorkflowSelection) => {
+      setWorkflowSubmitting(true);
+      try {
+        const run = await createWorkflowRun({
+          workflow_id: workflow.workflow_id,
+          selection,
+          inputs: focus.trim() ? { focus: focus.trim() } : {},
+        });
+        setRuns((prev) => [run, ...prev.filter((item) => item.id !== run.id)].slice(0, 24));
+        setSelectedRunId(run.id);
+        setWorkflowLauncherOpen(false);
+        setActiveWorkflow(null);
+        toast.success(`${workflow.title} started`, {
+          description: "You can follow the run in the inbox and review the finished output here.",
+        });
+      } catch (err) {
+        console.error("[workflows] run error", err);
+        toast.error(`Failed to run ${workflow.title}`, { description: parseErr(err) });
+      } finally {
+        setWorkflowSubmitting(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     loadPage();
@@ -348,219 +434,247 @@ export default function WorkflowsPage() {
   return (
     <div className="h-full min-h-0">
       <div className="grid h-full min-h-0 border border-border/70 bg-background xl:grid-cols-[320px_minmax(0,1fr)_280px] xl:divide-x xl:divide-border/70">
-
-          <section className="flex min-h-[220px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0">
-            <PaneHeader
-              title="Run inbox"
-              meta={`Recent activity • ${stats.inFlight ? `${stats.inFlight} running` : "idle"} • ${stats.failed} failed • ${stats.completedToday} done today`}
-              action={
-                <div className="flex items-center gap-1">
-                  <Button asChild size="sm" className="h-8 rounded-none px-3 text-xs">
-                    <Link to="/files">
-                      <FolderSearch className="mr-1 h-3 w-3" />
-                      New workflow
-                    </Link>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 rounded-none px-3 text-xs"
-                    onClick={() => loadPage({ silent: true })}
-                    disabled={loading || refreshing}
-                  >
-                    <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
-                    Refresh
-                  </Button>
-                </div>
-              }
-            />
-            <div className="shrink-0 border-b border-border/70 px-3 py-3">
-              <Tabs value={view} onValueChange={(value) => setView(value as RunView)}>
-                <TabsList className="h-auto w-full justify-start rounded-none bg-muted/40 p-1">
-                  <TabsTrigger value="all" className="h-7 rounded-none px-2 text-xs">All {runsByView.all.length}</TabsTrigger>
-                  <TabsTrigger value="active" className="h-7 rounded-none px-2 text-xs">Active {runsByView.active.length}</TabsTrigger>
-                  <TabsTrigger value="completed" className="h-7 rounded-none px-2 text-xs">Done {runsByView.completed.length}</TabsTrigger>
-                  <TabsTrigger value="attention" className="h-7 rounded-none px-2 text-xs">Failed {runsByView.attention.length}</TabsTrigger>
-                </TabsList>
-              </Tabs>
-              <div className="relative mt-2">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search runs"
-                  className="h-8 rounded-none border-border/80 bg-background pl-8 text-sm shadow-none"
-                />
-              </div>
-            </div>
-            <div className="min-h-0 flex-1">
-              {loading ? (
-                <div className="p-3 text-sm text-muted-foreground">Loading workflow runs…</div>
-              ) : visibleRuns.length ? (
-                <ScrollArea className="h-full">
-                  <div className="divide-y divide-border/70">
-                    {visibleRuns.map((run) => (
-                      <RunListItem key={run.id} run={run} active={run.id === selectedRunId} onSelect={setSelectedRunId} />
-                    ))}
-                  </div>
-                </ScrollArea>
-              ) : (
-                <div className="p-3 text-sm leading-5 text-muted-foreground">
-                  {search.trim()
-                    ? "No workflow runs match this search yet."
-                    : view === "all"
-                      ? "No workflow runs yet. Start one from Files and it will appear here."
-                      : view === "active"
-                        ? "No runs are currently queued or running."
-                        : view === "completed"
-                          ? "Completed workflow output will appear here once a run finishes."
-                          : "Nothing needs review right now."}
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section className="flex min-h-[320px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0">
-            <PaneHeader
-              title="Run details"
-              meta={selectedRun ? `Updated ${formatRelativeTime(selectedRun.updated_at)}` : "Select a run to review output"}
-              action={
+        <section className="flex min-h-[220px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0">
+          <PaneHeader
+            title="Run inbox"
+            meta={`Recent activity • ${stats.inFlight ? `${stats.inFlight} running` : "idle"} • ${stats.failed} failed • ${stats.completedToday} done today`}
+            action={
+              <div className="flex items-center gap-1">
                 <Button
-                  variant="ghost"
+                  size="sm"
+                  className="h-8 rounded-none px-3 text-xs"
+                  onClick={() => catalog[0] && openWorkflowLauncher(catalog[0])}
+                  disabled={!catalog.length || workflowSubmitting}
+                >
+                  <Sparkles className="mr-1 h-3 w-3" />
+                  New workflow
+                </Button>
+                <Button
+                  variant="outline"
                   size="sm"
                   className="h-8 rounded-none px-3 text-xs"
                   onClick={() => loadPage({ silent: true })}
                   disabled={loading || refreshing}
                 >
                   <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
-                  Sync
+                  Refresh
                 </Button>
-              }
-            />
-
-            {selectedRun ? (
-              <>
-                <div className="shrink-0 border-b border-border/70 px-3 py-3">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex items-start gap-2">
-                        <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center border border-border/70 bg-background", statusAccent(selectedRun.status))}>
-                          {(() => {
-                            const Icon = getWorkflowIcon(selectedRun.workflow_id);
-                            return <Icon className="h-4 w-4" />;
-                          })()}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold leading-5 text-foreground">{selectedRun.title}</div>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                            <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
-                            <span>{formatCapability(selectedRun.capability)}</span>
-                            <span className="h-1 w-1 rounded-full bg-border" />
-                            <span>{formatSelection(selectedRun)}</span>
-                            <span className="h-1 w-1 rounded-full bg-border" />
-                            <span>{selectedRun.selection.current_folder || "Root"}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <Button asChild variant="outline" size="sm" className="h-8 rounded-none px-3 text-xs">
-                      <Link to="/files">Launch from Files</Link>
-                    </Button>
-                  </div>
-                  <div className="mt-3 border-t border-border/70 pt-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Overview</div>
-                    <p className="mt-1.5 text-sm leading-5 text-foreground">{renderStatusCopy(selectedRun)}</p>
-                  </div>
+              </div>
+            }
+          />
+          <div className="shrink-0 border-b border-border/70 px-3 py-3">
+            <Tabs value={view} onValueChange={(value) => setView(value as RunView)}>
+              <TabsList className="h-auto w-full justify-start rounded-none bg-muted/40 p-1">
+                <TabsTrigger value="all" className="h-7 rounded-none px-2 text-xs">All {runsByView.all.length}</TabsTrigger>
+                <TabsTrigger value="active" className="h-7 rounded-none px-2 text-xs">Active {runsByView.active.length}</TabsTrigger>
+                <TabsTrigger value="completed" className="h-7 rounded-none px-2 text-xs">Done {runsByView.completed.length}</TabsTrigger>
+                <TabsTrigger value="attention" className="h-7 rounded-none px-2 text-xs">Failed {runsByView.attention.length}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="relative mt-2">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search runs"
+                className="h-8 rounded-none border-border/80 bg-background pl-8 text-sm shadow-none"
+              />
+            </div>
+          </div>
+          <div className="min-h-0 flex-1">
+            {loading ? (
+              <div className="p-3 text-sm text-muted-foreground">Loading workflow runs…</div>
+            ) : visibleRuns.length ? (
+              <ScrollArea className="h-full">
+                <div className="divide-y divide-border/70">
+                  {visibleRuns.map((run) => (
+                    <RunListItem key={run.id} run={run} active={run.id === selectedRunId} onSelect={setSelectedRunId} />
+                  ))}
                 </div>
-
-                {(selectedRun.result?.bullets?.length || selectedRun.result?.next_actions?.length) ? (
-                  <div className="grid shrink-0 border-b border-border/70 lg:grid-cols-2 lg:divide-x lg:divide-border/70">
-                    <div className="px-3 py-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Takeaways</div>
-                      <div className="mt-2 space-y-2">
-                        {(selectedRun.result?.bullets || []).slice(0, 3).map((item, index) => (
-                          <div key={`${item}-${index}`} className="text-sm leading-5 text-foreground">
-                            {item}
-                          </div>
-                        ))}
-                        {!selectedRun.result?.bullets?.length ? (
-                          <div className="text-sm leading-5 text-muted-foreground">No takeaways yet for this run.</div>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="border-t border-border/70 px-3 py-3 lg:border-t-0">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Next steps</div>
-                      <div className="mt-2 space-y-2">
-                        {(selectedRun.result?.next_actions || []).slice(0, 3).map((item, index) => (
-                          <div key={`${item}-${index}`} className="text-sm leading-5 text-foreground">
-                            {item}
-                          </div>
-                        ))}
-                        {!selectedRun.result?.next_actions?.length ? (
-                          <div className="text-sm leading-5 text-muted-foreground">No recommended next steps yet for this run.</div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  <ScrollArea className="h-full">
-                    <div className="p-3">
-                      {selectedRun.result ? (
-                        <WorkflowResultDetails result={selectedRun.result} />
-                      ) : selectedRun.status === "failed" ? (
-                        <div className="border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm leading-5 text-destructive">
-                          {selectedRun.error || "This workflow failed before returning an output."}
-                        </div>
-                      ) : (
-                        <div className="text-sm leading-5 text-muted-foreground">
-                          This run is still in progress. Refresh to pick up the latest result.
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
-                </div>
-              </>
+              </ScrollArea>
             ) : (
               <div className="p-3 text-sm leading-5 text-muted-foreground">
-                Start a workflow from Files, or select a run from the inbox to review the latest output.
+                {search.trim()
+                  ? "No workflow runs match this search yet."
+                  : view === "all"
+                    ? "No workflow runs yet. Pick a flow on the right to start one here."
+                    : view === "active"
+                      ? "No runs are currently queued or running."
+                      : view === "completed"
+                        ? "Completed workflow output will appear here once a run finishes."
+                        : "Nothing needs review right now."}
               </div>
             )}
-          </section>
+          </div>
+        </section>
 
-          <section className="flex min-h-[220px] min-w-0 flex-col xl:min-h-0">
-            <PaneHeader
-              title="Available flows"
-              meta="Launchers already available in Files"
-              action={
-                <Button asChild variant="ghost" size="sm" className="h-8 rounded-none px-3 text-xs">
-                  <Link to="/files">
-                    Open
-                    <ArrowRight className="ml-1 h-3 w-3" />
-                  </Link>
-                </Button>
-              }
-            />
-            <div className="min-h-0 flex-1">
-              {catalog.length ? (
+        <section className="flex min-h-[320px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0">
+          <PaneHeader
+            title="Run details"
+            meta={selectedRun ? `Updated ${formatRelativeTime(selectedRun.updated_at)}` : "Select a run to review output"}
+            action={
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 rounded-none px-3 text-xs"
+                onClick={() => loadPage({ silent: true })}
+                disabled={loading || refreshing}
+              >
+                <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
+                Sync
+              </Button>
+            }
+          />
+
+          {selectedRun ? (
+            <>
+              <div className="shrink-0 border-b border-border/70 px-3 py-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-start gap-2">
+                      <div className={cn("flex h-8 w-8 shrink-0 items-center justify-center border border-border/70 bg-background", statusAccent(selectedRun.status))}>
+                        {(() => {
+                          const Icon = getWorkflowIcon(selectedRun.workflow_id);
+                          return <Icon className="h-4 w-4" />;
+                        })()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold leading-5 text-foreground">{selectedRun.title}</div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
+                          <span>{formatCapability(selectedRun.capability)}</span>
+                          <span className="h-1 w-1 rounded-full bg-border" />
+                          <span>{formatSelection(selectedRun)}</span>
+                          <span className="h-1 w-1 rounded-full bg-border" />
+                          <span>{selectedRun.selection.current_folder || "Root"}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-none px-3 text-xs"
+                    onClick={() => {
+                      const workflow = catalog.find((item) => item.workflow_id === selectedRun.workflow_id);
+                      if (workflow) openWorkflowLauncher(workflow);
+                    }}
+                    disabled={!catalog.some((item) => item.workflow_id === selectedRun.workflow_id)}
+                  >
+                    Run again
+                  </Button>
+                </div>
+                <div className="mt-3 border-t border-border/70 pt-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Overview</div>
+                  <p className="mt-1.5 text-sm leading-5 text-foreground">{renderStatusCopy(selectedRun)}</p>
+                </div>
+              </div>
+
+              {(selectedRun.result?.bullets?.length || selectedRun.result?.next_actions?.length) ? (
+                <div className="grid shrink-0 border-b border-border/70 lg:grid-cols-2 lg:divide-x lg:divide-border/70">
+                  <div className="px-3 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Takeaways</div>
+                    <div className="mt-2 space-y-2">
+                      {(selectedRun.result?.bullets || []).slice(0, 3).map((item, index) => (
+                        <div key={`${item}-${index}`} className="text-sm leading-5 text-foreground">
+                          {item}
+                        </div>
+                      ))}
+                      {!selectedRun.result?.bullets?.length ? (
+                        <div className="text-sm leading-5 text-muted-foreground">No takeaways yet for this run.</div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-border/70 px-3 py-3 lg:border-t-0">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Next steps</div>
+                    <div className="mt-2 space-y-2">
+                      {(selectedRun.result?.next_actions || []).slice(0, 3).map((item, index) => (
+                        <div key={`${item}-${index}`} className="text-sm leading-5 text-foreground">
+                          {item}
+                        </div>
+                      ))}
+                      {!selectedRun.result?.next_actions?.length ? (
+                        <div className="text-sm leading-5 text-muted-foreground">No recommended next steps yet for this run.</div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="min-h-0 flex-1 overflow-hidden">
                 <ScrollArea className="h-full">
-                  <div>
-                    {catalog.map((workflow) => (
-                      <WorkflowCatalogItem key={workflow.workflow_id} workflow={workflow} />
-                    ))}
+                  <div className="p-3">
+                    {selectedRun.result ? (
+                      <WorkflowResultDetails result={selectedRun.result} />
+                    ) : selectedRun.status === "failed" ? (
+                      <div className="border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm leading-5 text-destructive">
+                        {selectedRun.error || "This workflow failed before returning an output."}
+                      </div>
+                    ) : (
+                      <div className="text-sm leading-5 text-muted-foreground">
+                        This run is still in progress. Refresh to pick up the latest result.
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
-              ) : (
-                <div className="p-3 text-sm leading-5 text-muted-foreground">
-                  Workflow starters will appear here once the catalog loads.
-                </div>
-              )}
+              </div>
+            </>
+          ) : (
+            <div className="p-3 text-sm leading-5 text-muted-foreground">
+              Choose a flow on the right to start a run here, or select a run from the inbox to review the latest output.
             </div>
-          </section>
+          )}
+        </section>
+
+        <section className="flex min-h-[220px] min-w-0 flex-col xl:min-h-0">
+          <PaneHeader
+            title="Available flows"
+            meta="Choose a flow, then pick files in the launcher"
+            action={
+              <Button asChild variant="ghost" size="sm" className="h-8 rounded-none px-3 text-xs">
+                <Link to="/files">
+                  Open Files
+                  <ArrowRight className="ml-1 h-3 w-3" />
+                </Link>
+              </Button>
+            }
+          />
+          <div className="min-h-0 flex-1">
+            {catalog.length ? (
+              <ScrollArea className="h-full">
+                <div>
+                  {catalog.map((workflow) => (
+                    <WorkflowCatalogItem
+                      key={workflow.workflow_id}
+                      workflow={workflow}
+                      onLaunch={openWorkflowLauncher}
+                      disabled={workflowSubmitting}
+                    />
+                  ))}
+                </div>
+              </ScrollArea>
+            ) : (
+              <div className="p-3 text-sm leading-5 text-muted-foreground">
+                Workflow starters will appear here once the catalog loads.
+              </div>
+            )}
+          </div>
+        </section>
       </div>
+
+      <WorkflowLauncher
+        open={workflowLauncherOpen}
+        workflow={activeWorkflow}
+        selection={emptyLauncherSelection}
+        selectionMode="picker"
+        availableFiles={launcherFiles}
+        filesLoading={launcherFilesLoading}
+        submitting={workflowSubmitting}
+        onOpenChange={setWorkflowLauncherOpen}
+        onRun={handleRunWorkflow}
+      />
     </div>
   );
 }

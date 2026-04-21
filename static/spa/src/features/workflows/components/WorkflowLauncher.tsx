@@ -11,36 +11,58 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import type { FileItem } from "@/features/files/api";
 
 import { getWorkflowIcon } from "../registry";
-import type { WorkflowManifest } from "../types";
-import type { WorkflowSelectionSummary } from "../hooks/useWorkflowSelection";
+import type { WorkflowManifest, WorkflowSelection } from "../types";
+import { WorkflowFilePicker } from "./WorkflowFilePicker";
+import {
+  getWorkflowSelectionMessage,
+  isWorkflowSelectionValid,
+  summarizeWorkflowSelection,
+  type WorkflowSelectionSummary,
+} from "../utils/selection";
 
 type Props = {
   open: boolean;
   workflow: WorkflowManifest | null;
   selection: WorkflowSelectionSummary;
+  selectionMode?: "fixed" | "picker";
+  availableFiles?: FileItem[];
+  filesLoading?: boolean;
   submitting?: boolean;
   onOpenChange: (open: boolean) => void;
-  onRun: (workflow: WorkflowManifest, focus: string) => void;
+  onRun: (workflow: WorkflowManifest, focus: string, selection: WorkflowSelection) => void;
 };
 
 export function WorkflowLauncher({
   open,
   workflow,
   selection,
+  selectionMode = "fixed",
+  availableFiles = [],
+  filesLoading = false,
   submitting = false,
   onOpenChange,
   onRun,
 }: Props) {
   const [focus, setFocus] = useState("");
+  const [editableSelection, setEditableSelection] = useState<WorkflowSelection>(selection);
 
   useEffect(() => {
-    if (!open) setFocus("");
-  }, [open]);
+    if (!open) {
+      setFocus("");
+      setEditableSelection(selection);
+      return;
+    }
+    setEditableSelection(selection);
+  }, [open, selection, workflow?.workflow_id, selectionMode]);
 
   const suggestions = useMemo(() => workflow?.launcher.suggested_prompts ?? [], [workflow]);
   const Icon = workflow ? getWorkflowIcon(workflow.workflow_id) : null;
+  const activeSelection = selectionMode === "picker" ? summarizeWorkflowSelection(editableSelection) : selection;
+  const selectionMessage = workflow ? getWorkflowSelectionMessage(workflow, activeSelection) : "Select a workflow.";
+  const canRun = !!workflow && isWorkflowSelectionValid(workflow, activeSelection) && !(selectionMode === "picker" && filesLoading);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -61,13 +83,24 @@ export function WorkflowLauncher({
           <div className="rounded-2xl border bg-muted/20 p-3">
             <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Included in this run</div>
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <Badge variant="outline" className="rounded-full">{selection.label}</Badge>
-              <Badge variant="outline" className="rounded-full">Folder: {selection.current_folder || "Root"}</Badge>
+              <Badge variant="outline" className="rounded-full">{activeSelection.label}</Badge>
+              <Badge variant="outline" className="rounded-full">Folder: {activeSelection.current_folder || "Root"}</Badge>
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">{selectionMessage}</p>
           </div>
         </DialogHeader>
 
         <div className="space-y-4">
+          {selectionMode === "picker" ? (
+            <WorkflowFilePicker
+              files={availableFiles}
+              selection={editableSelection}
+              loading={filesLoading}
+              disabled={submitting}
+              onSelectionChange={setEditableSelection}
+            />
+          ) : null}
+
           <div className="space-y-2">
             <label className="text-sm font-medium">
               {workflow?.launcher.prompt_label ?? "Focus"}
@@ -101,7 +134,7 @@ export function WorkflowLauncher({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
-          <Button onClick={() => workflow && onRun(workflow, focus)} disabled={!workflow || submitting}>
+          <Button onClick={() => workflow && onRun(workflow, focus, activeSelection)} disabled={!canRun || submitting}>
             {workflow?.launcher.submit_label ?? "Run workflow"}
           </Button>
         </DialogFooter>
