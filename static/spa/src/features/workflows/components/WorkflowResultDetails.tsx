@@ -67,12 +67,12 @@ function formatSourceLabel(source: SourceFileMeta) {
 
 function Section({ title, icon: Icon, children }: { title: string; icon?: typeof Files; children: ReactNode }) {
   return (
-    <section className="border-t border-border/70 pt-6 first:border-t-0 first:pt-0">
+    <section className="border-t border-border/70 pt-3 first:border-t-0 first:pt-0">
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
         {Icon ? <Icon className="h-3 w-3" /> : null}
         {title}
       </div>
-      <div className="mt-3">{children}</div>
+      <div className="mt-2">{children}</div>
     </section>
   );
 }
@@ -144,9 +144,9 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {!!warnings.length && (
-        <div className="border border-amber-500/20 bg-amber-500/8 px-4 py-4">
+        <div className="border border-amber-500/20 bg-amber-500/8 px-3 py-3">
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800 dark:text-amber-200">
             <TriangleAlert className="h-3 w-3" />
             Notes
@@ -167,7 +167,7 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
 
       {!!summaryLayers.length && (
         <Section title="Layered briefing">
-          <div className="space-y-4 border border-border/70 px-4 py-4 md:px-5">
+          <div className="space-y-3 border border-border/70 px-3 py-3">
             <div className="flex flex-wrap gap-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
               {summaryProfile.audience ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">Audience: {String(summaryProfile.audience).replace(/_/g, " ")}</Badge> : null}
               {summaryProfile.depth ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">Default: {String(summaryProfile.depth).replace(/_/g, " ")}</Badge> : null}
@@ -182,7 +182,7 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
               </TabsList>
               {summaryLayers.map((layer) => (
                 <TabsContent key={layer.key} value={layer.key} className="mt-3">
-                  <div className="text-[15px] leading-7 whitespace-pre-wrap">{layer.text}</div>
+                  <div className="text-sm leading-6 whitespace-pre-wrap">{layer.text}</div>
                 </TabsContent>
               ))}
             </Tabs>
@@ -194,8 +194,8 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
         <Section title="Evidence-backed takeaways">
           <div className="grid gap-2">
             {evidenceHighlights.map((item, idx) => (
-              <div key={`${item.claim}-${idx}`} className="border border-border/70 px-4 py-4">
-                <div className="text-[15px] font-medium leading-7 text-foreground">{item.claim}</div>
+              <div key={`${item.claim}-${idx}`} className="border border-border/70 px-3 py-3">
+                <div className="text-sm font-medium leading-5 text-foreground">{item.claim}</div>
                 {!!item.sources?.length && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {item.sources.map((source) => (
@@ -208,7 +208,7 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
                 {!!item.evidence?.length && (
                   <div className="mt-3 grid gap-2">
                     {item.evidence.map((evidence, evidenceIdx) => (
-                      <div key={`${item.claim}-${evidence.source_name}-${evidenceIdx}`} className="border-l-2 border-border/70 pl-4 text-[15px] leading-7 text-muted-foreground">
+                      <div key={`${item.claim}-${evidence.source_name}-${evidenceIdx}`} className="border-l-2 border-border/70 pl-3 text-sm leading-6 text-muted-foreground">
                         <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">{evidence.source_name}</div>
                         <div className="mt-1">{evidence.excerpt}</div>
                       </div>
@@ -223,17 +223,19 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
 
       {!!suggestedActions.length && selection && onWorkflowAction && (
         <Section title="Continue with">
-          <div className="grid gap-2 md:grid-cols-3">
+          <div className="grid gap-3 lg:grid-cols-2">
             {suggestedActions.map((action) => (
               <Button
                 key={`${action.workflow_id}-${action.label}`}
                 variant="outline"
-                className="h-auto rounded-none px-4 py-4 text-left"
+                className="h-auto min-h-[124px] w-full items-start justify-start whitespace-normal rounded-none px-4 py-4 text-left"
                 onClick={() => onWorkflowAction(action, selection)}
               >
-                <div>
-                  <div className="text-sm font-medium leading-5">{action.label}</div>
-                  {action.description ? <div className="mt-1 text-xs leading-5 text-muted-foreground">{action.description}</div> : null}
+                <div className="min-w-0 space-y-2">
+                  <div className="text-base font-medium leading-6 break-words text-foreground">{action.label}</div>
+                  {action.description ? (
+                    <div className="text-sm leading-6 break-words text-muted-foreground">{action.description}</div>
+                  ) : null}
                 </div>
               </Button>
             ))}
@@ -261,9 +263,9 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
         <Section title="Structured output">
           <div className="grid gap-0 border border-border/70 sm:grid-cols-2 sm:divide-x sm:divide-border/70">
             {fields.map((field, idx) => (
-              <div key={`${field.field || "field"}-${idx}`} className="border-t border-border/70 px-4 py-4 first:border-t-0 sm:[&:nth-child(-n+2)]:border-t-0">
+              <div key={`${field.field || "field"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0 sm:[&:nth-child(-n+2)]:border-t-0">
                 <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{field.field || "Field"}</div>
-                <div className="mt-1.5 text-[15px] leading-7 text-foreground">{field.value || "—"}</div>
+                <div className="mt-1 text-sm leading-5 text-foreground">{field.value || "—"}</div>
                 {field.confidence ? (
                   <div className="mt-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{field.confidence} confidence</div>
                 ) : null}
@@ -277,19 +279,19 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
         <Section title="Difference summary">
           <div className="border border-border/70">
             {differences.map((difference, idx) => (
-              <div key={`${difference.topic || "difference"}-${idx}`} className="border-t border-border/70 px-4 py-4 first:border-t-0">
-                <div className="text-[15px] font-medium leading-7 text-foreground">{difference.topic || "Difference"}</div>
+              <div key={`${difference.topic || "difference"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0">
+                <div className="text-sm font-medium leading-5 text-foreground">{difference.topic || "Difference"}</div>
                 <div className="mt-2 grid gap-3 md:grid-cols-2">
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">File A</div>
-                    <div className="mt-1.5 text-[15px] leading-7">{difference.file_a || "—"}</div>
+                    <div className="mt-1 text-sm leading-5">{difference.file_a || "—"}</div>
                   </div>
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">File B</div>
-                    <div className="mt-1.5 text-[15px] leading-7">{difference.file_b || "—"}</div>
+                    <div className="mt-1 text-sm leading-5">{difference.file_b || "—"}</div>
                   </div>
                 </div>
-                {difference.impact ? <div className="mt-3 text-[15px] leading-7 text-muted-foreground">{difference.impact}</div> : null}
+                {difference.impact ? <div className="mt-2 text-sm leading-5 text-muted-foreground">{difference.impact}</div> : null}
               </div>
             ))}
           </div>
@@ -300,8 +302,8 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
         <Section title="Execution plan">
           <div className="border border-border/70">
             {planItems.map((item, idx) => (
-              <div key={`${item.action || "plan-item"}-${idx}`} className="border-t border-border/70 px-4 py-4 first:border-t-0">
-                <div className="text-[15px] font-medium leading-7 text-foreground">{item.action || "Action item"}</div>
+              <div key={`${item.action || "plan-item"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0">
+                <div className="text-sm font-medium leading-5 text-foreground">{item.action || "Action item"}</div>
                 <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
                   {item.priority ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{item.priority}</Badge> : null}
                   {item.owner ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">Owner: {item.owner}</Badge> : null}
@@ -321,8 +323,8 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
               Copy
             </Button>
           </div>
-          <div className="border border-border/70 px-4 py-4 text-[15px] leading-7 md:px-5">
-            <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:mb-3 prose-headings:mt-4 prose-p:my-3 prose-li:my-1 prose-ul:my-3">
+          <div className="border border-border/70 px-3 py-3 text-sm leading-6">
+            <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:mb-2 prose-headings:mt-3 prose-p:my-2 prose-li:my-0.5 prose-ul:my-2">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview}</ReactMarkdown>
             </div>
           </div>
