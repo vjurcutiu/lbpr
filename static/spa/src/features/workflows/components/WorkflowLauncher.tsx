@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { CornerDownRight, History } from "lucide-react";
 
 import {
   Dialog,
@@ -21,7 +22,7 @@ import {
 import type { FileItem } from "@/features/files/api";
 
 import { getWorkflowIcon } from "../registry";
-import type { WorkflowManifest, WorkflowSelection } from "../types";
+import type { WorkflowChainSource, WorkflowManifest, WorkflowSelection } from "../types";
 import { WorkflowFilePicker } from "./WorkflowFilePicker";
 import {
   getWorkflowSelectionMessage,
@@ -38,17 +39,40 @@ type Props = {
   availableFiles?: FileItem[];
   filesLoading?: boolean;
   submitting?: boolean;
+  initialInputs?: Record<string, unknown>;
+  chainSource?: WorkflowChainSource | null;
   onOpenChange: (open: boolean) => void;
   onRun: (workflow: WorkflowManifest, inputs: Record<string, unknown>, selection: WorkflowSelection) => void;
 };
 
-function defaultFieldValues(workflow: WorkflowManifest | null): Record<string, string> {
+function defaultFieldValues(workflow: WorkflowManifest | null, initialInputs?: Record<string, unknown>): Record<string, string> {
   const values: Record<string, string> = {};
   for (const field of workflow?.launcher.fields ?? []) {
-    const fallback = field.default_value || field.options[0]?.value || "";
+    const seeded = String(initialInputs?.[field.key] || "").trim();
+    const fallback = seeded || field.default_value || field.options[0]?.value || "";
     if (fallback) values[field.key] = fallback;
   }
   return values;
+}
+
+function defaultFocus(initialInputs?: Record<string, unknown>) {
+  return String(initialInputs?.focus || "").trim();
+}
+
+function formatRelativeTime(iso?: string) {
+  if (!iso) return "recently";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "recently";
+
+  const diffMs = date.getTime() - Date.now();
+  const minutes = Math.round(diffMs / 60000);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+  if (Math.abs(minutes) < 60) return rtf.format(minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return rtf.format(hours, "hour");
+  const days = Math.round(hours / 24);
+  return rtf.format(days, "day");
 }
 
 export function WorkflowLauncher({
@@ -59,23 +83,26 @@ export function WorkflowLauncher({
   availableFiles = [],
   filesLoading = false,
   submitting = false,
+  initialInputs,
+  chainSource,
   onOpenChange,
   onRun,
 }: Props) {
-  const [focus, setFocus] = useState("");
+  const [focus, setFocus] = useState(() => defaultFocus(initialInputs));
   const [editableSelection, setEditableSelection] = useState<WorkflowSelection>(selection);
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => defaultFieldValues(workflow));
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => defaultFieldValues(workflow, initialInputs));
 
   useEffect(() => {
     if (!open) {
-      setFocus("");
+      setFocus(defaultFocus(initialInputs));
       setEditableSelection(selection);
-      setFieldValues(defaultFieldValues(workflow));
+      setFieldValues(defaultFieldValues(workflow, initialInputs));
       return;
     }
+    setFocus(defaultFocus(initialInputs));
     setEditableSelection(selection);
-    setFieldValues(defaultFieldValues(workflow));
-  }, [open, selection, workflow, selectionMode]);
+    setFieldValues(defaultFieldValues(workflow, initialInputs));
+  }, [open, selection, workflow, selectionMode, initialInputs]);
 
   const suggestions = useMemo(() => workflow?.launcher.suggested_prompts ?? [], [workflow]);
   const Icon = workflow ? getWorkflowIcon(workflow.workflow_id) : null;
@@ -99,6 +126,35 @@ export function WorkflowLauncher({
               </DialogDescription>
             </div>
           </div>
+
+          {chainSource ? (
+            <div className="rounded-2xl border border-primary/15 bg-primary/5 p-3">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
+                <CornerDownRight className="h-3.5 w-3.5" />
+                Chained from {chainSource.parent_workflow_title}
+                {chainSource.action_label ? (
+                  <Badge variant="outline" className="rounded-full border-primary/20 bg-background px-2 py-0 text-[10px] font-normal text-foreground">
+                    {chainSource.action_label}
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <Badge variant="outline" className="rounded-full">{chainSource.parent_title}</Badge>
+                {chainSource.selection_label ? <Badge variant="outline" className="rounded-full">{chainSource.selection_label}</Badge> : null}
+                <Badge variant="outline" className="rounded-full">
+                  <History className="mr-1 h-3 w-3" />
+                  Updated {formatRelativeTime(chainSource.parent_updated_at)}
+                </Badge>
+              </div>
+              {chainSource.summary ? (
+                <p className="mt-2 line-clamp-3 text-sm leading-6 text-foreground/85">{chainSource.summary}</p>
+              ) : (
+                <p className="mt-2 text-sm leading-6 text-foreground/80">
+                  This run will inherit the source workflow context and the selected files below.
+                </p>
+              )}
+            </div>
+          ) : null}
 
           <div className="rounded-2xl border bg-muted/20 p-3">
             <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Included in this run</div>

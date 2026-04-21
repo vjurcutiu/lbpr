@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import type { WorkflowResult, WorkflowSelection, WorkflowSuggestedAction } from "../types";
+import type { WorkflowResult, WorkflowRun, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
 type SourceFileMeta = {
   file_id?: string;
@@ -80,10 +80,11 @@ function Section({ title, icon: Icon, children }: { title: string; icon?: typeof
 type Props = {
   result: WorkflowResult;
   selection?: WorkflowSelection;
-  onWorkflowAction?: (action: WorkflowSuggestedAction, selection: WorkflowSelection) => void;
+  sourceRun?: WorkflowRun;
+  onWorkflowAction?: (action: WorkflowSuggestedAction, selection: WorkflowSelection, sourceRun: WorkflowRun) => void;
 };
 
-export function WorkflowResultDetails({ result, selection, onWorkflowAction }: Props) {
+export function WorkflowResultDetails({ result, selection, sourceRun, onWorkflowAction }: Props) {
   const sourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
   const warnings = asArray<string>(result.metadata?.warnings).filter(Boolean);
   const fields = asArray<FieldMeta>(result.metadata?.fields);
@@ -221,7 +222,7 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
         </Section>
       )}
 
-      {!!suggestedActions.length && selection && onWorkflowAction && (
+      {!!suggestedActions.length && selection && sourceRun && onWorkflowAction && (
         <Section title="Continue with">
           <div className="grid gap-3 lg:grid-cols-2">
             {suggestedActions.map((action) => (
@@ -229,7 +230,7 @@ export function WorkflowResultDetails({ result, selection, onWorkflowAction }: P
                 key={`${action.workflow_id}-${action.label}`}
                 variant="outline"
                 className="h-auto min-h-[124px] w-full items-start justify-start whitespace-normal rounded-none px-4 py-4 text-left"
-                onClick={() => onWorkflowAction(action, selection)}
+                onClick={() => onWorkflowAction(action, selection, sourceRun)}
               >
                 <div className="min-w-0 space-y-2">
                   <div className="text-base font-medium leading-6 break-words text-foreground">{action.label}</div>

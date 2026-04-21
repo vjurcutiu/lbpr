@@ -2,6 +2,8 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
+  ChevronRight,
+  CornerDownRight,
   RefreshCw,
   Search,
   Sparkles,
@@ -27,6 +29,7 @@ import type {
   WorkflowManifest,
   WorkflowRun,
   WorkflowSelection,
+  WorkflowChainSource,
   WorkflowSuggestedAction,
   WorkflowStatus,
 } from "./types";
@@ -50,6 +53,68 @@ function evidenceBackedTakeaways(run: WorkflowRun) {
     .filter((item): item is string => Boolean(item));
   return items.length ? items : (run.result?.bullets || []);
 }
+
+
+
+function compactCopy(text: string, max = 320) {
+  const normalized = String(text || "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  return normalized.length > max ? `${normalized.slice(0, max).trimEnd()}…` : normalized;
+}
+
+function workflowTitleForId(catalog: WorkflowManifest[], workflowId?: string, fallback = "Workflow") {
+  if (!workflowId) return fallback;
+  return catalog.find((item) => item.workflow_id === workflowId)?.title || fallback;
+}
+
+function cleanLauncherInputs(inputs: Record<string, unknown> | undefined | null) {
+  const next = { ...(inputs || {}) };
+  delete next.workflow_chain;
+  return next;
+}
+
+function chainSourceFromRun(run: WorkflowRun | null | undefined, catalog: WorkflowManifest[]): WorkflowChainSource | null {
+  const raw = run?.inputs?.workflow_chain;
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const parentRunId = String(value.parent_run_id || "").trim();
+  const parentWorkflowId = String(value.parent_workflow_id || "").trim();
+  if (!parentRunId || !parentWorkflowId) return null;
+  const parentWorkflowTitle = String(value.parent_workflow_title || workflowTitleForId(catalog, parentWorkflowId, "Workflow")).trim();
+  return {
+    parent_run_id: parentRunId,
+    parent_workflow_id: parentWorkflowId,
+    parent_workflow_title: parentWorkflowTitle || "Workflow",
+    parent_title: String(value.parent_title || parentWorkflowTitle || "Previous run").trim(),
+    action_label: String(value.action_label || "").trim() || undefined,
+    summary: String(value.summary || "").trim() || undefined,
+    selection_label: String(value.selection_label || "").trim() || undefined,
+    source_file_count: Number(value.source_file_count || 0) || undefined,
+    source_folder_count: Number(value.source_folder_count || 0) || undefined,
+    parent_updated_at: String(value.parent_updated_at || "").trim() || undefined,
+  };
+}
+
+function chainSourceForAction(run: WorkflowRun, action: WorkflowSuggestedAction, catalog: WorkflowManifest[]): WorkflowChainSource {
+  return {
+    parent_run_id: run.id,
+    parent_workflow_id: run.workflow_id,
+    parent_workflow_title: workflowTitleForId(catalog, run.workflow_id, run.title),
+    parent_title: run.title,
+    action_label: action.label,
+    summary: compactCopy(run.result?.summary || ""),
+    selection_label: formatSelection(run),
+    source_file_count: run.selection.file_ids.length,
+    source_folder_count: run.selection.folder_paths.length,
+    parent_updated_at: run.updated_at,
+  };
+}
+
+type LauncherOptions = {
+  selection?: WorkflowSelection;
+  initialInputs?: Record<string, unknown>;
+  chainSource?: WorkflowChainSource | null;
+};
 
 function formatSelectionRequirements(workflow: WorkflowManifest) {
   const parts: string[] = [];
@@ -329,6 +394,9 @@ export default function WorkflowsPage() {
     () => summarizeWorkflowSelection({ file_ids: [], folder_paths: [], current_folder: "" }),
     []
   );
+  const [launcherSelection, setLauncherSelection] = useState(emptyLauncherSelection);
+  const [launcherInitialInputs, setLauncherInitialInputs] = useState<Record<string, unknown>>({});
+  const [launcherChainSource, setLauncherChainSource] = useState<WorkflowChainSource | null>(null);
 
   const loadPage = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
@@ -363,8 +431,11 @@ export default function WorkflowsPage() {
   }, [launcherFiles.length, launcherFilesLoading]);
 
   const openWorkflowLauncher = useCallback(
-    (workflow: WorkflowManifest) => {
+    (workflow: WorkflowManifest, options?: LauncherOptions) => {
       setActiveWorkflow(workflow);
+      setLauncherSelection(summarizeWorkflowSelection(options?.selection || { file_ids: [], folder_paths: [], current_folder: "" }));
+      setLauncherInitialInputs(cleanLauncherInputs(options?.initialInputs));
+      setLauncherChainSource(options?.chainSource || null);
       setWorkflowLauncherOpen(true);
       void ensureLauncherFilesLoaded();
     },
@@ -378,14 +449,22 @@ export default function WorkflowsPage() {
         const run = await createWorkflowRun({
           workflow_id: workflow.workflow_id,
           selection,
-          inputs,
+          inputs: {
+            ...inputs,
+            ...(launcherChainSource ? { workflow_chain: launcherChainSource } : {}),
+          },
         });
         setRuns((prev) => [run, ...prev.filter((item) => item.id !== run.id)].slice(0, 24));
         setSelectedRunId(run.id);
         setWorkflowLauncherOpen(false);
         setActiveWorkflow(null);
+        setLauncherSelection(emptyLauncherSelection);
+        setLauncherInitialInputs({});
+        setLauncherChainSource(null);
         toast.success(`${workflow.title} started`, {
-          description: "You can follow the run in the inbox and review the finished output here.",
+          description: launcherChainSource
+            ? "The chained run is now live in the inbox and linked to its source workflow."
+            : "You can follow the run in the inbox and review the finished output here.",
         });
       } catch (err) {
         console.error("[workflows] run error", err);
@@ -394,25 +473,25 @@ export default function WorkflowsPage() {
         setWorkflowSubmitting(false);
       }
     },
-    []
+    [emptyLauncherSelection, launcherChainSource]
   );
 
   const handleWorkflowAction = useCallback(
-    async (action: WorkflowSuggestedAction, selection: WorkflowSelection) => {
+    (action: WorkflowSuggestedAction, selection: WorkflowSelection, sourceRun: WorkflowRun) => {
       const workflow = catalog.find((item) => item.workflow_id === action.workflow_id);
       if (!workflow) {
         toast.error("That follow-up flow is not available right now.");
         return;
       }
-      await handleRunWorkflow(
-        workflow,
-        {
+      openWorkflowLauncher(workflow, {
+        selection,
+        initialInputs: {
           ...(action.focus ? { focus: action.focus } : {}),
         },
-        selection,
-      );
+        chainSource: chainSourceForAction(sourceRun, action, catalog),
+      });
     },
-    [catalog, handleRunWorkflow]
+    [catalog, openWorkflowLauncher]
   );
 
   useEffect(() => {
@@ -468,6 +547,7 @@ export default function WorkflowsPage() {
   }, [selectedRunId, visibleRuns]);
 
   const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
+  const selectedRunChainSource = useMemo(() => chainSourceFromRun(selectedRun, catalog), [catalog, selectedRun]);
 
   return (
     <div className="h-full min-h-0">
@@ -579,6 +659,28 @@ export default function WorkflowsPage() {
                             })()}
                           </div>
                           <div className="min-w-0 flex-1">
+                            {selectedRunChainSource ? (
+                              <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                                <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
+                                  <CornerDownRight className="mr-1 h-3 w-3" />
+                                  Chained run
+                                </Badge>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 text-left transition-colors hover:text-foreground"
+                                  onClick={() => {
+                                    if (runs.some((item) => item.id === selectedRunChainSource.parent_run_id)) {
+                                      setSelectedRunId(selectedRunChainSource.parent_run_id);
+                                    }
+                                  }}
+                                  disabled={!runs.some((item) => item.id === selectedRunChainSource.parent_run_id)}
+                                >
+                                  <span>{selectedRunChainSource.parent_workflow_title}</span>
+                                  <ChevronRight className="h-3 w-3" />
+                                  <span>{selectedRun.title}</span>
+                                </button>
+                              </div>
+                            ) : null}
                             <div className="text-lg font-semibold leading-7 text-foreground md:text-[1.35rem]">{selectedRun.title}</div>
                             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                               <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
@@ -589,6 +691,19 @@ export default function WorkflowsPage() {
                               <span>{selectedRun.selection.current_folder || "Root"}</span>
                             </div>
                             <p className="mt-4 max-w-3xl text-[15px] leading-7 text-foreground/90">{renderStatusCopy(selectedRun)}</p>
+                            {selectedRunChainSource ? (
+                              <div className="mt-4 max-w-3xl border border-border/70 bg-muted/15 px-3 py-3">
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Inherited from previous workflow</div>
+                                <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
+                                  <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{selectedRunChainSource.parent_title}</Badge>
+                                  {selectedRunChainSource.selection_label ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{selectedRunChainSource.selection_label}</Badge> : null}
+                                  {selectedRunChainSource.action_label ? <Badge variant="secondary" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{selectedRunChainSource.action_label}</Badge> : null}
+                                </div>
+                                {selectedRunChainSource.summary ? (
+                                  <p className="mt-2 text-sm leading-6 text-foreground/85">{selectedRunChainSource.summary}</p>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       </div>
@@ -599,7 +714,12 @@ export default function WorkflowsPage() {
                         className="h-9 rounded-none px-4 text-xs"
                         onClick={() => {
                           const workflow = catalog.find((item) => item.workflow_id === selectedRun.workflow_id);
-                          if (workflow) openWorkflowLauncher(workflow);
+                          if (workflow) {
+                            openWorkflowLauncher(workflow, {
+                              selection: selectedRun.selection,
+                              initialInputs: cleanLauncherInputs(selectedRun.inputs),
+                            });
+                          }
                         }}
                         disabled={!catalog.some((item) => item.workflow_id === selectedRun.workflow_id)}
                       >
@@ -645,6 +765,7 @@ export default function WorkflowsPage() {
                       <WorkflowResultDetails
                         result={selectedRun.result}
                         selection={selectedRun.selection}
+                        sourceRun={selectedRun}
                         onWorkflowAction={handleWorkflowAction}
                       />
                     ) : selectedRun.status === "failed" ? (
@@ -706,12 +827,22 @@ export default function WorkflowsPage() {
       <WorkflowLauncher
         open={workflowLauncherOpen}
         workflow={activeWorkflow}
-        selection={emptyLauncherSelection}
+        selection={launcherSelection}
         selectionMode="picker"
         availableFiles={launcherFiles}
         filesLoading={launcherFilesLoading}
         submitting={workflowSubmitting}
-        onOpenChange={setWorkflowLauncherOpen}
+        initialInputs={launcherInitialInputs}
+        chainSource={launcherChainSource}
+        onOpenChange={(open) => {
+          setWorkflowLauncherOpen(open);
+          if (!open) {
+            setActiveWorkflow(null);
+            setLauncherSelection(emptyLauncherSelection);
+            setLauncherInitialInputs({});
+            setLauncherChainSource(null);
+          }
+        }}
         onRun={handleRunWorkflow}
       />
     </div>

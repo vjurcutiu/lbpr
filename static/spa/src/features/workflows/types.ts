@@ -93,3 +93,16 @@ export type WorkflowSuggestedAction = {
   description?: string;
   kind?: string;
 };
+
+export type WorkflowChainSource = {
+  parent_run_id: string;
+  parent_workflow_id: string;
+  parent_workflow_title: string;
+  parent_title: string;
+  action_label?: string;
+  summary?: string;
+  selection_label?: string;
+  source_file_count?: number;
+  source_folder_count?: number;
+  parent_updated_at?: string;
+};
