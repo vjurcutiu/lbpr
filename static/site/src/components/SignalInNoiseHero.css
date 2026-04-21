@@ -232,7 +232,7 @@
   }
 
   .signal-hero__aside {
-    min-height: 26vh;
+    min-height: 20vh;
   }
 }
 
@@ -255,13 +255,22 @@
   }
 
   .signal-hero__inner {
-    min-height: 100svh;
-    padding-top: 6rem;
-    padding-bottom: 4rem;
+    min-height: auto;
+    gap: 1.5rem;
+    padding-top: calc(var(--header-height, 72px) + 1.25rem);
+    padding-bottom: 1.5rem;
+  }
+
+  .signal-hero__content {
+    gap: 1.1rem;
   }
 
   .signal-hero__title {
     max-width: 12ch;
+  }
+
+  .signal-hero__description {
+    line-height: 1.62;
   }
 
   .signal-hero__button {
@@ -270,14 +279,21 @@
 
   .signal-hero__metrics {
     grid-template-columns: 1fr;
+    gap: 0.8rem;
+    padding-top: 0.75rem;
   }
 
   .signal-hero__metric {
+    padding: 0.9rem 1rem;
     backdrop-filter: none;
   }
 
   .signal-hero__metric-value {
     white-space: normal;
+  }
+
+  .signal-hero__aside {
+    display: none;
   }
 }
 

@@ -742,6 +742,10 @@ a {
     padding: 5.25rem 0;
   }
 
+  #workflow.page-section--dense {
+    padding-top: 3.25rem;
+  }
+
   .cta-panel,
   .legal-card,
   .price-card,
