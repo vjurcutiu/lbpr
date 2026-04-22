@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 
@@ -447,3 +449,91 @@ def test_workflow_artifact_routes(auth_client, inline_workflow_jobs, stub_workfl
     recreated = save_again.json()
     assert recreated['id'] == artifact_id
     assert fake_workflow_firestore._docs[("users", "u_test", "workflow_artifacts", artifact_id)]['run_id'] == run['id']
+
+
+def test_workflow_artifact_exports_strip_internal_notes_sections():
+    artifact = workflow_service.WorkflowArtifact(
+        id='wf_art_test',
+        run_id='wf_run_test',
+        workflow_id='summarize_documents',
+        title='Client Summary',
+        capability='summarize',
+        file_name='client-summary.md',
+        content="""# Client Summary
+
+## Key points
+- Ready for review
+
+## Workflow notes
+- Keep this internal
+
+## Next actions
+- Share with the client
+
+## Source notes
+- Internal only
+""",
+        metadata={},
+    )
+
+    markdown_download = workflow_service.export_artifact_for_download(artifact, target_format='markdown')
+    markdown_text = markdown_download.content.decode('utf-8')
+    assert 'Workflow notes' not in markdown_text
+    assert 'Source notes' not in markdown_text
+    assert 'Keep this internal' not in markdown_text
+    assert 'Internal only' not in markdown_text
+    assert 'Share with the client' in markdown_text
+
+    txt_download = workflow_service.export_artifact_for_download(artifact, target_format='txt')
+    txt_text = txt_download.content.decode('utf-8')
+    assert 'Workflow notes' not in txt_text
+    assert 'Source notes' not in txt_text
+    assert 'Share with the client' in txt_text
+
+    docx_download = workflow_service.export_artifact_for_download(artifact, target_format='docx')
+    with ZipFile(BytesIO(docx_download.content)) as archive:
+        document_xml = archive.read('word/document.xml').decode('utf-8')
+    assert 'Workflow notes' not in document_xml
+    assert 'Source notes' not in document_xml
+    assert 'Keep this internal' not in document_xml
+    assert 'Internal only' not in document_xml
+    assert 'Share with the client' in document_xml
+
+
+def test_workflow_preview_keeps_warnings_internal(auth_client, inline_workflow_jobs, stub_workflow_sources, monkeypatch):
+    original_loader = workflow_service._load_source_documents
+
+    def _loader_with_warning(uid, selection, **kwargs):
+        docs, stats = original_loader(uid, selection, **kwargs)
+        patched = dict(stats)
+        patched['warnings'] = ['Used only part of the selection for internal workflow handling.']
+        return docs, patched
+
+    monkeypatch.setattr(workflow_service, '_load_source_documents', _loader_with_warning)
+
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'summarize_documents',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': ''},
+            'inputs': {'focus': 'client-ready summary'},
+        },
+    )
+    assert create.status_code == 202, create.text
+    run = create.json()
+
+    assert run['result']['metadata']['warnings'] == ['Used only part of the selection for internal workflow handling.']
+    assert 'Workflow notes' not in run['result']['preview_markdown']
+    assert 'internal workflow handling' not in run['result']['preview_markdown']
+
+    artifact_id = run['artifact']['id']
+    artifact = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}')
+    assert artifact.status_code == 200, artifact.text
+    artifact_payload = artifact.json()
+    assert 'Workflow notes' not in artifact_payload['content']
+    assert 'internal workflow handling' not in artifact_payload['content']
+
+    txt_download = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}/download?format=txt')
+    assert txt_download.status_code == 200, txt_download.text
+    assert b'Workflow notes' not in txt_download.content
+    assert b'internal workflow handling' not in txt_download.content

@@ -687,9 +687,6 @@ def draft_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Workfl
             {opening[0] if opening else 'This draft is based on the selected files.'}
 
             {' '.join(body_points[1:3]) if len(body_points) > 1 else 'Use the source material to expand this section with specific details.'}
-
-            ## Source notes
-            {'; '.join(_source_manifest_lines(sources[:4]))}
             """
         ).strip()
         return _result(

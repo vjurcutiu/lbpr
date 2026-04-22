@@ -39,7 +39,7 @@ from .models import (
     WorkflowSourceFile,
 )
 from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX
-from .exporting import ExportedArtifact, export_artifact
+from .exporting import ExportedArtifact, export_artifact, sanitize_export_markdown
 
 log = logging.getLogger("workflows.service")
 
@@ -97,7 +97,7 @@ def _build_artifact_content(run: WorkflowRun) -> str:
     if result is None:
         return ""
 
-    preview = str(result.preview_markdown or "").strip()
+    preview = sanitize_export_markdown(str(result.preview_markdown or "").strip())
     if preview:
         return preview
 
@@ -114,7 +114,7 @@ def _build_artifact_content(run: WorkflowRun) -> str:
     if next_actions:
         lines.extend(["", "## Next actions", *[f"- {item}" for item in next_actions]])
 
-    return "\n".join(lines).strip()
+    return sanitize_export_markdown("\n".join(lines).strip())
 
 
 def _build_artifact_from_run(run: WorkflowRun) -> WorkflowArtifact:
@@ -676,10 +676,9 @@ def _load_source_documents(
 
 
 def _append_preview_warnings(preview_markdown: str, warnings: list[str]) -> str:
-    if not warnings:
-        return preview_markdown
-    suffix = "\n\n## Workflow notes\n" + "\n".join(f"- {item}" for item in warnings)
-    return (preview_markdown or "").strip() + suffix
+    # Keep workflow warnings in metadata only. They are useful for internal review
+    # and telemetry, but should never be surfaced in customer-facing output.
+    return sanitize_export_markdown(preview_markdown)
 
 
 

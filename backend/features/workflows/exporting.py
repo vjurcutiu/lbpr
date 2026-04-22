@@ -20,6 +20,45 @@ from reportlab.platypus import ListFlowable, ListItem, Paragraph, SimpleDocTempl
 MarkdownExportFormat = Literal["markdown", "txt", "docx", "pdf"]
 
 
+
+_INTERNAL_SECTION_HEADINGS = {
+    "workflow notes",
+    "source notes",
+    "internal notes",
+    "app notes",
+}
+
+
+def sanitize_export_markdown(markdown: str) -> str:
+    text = str(markdown or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.split("\n")
+    cleaned: list[str] = []
+    skipping = False
+    skip_level = 0
+
+    for raw_line in lines:
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        heading_match = _HEADING_RE.match(stripped)
+        if heading_match:
+            level = len(heading_match.group(1))
+            heading_text = _strip_inline_markdown(heading_match.group(2)).strip().lower()
+            if skipping and level <= skip_level:
+                skipping = False
+                skip_level = 0
+            if heading_text in _INTERNAL_SECTION_HEADINGS:
+                skipping = True
+                skip_level = level
+                continue
+        if skipping:
+            continue
+        cleaned.append(line)
+
+    sanitized = "\n".join(cleaned)
+    sanitized = re.sub(r"\n{3,}", "\n\n", sanitized)
+    return sanitized.strip()
+
+
 @dataclass(slots=True)
 class ExportedArtifact:
     content: bytes
@@ -36,7 +75,7 @@ class MarkdownBlock:
 
 
 def export_artifact(*, title: str, markdown: str, file_stem: str, target_format: MarkdownExportFormat) -> ExportedArtifact:
-    normalized = _normalize_markdown(markdown)
+    normalized = _normalize_markdown(sanitize_export_markdown(markdown))
     if target_format == "markdown":
         return ExportedArtifact(
             content=normalized.encode("utf-8"),
