@@ -8,6 +8,8 @@ export type WorkflowCapability =
 
 export type WorkflowStatus = "queued" | "running" | "completed" | "failed";
 
+export type WorkflowArtifactFormat = "markdown" | "txt" | "docx" | "pdf";
+
 export type WorkflowSelectionRequirements = {
   min_total_items: number;
   max_total_items?: number | null;
@@ -62,7 +64,7 @@ export type WorkflowArtifactSummary = {
   title: string;
   capability: WorkflowCapability;
   file_name: string;
-  format: "markdown";
+  format: WorkflowArtifactFormat;
   content_type: string;
   byte_size: number;
   created_at: string;

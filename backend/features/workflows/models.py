@@ -16,7 +16,8 @@ WorkflowCapability = Literal[
     "plan",
 ]
 WorkflowStatus = Literal["queued", "running", "completed", "failed"]
-WorkflowArtifactFormat = Literal["markdown"]
+WorkflowArtifactFormat = Literal["markdown", "txt", "docx", "pdf"]
+WorkflowArtifactDownloadFormat = Literal["markdown", "txt", "docx", "pdf"]
 
 
 def utc_now() -> datetime:

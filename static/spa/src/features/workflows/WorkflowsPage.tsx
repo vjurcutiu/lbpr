@@ -27,6 +27,7 @@ import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
 import { getWorkflowIcon } from "./registry";
 import type {
   WorkflowCapability,
+  WorkflowArtifactFormat,
   WorkflowManifest,
   WorkflowRun,
   WorkflowSelection,
@@ -554,7 +555,7 @@ export default function WorkflowsPage() {
     }
   }, []);
 
-  const handleDownloadArtifact = useCallback(async (run: WorkflowRun) => {
+  const handleDownloadArtifact = useCallback(async (run: WorkflowRun, format: WorkflowArtifactFormat = "markdown") => {
     if (!run.result || run.status !== "completed") return;
     setArtifactBusyRunId(run.id);
     try {
@@ -563,8 +564,8 @@ export default function WorkflowsPage() {
         artifact = await saveWorkflowArtifact(run.id);
         setRuns((prev) => prev.map((item) => (item.id === run.id ? { ...item, artifact } : item)));
       }
-      await downloadWorkflowArtifact(artifact.id);
-      toast.success("Artifact download started", { description: artifact.file_name });
+      await downloadWorkflowArtifact(artifact.id, format);
+      toast.success("Artifact download started", { description: `${artifact.title} • ${format.toUpperCase()}` });
     } catch (err) {
       console.error("[workflows] download artifact error", err);
       toast.error("Failed to download artifact", { description: parseErr(err) });
@@ -962,7 +963,7 @@ export default function WorkflowsPage() {
                         artifact={selectedRun.artifact || null}
                         artifactBusy={artifactBusyRunId === selectedRun.id}
                         onSaveArtifact={() => { void handleSaveArtifact(selectedRun); }}
-                        onDownloadArtifact={() => { void handleDownloadArtifact(selectedRun); }}
+                        onDownloadArtifact={(format) => { void handleDownloadArtifact(selectedRun, format); }}
                         onWorkflowAction={handleWorkflowAction}
                       />
                     ) : selectedRun.status === "failed" ? (

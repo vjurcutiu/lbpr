@@ -29,6 +29,7 @@ from features.files.schemas import FileItem
 from . import toolkit as workflow_toolkit
 from .models import (
     WorkflowArtifact,
+    WorkflowArtifactDownloadFormat,
     WorkflowArtifactSummary,
     WorkflowManifest,
     WorkflowRun,
@@ -38,6 +39,7 @@ from .models import (
     WorkflowSourceFile,
 )
 from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX
+from .exporting import ExportedArtifact, export_artifact
 
 log = logging.getLogger("workflows.service")
 
@@ -155,6 +157,21 @@ def _build_artifact_from_run(run: WorkflowRun) -> WorkflowArtifact:
         created_at=created_at,
         updated_at=now,
     )
+
+
+def export_artifact_for_download(artifact: WorkflowArtifact, *, target_format: WorkflowArtifactDownloadFormat = "markdown") -> ExportedArtifact:
+    file_stem = _slugify_filename(artifact.title, fallback=artifact.workflow_id)
+    return export_artifact(
+        title=artifact.title,
+        markdown=artifact.content,
+        file_stem=file_stem,
+        target_format=target_format,
+    )
+
+
+def get_artifact_download(uid: str, artifact_id: str, *, target_format: WorkflowArtifactDownloadFormat = "markdown") -> ExportedArtifact:
+    artifact = get_artifact(uid, artifact_id)
+    return export_artifact_for_download(artifact, target_format=target_format)
 
 
 def _parse_datetime(value: Any) -> datetime:

@@ -420,6 +420,25 @@ def test_workflow_artifact_routes(auth_client, inline_workflow_jobs, stub_workfl
     assert download.status_code == 200, download.text
     assert 'attachment;' in download.headers['content-disposition']
     assert artifact_payload['content'].encode('utf-8') == download.content
+    assert download.headers['content-type'].startswith('text/markdown')
+
+    txt_download = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}/download?format=txt')
+    assert txt_download.status_code == 200, txt_download.text
+    assert txt_download.headers['content-type'].startswith('text/plain')
+    assert 'filename="summarize-documents.txt"' in txt_download.headers['content-disposition']
+    assert b'Key points' in txt_download.content or b'Quick brief' in txt_download.content
+
+    docx_download = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}/download?format=docx')
+    assert docx_download.status_code == 200, docx_download.text
+    assert docx_download.headers['content-type'].startswith('application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    assert 'filename="summarize-documents.docx"' in docx_download.headers['content-disposition']
+    assert docx_download.content[:4] == b'PK\x03\x04'
+
+    pdf_download = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}/download?format=pdf')
+    assert pdf_download.status_code == 200, pdf_download.text
+    assert pdf_download.headers['content-type'].startswith('application/pdf')
+    assert 'filename="summarize-documents.pdf"' in pdf_download.headers['content-disposition']
+    assert pdf_download.content.startswith(b'%PDF')
 
     fake_workflow_firestore._docs.pop(("users", "u_test", "workflow_artifacts", artifact_id), None)
     # Save again should recreate the artifact document and refresh the run summary.

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Download, Files, Save } from "lucide-react";
+import { ChevronDown, Download, Files, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
-import type { WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowSelection, WorkflowSuggestedAction } from "../types";
+import type { WorkflowArtifactFormat, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
 type SourceFileMeta = {
   file_id?: string;
@@ -80,9 +81,16 @@ type Props = {
   artifact?: WorkflowArtifactSummary | null;
   artifactBusy?: boolean;
   onSaveArtifact?: () => void;
-  onDownloadArtifact?: () => void;
+  onDownloadArtifact?: (format: WorkflowArtifactFormat) => void;
   onWorkflowAction?: (action: WorkflowSuggestedAction, selection: WorkflowSelection, sourceRun: WorkflowRun) => void;
 };
+
+const DOWNLOAD_FORMATS: Array<{ value: WorkflowArtifactFormat; label: string; helper: string }> = [
+  { value: "markdown", label: "Markdown (.md)", helper: "Best for editing or reusing in the app." },
+  { value: "txt", label: "Text (.txt)", helper: "Plain text for copy/paste and simple sharing." },
+  { value: "docx", label: "Word (.docx)", helper: "Formatted document for Word or Google Docs." },
+  { value: "pdf", label: "PDF (.pdf)", helper: "Polished shareable export for stakeholders." },
+];
 
 export function WorkflowResultDetails({ result, selection, sourceRun, artifact, artifactBusy = false, onSaveArtifact, onDownloadArtifact, onWorkflowAction }: Props) {
   const sourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
@@ -146,7 +154,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
                 {artifact
                   ? `${artifact.file_name} • ${Math.max(1, Math.round((artifact.byte_size || 0) / 1024))} KB`
-                  : "Persist this workflow output and make it downloadable as a markdown file."}
+                  : "Persist this workflow output and make it downloadable as markdown, text, Word, or PDF."}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -162,10 +170,31 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
                 </Button>
               ) : null}
               {onDownloadArtifact ? (
-                <Button size="sm" className="h-8 rounded-none px-3 text-xs" onClick={onDownloadArtifact} disabled={artifactBusy}>
-                  <Download className="mr-1 h-4 w-4" />
-                  {artifact ? "Download" : "Save & download"}
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" className="h-8 rounded-none px-3 text-xs" disabled={artifactBusy}>
+                      <Download className="mr-1 h-4 w-4" />
+                      {artifact ? "Download" : "Save & download"}
+                      <ChevronDown className="ml-1 h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-64 rounded-none">
+                    <DropdownMenuLabel className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Download format</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {DOWNLOAD_FORMATS.map((item) => (
+                      <DropdownMenuItem
+                        key={item.value}
+                        className="items-start rounded-none px-2 py-2"
+                        onSelect={() => onDownloadArtifact(item.value)}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium leading-5 text-foreground">{item.label}</div>
+                          <div className="text-[11px] leading-4 text-muted-foreground">{item.helper}</div>
+                        </div>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : null}
             </div>
           </div>

@@ -2,6 +2,7 @@ import { API_BASE, getJSON, postJSON } from "@/shared/api";
 import type {
   CreateWorkflowRunRequest,
   WorkflowArtifact,
+  WorkflowArtifactFormat,
   WorkflowManifest,
   WorkflowRun,
   WorkflowRunList,
@@ -40,8 +41,9 @@ function fileNameFromDisposition(value: string | null): string {
   return simpleMatch?.[1] || "workflow-output.md";
 }
 
-export async function downloadWorkflowArtifact(artifactId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/v1/workflows/artifacts/${encodeURIComponent(artifactId)}/download`, {
+export async function downloadWorkflowArtifact(artifactId: string, format: WorkflowArtifactFormat = "markdown"): Promise<void> {
+  const params = new URLSearchParams({ format });
+  const res = await fetch(`${API_BASE}/v1/workflows/artifacts/${encodeURIComponent(artifactId)}/download?${params.toString()}`, {
     credentials: "include",
   });
 

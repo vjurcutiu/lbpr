@@ -6,7 +6,7 @@ from fastapi.responses import Response
 from features.auth.deps import get_current_user
 from features.auth.models import SessionOut
 
-from .models import WorkflowArtifact, WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList
+from .models import WorkflowArtifact, WorkflowArtifactDownloadFormat, WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList
 from . import service
 
 router = APIRouter(prefix="/v1/workflows", tags=["workflows"])
@@ -46,10 +46,14 @@ def get_workflow_artifact(artifact_id: str, user: SessionOut = Depends(get_curre
 
 
 @router.get("/artifacts/{artifact_id}/download")
-def download_workflow_artifact(artifact_id: str, user: SessionOut = Depends(get_current_user)) -> Response:
-    artifact = service.get_artifact(user.uid, artifact_id)
+def download_workflow_artifact(
+    artifact_id: str,
+    format: WorkflowArtifactDownloadFormat = Query("markdown"),
+    user: SessionOut = Depends(get_current_user),
+) -> Response:
+    exported = service.get_artifact_download(user.uid, artifact_id, target_format=format)
     return Response(
-        content=artifact.content,
-        media_type=artifact.content_type,
-        headers={"Content-Disposition": f'attachment; filename="{artifact.file_name}"'},
+        content=exported.content,
+        media_type=exported.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{exported.file_name}"'},
     )
