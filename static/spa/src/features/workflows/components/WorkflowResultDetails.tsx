@@ -1,9 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Copy, Download, Files, Save, TriangleAlert } from "lucide-react";
-import { toast } from "sonner";
-
+import { Download, Files, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -90,7 +86,6 @@ type Props = {
 
 export function WorkflowResultDetails({ result, selection, sourceRun, artifact, artifactBusy = false, onSaveArtifact, onDownloadArtifact, onWorkflowAction }: Props) {
   const sourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
-  const warnings = asArray<string>(result.metadata?.warnings).filter(Boolean);
   const fields = asArray<FieldMeta>(result.metadata?.fields);
   const differences = asArray<DifferenceMeta>(result.metadata?.differences);
   const planItems = asArray<PlanItemMeta>(result.metadata?.plan_items);
@@ -132,21 +127,12 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
       }))
       .filter((action) => action.label && action.workflow_id);
   }, [result.metadata]);
-  const preview = (result.preview_markdown || "").trim();
 
   useEffect(() => {
     setActiveLayer(defaultLayer);
   }, [defaultLayer, result]);
 
-  const copyPreview = async () => {
-    if (!preview) return;
-    try {
-      await navigator.clipboard.writeText(preview);
-      toast.success("Output copied");
-    } catch {
-      toast.error("Could not copy the output");
-    }
-  };
+
 
   return (
     <div className="space-y-3">
@@ -185,25 +171,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
           </div>
         </Section>
       )}
-      {!!warnings.length && (
-        <div className="border border-amber-500/20 bg-amber-500/8 px-3 py-3">
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800 dark:text-amber-200">
-            <TriangleAlert className="h-3 w-3" />
-            Notes
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {warnings.map((warning) => (
-              <Badge
-                key={warning}
-                variant="outline"
-                className="whitespace-normal rounded-none px-1.5 py-0 text-left text-[10px] font-normal text-amber-900 dark:text-amber-100"
-              >
-                {warning}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
+
 
       {!!summaryLayers.length && (
         <Section title="Layered briefing">
@@ -355,21 +323,6 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
         </Section>
       )}
 
-      {preview ? (
-        <Section title="Output preview">
-          <div className="mb-2 flex items-center justify-end">
-            <Button variant="outline" size="sm" className="h-8 rounded-none px-3 text-xs" onClick={copyPreview}>
-              <Copy className="mr-1 h-4 w-4" />
-              Copy
-            </Button>
-          </div>
-          <div className="border border-border/70 px-3 py-3 text-sm leading-6">
-            <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:mb-2 prose-headings:mt-3 prose-p:my-2 prose-li:my-0.5 prose-ul:my-2">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{preview}</ReactMarkdown>
-            </div>
-          </div>
-        </Section>
-      ) : null}
     </div>
   );
 }
