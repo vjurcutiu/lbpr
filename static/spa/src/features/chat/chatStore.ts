@@ -10,6 +10,10 @@ type StoredShape = {
 
 type MessageListener = (id: string, msgs: ChatTurn[]) => void;
 type ConversationListener = (conversations: ConversationMeta[]) => void;
+type MessageSubscriptionMeta = {
+  source: "cache" | "remote" | "fallback";
+  hasCache: boolean;
+};
 
 const MESSAGE_LISTENERS: Record<string, Set<MessageListener>> = {};
 const CONVERSATION_LISTENERS: Record<string, Set<ConversationListener>> = {};
@@ -61,6 +65,10 @@ function setConversationsCache(ns: string, conversations: ConversationMeta[]) {
 function setMessagesCache(ns: string, id: string, msgs: ChatTurn[]) {
   const state = getState(ns);
   state.messages[id] = [...msgs].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+}
+
+function hasMessagesCache(ns: string, id: string) {
+  return Object.prototype.hasOwnProperty.call(getState(ns).messages, id);
 }
 
 function emitMessages(ns: string, id: string) {
@@ -255,15 +263,23 @@ export async function deleteConversation(ns: string, id: string): Promise<void> 
   broadcastChange(ns);
 }
 
-export function subscribeMessages(ns: string, id: string, cb: (msgs: ChatTurn[]) => void): () => void {
+export function subscribeMessages(ns: string, id: string, cb: (msgs: ChatTurn[], meta: MessageSubscriptionMeta) => void): () => void {
   const set = (MESSAGE_LISTENERS[ns] = MESSAGE_LISTENERS[ns] || new Set());
   const wrapper = (_id: string, msgs: ChatTurn[]) => {
-    if (_id === id) cb(msgs);
+    if (_id === id) {
+      cb(msgs, {
+        source: "remote",
+        hasCache: true,
+      });
+    }
   };
 
   const sync = () => {
     void refreshMessages(ns, id).catch(() => {
-      cb(getState(ns).messages[id] || []);
+      cb(getState(ns).messages[id] || [], {
+        source: "fallback",
+        hasCache: hasMessagesCache(ns, id),
+      });
     });
   };
 
@@ -276,7 +292,10 @@ export function subscribeMessages(ns: string, id: string, cb: (msgs: ChatTurn[])
   };
 
   set.add(wrapper);
-  cb(getState(ns).messages[id] || []);
+  cb(getState(ns).messages[id] || [], {
+    source: "cache",
+    hasCache: hasMessagesCache(ns, id),
+  });
   sync();
 
   const timer = typeof window !== "undefined" ? window.setInterval(sync, REFRESH_INTERVAL_MS) : null;
@@ -294,6 +313,10 @@ export function subscribeMessages(ns: string, id: string, cb: (msgs: ChatTurn[])
       window.removeEventListener("storage", handleStorage);
     }
   };
+}
+
+export function hasCachedMessages(ns: string, id: string): boolean {
+  return hasMessagesCache(ns, id);
 }
 
 export function subscribeConversations(ns: string, cb: (conversations: ConversationMeta[]) => void): () => void {

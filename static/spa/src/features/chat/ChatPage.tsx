@@ -12,6 +12,7 @@ import {
   appendMessage,
   createConversation,
   ensureConversation,
+  hasCachedMessages,
   renameConversation,
   subscribeConversations,
   subscribeMessages,
@@ -81,6 +82,7 @@ export default function ChatPage() {
 
   // Persisted "assistant is typing" flag (survives route changes)
   const [persistedTyping, setPersistedTyping] = useState(false);
+  const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null);
 
   const [sessions, setSessions] = useState<ConversationMeta[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -105,6 +107,7 @@ export default function ChatPage() {
       setSessionId(null);
       setMessages([]);
       setPersistedTyping(false);
+      setLoadingThreadId(null);
       return;
     }
 
@@ -124,10 +127,16 @@ export default function ChatPage() {
     if (!sessionId) {
       setMessages([]);
       setPersistedTyping(false);
+      setLoadingThreadId(null);
       return;
     }
-    const unsub = subscribeMessages(effectiveNs, sessionId, (msgs) => {
+    const hasCachedThread = hasCachedMessages(effectiveNs, sessionId);
+    setLoadingThreadId(hasCachedThread ? null : sessionId);
+    const unsub = subscribeMessages(effectiveNs, sessionId, (msgs, meta) => {
       setMessages(msgs.map((m, i) => ({ ...m, id: `${i}` })));
+      if (meta.source !== "cache" || meta.hasCache) {
+        setLoadingThreadId((current) => (current === sessionId ? null : current));
+      }
       // If any non-user message arrives while we thought the assistant was typing, clear the persisted flag.
       const last = msgs[msgs.length - 1];
       if (last && last.role !== "user") {
@@ -162,6 +171,7 @@ export default function ChatPage() {
       setMessages([]);
       setInput("");
       setPersistedTyping(false);
+      setLoadingThreadId(null);
     } catch (e) {
       console.error("[chat] createConversation error", e);
     }
@@ -170,6 +180,7 @@ export default function ChatPage() {
   const switchSession = useCallback(
     (id: string) => {
       if (id === sessionId) return;
+      setLoadingThreadId(hasCachedMessages(effectiveNs, id) ? null : id);
       setSessionId(id);
       setInput("");
       // refresh persisted flag for the selected session
@@ -266,6 +277,7 @@ export default function ChatPage() {
   };
 
   const hasThread = messages.length > 0;
+  const isThreadLoading = !!sessionId && loadingThreadId === sessionId;
   // Smaller composer font + height (chat window only)
   const composerTextClass = "text-left placeholder:text-left text-[14px] leading-[1.35] h-11 py-2.5";
   const isAssistantTyping = sending || persistedTyping;
@@ -291,7 +303,9 @@ export default function ChatPage() {
 
       <div className="flex-1 min-h-0 min-w-0 flex flex-col">
         <div ref={listRef} className="flex-1 overflow-auto bg-background">
-          {!hasThread ? (
+          {isThreadLoading ? (
+            <ConversationLoadingState />
+          ) : !hasThread ? (
             <EmptyState
               heroValue={input}
               onHeroChange={setInput}
@@ -848,6 +862,41 @@ function EmptyState({
             <kbd className="px-1 py-0.5 bg-muted rounded">Shift</kbd>+
             <kbd className="px-1 py-0.5 bg-muted rounded">Enter</kbd> for a new line.
           </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConversationLoadingState() {
+  return (
+    <div
+      className="flex h-full min-h-[22rem] items-center justify-center px-4 py-8"
+      aria-label="Loading conversation"
+      role="status"
+    >
+      <div className="w-full max-w-3xl rounded-[28px] border border-border/80 bg-card/80 p-5 shadow-sm backdrop-blur-sm">
+        <div className="flex items-center gap-3 border-b border-border/70 pb-4">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[hsl(var(--chat-action-border))] bg-[hsl(var(--chat-action-bg))] text-[hsl(var(--chat-action-foreground-strong))] shadow-sm">
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-foreground">Opening conversation</div>
+            <div className="mt-1 text-xs text-muted-foreground">Loading the saved thread before we swap the view.</div>
+          </div>
+        </div>
+
+        <div className="space-y-4 pt-5">
+          <div className="flex justify-end">
+            <div className="h-16 w-[68%] animate-pulse rounded-3xl border border-[hsl(var(--chat-user-border))] bg-[hsl(var(--chat-user-bg))]/80" />
+          </div>
+          <div className="flex items-start gap-3">
+            <div className="mt-1 h-9 w-9 shrink-0 animate-pulse rounded-2xl border border-border/70 bg-muted/70" />
+            <div className="min-w-0 flex-1 space-y-3">
+              <div className="h-20 w-[88%] animate-pulse rounded-3xl border border-border/70 bg-muted/60" />
+              <div className="h-16 w-[72%] animate-pulse rounded-3xl border border-border/70 bg-muted/50" />
+            </div>
+          </div>
         </div>
       </div>
     </div>
