@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, Circle, Copy, Download, Files, GitBranch, History, Save, SendHorizontal } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
+import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, Save, SendHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -156,6 +156,7 @@ function VersionHistoryPanel({
   const [treeOpen, setTreeOpen] = useState(false);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const panDragRef = useRef({ active: false, lastX: 0, lastY: 0 });
   const orderedVersions = useMemo(() => sortedVersions(versions), [versions]);
   const activeVersion = orderedVersions.find((version) => version.id === activeVersionId) || orderedVersions[orderedVersions.length - 1];
@@ -170,13 +171,40 @@ function VersionHistoryPanel({
   }, [orderedVersions]);
 
   const graphNodeById = useMemo(() => new Map(graphNodes.map((node) => [node.version.id, node])), [graphNodes]);
-  const graphColumnGap = 104;
-  const graphRowGap = 72;
-  const graphLeft = 120;
-  const graphTop = 96;
+  const graphColumnGap = 96;
+  const graphRowGap = 64;
+  const graphPaddingX = 980;
+  const graphPaddingY = 760;
+  const graphLeft = graphPaddingX;
+  const graphTop = graphPaddingY;
   const graphMaxDepth = graphNodes.reduce((max, node) => Math.max(max, node.depth), 0);
-  const graphWidth = Math.max(980, graphLeft * 2 + graphMaxDepth * graphColumnGap + 240);
-  const graphHeight = Math.max(620, graphTop * 2 + Math.max(0, graphNodes.length - 1) * graphRowGap);
+  const graphWidth = Math.max(2600, graphLeft * 2 + graphMaxDepth * graphColumnGap + 360);
+  const graphHeight = Math.max(1900, graphTop * 2 + Math.max(0, graphNodes.length - 1) * graphRowGap + 260);
+
+  const getNodePosition = useCallback((node: { depth: number; row: number }) => ({
+    x: graphLeft + node.depth * graphColumnGap,
+    y: graphTop + node.row * graphRowGap,
+  }), [graphColumnGap, graphLeft, graphRowGap, graphTop]);
+
+  const centerVersion = useCallback((version = activeVersion) => {
+    if (!version || !viewportRef.current) return;
+
+    const node = graphNodeById.get(version.id);
+    if (!node) return;
+
+    const { x, y } = getNodePosition(node);
+    setPanOffset({
+      x: viewportRef.current.clientWidth / 2 - x,
+      y: viewportRef.current.clientHeight / 2 - y,
+    });
+  }, [activeVersion, getNodePosition, graphNodeById]);
+
+  useEffect(() => {
+    if (!treeOpen) return undefined;
+
+    const frame = window.requestAnimationFrame(() => centerVersion(activeVersion));
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeVersion, centerVersion, treeOpen]);
 
   const openVersion = (version: WorkflowRunVersion) => {
     if (version.id !== activeVersion?.id) {
@@ -298,17 +326,32 @@ function VersionHistoryPanel({
       </div>
 
       <Dialog open={treeOpen} onOpenChange={setTreeOpen}>
-        <DialogContent className="flex max-h-[94vh] w-[98vw] max-w-[1500px] flex-col overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_90px_rgba(15,23,42,0.22)]">
+        <DialogContent className="flex max-h-[96vh] w-[98vw] max-w-[1800px] flex-col overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_90px_rgba(15,23,42,0.22)]">
           <DialogHeader className="border-b border-border/70 px-7 pt-6 pb-4">
-            <DialogTitle className="text-xl font-semibold">Version map</DialogTitle>
-            <DialogDescription>
-              Hover over a dot to see the version name. Click a dot to open that version. Drag empty space to move around the map.
-            </DialogDescription>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <DialogTitle className="text-xl font-semibold">Version map</DialogTitle>
+                <DialogDescription className="mt-1">
+                  Hover over a dot to see the version name. Click a dot to open that version. Drag empty space to move around the map.
+                </DialogDescription>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 shrink-0 rounded-full px-3 text-xs"
+                onClick={() => centerVersion()}
+              >
+                <Crosshair className="mr-1.5 h-3.5 w-3.5" />
+                Center current
+              </Button>
+            </div>
           </DialogHeader>
 
           <div
+            ref={viewportRef}
             className={cn(
-              "h-[76vh] min-h-[560px] flex-1 overflow-hidden bg-muted/10 p-6 select-none touch-none",
+              "relative h-[80vh] min-h-[620px] flex-1 overflow-hidden bg-muted/10 select-none touch-none",
               isPanning ? "cursor-grabbing" : "cursor-grab"
             )}
             onPointerDown={startPan}
@@ -317,7 +360,7 @@ function VersionHistoryPanel({
             onPointerCancel={stopPan}
           >
             <div
-              className="relative rounded-3xl border border-border/70 bg-background/95 shadow-sm transition-shadow"
+              className="absolute left-0 top-0 will-change-transform"
               style={{ width: graphWidth, height: graphHeight, transform: `translate(${panOffset.x}px, ${panOffset.y}px)` }}
             >
               <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
@@ -325,10 +368,8 @@ function VersionHistoryPanel({
                   if (!node.version.parent_version_id) return null;
                   const parent = graphNodeById.get(node.version.parent_version_id);
                   if (!parent) return null;
-                  const x1 = graphLeft + parent.depth * graphColumnGap;
-                  const y1 = graphTop + parent.row * graphRowGap;
-                  const x2 = graphLeft + node.depth * graphColumnGap;
-                  const y2 = graphTop + node.row * graphRowGap;
+                  const { x: x1, y: y1 } = getNodePosition(parent);
+                  const { x: x2, y: y2 } = getNodePosition(node);
                   const midX = x1 + Math.max(28, (x2 - x1) / 2);
                   return (
                     <path
@@ -344,8 +385,7 @@ function VersionHistoryPanel({
               {graphNodes.map((node) => {
                 const active = node.version.id === activeVersion?.id;
                 const busy = versionBusyId === node.version.id;
-                const x = graphLeft + node.depth * graphColumnGap;
-                const y = graphTop + node.row * graphRowGap;
+                const { x, y } = getNodePosition(node);
                 return (
                   <div
                     key={node.version.id}
@@ -363,14 +403,14 @@ function VersionHistoryPanel({
                           disabled={busy}
                           onClick={() => openVersion(node.version)}
                           className={cn(
-                            "group relative grid h-8 w-8 place-items-center rounded-full border bg-background shadow-sm transition-all hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70",
+                            "group relative grid h-7 w-7 place-items-center rounded-full border bg-background shadow-sm transition-all hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70",
                             active ? "border-primary bg-primary/10 ring-4 ring-primary/15" : "border-border hover:border-primary/50"
                           )}
                         >
                           <span
                             className={cn(
-                              "h-2.5 w-2.5 rounded-full bg-muted-foreground/45 transition-colors group-hover:bg-primary",
-                              node.version.kind === "branch" && "h-3 w-3",
+                              "h-2 w-2 rounded-full bg-muted-foreground/45 transition-colors group-hover:bg-primary",
+                              node.version.kind === "branch" && "h-2.5 w-2.5",
                               active && "bg-primary"
                             )}
                           />
