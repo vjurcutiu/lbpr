@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, RotateCcw, Save, SendHorizontal } from "lucide-react";
+import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, RefreshCw, Save, SendHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -574,44 +574,12 @@ function VersionHistoryPanel({
 
       <Dialog open={treeOpen} onOpenChange={setTreeOpen}>
         <DialogContent className="flex max-h-[96vh] w-[98vw] max-w-[1800px] flex-col overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_90px_rgba(15,23,42,0.22)]">
-          <DialogHeader className="border-b border-border/70 px-7 pt-6 pb-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0">
-                <DialogTitle className="text-xl font-semibold">Version map</DialogTitle>
-                <DialogDescription className="mt-1">
-                  Drag dots to organize the map. Click a dot to open it, or click a label to rename it.
-                </DialogDescription>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9 shrink-0 rounded-full px-3 text-xs"
-                  onClick={() => centerVersion()}
-                >
-                  <Crosshair className="mr-1.5 h-3.5 w-3.5" />
-                  Center current
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-9 shrink-0 rounded-full px-3 text-xs"
-                  disabled={!onResetVersionLayout || resettingLayout}
-                  onClick={() => { void resetLayout(); }}
-                >
-                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                  {resettingLayout ? "Resetting…" : "Reset layout"}
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
+          <DialogTitle className="sr-only">Version map</DialogTitle>
 
           <div
             ref={viewportRef}
             className={cn(
-              "relative h-[80vh] min-h-[620px] flex-1 overflow-hidden bg-muted/10 select-none touch-none",
+              "relative h-[92vh] min-h-[620px] flex-1 overflow-hidden bg-muted/10 select-none touch-none",
               isPanning ? "cursor-grabbing" : "cursor-grab"
             )}
             onPointerDown={startPan}
@@ -757,6 +725,48 @@ function VersionHistoryPanel({
                   </div>
                 );
               })}
+            </div>
+
+            <div
+              className="absolute bottom-5 right-5 z-20 flex flex-col gap-2 sm:flex-row"
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="h-11 w-11 rounded-full border border-border/70 bg-background/95 shadow-lg backdrop-blur transition hover:scale-105"
+                    aria-label="Center current version"
+                    onClick={() => centerVersion()}
+                  >
+                    <Crosshair className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left" sideOffset={8} className="rounded-xl px-3 py-2 text-xs shadow-lg">
+                  Center current
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="h-11 w-11 rounded-full border border-border/70 bg-background/95 shadow-lg backdrop-blur transition hover:scale-105 disabled:opacity-60"
+                    aria-label={resettingLayout ? "Resetting version map layout" : "Reset version map layout"}
+                    disabled={!onResetVersionLayout || resettingLayout}
+                    onClick={() => { void resetLayout(); }}
+                  >
+                    <RefreshCw className={cn("h-4 w-4", resettingLayout && "animate-spin")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left" sideOffset={8} className="rounded-xl px-3 py-2 text-xs shadow-lg">
+                  {resettingLayout ? "Resetting" : "Reset layout"}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </DialogContent>
