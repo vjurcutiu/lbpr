@@ -45,9 +45,9 @@ function fakeLimits(plan: "FREE" | "PRO") {
   return {
     plan,
     window: "202510",
-    caps: { messages: plan === "PRO" ? 10000 : 200, upload_tokens: plan === "PRO" ? 20000000 : 200000 },
-    usage: { messages: 3, upload_tokens: 1234 },
-    remaining: { messages: plan === "PRO" ? 9997 : 197, upload_tokens: plan === "PRO" ? (20000000-1234) : (200000-1234) },
+    caps: { messages: plan === "PRO" ? 2000 : 200, upload_tokens: plan === "PRO" ? 20000000 : 200000, workflow_tokens: plan === "PRO" ? 5000000 : 200000 },
+    usage: { messages: 3, upload_tokens: 1234, workflow_tokens: 4567 },
+    remaining: { messages: plan === "PRO" ? 1997 : 197, upload_tokens: plan === "PRO" ? (20000000-1234) : (200000-1234), workflow_tokens: plan === "PRO" ? (5000000-4567) : (200000-4567) },
   };
 }
 
@@ -113,8 +113,9 @@ describe("BillingPage — usage tier upgrades", () => {
     render(<BillingPage />);
 
     expect(await screen.findByText(/Messages/i)).toBeInTheDocument();
-    expect(screen.getByText(/10,000/)).toBeInTheDocument();
+    expect(screen.getByText(/2,000/)).toBeInTheDocument();
     expect(screen.getByText(/20,000,000/)).toBeInTheDocument();
+    expect(screen.getByText(/5,000,000/)).toBeInTheDocument();
 
     const btn = await getProButton();
     expect(btn).toBeDisabled();

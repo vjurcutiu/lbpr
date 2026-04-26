@@ -14,10 +14,10 @@ async def test_limits_me_is_no_store(monkeypatch):
 
     def fake_plan_limits(plan: str):
         return {
-            "messages": 10000,
+            "messages": 2000,
             "file_processing_tokens": 20000000,
             "upload_tokens": 20000000,
-            "workflow_tokens": 20000000,
+            "workflow_tokens": 5000000,
             "transcribe_seconds": 60000,
             "ocr_images": 1000,
         }
@@ -51,7 +51,7 @@ async def test_limits_me_is_no_store(monkeypatch):
 @pytest.mark.asyncio
 async def test_limits_sync_is_no_store(monkeypatch):
     async def fake_sync(uid: str):
-        return {"plan": "PRO", "caps": {"messages": 10000}}
+        return {"plan": "PRO", "caps": {"messages": 2000}}
 
     async def fake_usage_snapshot(uid: str):
         return {"period_id": "0", "messages_used": 0}

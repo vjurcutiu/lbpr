@@ -338,7 +338,7 @@ export default function BillingPage() {
           <ul className="text-sm space-y-2 mb-6 flex-1">
             <li>• 50 messages</li>
             <li>• 100,000 file upload tokens (≈75 pages)</li>
-            <li>• Separate workflow token allowance</li>
+            <li>• 200,000 workflow tokens</li>
             <li>• 5 minutes transcription</li>
             <li>• 5 OCR images</li>
             <li>• Get started — no credit card</li>
@@ -380,9 +380,9 @@ export default function BillingPage() {
           </div>
           {/* features */}
           <ul className="text-sm space-y-2 mb-6 flex-1">
-            <li>• 10,000 messages / month</li>
+            <li>• 2,000 messages / month</li>
             <li>• 20,000,000 file upload tokens (≈15,000 pages) / month</li>
-            <li>• Separate workflow token allowance / month</li>
+            <li>• 5,000,000 workflow tokens / month</li>
             <li>• 1,000 minutes transcription / month</li>
             <li>• 1,000 OCR images / month</li>
             <li>• Pseudonymization to protect sensitive data (PII)</li>

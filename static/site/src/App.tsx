@@ -31,8 +31,9 @@ type ComparisonRow = {
 };
 
 const comparisonRows: ComparisonRow[] = [
-  { label: 'Messages', free: '50 included', pro: '10,000 per month' },
+  { label: 'Messages', free: '50 included', pro: '2,000 per month' },
   { label: 'Uploads', free: '100,000 tokens (~75 pages)', pro: '20,000,000 tokens (~15,000 pages)' },
+  { label: 'Workflow tokens', free: '200,000 per month', pro: '5,000,000 per month' },
   { label: 'Transcription', free: '5 minutes', pro: '1,000 minutes per month' },
   { label: 'OCR', free: '5 images', pro: '1,000 images per month' },
   { label: 'Privacy support', free: 'Standard workspace controls', pro: 'PII pseudonymization' },
@@ -336,7 +337,7 @@ function HomePage() {
                 features={[
                   '50 messages',
                   '100,000 file upload tokens (≈75 pages)',
-                  'Separate workflow token allowance',
+                  '200,000 workflow tokens',
                   '5 minutes of transcription',
                   '5 OCR images',
                   'Create an account and get started right away',
@@ -351,9 +352,9 @@ function HomePage() {
                 period="billing"
                 summary="More capacity, stronger privacy features, and direct support for teams using it every day."
                 features={[
-                  '10,000 messages per month',
+                  '2,000 messages per month',
                   '20,000,000 file upload tokens (≈15,000 pages) per month',
-                  'Separate workflow token allowance per month',
+                  '5,000,000 workflow tokens per month',
                   '1,000 minutes of transcription per month',
                   '1,000 OCR images per month',
                   'PII pseudonymization and phone + email support (≤24h SLA)',
