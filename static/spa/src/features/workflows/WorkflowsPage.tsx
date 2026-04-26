@@ -40,9 +40,11 @@ import {
   refineWorkflowRun,
   renameWorkflowRun,
   renameWorkflowRunVersion,
+  resetWorkflowRunVersionLayout,
   saveWorkflowArtifact,
   saveWorkflowVersionArtifact,
   selectWorkflowRunVersion,
+  updateWorkflowRunVersionLayout,
 } from "./api";
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails } from "./components/WorkflowResultDetails";
@@ -691,6 +693,31 @@ export default function WorkflowsPage() {
     }
   }, [selectRun]);
 
+  const handleMoveVersion = useCallback(async (run: WorkflowRun, version: WorkflowRunVersion, position: { x: number; y: number }) => {
+    try {
+      const updated = await updateWorkflowRunVersionLayout(run.id, version.id, position);
+      setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      selectRun(updated.id);
+    } catch (err) {
+      console.error("[workflows] move version node error", err);
+      toast.error("Failed to save map position", { description: parseErr(err) });
+      throw err;
+    }
+  }, [selectRun]);
+
+  const handleResetVersionLayout = useCallback(async (run: WorkflowRun) => {
+    try {
+      const updated = await resetWorkflowRunVersionLayout(run.id);
+      setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      selectRun(updated.id);
+      toast.success("Version map reset");
+    } catch (err) {
+      console.error("[workflows] reset version map error", err);
+      toast.error("Failed to reset version map", { description: parseErr(err) });
+      throw err;
+    }
+  }, [selectRun]);
+
   const handleDownloadVersion = useCallback(async (run: WorkflowRun, version: WorkflowRunVersion, format: WorkflowArtifactFormat = "markdown") => {
     setVersionBusyId(version.id);
     try {
@@ -1224,6 +1251,8 @@ export default function WorkflowsPage() {
                         onDownloadArtifact={(format) => { void handleDownloadArtifact(selectedRun, format); }}
                         onSelectVersion={(version) => { void handleSelectVersion(selectedRun, version); }}
                         onRenameVersion={(version, label) => handleRenameVersion(selectedRun, version, label)}
+                        onMoveVersion={(version, position) => handleMoveVersion(selectedRun, version, position)}
+                        onResetVersionLayout={() => handleResetVersionLayout(selectedRun)}
                         onDownloadVersion={(version, format) => { void handleDownloadVersion(selectedRun, version, format); }}
                         onBranchVersion={(version) => openBranchDialog(selectedRun, version)}
                         onRefine={(prompt) => { void handleRefineRun(selectedRun, prompt); }}

@@ -87,6 +87,11 @@ class WorkflowRunVersionLabelUpdate(BaseModel):
     label: str = Field(..., min_length=1, max_length=120)
 
 
+class WorkflowRunVersionLayoutUpdate(BaseModel):
+    x: float = Field(..., ge=-100_000, le=100_000)
+    y: float = Field(..., ge=-100_000, le=100_000)
+
+
 class WorkflowRunRefineRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=2000)
     base_version_id: str | None = None
@@ -146,6 +151,8 @@ class WorkflowRunVersion(BaseModel):
     version_number: int = 1
     title: str
     label: str | None = None
+    layout_x: float | None = None
+    layout_y: float | None = None
     kind: Literal["original", "refinement", "branch"] = "original"
     prompt: str | None = None
     result: WorkflowResult

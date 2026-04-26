@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, Save, SendHorizontal } from "lucide-react";
+import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, RotateCcw, Save, SendHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -125,6 +125,8 @@ type Props = {
   onDownloadArtifact?: (format: WorkflowArtifactFormat) => void;
   onSelectVersion?: (version: WorkflowRunVersion) => void;
   onRenameVersion?: (version: WorkflowRunVersion, label: string) => void | Promise<void>;
+  onMoveVersion?: (version: WorkflowRunVersion, position: { x: number; y: number }) => void | Promise<void>;
+  onResetVersionLayout?: () => void | Promise<void>;
   onDownloadVersion?: (version: WorkflowRunVersion, format: WorkflowArtifactFormat) => void;
   onBranchVersion?: (version: WorkflowRunVersion) => void;
   onRefine?: (prompt: string) => void;
@@ -144,6 +146,18 @@ type VersionHistoryPanelProps = {
   versionBusyId?: string | null;
   onSelectVersion?: (version: WorkflowRunVersion) => void;
   onRenameVersion?: (version: WorkflowRunVersion, label: string) => void | Promise<void>;
+  onMoveVersion?: (version: WorkflowRunVersion, position: { x: number; y: number }) => void | Promise<void>;
+  onResetVersionLayout?: () => void | Promise<void>;
+};
+
+type VersionNodePosition = { x: number; y: number };
+
+type VersionGraphNode = {
+  version: WorkflowRunVersion;
+  row: number;
+  depth: number;
+  x: number;
+  y: number;
 };
 
 function versionDisplayName(version: WorkflowRunVersion) {
@@ -154,48 +168,117 @@ function versionMapLabel(version: WorkflowRunVersion) {
   return String(version.label || versionLabel(version)).trim();
 }
 
+function savedVersionPosition(version: WorkflowRunVersion): VersionNodePosition | null {
+  const x = Number(version.layout_x);
+  const y = Number(version.layout_y);
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
 function VersionHistoryPanel({
   versions,
   activeVersionId,
   versionBusyId,
   onSelectVersion,
   onRenameVersion,
+  onMoveVersion,
+  onResetVersionLayout,
 }: VersionHistoryPanelProps) {
   const [treeOpen, setTreeOpen] = useState(false);
   const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
   const [versionLabelDraft, setVersionLabelDraft] = useState("");
+  const [localNodePositions, setLocalNodePositions] = useState<Record<string, VersionNodePosition>>({});
+  const [draggingVersionId, setDraggingVersionId] = useState<string | null>(null);
+  const [resettingLayout, setResettingLayout] = useState(false);
   const editInputRef = useRef<HTMLInputElement | null>(null);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const panDragRef = useRef({ active: false, lastX: 0, lastY: 0 });
+  const graphOriginRef = useRef({ x: 0, y: 0 });
+  const nodeDragRef = useRef<{
+    active: boolean;
+    versionId: string;
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startWorldX: number;
+    startWorldY: number;
+    originalSavedPosition: VersionNodePosition | null;
+    moved: boolean;
+  }>({
+    active: false,
+    versionId: "",
+    pointerId: 0,
+    startClientX: 0,
+    startClientY: 0,
+    startWorldX: 0,
+    startWorldY: 0,
+    originalSavedPosition: null,
+    moved: false,
+  });
+
   const orderedVersions = useMemo(() => sortedVersions(versions), [versions]);
   const activeVersion = orderedVersions.find((version) => version.id === activeVersionId) || orderedVersions[orderedVersions.length - 1];
   const hasMultipleVersions = orderedVersions.length > 1;
 
-  const graphNodes = useMemo(() => {
-    return orderedVersions.map((version, row) => ({
-      version,
-      row,
-      depth: Math.min(versionDepth(version, orderedVersions), 6),
-    }));
-  }, [orderedVersions]);
+  const graphColumnGap = 112;
+  const graphRowGap = 92;
+  const graphPaddingX = 1200;
+  const graphPaddingY = 900;
+
+  const graphNodes = useMemo<VersionGraphNode[]>(() => {
+    return orderedVersions.map((version, row) => {
+      const depth = Math.min(versionDepth(version, orderedVersions), 6);
+      const autoPosition = {
+        x: depth * graphColumnGap,
+        y: row * graphRowGap,
+      };
+      const position = localNodePositions[version.id] || savedVersionPosition(version) || autoPosition;
+      return {
+        version,
+        row,
+        depth,
+        x: position.x,
+        y: position.y,
+      };
+    });
+  }, [graphColumnGap, graphRowGap, localNodePositions, orderedVersions]);
 
   const graphNodeById = useMemo(() => new Map(graphNodes.map((node) => [node.version.id, node])), [graphNodes]);
-  const graphColumnGap = 96;
-  const graphRowGap = 84;
-  const graphPaddingX = 980;
-  const graphPaddingY = 760;
-  const graphLeft = graphPaddingX;
-  const graphTop = graphPaddingY;
-  const graphMaxDepth = graphNodes.reduce((max, node) => Math.max(max, node.depth), 0);
-  const graphWidth = Math.max(2600, graphLeft * 2 + graphMaxDepth * graphColumnGap + 360);
-  const graphHeight = Math.max(1900, graphTop * 2 + Math.max(0, graphNodes.length - 1) * graphRowGap + 260);
 
-  const getNodePosition = useCallback((node: { depth: number; row: number }) => ({
-    x: graphLeft + node.depth * graphColumnGap,
-    y: graphTop + node.row * graphRowGap,
-  }), [graphColumnGap, graphLeft, graphRowGap, graphTop]);
+  const graphBounds = useMemo(() => {
+    if (!graphNodes.length) {
+      return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+    }
+    return graphNodes.reduce(
+      (bounds, node) => ({
+        minX: Math.min(bounds.minX, node.x),
+        maxX: Math.max(bounds.maxX, node.x),
+        minY: Math.min(bounds.minY, node.y),
+        maxY: Math.max(bounds.maxY, node.y),
+      }),
+      { minX: graphNodes[0].x, maxX: graphNodes[0].x, minY: graphNodes[0].y, maxY: graphNodes[0].y }
+    );
+  }, [graphNodes]);
+
+  const computedGraphOriginX = graphPaddingX - graphBounds.minX;
+  const computedGraphOriginY = graphPaddingY - graphBounds.minY;
+
+  useEffect(() => {
+    if (!draggingVersionId) {
+      graphOriginRef.current = { x: computedGraphOriginX, y: computedGraphOriginY };
+    }
+  }, [computedGraphOriginX, computedGraphOriginY, draggingVersionId]);
+
+  const graphOriginX = draggingVersionId ? graphOriginRef.current.x : computedGraphOriginX;
+  const graphOriginY = draggingVersionId ? graphOriginRef.current.y : computedGraphOriginY;
+  const graphWidth = Math.max(3400, graphBounds.maxX - graphBounds.minX + graphPaddingX * 2);
+  const graphHeight = Math.max(2400, graphBounds.maxY - graphBounds.minY + graphPaddingY * 2);
+
+  const getNodePosition = useCallback((node: VersionGraphNode) => ({
+    x: graphOriginX + node.x,
+    y: graphOriginY + node.y,
+  }), [graphOriginX, graphOriginY]);
 
   const centerVersion = useCallback((version = activeVersion) => {
     if (!version || !viewportRef.current) return;
@@ -293,6 +376,119 @@ function VersionHistoryPanel({
     }
   };
 
+  const startNodeDrag = (event: PointerEvent<HTMLButtonElement>, node: VersionGraphNode) => {
+    if (versionBusyId === node.version.id || editingVersionId === node.version.id) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    nodeDragRef.current = {
+      active: true,
+      versionId: node.version.id,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startWorldX: node.x,
+      startWorldY: node.y,
+      originalSavedPosition: savedVersionPosition(node.version),
+      moved: false,
+    };
+    setDraggingVersionId(node.version.id);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveNodeDrag = (event: PointerEvent<HTMLButtonElement>, node: VersionGraphNode) => {
+    const drag = nodeDragRef.current;
+    if (!drag.active || drag.versionId !== node.version.id) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const deltaX = event.clientX - drag.startClientX;
+    const deltaY = event.clientY - drag.startClientY;
+    if (!drag.moved && Math.hypot(deltaX, deltaY) > 4) {
+      nodeDragRef.current.moved = true;
+    }
+    if (!nodeDragRef.current.moved) return;
+
+    const nextPosition = {
+      x: drag.startWorldX + deltaX,
+      y: drag.startWorldY + deltaY,
+    };
+    setLocalNodePositions((current) => ({ ...current, [node.version.id]: nextPosition }));
+  };
+
+  const stopNodeDrag = async (event: PointerEvent<HTMLButtonElement>, node: VersionGraphNode) => {
+    const drag = nodeDragRef.current;
+    if (!drag.active || drag.versionId !== node.version.id) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const deltaX = event.clientX - drag.startClientX;
+    const deltaY = event.clientY - drag.startClientY;
+    const moved = drag.moved || Math.hypot(deltaX, deltaY) > 4;
+    const nextPosition = {
+      x: drag.startWorldX + deltaX,
+      y: drag.startWorldY + deltaY,
+    };
+    nodeDragRef.current.active = false;
+    setDraggingVersionId(null);
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    if (!moved) {
+      openVersion(node.version);
+      return;
+    }
+
+    setLocalNodePositions((current) => ({ ...current, [node.version.id]: nextPosition }));
+    try {
+      await onMoveVersion?.(node.version, nextPosition);
+    } catch {
+      setLocalNodePositions((current) => {
+        const next = { ...current };
+        if (drag.originalSavedPosition) {
+          next[node.version.id] = drag.originalSavedPosition;
+        } else {
+          delete next[node.version.id];
+        }
+        return next;
+      });
+    }
+  };
+
+  const cancelNodeDrag = (event: PointerEvent<HTMLButtonElement>, node: VersionGraphNode) => {
+    const drag = nodeDragRef.current;
+    if (!drag.active || drag.versionId !== node.version.id) return;
+
+    nodeDragRef.current.active = false;
+    setDraggingVersionId(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setLocalNodePositions((current) => {
+      const next = { ...current };
+      if (drag.originalSavedPosition) {
+        next[node.version.id] = drag.originalSavedPosition;
+      } else {
+        delete next[node.version.id];
+      }
+      return next;
+    });
+  };
+
+  const resetLayout = async () => {
+    if (!onResetVersionLayout || resettingLayout) return;
+    setResettingLayout(true);
+    setLocalNodePositions({});
+    try {
+      await onResetVersionLayout();
+      window.requestAnimationFrame(() => centerVersion(activeVersion));
+    } finally {
+      setResettingLayout(false);
+    }
+  };
+
   if (!hasMultipleVersions) return null;
 
   return (
@@ -379,23 +575,36 @@ function VersionHistoryPanel({
       <Dialog open={treeOpen} onOpenChange={setTreeOpen}>
         <DialogContent className="flex max-h-[96vh] w-[98vw] max-w-[1800px] flex-col overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_90px_rgba(15,23,42,0.22)]">
           <DialogHeader className="border-b border-border/70 px-7 pt-6 pb-4">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0">
                 <DialogTitle className="text-xl font-semibold">Version map</DialogTitle>
                 <DialogDescription className="mt-1">
-                  Click a label to rename it. Click a dot to open that version. Drag empty space to move around the map.
+                  Drag dots to organize the map. Click a dot to open it, or click a label to rename it.
                 </DialogDescription>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9 shrink-0 rounded-full px-3 text-xs"
-                onClick={() => centerVersion()}
-              >
-                <Crosshair className="mr-1.5 h-3.5 w-3.5" />
-                Center current
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 shrink-0 rounded-full px-3 text-xs"
+                  onClick={() => centerVersion()}
+                >
+                  <Crosshair className="mr-1.5 h-3.5 w-3.5" />
+                  Center current
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 shrink-0 rounded-full px-3 text-xs"
+                  disabled={!onResetVersionLayout || resettingLayout}
+                  onClick={() => { void resetLayout(); }}
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  {resettingLayout ? "Resetting…" : "Reset layout"}
+                </Button>
+              </div>
             </div>
           </DialogHeader>
 
@@ -436,6 +645,7 @@ function VersionHistoryPanel({
               {graphNodes.map((node) => {
                 const active = node.version.id === activeVersion?.id;
                 const busy = versionBusyId === node.version.id;
+                const dragging = draggingVersionId === node.version.id;
                 const { x, y } = getNodePosition(node);
                 return (
                   <div
@@ -464,7 +674,7 @@ function VersionHistoryPanel({
                           <TooltipTrigger asChild>
                             <button
                               type="button"
-                              disabled={busy}
+                              disabled={busy || dragging}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 beginLabelEdit(node.version);
@@ -510,16 +720,20 @@ function VersionHistoryPanel({
                           aria-label={`${versionMapLabel(node.version)} ${versionDisplayName(node.version)}`}
                           aria-current={active ? "true" : undefined}
                           disabled={busy}
-                          onClick={() => openVersion(node.version)}
+                          onPointerDown={(event) => startNodeDrag(event, node)}
+                          onPointerMove={(event) => moveNodeDrag(event, node)}
+                          onPointerUp={(event) => { void stopNodeDrag(event, node); }}
+                          onPointerCancel={(event) => cancelNodeDrag(event, node)}
                           className={cn(
-                            "group relative grid h-7 w-7 place-items-center rounded-full border bg-background shadow-sm transition-all hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70",
-                            active ? "border-primary bg-primary/10 ring-4 ring-primary/15" : "border-border hover:border-primary/50"
+                            "group relative grid h-6 w-6 cursor-grab place-items-center rounded-full border bg-background shadow-sm transition-all hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:cursor-grabbing disabled:cursor-wait disabled:opacity-70",
+                            active ? "border-primary bg-primary/10 ring-4 ring-primary/15" : "border-border hover:border-primary/50",
+                            dragging && "scale-110 cursor-grabbing border-primary shadow-lg ring-4 ring-primary/10"
                           )}
                         >
                           <span
                             className={cn(
-                              "h-2 w-2 rounded-full bg-muted-foreground/45 transition-colors group-hover:bg-primary",
-                              node.version.kind === "branch" && "h-2.5 w-2.5",
+                              "h-1.5 w-1.5 rounded-full bg-muted-foreground/45 transition-colors group-hover:bg-primary",
+                              node.version.kind === "branch" && "h-2 w-2",
                               active && "bg-primary"
                             )}
                           />
@@ -565,6 +779,8 @@ export function WorkflowResultDetails({
   onDownloadArtifact,
   onSelectVersion,
   onRenameVersion,
+  onMoveVersion,
+  onResetVersionLayout,
   onRefine,
   onWorkflowAction,
 }: Props) {
@@ -608,6 +824,8 @@ export function WorkflowResultDetails({
         versionBusyId={versionBusyId}
         onSelectVersion={onSelectVersion}
         onRenameVersion={onRenameVersion}
+        onMoveVersion={onMoveVersion}
+        onResetVersionLayout={onResetVersionLayout}
       />
 
       <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">

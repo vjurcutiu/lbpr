@@ -17,6 +17,7 @@ from .models import (
     WorkflowRunRefineRequest,
     WorkflowRunTitleUpdate,
     WorkflowRunVersionLabelUpdate,
+    WorkflowRunVersionLayoutUpdate,
     WorkflowRunVersionList,
 )
 from . import service
@@ -76,6 +77,23 @@ def rename_workflow_run_version(
 ) -> WorkflowRun:
     return service.rename_run_version(user.uid, run_id, version_id, payload)
 
+
+@router.patch("/runs/{run_id}/versions/{version_id}/layout", response_model=WorkflowRun)
+def update_workflow_run_version_layout(
+    run_id: str,
+    version_id: str,
+    payload: WorkflowRunVersionLayoutUpdate,
+    user: SessionOut = Depends(get_current_user),
+) -> WorkflowRun:
+    return service.update_run_version_layout(user.uid, run_id, version_id, payload)
+
+
+@router.post("/runs/{run_id}/versions/layout/reset", response_model=WorkflowRun)
+def reset_workflow_run_version_layout(
+    run_id: str,
+    user: SessionOut = Depends(get_current_user),
+) -> WorkflowRun:
+    return service.reset_run_version_layout(user.uid, run_id)
 
 
 @router.post("/runs/{run_id}/versions/{version_id}/branch", response_model=WorkflowRun)

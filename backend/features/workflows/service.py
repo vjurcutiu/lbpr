@@ -40,6 +40,7 @@ from .models import (
     WorkflowRunRefineRequest,
     WorkflowRunTitleUpdate,
     WorkflowRunVersionLabelUpdate,
+    WorkflowRunVersionLayoutUpdate,
     WorkflowRunVersion,
     WorkflowRunVersionList,
     WorkflowSelectionIn,
@@ -152,6 +153,15 @@ def _clean_version_label(value: str) -> str:
         label = label[:120].rsplit(" ", 1)[0].strip() or label[:120].strip()
     return label
 
+
+
+
+def _clean_layout_coordinate(value: float) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid version layout coordinate") from None
+    return max(-100_000.0, min(100_000.0, numeric))
 
 
 def _retitle_markdown(markdown: str, title: str) -> str:
@@ -771,6 +781,39 @@ def rename_run_version(uid: str, run_id: str, version_id: str, payload: Workflow
     _replace_or_append_version(run, version)
     run.updated_at = version.updated_at
     _persist_run(uid, run)
+    return run
+
+
+def update_run_version_layout(uid: str, run_id: str, version_id: str, payload: WorkflowRunVersionLayoutUpdate) -> WorkflowRun:
+    run = get_run(uid, run_id)
+    version = _find_version(run, version_id)
+    version.layout_x = _clean_layout_coordinate(payload.x)
+    version.layout_y = _clean_layout_coordinate(payload.y)
+    version.updated_at = datetime.now(UTC)
+    _replace_or_append_version(run, version)
+    run.updated_at = version.updated_at
+    _persist_run(uid, run)
+    return run
+
+
+def reset_run_version_layout(uid: str, run_id: str) -> WorkflowRun:
+    run = get_run(uid, run_id)
+    _hydrate_run_versions(run)
+    now = datetime.now(UTC)
+    changed = False
+    next_versions: list[WorkflowRunVersion] = []
+    for version in run.versions:
+        if version.layout_x is not None or version.layout_y is not None:
+            version = version.model_copy(deep=True)
+            version.layout_x = None
+            version.layout_y = None
+            version.updated_at = now
+            changed = True
+        next_versions.append(version)
+    if changed:
+        run.versions = sorted(next_versions, key=lambda item: int(item.version_number or 0))
+        run.updated_at = now
+        _persist_run(uid, run)
     return run
 
 

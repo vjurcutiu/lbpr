@@ -56,6 +56,21 @@ export async function renameWorkflowRunVersion(runId: string, versionId: string,
   );
 }
 
+export async function updateWorkflowRunVersionLayout(
+  runId: string,
+  versionId: string,
+  position: { x: number; y: number }
+): Promise<WorkflowRun> {
+  return patchJSON<WorkflowRun>(
+    `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/layout`,
+    position
+  );
+}
+
+export async function resetWorkflowRunVersionLayout(runId: string): Promise<WorkflowRun> {
+  return postJSON<WorkflowRun>(`/v1/workflows/runs/${encodeURIComponent(runId)}/versions/layout/reset`, {});
+}
+
 export async function branchWorkflowRunVersion(runId: string, versionId: string, prompt: string): Promise<WorkflowRun> {
   return postJSON<WorkflowRun>(
     `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/branch`,
