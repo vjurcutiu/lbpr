@@ -81,8 +81,8 @@ function summarizeWorkflowSelectionLabel(selection: WorkflowSelection) {
 function workflowQueuedDescription(selection: WorkflowSelection, chained: boolean) {
   const target = summarizeWorkflowSelectionLabel(selection);
   return chained
-    ? `Queued for ${target}. This chained run is linked to its source workflow.`
-    : `Queued for ${target}. You can follow it in the inbox.`;
+    ? `Started for ${target}. This follow-up run will stay linked to the original result.`
+    : `Started for ${target}. The result will appear in Runs when it is ready.`;
 }
 
 function workflowCompletedDescription(run: WorkflowRun) {
@@ -144,11 +144,11 @@ function formatSelectionRequirements(workflow: WorkflowManifest) {
   const selection = workflow.selection;
 
   if (selection.exact_file_count != null) {
-    parts.push(`${selection.exact_file_count} file${selection.exact_file_count === 1 ? "" : "s"} required`);
+    parts.push(`Needs exactly ${selection.exact_file_count} file${selection.exact_file_count === 1 ? "" : "s"}`);
   } else {
-    parts.push(`Min ${selection.min_total_items} item${selection.min_total_items === 1 ? "" : "s"}`);
+    parts.push(`Needs ${selection.min_total_items}+ item${selection.min_total_items === 1 ? "" : "s"}`);
     if (selection.max_total_items != null) {
-      parts.push(`Max ${selection.max_total_items} item${selection.max_total_items === 1 ? "" : "s"}`);
+      parts.push(`Up to ${selection.max_total_items}`);
     }
   }
 
@@ -169,7 +169,7 @@ function formatCapability(capability: WorkflowCapability) {
     case "report":
       return "Reporting";
     case "plan":
-      return "Planning";
+      return "Action plan";
     default:
       return "Workflow";
   }
@@ -201,15 +201,15 @@ function formatSelection(run: WorkflowRun) {
 
 function renderStatusCopy(run: WorkflowRun) {
   if (run.status === "completed") {
-    return run.result?.summary || "This run finished and is ready to review.";
+    return run.result?.summary || "This result is ready to review.";
   }
   if (run.status === "failed") {
-    return run.error || "This run did not complete. Review the selection or launch it again.";
+    return run.error || "This workflow did not complete. Check the message below or try again with a different selection.";
   }
   if (run.status === "running") {
-    return "This run is in progress. Results will appear here as soon as processing finishes.";
+    return "Processing now. The result will appear here automatically when it finishes.";
   }
-  return "This run is queued and will start automatically.";
+  return "Waiting to start. No action is needed.";
 }
 
 function sameLocalDay(iso: string, now = new Date()) {
@@ -281,9 +281,9 @@ function PaneHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-border/70 px-3 py-3">
+    <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-muted/10 px-3 py-2.5">
       <div className="min-w-0">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">{title}</div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">{title}</div>
         {meta ? <div className="truncate text-xs text-muted-foreground">{meta}</div> : null}
       </div>
       {action}
@@ -321,13 +321,13 @@ function RunListItem({
       onClick={() => onSelect(run.id)}
       className={cn(
         "w-full border-l-2 px-3 py-3 text-left transition-colors",
-        active ? "border-l-primary bg-accent/30" : "border-l-transparent hover:bg-muted/25"
+        active ? "border-l-primary bg-primary/5" : "border-l-transparent hover:bg-muted/30"
       )}
     >
       <div className="flex items-start gap-2">
         <div
           className={cn(
-            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center border border-border/70 bg-background",
+            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background",
             statusAccent(run.status)
           )}
         >
@@ -351,8 +351,12 @@ function RunListItem({
 
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <span>{formatSelection(run)}</span>
-            <span className="h-1 w-1 rounded-full bg-border" />
-            <span className="truncate">{run.selection.current_folder || "Root"}</span>
+            {run.selection.current_folder ? (
+              <>
+                <span className="h-1 w-1 rounded-full bg-border" />
+                <span className="truncate">{run.selection.current_folder}</span>
+              </>
+            ) : null}
           </div>
         </div>
       </div>
@@ -376,22 +380,22 @@ function WorkflowCatalogItem({
       type="button"
       onClick={() => onLaunch(workflow)}
       disabled={disabled}
-      className="w-full border-b border-border/70 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/25 disabled:cursor-not-allowed disabled:opacity-70"
+      className="w-full border-b border-border/70 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-70"
     >
       <div className="flex items-start gap-2">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-border/70 bg-primary/5 text-primary">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-primary/5 text-primary">
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="text-sm font-medium leading-5 text-foreground">{workflow.title}</div>
-              <div className="mt-0.5 text-xs leading-5 text-muted-foreground">{workflow.description}</div>
+              <div className="mt-1 text-xs leading-5 text-muted-foreground">{workflow.description}</div>
             </div>
             <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">
               {formatCapability(workflow.capability)}
             </Badge>
             {formatSelectionRequirements(workflow)
@@ -400,7 +404,7 @@ function WorkflowCatalogItem({
                 <Badge
                   key={item}
                   variant="secondary"
-                  className="rounded-none px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+                  className="rounded-full px-2 py-0 text-[10px] font-normal text-muted-foreground"
                 >
                   {item}
                 </Badge>
@@ -542,13 +546,13 @@ export default function WorkflowsPage() {
     try {
       const artifact = await saveWorkflowArtifact(run.id);
       setRuns((prev) => prev.map((item) => (item.id === run.id ? { ...item, artifact } : item)));
-      toast.success("Artifact saved", {
-        description: `${artifact.file_name} is now attached to this workflow run.`,
+      toast.success("Output saved", {
+        description: `${artifact.file_name} is saved with this result.`,
       });
       return artifact;
     } catch (err) {
       console.error("[workflows] save artifact error", err);
-      toast.error("Failed to save artifact", { description: parseErr(err) });
+      toast.error("Failed to save output", { description: parseErr(err) });
       return null;
     } finally {
       setArtifactBusyRunId((current) => (current === run.id ? null : current));
@@ -565,10 +569,10 @@ export default function WorkflowsPage() {
         setRuns((prev) => prev.map((item) => (item.id === run.id ? { ...item, artifact } : item)));
       }
       await downloadWorkflowArtifact(artifact.id, format);
-      toast.success("Artifact download started", { description: `${artifact.title} • ${format.toUpperCase()}` });
+      toast.success("Download started", { description: `${artifact.title} • ${format.toUpperCase()}` });
     } catch (err) {
       console.error("[workflows] download artifact error", err);
-      toast.error("Failed to download artifact", { description: parseErr(err) });
+      toast.error("Failed to download output", { description: parseErr(err) });
     } finally {
       setArtifactBusyRunId((current) => (current === run.id ? null : current));
     }
@@ -602,17 +606,17 @@ export default function WorkflowsPage() {
       });
     } else if (completed.length > 1) {
       toast.success(`${completed.length} workflows finished`, {
-        description: "Open the inbox to review the outputs.",
+        description: "Open Runs to review the outputs.",
       });
     }
 
     if (failed.length === 1) {
       toast.error(`${failed[0].title} failed`, {
-        description: failed[0].error?.trim() || "Open the inbox to review the error.",
+        description: failed[0].error?.trim() || "Open Runs to review the error.",
       });
     } else if (failed.length > 1) {
       toast.error(`${failed.length} workflows failed`, {
-        description: "Open the inbox to review the errors.",
+        description: "Open Runs to review the errors.",
       });
     }
   }, [runs]);
@@ -690,15 +694,15 @@ export default function WorkflowsPage() {
           <div className="border-b border-border/70 px-4 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Workflows</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Workflows</div>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  {stats.inFlight ? `${stats.inFlight} active run${stats.inFlight === 1 ? "" : "s"}` : "Track runs and launch flows from one place."}
+                  {stats.inFlight ? `${stats.inFlight} active run${stats.inFlight === 1 ? "" : "s"}` : "Run document workflows and review finished outputs."}
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"
-                  className="h-8 rounded-none px-3 text-xs"
+                  className="h-8 rounded-full px-3 text-xs"
                   onClick={() => catalog[0] && openWorkflowLauncher(catalog[0])}
                   disabled={!catalog.length || workflowSubmitting}
                 >
@@ -708,7 +712,7 @@ export default function WorkflowsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 rounded-none px-3 text-xs"
+                  className="h-8 rounded-full px-3 text-xs"
                   onClick={() => loadPage({ silent: true })}
                   disabled={loading || refreshing}
                 >
@@ -718,17 +722,17 @@ export default function WorkflowsPage() {
               </div>
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-              <Badge variant="outline" className="rounded-none px-1.5 py-0 font-normal">{runs.length} total</Badge>
-              <Badge variant="outline" className="rounded-none px-1.5 py-0 font-normal">{stats.completedToday} done today</Badge>
-              <Badge variant="outline" className="rounded-none px-1.5 py-0 font-normal">{stats.successRate}% success</Badge>
+              <Badge variant="outline" className="rounded-full px-2 py-0 font-normal">{runs.length} total</Badge>
+              <Badge variant="outline" className="rounded-full px-2 py-0 font-normal">{stats.completedToday} done today</Badge>
+              <Badge variant="outline" className="rounded-full px-2 py-0 font-normal">{stats.successRate}% success</Badge>
             </div>
           </div>
           <div className="px-4 py-3">
             <Tabs value={mobilePanel} onValueChange={(value) => setMobilePanel(value as MobilePanel)}>
-              <TabsList className="grid h-auto w-full grid-cols-3 rounded-none bg-muted/40 p-1">
-                <TabsTrigger value="inbox" className="h-8 rounded-none px-2 text-xs">Inbox {runs.length}</TabsTrigger>
-                <TabsTrigger value="details" className="h-8 rounded-none px-2 text-xs">Details</TabsTrigger>
-                <TabsTrigger value="flows" className="h-8 rounded-none px-2 text-xs">Flows {catalog.length}</TabsTrigger>
+              <TabsList className="grid h-auto w-full grid-cols-3 rounded-full bg-muted/40 p-1">
+                <TabsTrigger value="inbox" className="h-8 rounded-full px-2 text-xs">Runs {runs.length}</TabsTrigger>
+                <TabsTrigger value="details" className="h-8 rounded-full px-2 text-xs">Details</TabsTrigger>
+                <TabsTrigger value="flows" className="h-8 rounded-full px-2 text-xs">Workflows {catalog.length}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -737,18 +741,18 @@ export default function WorkflowsPage() {
 
       <div className={cn("min-h-0 flex-1", isMobile ? "overflow-y-auto overscroll-contain" : "overflow-hidden")}>
         <div className={cn(
-          "border border-border/70 bg-background",
-          isMobile ? "border-t-0" : "grid h-full min-h-0 xl:grid-cols-[320px_minmax(0,1fr)_280px] xl:divide-x xl:divide-border/70"
+          "border border-border/70 bg-background shadow-sm",
+          isMobile ? "border-t-0" : "grid h-full min-h-0 xl:grid-cols-[310px_minmax(0,1fr)_300px] xl:divide-x xl:divide-border/70"
         )}>
         <section className={cn("flex min-h-[220px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showInbox && "hidden")}>
           <PaneHeader
-            title="Run inbox"
+            title="Runs"
             meta={`Recent activity • ${stats.inFlight ? `${stats.inFlight} running` : "idle"} • ${stats.failed} failed • ${stats.completedToday} done today`}
             action={!isMobile ? (
               <div className="flex items-center gap-1">
                 <Button
                   size="sm"
-                  className="h-8 rounded-none px-3 text-xs"
+                  className="h-8 rounded-full px-3 text-xs"
                   onClick={() => catalog[0] && openWorkflowLauncher(catalog[0])}
                   disabled={!catalog.length || workflowSubmitting}
                 >
@@ -758,7 +762,7 @@ export default function WorkflowsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 rounded-none px-3 text-xs"
+                  className="h-8 rounded-full px-3 text-xs"
                   onClick={() => loadPage({ silent: true })}
                   disabled={loading || refreshing}
                 >
@@ -770,11 +774,11 @@ export default function WorkflowsPage() {
           />
           <div className="shrink-0 border-b border-border/70 px-3 py-3">
             <Tabs value={view} onValueChange={(value) => setView(value as RunView)}>
-              <TabsList className="h-auto w-full justify-start rounded-none bg-muted/40 p-1">
-                <TabsTrigger value="all" className="h-7 rounded-none px-2 text-xs">All {runsByView.all.length}</TabsTrigger>
-                <TabsTrigger value="active" className="h-7 rounded-none px-2 text-xs">Active {runsByView.active.length}</TabsTrigger>
-                <TabsTrigger value="completed" className="h-7 rounded-none px-2 text-xs">Done {runsByView.completed.length}</TabsTrigger>
-                <TabsTrigger value="attention" className="h-7 rounded-none px-2 text-xs">Failed {runsByView.attention.length}</TabsTrigger>
+              <TabsList className="h-auto w-full justify-start rounded-full bg-muted/40 p-1">
+                <TabsTrigger value="all" className="h-7 rounded-full px-2 text-xs">All {runsByView.all.length}</TabsTrigger>
+                <TabsTrigger value="active" className="h-7 rounded-full px-2 text-xs">Working {runsByView.active.length}</TabsTrigger>
+                <TabsTrigger value="completed" className="h-7 rounded-full px-2 text-xs">Finished {runsByView.completed.length}</TabsTrigger>
+                <TabsTrigger value="attention" className="h-7 rounded-full px-2 text-xs">Needs review {runsByView.attention.length}</TabsTrigger>
               </TabsList>
             </Tabs>
             <div className="relative mt-2">
@@ -783,7 +787,7 @@ export default function WorkflowsPage() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search runs"
-                className="h-8 rounded-none border-border/80 bg-background pl-8 text-sm shadow-none"
+                className="h-8 rounded-full border-border/80 bg-background pl-8 text-sm shadow-none"
               />
             </div>
           </div>
@@ -803,11 +807,11 @@ export default function WorkflowsPage() {
                 {search.trim()
                   ? "No workflow runs match this search yet."
                   : view === "all"
-                    ? "No workflow runs yet. Pick a flow on the right to start one here."
+                    ? "No workflow runs yet. Start one from the workflow list."
                     : view === "active"
-                      ? "No runs are currently queued or running."
+                      ? "No workflows are running right now."
                       : view === "completed"
-                        ? "Completed workflow output will appear here once a run finishes."
+                        ? "Finished results will appear here."
                         : "Nothing needs review right now."}
               </div>
             )}
@@ -816,31 +820,31 @@ export default function WorkflowsPage() {
 
         <section className={cn("flex min-h-[320px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showDetails && "hidden")}>
           <PaneHeader
-            title="Run details"
-            meta={selectedRun ? `Updated ${formatRelativeTime(selectedRun.updated_at)}` : "Select a run to review output"}
+            title="Result"
+            meta={selectedRun ? `Updated ${formatRelativeTime(selectedRun.updated_at)}` : "Select a run to review its result"}
             action={!isMobile ? (
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 rounded-none px-3 text-xs"
+                className="h-8 rounded-full px-3 text-xs"
                 onClick={() => loadPage({ silent: true })}
                 disabled={loading || refreshing}
               >
                 <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
-                Sync
+                Refresh
               </Button>
             ) : null}
           />
 
           {selectedRun ? (
-            <div className="min-h-0 flex-1 overflow-hidden bg-muted/10">
+            <div className="min-h-0 flex-1 overflow-hidden bg-muted/15">
               <PaneScroller mobile={isMobile} className="h-full">
-                <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-5 md:px-8 lg:px-12 xl:px-16">
-                  <div className="border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-8">
+                <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-5 md:px-8 lg:px-10 xl:px-12">
+                  <div className="rounded-2xl border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-7">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-3">
-                          <div className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center border border-border/70 bg-background", statusAccent(selectedRun.status))}>
+                          <div className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background", statusAccent(selectedRun.status))}>
                             {(() => {
                               const Icon = getWorkflowIcon(selectedRun.workflow_id);
                               return <Icon className="h-5 w-5" />;
@@ -849,9 +853,9 @@ export default function WorkflowsPage() {
                           <div className="min-w-0 flex-1">
                             {selectedRunChainSource ? (
                               <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-                                <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
+                                <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">
                                   <CornerDownRight className="mr-1 h-3 w-3" />
-                                  Chained run
+                                  Follow-up
                                 </Badge>
                                 <button
                                   type="button"
@@ -874,24 +878,28 @@ export default function WorkflowsPage() {
                             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                               <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
                               {selectedRun.artifact ? (
-                                <Badge variant="secondary" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
-                                  Artifact saved
+                                <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
+                                  Output saved
                                 </Badge>
                               ) : null}
                               <span>{formatCapability(selectedRun.capability)}</span>
                               <span className="h-1 w-1 rounded-full bg-border" />
                               <span>{formatSelection(selectedRun)}</span>
-                              <span className="h-1 w-1 rounded-full bg-border" />
-                              <span>{selectedRun.selection.current_folder || "Root"}</span>
+                              {selectedRun.selection.current_folder ? (
+                                <>
+                                  <span className="h-1 w-1 rounded-full bg-border" />
+                                  <span>{selectedRun.selection.current_folder}</span>
+                                </>
+                              ) : null}
                             </div>
                             <p className="mt-4 max-w-3xl text-[15px] leading-7 text-foreground/90">{renderStatusCopy(selectedRun)}</p>
                             {selectedRunChainSource ? (
                               <div className="mt-4 max-w-3xl border border-border/70 bg-muted/15 px-3 py-3">
-                                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Inherited from previous workflow</div>
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Built from previous result</div>
                                 <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-                                  <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{selectedRunChainSource.parent_title}</Badge>
-                                  {selectedRunChainSource.selection_label ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{selectedRunChainSource.selection_label}</Badge> : null}
-                                  {selectedRunChainSource.action_label ? <Badge variant="secondary" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{selectedRunChainSource.action_label}</Badge> : null}
+                                  <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">{selectedRunChainSource.parent_title}</Badge>
+                                  {selectedRunChainSource.selection_label ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">{selectedRunChainSource.selection_label}</Badge> : null}
+                                  {selectedRunChainSource.action_label ? <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">{selectedRunChainSource.action_label}</Badge> : null}
                                 </div>
                                 {selectedRunChainSource.summary ? (
                                   <p className="mt-2 text-sm leading-6 text-foreground/85">{selectedRunChainSource.summary}</p>
@@ -905,7 +913,7 @@ export default function WorkflowsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-9 rounded-none px-4 text-xs"
+                        className="h-9 rounded-full px-4 text-xs"
                         onClick={() => {
                           const workflow = catalog.find((item) => item.workflow_id === selectedRun.workflow_id);
                           if (workflow) {
@@ -924,7 +932,7 @@ export default function WorkflowsPage() {
                     {(selectedRun.result?.bullets?.length || selectedRun.result?.next_actions?.length) ? (
                       <div className="mt-6 grid gap-4 border-t border-border/70 pt-6 lg:grid-cols-2 lg:gap-6">
                         <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Takeaways</div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Takeaways</div>
                           <div className="mt-3 space-y-3">
                             {evidenceBackedTakeaways(selectedRun).slice(0, 3).map((item, index) => (
                               <div key={`${item}-${index}`} className="text-[15px] leading-7 text-foreground">
@@ -932,13 +940,13 @@ export default function WorkflowsPage() {
                               </div>
                             ))}
                             {!evidenceBackedTakeaways(selectedRun).length ? (
-                              <div className="text-[15px] leading-7 text-muted-foreground">No takeaways yet for this run.</div>
+                              <div className="text-[15px] leading-7 text-muted-foreground">No takeaways yet.</div>
                             ) : null}
                           </div>
                         </div>
 
                         <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Next steps</div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Next steps</div>
                           <div className="mt-3 space-y-3">
                             {(selectedRun.result?.next_actions || []).slice(0, 3).map((item, index) => (
                               <div key={`${item}-${index}`} className="text-[15px] leading-7 text-foreground">
@@ -946,7 +954,7 @@ export default function WorkflowsPage() {
                               </div>
                             ))}
                             {!selectedRun.result?.next_actions?.length ? (
-                              <div className="text-[15px] leading-7 text-muted-foreground">No recommended next steps yet for this run.</div>
+                              <div className="text-[15px] leading-7 text-muted-foreground">No recommended next steps yet.</div>
                             ) : null}
                           </div>
                         </div>
@@ -954,7 +962,7 @@ export default function WorkflowsPage() {
                     ) : null}
                   </div>
 
-                  <div className="border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-8">
+                  <div className="rounded-2xl border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-7">
                     {selectedRun.result ? (
                       <WorkflowResultDetails
                         result={selectedRun.result}
@@ -967,12 +975,12 @@ export default function WorkflowsPage() {
                         onWorkflowAction={handleWorkflowAction}
                       />
                     ) : selectedRun.status === "failed" ? (
-                      <div className="border border-destructive/20 bg-destructive/5 px-4 py-4 text-[15px] leading-7 text-destructive">
+                      <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-4 text-[15px] leading-7 text-destructive">
                         {selectedRun.error || "This workflow failed before returning an output."}
                       </div>
                     ) : (
                       <div className="text-[15px] leading-7 text-muted-foreground">
-                        This run is still in progress. Refresh to pick up the latest result.
+                        This workflow is still processing. Refresh to check for the latest result.
                       </div>
                     )}
                   </div>
@@ -983,14 +991,14 @@ export default function WorkflowsPage() {
             <div className="p-5 text-sm leading-6 text-muted-foreground md:px-8 md:py-6">
               {isMobile ? (
                 <div className="space-y-3">
-                  <div>Choose a run from the inbox to review it, or open flows to launch a new workflow.</div>
+                  <div>Choose a run to review it, or start a workflow from the list.</div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" className="h-8 rounded-none px-3 text-xs" onClick={() => setMobilePanel("inbox")}>Open inbox</Button>
-                    <Button size="sm" className="h-8 rounded-none px-3 text-xs" onClick={() => setMobilePanel("flows")}>Browse flows</Button>
+                    <Button variant="outline" size="sm" className="h-8 rounded-full px-3 text-xs" onClick={() => setMobilePanel("inbox")}>Open runs</Button>
+                    <Button size="sm" className="h-8 rounded-full px-3 text-xs" onClick={() => setMobilePanel("flows")}>Browse workflows</Button>
                   </div>
                 </div>
               ) : (
-                "Choose a flow on the right to start a run here, or select a run from the inbox to review the latest output."
+                "Start a workflow from the right panel, or choose a run to review its result."
               )}
             </div>
           )}
@@ -998,12 +1006,12 @@ export default function WorkflowsPage() {
 
         <section className={cn("flex min-h-[220px] min-w-0 flex-col xl:min-h-0", !showFlows && "hidden")}>
           <PaneHeader
-            title="Available flows"
-            meta="Choose a flow, then pick files in the launcher"
+            title="Start a workflow"
+            meta="Pick a task, then choose the files it should use"
             action={
-              <Button asChild variant="ghost" size="sm" className="h-8 rounded-none px-3 text-xs">
+              <Button asChild variant="ghost" size="sm" className="h-8 rounded-full px-3 text-xs">
                 <Link to="/files">
-                  Open Files
+                  Open files
                   <ArrowRight className="ml-1 h-3 w-3" />
                 </Link>
               </Button>
@@ -1025,7 +1033,7 @@ export default function WorkflowsPage() {
               </PaneScroller>
             ) : (
               <div className="p-3 text-sm leading-5 text-muted-foreground">
-                Workflow starters will appear here once the catalog loads.
+                Workflows will appear here once the catalog loads.
               </div>
             )}
           </div>

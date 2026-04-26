@@ -122,7 +122,7 @@ export function WorkflowLauncher({
             <div className="space-y-1">
               <DialogTitle>{workflow?.title ?? "Workflow"}</DialogTitle>
               <DialogDescription>
-                {workflow?.description ?? "Configure the workflow run."}
+                {workflow?.description ?? "Choose files and optional instructions."}
               </DialogDescription>
             </div>
           </div>
@@ -131,7 +131,7 @@ export function WorkflowLauncher({
             <div className="rounded-2xl border border-primary/15 bg-primary/5 p-3">
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
                 <CornerDownRight className="h-3.5 w-3.5" />
-                Chained from {chainSource.parent_workflow_title}
+                Built from {chainSource.parent_workflow_title}
                 {chainSource.action_label ? (
                   <Badge variant="outline" className="rounded-full border-primary/20 bg-background px-2 py-0 text-[10px] font-normal text-foreground">
                     {chainSource.action_label}
@@ -150,17 +150,19 @@ export function WorkflowLauncher({
                 <p className="mt-2 line-clamp-3 text-sm leading-6 text-foreground/85">{chainSource.summary}</p>
               ) : (
                 <p className="mt-2 text-sm leading-6 text-foreground/80">
-                  This run will inherit the source workflow context and the selected files below.
+                  This workflow will use the previous result together with the files selected below.
                 </p>
               )}
             </div>
           ) : null}
 
           <div className="rounded-2xl border bg-muted/20 p-3">
-            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Included in this run</div>
+            <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Selection</div>
             <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
               <Badge variant="outline" className="rounded-full">{activeSelection.label}</Badge>
-              <Badge variant="outline" className="rounded-full">Folder: {activeSelection.current_folder || "Root"}</Badge>
+              {activeSelection.current_folder ? (
+                <Badge variant="outline" className="rounded-full">Folder: {activeSelection.current_folder}</Badge>
+              ) : null}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">{selectionMessage}</p>
           </div>
@@ -202,7 +204,7 @@ export function WorkflowLauncher({
                       value={fieldValues[field.key] || field.default_value || field.options[0]?.value || ""}
                       onValueChange={(value) => setFieldValues((prev) => ({ ...prev, [field.key]: value }))}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="rounded-2xl">
                         <SelectValue placeholder={field.placeholder || `Select ${field.label.toLowerCase()}`} />
                       </SelectTrigger>
                       <SelectContent>
@@ -234,10 +236,11 @@ export function WorkflowLauncher({
         </div>
 
         <DialogFooter className="border-t px-6 py-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+          <Button variant="outline" className="rounded-full" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
           <Button
+            className="rounded-full"
             onClick={() =>
               workflow &&
               onRun(

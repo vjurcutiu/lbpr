@@ -39,9 +39,9 @@ export function getWorkflowSelectionMessage(workflow: WorkflowManifest, selectio
 
   if (!selection.hasSelection) {
     if (req.exact_file_count != null) {
-      return `Select exactly ${req.exact_file_count} file${req.exact_file_count === 1 ? "" : "s"} to run this workflow.`;
+      return `Select exactly ${req.exact_file_count} file${req.exact_file_count === 1 ? "" : "s"} to continue.`;
     }
-    return `Select at least ${req.min_total_items} item${req.min_total_items === 1 ? "" : "s"} to run this workflow.`;
+    return `Select at least ${req.min_total_items} item${req.min_total_items === 1 ? "" : "s"} to continue.`;
   }
 
   if (req.exact_file_count != null && selection.fileCount !== req.exact_file_count) {
@@ -57,8 +57,8 @@ export function getWorkflowSelectionMessage(workflow: WorkflowManifest, selectio
   }
 
   if (!req.allow_folders && selection.folderCount > 0) {
-    return "This workflow only supports direct file selection.";
+    return "This workflow only supports individual files.";
   }
 
-  return "Selection ready.";
+  return "Ready to run.";
 }

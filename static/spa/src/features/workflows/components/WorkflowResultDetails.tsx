@@ -64,12 +64,12 @@ function formatSourceLabel(source: SourceFileMeta) {
 
 function Section({ title, icon: Icon, children }: { title: string; icon?: typeof Files; children: ReactNode }) {
   return (
-    <section className="border-t border-border/70 pt-3 first:border-t-0 first:pt-0">
+    <section className="border-t border-border/70 pt-5 first:border-t-0 first:pt-0">
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
         {Icon ? <Icon className="h-3 w-3" /> : null}
         {title}
       </div>
-      <div className="mt-2">{children}</div>
+      <div className="mt-3">{children}</div>
     </section>
   );
 }
@@ -86,10 +86,10 @@ type Props = {
 };
 
 const DOWNLOAD_FORMATS: Array<{ value: WorkflowArtifactFormat; label: string; helper: string }> = [
-  { value: "markdown", label: "Markdown (.md)", helper: "Best for editing or reusing in the app." },
-  { value: "txt", label: "Text (.txt)", helper: "Plain text for copy/paste and simple sharing." },
+  { value: "markdown", label: "Markdown (.md)", helper: "Best for editing or reusing later." },
+  { value: "txt", label: "Text (.txt)", helper: "Plain text for quick sharing." },
   { value: "docx", label: "Word (.docx)", helper: "Formatted document for Word or Google Docs." },
-  { value: "pdf", label: "PDF (.pdf)", helper: "Polished shareable export for stakeholders." },
+  { value: "pdf", label: "PDF (.pdf)", helper: "Polished file for sharing." },
 ];
 
 export function WorkflowResultDetails({ result, selection, sourceRun, artifact, artifactBusy = false, onSaveArtifact, onDownloadArtifact, onWorkflowAction }: Props) {
@@ -143,48 +143,48 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
 
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-5">
       {(onSaveArtifact || onDownloadArtifact) && (
-        <Section title="Artifact">
-          <div className="flex flex-wrap items-center justify-between gap-3 border border-border/70 px-3 py-3">
+        <Section title="Export">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4">
             <div className="min-w-0">
               <div className="text-sm font-medium leading-5 text-foreground">
-                {artifact ? "Saved artifact ready" : "Save this output as an artifact"}
+                {artifact ? "Saved output ready" : "Save this result"}
               </div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">
                 {artifact
                   ? `${artifact.file_name} • ${Math.max(1, Math.round((artifact.byte_size || 0) / 1024))} KB`
-                  : "Persist this workflow output and make it downloadable as markdown, text, Word, or PDF."}
+                  : "Save this result so it can be downloaded as Markdown, text, Word, or PDF."}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {artifact ? (
-                <Badge variant="secondary" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
+                <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
                   Saved
                 </Badge>
               ) : null}
               {!artifact && onSaveArtifact ? (
-                <Button variant="outline" size="sm" className="h-8 rounded-none px-3 text-xs" onClick={onSaveArtifact} disabled={artifactBusy}>
+                <Button variant="outline" size="sm" className="h-8 rounded-full px-3 text-xs" onClick={onSaveArtifact} disabled={artifactBusy}>
                   <Save className="mr-1 h-4 w-4" />
-                  Save artifact
+                  Save output
                 </Button>
               ) : null}
               {onDownloadArtifact ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button size="sm" className="h-8 rounded-none px-3 text-xs" disabled={artifactBusy}>
+                    <Button size="sm" className="h-8 rounded-full px-3 text-xs" disabled={artifactBusy}>
                       <Download className="mr-1 h-4 w-4" />
-                      {artifact ? "Download" : "Save & download"}
+                      {artifact ? "Download" : "Save and download"}
                       <ChevronDown className="ml-1 h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-64 rounded-none">
+                  <DropdownMenuContent align="end" className="w-64 rounded-2xl">
                     <DropdownMenuLabel className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Download format</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     {DOWNLOAD_FORMATS.map((item) => (
                       <DropdownMenuItem
                         key={item.value}
-                        className="items-start rounded-none px-2 py-2"
+                        className="items-start rounded-xl px-2 py-2"
                         onSelect={() => onDownloadArtifact(item.value)}
                       >
                         <div className="min-w-0">
@@ -203,16 +203,16 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
 
 
       {!!summaryLayers.length && (
-        <Section title="Layered briefing">
-          <div className="space-y-3 border border-border/70 px-3 py-3">
+        <Section title="Briefing">
+          <div className="space-y-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4">
             <div className="flex flex-wrap gap-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-              {summaryProfile.audience ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">Audience: {String(summaryProfile.audience).replace(/_/g, " ")}</Badge> : null}
-              {summaryProfile.depth ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">Default: {String(summaryProfile.depth).replace(/_/g, " ")}</Badge> : null}
+              {summaryProfile.audience ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">Audience: {String(summaryProfile.audience).replace(/_/g, " ")}</Badge> : null}
+              {summaryProfile.depth ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">Default: {String(summaryProfile.depth).replace(/_/g, " ")}</Badge> : null}
             </div>
             <Tabs value={activeLayer} onValueChange={setActiveLayer}>
-              <TabsList className="h-auto w-full justify-start rounded-none bg-muted/40 p-1">
+              <TabsList className="h-auto w-full justify-start rounded-full bg-muted/40 p-1">
                 {summaryLayers.map((layer) => (
-                  <TabsTrigger key={layer.key} value={layer.key} className="h-7 rounded-none px-2 text-xs">
+                  <TabsTrigger key={layer.key} value={layer.key} className="h-7 rounded-full px-2 text-xs">
                     {layer.label || layer.key}
                   </TabsTrigger>
                 ))}
@@ -228,15 +228,15 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
       )}
 
       {!!evidenceHighlights.length && (
-        <Section title="Evidence-backed takeaways">
+        <Section title="Supported takeaways">
           <div className="grid gap-2">
             {evidenceHighlights.map((item, idx) => (
-              <div key={`${item.claim}-${idx}`} className="border border-border/70 px-3 py-3">
+              <div key={`${item.claim}-${idx}`} className="rounded-2xl border border-border/70 bg-background px-4 py-4">
                 <div className="text-sm font-medium leading-5 text-foreground">{item.claim}</div>
                 {!!item.sources?.length && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {item.sources.map((source) => (
-                      <Badge key={`${item.claim}-${source}`} variant="secondary" className="rounded-none px-1.5 py-0 text-[10px] font-normal">
+                      <Badge key={`${item.claim}-${source}`} variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
                         {source}
                       </Badge>
                     ))}
@@ -259,13 +259,13 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
       )}
 
       {!!suggestedActions.length && selection && sourceRun && onWorkflowAction && (
-        <Section title="Continue with">
+        <Section title="Next workflow">
           <div className="grid gap-3 lg:grid-cols-2">
             {suggestedActions.map((action) => (
               <Button
                 key={`${action.workflow_id}-${action.label}`}
                 variant="outline"
-                className="h-auto min-h-[124px] w-full items-start justify-start whitespace-normal rounded-none px-4 py-4 text-left"
+                className="h-auto min-h-[116px] w-full items-start justify-start whitespace-normal rounded-2xl px-4 py-4 text-left"
                 onClick={() => onWorkflowAction(action, selection, sourceRun)}
               >
                 <div className="min-w-0 space-y-2">
@@ -281,13 +281,13 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
       )}
 
       {!!sourceFiles.length && (
-        <Section title="Source material used" icon={Files}>
+        <Section title="Sources" icon={Files}>
           <div className="flex flex-wrap gap-1">
             {sourceFiles.map((source, idx) => (
               <Badge
                 key={`${source.file_id || source.name || "source"}-${idx}`}
                 variant="secondary"
-                className="max-w-full whitespace-normal rounded-none px-1.5 py-0 text-left text-[10px] font-normal"
+                className="max-w-full whitespace-normal rounded-full px-2 py-0.5 text-left text-[10px] font-normal"
               >
                 {formatSourceLabel(source)}
               </Badge>
@@ -298,7 +298,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
 
       {!!fields.length && (
         <Section title="Structured output">
-          <div className="grid gap-0 border border-border/70 sm:grid-cols-2 sm:divide-x sm:divide-border/70">
+          <div className="grid gap-0 overflow-hidden rounded-2xl border border-border/70 sm:grid-cols-2 sm:divide-x sm:divide-border/70">
             {fields.map((field, idx) => (
               <div key={`${field.field || "field"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0 sm:[&:nth-child(-n+2)]:border-t-0">
                 <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{field.field || "Field"}</div>
@@ -314,7 +314,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
 
       {!!differences.length && (
         <Section title="Difference summary">
-          <div className="border border-border/70">
+          <div className="overflow-hidden rounded-2xl border border-border/70">
             {differences.map((difference, idx) => (
               <div key={`${difference.topic || "difference"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0">
                 <div className="text-sm font-medium leading-5 text-foreground">{difference.topic || "Difference"}</div>
@@ -337,14 +337,14 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
 
       {!!planItems.length && (
         <Section title="Execution plan">
-          <div className="border border-border/70">
+          <div className="overflow-hidden rounded-2xl border border-border/70">
             {planItems.map((item, idx) => (
               <div key={`${item.action || "plan-item"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0">
                 <div className="text-sm font-medium leading-5 text-foreground">{item.action || "Action item"}</div>
                 <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-                  {item.priority ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{item.priority}</Badge> : null}
-                  {item.owner ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">Owner: {item.owner}</Badge> : null}
-                  {item.timeline ? <Badge variant="outline" className="rounded-none px-1.5 py-0 text-[10px] font-normal">{item.timeline}</Badge> : null}
+                  {item.priority ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">{item.priority}</Badge> : null}
+                  {item.owner ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">Owner: {item.owner}</Badge> : null}
+                  {item.timeline ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">{item.timeline}</Badge> : null}
                 </div>
               </div>
             ))}
