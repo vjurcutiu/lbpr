@@ -119,6 +119,7 @@ import { WorkflowLauncher } from "@/features/workflows/components/WorkflowLaunch
 import { useWorkflowSelection } from "@/features/workflows/hooks/useWorkflowSelection";
 import { createWorkflowRun, listWorkflowRuns, listWorkflows } from "@/features/workflows/api";
 import type { WorkflowManifest, WorkflowRun, WorkflowSelection } from "@/features/workflows/types";
+import { mergeWorkflowRuns } from "@/features/workflows/utils/runs";
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
 import { API_BASE, getJSON } from "@/shared/api";
 import { loadBool, saveBool, loadJSON, saveJSON } from "@/shared/persist";
@@ -146,6 +147,15 @@ function uploadStartDescription(files: Array<File | UploadTargetFile>, defaultFo
   }
 
   return `Preserving folder structure across ${folderCount} folders.`;
+}
+
+function summarizeWorkflowSelectionLabel(selection: WorkflowSelection) {
+  const files = selection.file_ids.length;
+  const folders = selection.folder_paths.length;
+  const parts: string[] = [];
+  if (files) parts.push(`${files} file${files === 1 ? "" : "s"}`);
+  if (folders) parts.push(`${folders} folder${folders === 1 ? "" : "s"}`);
+  return parts.join(" • ") || "the current selection";
 }
 
 function formatViewerDate(value?: string | null) {
@@ -437,7 +447,7 @@ const internalDragPreviewLabels = useMemo(() => {
       Promise.all([listUploadJobs(), listWorkflowRuns(12)])
         .then(([uploads, workflowRes]) => {
           setSeedFetched(uploads);
-          setSeedWorkflowRuns(workflowRes.items || []);
+          setSeedWorkflowRuns((prev) => mergeWorkflowRuns(prev, workflowRes.items || [], 12));
         })
         .catch(() => {});
       setTrackerRefreshKey(Date.now());
@@ -461,7 +471,7 @@ const internalDragPreviewLabels = useMemo(() => {
   const refreshWorkflowTracker = useCallback(async () => {
     try {
       const res = await listWorkflowRuns(12);
-      setSeedWorkflowRuns(res.items || []);
+      setSeedWorkflowRuns((prev) => mergeWorkflowRuns(prev, res.items || [], 12));
     } catch (err) {
       console.error("[files.workflow] tracker refresh error", err);
     }
@@ -517,27 +527,31 @@ const internalDragPreviewLabels = useMemo(() => {
   }, []);
   const handleRunWorkflow = useCallback(
     async (workflow: WorkflowManifest, inputs: Record<string, unknown>, selection: WorkflowSelection) => {
+      const toastId = `files-workflow-start-${workflow.workflow_id}-${Date.now()}`;
       setWorkflowSubmitting(true);
+      toast.loading(`Starting ${workflow.title}`, {
+        id: toastId,
+        description: `Preparing ${summarizeWorkflowSelectionLabel(selection)}.`,
+      });
+
       try {
         const run = await createWorkflowRun({
           workflow_id: workflow.workflow_id,
           selection,
           inputs,
         });
-        setSeedWorkflowRuns((prev) => {
-          const next = [run, ...prev.filter((item) => item.id !== run.id)];
-          return next.slice(0, 12);
-        });
+        setSeedWorkflowRuns((prev) => mergeWorkflowRuns(prev, [run], 12));
         setTrackerOpen(true);
         setTrackerRefreshKey(Date.now());
         setWorkflowLauncherOpen(false);
         setActiveWorkflow(null);
-        toast.message(`${workflow.title} queued`, {
-          description: `Queued for ${summarizeWorkflowSelectionLabel(selection)}. Follow it in Tasks and review the finished output in Workflows.`,
+        toast.success(`${workflow.title} started`, {
+          id: toastId,
+          description: `Follow it in Tasks and review the finished output in Workflows.`,
         });
       } catch (err) {
         console.error("[files.workflow] run error", err);
-        toast.error(`Failed to run ${workflow.title}`, { description: parseErr(err) });
+        toast.error(`Failed to start ${workflow.title}`, { id: toastId, description: parseErr(err) });
       } finally {
         setWorkflowSubmitting(false);
       }

@@ -15,6 +15,7 @@ import { listWorkflowRuns } from "@/features/workflows/api";
 import { WorkflowStatusBadge } from "@/features/workflows/components/WorkflowStatusBadge";
 import { WorkflowStatusIcon, workflowStatusAccentClass } from "@/features/workflows/components/WorkflowStatusIcon";
 import type { WorkflowRun } from "@/features/workflows/types";
+import { mergeWorkflowRuns } from "@/features/workflows/utils/runs";
 
 import { clearUploadJobs, listUploadJobs, type UploadJob } from "../uploadTrackerApi";
 
@@ -112,6 +113,9 @@ export function UploadTrackerPanel({
   const prevStatusRef = useRef<Map<string, UploadJob["status"]>>(new Map());
   const prevWorkflowStatusRef = useRef<Map<string, WorkflowRun["status"]>>(new Map());
   const hasHydratedWorkflowStatusesRef = useRef(false);
+  const latestWorkflowRunsRef = useRef<Map<string, WorkflowRun>>(new Map());
+  const terminalWorkflowToastRef = useRef<Map<string, WorkflowRun["status"]>>(new Map());
+  const pendingWorkflowFailureToastRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (seedFetched && seedFetched.length > 0) {
@@ -124,13 +128,27 @@ export function UploadTrackerPanel({
 
   useEffect(() => {
     if (seedWorkflowRuns && seedWorkflowRuns.length > 0) {
-      setWorkflowRuns(seedWorkflowRuns);
+      setWorkflowRuns((prev) => mergeWorkflowRuns(prev, seedWorkflowRuns, 12));
     }
   }, [seedWorkflowRuns]);
 
   useEffect(() => {
+    return () => {
+      for (const timerId of pendingWorkflowFailureToastRef.current.values()) {
+        window.clearTimeout(timerId);
+      }
+      pendingWorkflowFailureToastRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    const latestRunMap = new Map<string, WorkflowRun>();
     const nextMap = new Map<string, WorkflowRun["status"]>();
-    for (const run of workflowRuns) nextMap.set(run.id, run.status);
+    for (const run of workflowRuns) {
+      latestRunMap.set(run.id, run);
+      nextMap.set(run.id, run.status);
+    }
+    latestWorkflowRunsRef.current = latestRunMap;
 
     if (!hasHydratedWorkflowStatusesRef.current) {
       prevWorkflowStatusRef.current = nextMap;
@@ -150,27 +168,42 @@ export function UploadTrackerPanel({
 
     prevWorkflowStatusRef.current = nextMap;
 
-    if (completed.length === 1) {
-      toast.success(`${completed[0].title} finished`, {
-        description: workflowCompletionDescription(completed[0]),
-      });
-    } else if (completed.length > 1) {
-      toast.success(`${completed.length} workflows finished`, {
-        description: "Open Workflows to review the outputs.",
+    for (const run of completed) {
+      const pendingFailureToast = pendingWorkflowFailureToastRef.current.get(run.id);
+      if (pendingFailureToast) {
+        window.clearTimeout(pendingFailureToast);
+        pendingWorkflowFailureToastRef.current.delete(run.id);
+      }
+
+      if (terminalWorkflowToastRef.current.get(run.id) === "completed") continue;
+      terminalWorkflowToastRef.current.set(run.id, "completed");
+      toast.success(`${run.title} finished`, {
+        id: `workflow-run-${run.id}`,
+        description: workflowCompletionDescription(run),
       });
     }
 
-    if (failed.length === 1) {
-      toast.error(`${failed[0].title} failed`, {
-        description: failed[0].error?.trim() || "Open Workflows to review the error.",
-      });
-    } else if (failed.length > 1) {
-      toast.error(`${failed.length} workflows failed`, {
-        description: "Open Workflows to review the errors.",
-      });
+    for (const run of failed) {
+      if (terminalWorkflowToastRef.current.has(run.id) || pendingWorkflowFailureToastRef.current.has(run.id)) {
+        continue;
+      }
+
+      const timerId = window.setTimeout(() => {
+        pendingWorkflowFailureToastRef.current.delete(run.id);
+        const latest = latestWorkflowRunsRef.current.get(run.id);
+        if (!latest || latest.status !== "failed" || terminalWorkflowToastRef.current.has(run.id)) {
+          return;
+        }
+
+        terminalWorkflowToastRef.current.set(run.id, "failed");
+        toast.error(`${latest.title} failed`, {
+          id: `workflow-run-${latest.id}`,
+          description: latest.error?.trim() || "Open Workflows to review the error.",
+        });
+      }, 2500);
+      pendingWorkflowFailureToastRef.current.set(run.id, timerId);
     }
   }, [workflowRuns]);
-
   const refresh = async () => {
     setBusy(true);
     try {
@@ -189,7 +222,7 @@ export function UploadTrackerPanel({
       prevStatusRef.current = nextMap;
 
       setJobsFetched(items);
-      setWorkflowRuns(workflowRes.items || []);
+      setWorkflowRuns((prev) => mergeWorkflowRuns(prev, workflowRes.items || [], 12));
       if (newly.length > 0) onAnyComplete?.(newly);
     } catch (e) {
       console.error("[taskTracker] list error", e);
