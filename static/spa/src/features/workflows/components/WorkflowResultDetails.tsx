@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
 import { CheckCircle2, ChevronDown, Circle, Copy, Download, Files, GitBranch, History, Save, SendHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -154,6 +154,9 @@ function VersionHistoryPanel({
   onSelectVersion,
 }: VersionHistoryPanelProps) {
   const [treeOpen, setTreeOpen] = useState(false);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panDragRef = useRef({ active: false, lastX: 0, lastY: 0 });
   const orderedVersions = useMemo(() => sortedVersions(versions), [versions]);
   const activeVersion = orderedVersions.find((version) => version.id === activeVersionId) || orderedVersions[orderedVersions.length - 1];
   const hasMultipleVersions = orderedVersions.length > 1;
@@ -167,19 +170,48 @@ function VersionHistoryPanel({
   }, [orderedVersions]);
 
   const graphNodeById = useMemo(() => new Map(graphNodes.map((node) => [node.version.id, node])), [graphNodes]);
-  const graphColumnGap = 96;
-  const graphRowGap = 68;
-  const graphLeft = 70;
-  const graphTop = 58;
+  const graphColumnGap = 104;
+  const graphRowGap = 72;
+  const graphLeft = 120;
+  const graphTop = 96;
   const graphMaxDepth = graphNodes.reduce((max, node) => Math.max(max, node.depth), 0);
-  const graphWidth = Math.max(520, graphLeft * 2 + graphMaxDepth * graphColumnGap + 180);
-  const graphHeight = Math.max(320, graphTop * 2 + Math.max(0, graphNodes.length - 1) * graphRowGap);
+  const graphWidth = Math.max(980, graphLeft * 2 + graphMaxDepth * graphColumnGap + 240);
+  const graphHeight = Math.max(620, graphTop * 2 + Math.max(0, graphNodes.length - 1) * graphRowGap);
 
   const openVersion = (version: WorkflowRunVersion) => {
     if (version.id !== activeVersion?.id) {
       onSelectVersion?.(version);
     }
     setTreeOpen(false);
+  };
+
+  const startPan = (event: PointerEvent<HTMLDivElement>) => {
+    const target = event.target as Element | null;
+    if (target?.closest?.("[data-version-map-node]")) return;
+
+    panDragRef.current = { active: true, lastX: event.clientX, lastY: event.clientY };
+    setIsPanning(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const movePan = (event: PointerEvent<HTMLDivElement>) => {
+    if (!panDragRef.current.active) return;
+
+    const deltaX = event.clientX - panDragRef.current.lastX;
+    const deltaY = event.clientY - panDragRef.current.lastY;
+    panDragRef.current.lastX = event.clientX;
+    panDragRef.current.lastY = event.clientY;
+    setPanOffset((current) => ({ x: current.x + deltaX, y: current.y + deltaY }));
+  };
+
+  const stopPan = (event: PointerEvent<HTMLDivElement>) => {
+    if (!panDragRef.current.active) return;
+
+    panDragRef.current.active = false;
+    setIsPanning(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   };
 
   if (!hasMultipleVersions) return null;
@@ -266,16 +298,28 @@ function VersionHistoryPanel({
       </div>
 
       <Dialog open={treeOpen} onOpenChange={setTreeOpen}>
-        <DialogContent className="flex max-h-[90vh] w-[96vw] max-w-[1080px] flex-col overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_90px_rgba(15,23,42,0.22)]">
-          <DialogHeader className="border-b border-border/70 px-6 pt-6 pb-4">
-            <DialogTitle className="text-lg font-semibold">Version map</DialogTitle>
+        <DialogContent className="flex max-h-[94vh] w-[98vw] max-w-[1500px] flex-col overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_90px_rgba(15,23,42,0.22)]">
+          <DialogHeader className="border-b border-border/70 px-7 pt-6 pb-4">
+            <DialogTitle className="text-xl font-semibold">Version map</DialogTitle>
             <DialogDescription>
-              Hover over a dot to see the version name. Click a dot to open that version.
+              Hover over a dot to see the version name. Click a dot to open that version. Drag empty space to move around the map.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="min-h-[420px] flex-1 overflow-auto bg-muted/10 p-5">
-            <div className="relative rounded-3xl border border-border/70 bg-background/95 shadow-sm" style={{ width: graphWidth, height: graphHeight }}>
+          <div
+            className={cn(
+              "h-[76vh] min-h-[560px] flex-1 overflow-hidden bg-muted/10 p-6 select-none touch-none",
+              isPanning ? "cursor-grabbing" : "cursor-grab"
+            )}
+            onPointerDown={startPan}
+            onPointerMove={movePan}
+            onPointerUp={stopPan}
+            onPointerCancel={stopPan}
+          >
+            <div
+              className="relative rounded-3xl border border-border/70 bg-background/95 shadow-sm transition-shadow"
+              style={{ width: graphWidth, height: graphHeight, transform: `translate(${panOffset.x}px, ${panOffset.y}px)` }}
+            >
               <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
                 {graphNodes.map((node) => {
                   if (!node.version.parent_version_id) return null;
@@ -291,7 +335,7 @@ function VersionHistoryPanel({
                       key={`${node.version.id}-line`}
                       d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
                       className="fill-none stroke-border"
-                      strokeWidth="2"
+                      strokeWidth="1.5"
                     />
                   );
                 })}
@@ -303,7 +347,13 @@ function VersionHistoryPanel({
                 const x = graphLeft + node.depth * graphColumnGap;
                 const y = graphTop + node.row * graphRowGap;
                 return (
-                  <div key={node.version.id} className="absolute" style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}>
+                  <div
+                    key={node.version.id}
+                    data-version-map-node
+                    className="absolute"
+                    style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -313,14 +363,14 @@ function VersionHistoryPanel({
                           disabled={busy}
                           onClick={() => openVersion(node.version)}
                           className={cn(
-                            "group relative grid h-10 w-10 place-items-center rounded-full border bg-background shadow-sm transition-all hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70",
+                            "group relative grid h-8 w-8 place-items-center rounded-full border bg-background shadow-sm transition-all hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70",
                             active ? "border-primary bg-primary/10 ring-4 ring-primary/15" : "border-border hover:border-primary/50"
                           )}
                         >
                           <span
                             className={cn(
-                              "h-3.5 w-3.5 rounded-full bg-muted-foreground/45 transition-colors group-hover:bg-primary",
-                              node.version.kind === "branch" && "h-4 w-4",
+                              "h-2.5 w-2.5 rounded-full bg-muted-foreground/45 transition-colors group-hover:bg-primary",
+                              node.version.kind === "branch" && "h-3 w-3",
                               active && "bg-primary"
                             )}
                           />
