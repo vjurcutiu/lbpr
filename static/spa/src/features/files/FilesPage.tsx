@@ -109,9 +109,11 @@ import {
   collectFolderPaths,
   uniqStrings,
   isDescendantPath,
+  isSameOrDescendantPath,
   pickTopLevelFolders,
   reduceNestedFolderPaths,
   filterFileIdsNotUnderFolders,
+  applyOptimisticFolderMoveState,
   type ClipboardState,
 } from "./utils/pageHelpers";
 import { WorkflowActionBar } from "@/features/workflows/components/WorkflowActionBar";
@@ -191,11 +193,16 @@ export default function FilesPage() {
   // Data
   const [files, setFiles] = useState<FileItem[]>([]);
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
+  const [pendingFolderMoveRoots, setPendingFolderMoveRoots] = useState<string[]>([]);
   const [tree, setTree] = useState<TreeNode | null>(null);
   // Navigation
   const [selectedFolder, setSelectedFolder] = useState<string>(() => {
     return loadJSON<string>(LS_LAST_FOLDER, "") || "";
   });
+  const selectedFolderRef = useRef<string>(selectedFolder);
+  useEffect(() => {
+    selectedFolderRef.current = selectedFolder;
+  }, [selectedFolder]);
   // LEFT TREE selection (separate from opened folder)
   const [treeSelectedKey, setTreeSelectedKey] = useState<string>(() => {
     const p = loadJSON<string>(LS_LAST_FOLDER, "") || "";
@@ -486,23 +493,31 @@ const internalDragPreviewLabels = useMemo(() => {
   // Persist OCR settings
   useEffect(() => saveJSON(LS_OCR_LANGUAGES, ocrLanguages), [ocrLanguages]);
   useEffect(() => saveBool(LS_OCR_DOCMODE, ocrDocMode), [ocrDocMode]);
-  const refresh = useCallback(async () => {
-    setBusy(true);
-    try {
+  const loadFilesFromServer = useCallback(
+    async (folderToValidate?: string) => {
       const [fs, folders] = await Promise.all([listFiles(), listFolders()]);
       setFiles(fs);
       setFolderPaths(folders);
       const nextTree = buildTree(fs, folders);
       setTree(nextTree);
+      const activeFolder = folderToValidate ?? selectedFolderRef.current;
       // If selected folder no longer exists, fallback to root
-      if (selectedFolder && !findNode(nextTree, selectedFolder)) setSelectedFolder("");
+      if (activeFolder && !findNode(nextTree, activeFolder)) setSelectedFolder("");
+    },
+    []
+  );
+
+  const refresh = useCallback(async () => {
+    setBusy(true);
+    try {
+      await loadFilesFromServer();
     } catch (err) {
       console.error("[files] refresh error", err);
       toast.error("Failed to load files", { description: parseErr(err) });
     } finally {
       setBusy(false);
     }
-  }, [selectedFolder]);
+  }, [loadFilesFromServer]);
   useEffect(() => {
     refresh();
   }, [refresh]);
@@ -582,6 +597,61 @@ const internalDragPreviewLabels = useMemo(() => {
     setClipboard({ op, folders: [p], files: [] });
     toast.success(op === "copy" ? "Copied folder" : "Cut folder", { description: basename(p) });
   }, []);
+  const applyOptimisticFolderMove = useCallback(
+    (movingFolderPaths: string[], destination: string, movingFileIds: string[] = []) => {
+      const optimistic = applyOptimisticFolderMoveState({
+        files,
+        folderPaths,
+        movingFolderPaths,
+        destination,
+        movingFileIds,
+      });
+      const snapshot = {
+        files,
+        folderPaths,
+        tree,
+        selectedFolder,
+        treeSelectedKey,
+      };
+      const nextTree = buildTree(optimistic.files, optimistic.folderPaths);
+      const nextSelectedFolder = optimistic.mapPath(selectedFolder);
+
+      setFiles(optimistic.files);
+      setFolderPaths(optimistic.folderPaths);
+      setTree(nextTree);
+      if (nextSelectedFolder !== selectedFolder) setSelectedFolder(nextSelectedFolder);
+      setTreeSelectedKey((prev) => {
+        if (!prev.startsWith("d:")) return prev;
+        const mapped = optimistic.mapPath(prev.slice(2));
+        return `d:${mapped}`;
+      });
+      setPendingFolderMoveRoots((prev) => uniqStrings([...prev, ...optimistic.movedRootPaths]));
+
+      return {
+        snapshot,
+        pendingRoots: optimistic.movedRootPaths,
+        nextSelectedFolder,
+      };
+    },
+    [files, folderPaths, selectedFolder, tree, treeSelectedKey]
+  );
+
+  const restoreFolderMoveSnapshot = useCallback(
+    (snapshot: { files: FileItem[]; folderPaths: string[]; tree: TreeNode | null; selectedFolder: string; treeSelectedKey: string }) => {
+      setFiles(snapshot.files);
+      setFolderPaths(snapshot.folderPaths);
+      setTree(snapshot.tree);
+      setSelectedFolder(snapshot.selectedFolder);
+      setTreeSelectedKey(snapshot.treeSelectedKey);
+    },
+    []
+  );
+
+  const clearPendingFolderMoveRoots = useCallback((roots: string[]) => {
+    if (!roots.length) return;
+    setPendingFolderMoveRoots((prev) => prev.filter((root) => !roots.includes(root)));
+  }, []);
+
   const pasteIntoFolder = useCallback(
     async (destPath: string) => {
       if (!clipboard || !clipboardHasItems) return;
@@ -598,6 +668,12 @@ const internalDragPreviewLabels = useMemo(() => {
           }
         }
       }
+
+      const shouldOptimisticallyMoveFolders = clipboard.op === "move" && clipboard.folders.length > 0;
+      const optimisticMove = shouldOptimisticallyMoveFolders
+        ? applyOptimisticFolderMove(clipboard.folders, destination, clipboard.files)
+        : null;
+
       try {
         setBusy(true);
         await pasteClipboard({
@@ -606,17 +682,31 @@ const internalDragPreviewLabels = useMemo(() => {
           folders: clipboard.folders,
           files: clipboard.files,
         });
-        await refresh();
+        if (optimisticMove) {
+          await loadFilesFromServer(optimisticMove.nextSelectedFolder);
+        } else {
+          await refresh();
+        }
         if (clipboard.op === "move") setClipboard(null);
         toast.success("Pasted", { description: destination ? `Into “${destination}”` : "Into Root" });
       } catch (err) {
+        if (optimisticMove) restoreFolderMoveSnapshot(optimisticMove.snapshot);
         console.error("[files] paste error", err);
         toast.error("Paste failed", { description: parseErr(err) });
       } finally {
+        if (optimisticMove) clearPendingFolderMoveRoots(optimisticMove.pendingRoots);
         setBusy(false);
       }
     },
-    [clipboard, clipboardHasItems, refresh]
+    [
+      clipboard,
+      clipboardHasItems,
+      applyOptimisticFolderMove,
+      clearPendingFolderMoveRoots,
+      loadFilesFromServer,
+      refresh,
+      restoreFolderMoveSnapshot,
+    ]
   );
   // Resize (desktop)
   useEffect(() => {
@@ -860,6 +950,11 @@ const internalDragPreviewLabels = useMemo(() => {
     set.add("");
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [folderPaths, tree]);
+  const isFolderMovePending = useCallback(
+    (path: string) => pendingFolderMoveRoots.some((root) => isSameOrDescendantPath(root, path)),
+    [pendingFolderMoveRoots]
+  );
+
   const currentNode = useMemo(() => findNode(tree, selectedFolder) || tree, [tree, selectedFolder]);
   const currentFolders = useMemo(() => (currentNode?.children || []).filter((c) => c.type === "folder"), [currentNode]);
   const currentFiles = useMemo(() => (currentNode?.children || []).filter((c) => c.type === "file"), [currentNode]);
@@ -1747,7 +1842,11 @@ const breadcrumb = useMemo(() => {
       });
       return;
     }
+
+    const optimisticMove = applyOptimisticFolderMove(paths, dest);
+
     try {
+      setBusy(true);
       await pasteClipboard({ op: "move", destination: dest, files: [], folders: paths });
       toast.success("Moved", {
         description:
@@ -1762,9 +1861,13 @@ const breadcrumb = useMemo(() => {
       setSelectedFileIds([]);
       setSelectedFolderRowPaths([]);
       selectionAnchorRef.current = null;
-      await refresh();
+      await loadFilesFromServer(optimisticMove.nextSelectedFolder);
     } catch (err) {
+      restoreFolderMoveSnapshot(optimisticMove.snapshot);
       toast.error("Move failed", { description: parseErr(err) });
+    } finally {
+      clearPendingFolderMoveRoots(optimisticMove.pendingRoots);
+      setBusy(false);
     }
   };
   const moveFileToFolder = async (fileId: string, folder: string) => {
@@ -2096,6 +2199,7 @@ const breadcrumb = useMemo(() => {
                   node={treeForFolders}
                   selectedKey={folderTreeSelectedKey}
                   revealPaths={treeRevealPaths}
+                  pendingFolderPaths={pendingFolderMoveRoots}
                   openFolderOnClick={true}
                   suppressClickUntilRef={suppressClickUntilRef}
                   onSelectFolder={(p) => setTreeSelectedKey(`d:${p}`)}
@@ -2349,6 +2453,7 @@ const breadcrumb = useMemo(() => {
                           <FolderRow
                             key={n.path}
                             node={n}
+                            pending={isFolderMovePending(n.path)}
                             selected={selectedFolderRowSet.has(n.path)}
                             suppressClickUntilRef={suppressClickUntilRef}
                             onBeforeMenuOpen={() => cancelMarqueeAndReleaseCapture("ctxmenu.open")}
@@ -2377,6 +2482,7 @@ const breadcrumb = useMemo(() => {
                           <FileRow
                             key={n.file?.id || n.path}
                             node={n}
+                            pending={isFolderMovePending(n.path)}
                             selected={!!(n.file?.id && selectedFileSet.has(n.file.id))}
                             onBeforeMenuOpen={() => cancelMarqueeAndReleaseCapture("ctxmenu.open")}
                             onSelect={(e) => n.file && selectFile(n.file.id, e)}
@@ -2742,6 +2848,7 @@ const breadcrumb = useMemo(() => {
               node={treeForFolders}
               selectedKey={folderTreeSelectedKey}
               revealPaths={treeRevealPaths}
+                  pendingFolderPaths={pendingFolderMoveRoots}
               openFolderOnClick={true}
               suppressClickUntilRef={suppressClickUntilRef}
               onSelectFolder={(p) => setTreeSelectedKey(`d:${p}`)}

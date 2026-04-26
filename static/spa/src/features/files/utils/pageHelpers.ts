@@ -21,6 +21,101 @@ export function parentPath(path: string) {
   return parts.join("/");
 }
 
+function joinFolder(parent: string, child: string) {
+  const p = normalizeFolderPath(parent);
+  const c = normalizeFolderPath(child);
+  if (!p) return c;
+  if (!c) return p;
+  return `${p}/${c}`;
+}
+
+export function isSameOrDescendantPath(ancestor: string, maybeDescendant: string): boolean {
+  const normalizedAncestor = normalizeFolderPath(ancestor);
+  const normalizedDescendant = normalizeFolderPath(maybeDescendant);
+  if (!normalizedAncestor || !normalizedDescendant) return false;
+  return normalizedAncestor === normalizedDescendant || normalizedDescendant.startsWith(normalizedAncestor + "/");
+}
+
+function remapSubtreePath(path: string, sourceRoot: string, destinationRoot: string) {
+  const current = normalizeFolderPath(path);
+  const source = normalizeFolderPath(sourceRoot);
+  const destination = normalizeFolderPath(destinationRoot);
+  if (!source || !isSameOrDescendantPath(source, current)) return current;
+  if (current === source) return destination;
+  const relative = current.slice(source.length + 1);
+  return joinFolder(destination, relative);
+}
+
+export type OptimisticFolderMoveResult = {
+  files: FileItem[];
+  folderPaths: string[];
+  movedRootPaths: string[];
+  mapPath: (path: string) => string;
+};
+
+export function applyOptimisticFolderMoveState({
+  files,
+  folderPaths,
+  movingFolderPaths,
+  destination,
+  movingFileIds = [],
+}: {
+  files: FileItem[];
+  folderPaths: string[];
+  movingFolderPaths: string[];
+  destination: string;
+  movingFileIds?: string[];
+}): OptimisticFolderMoveResult {
+  const roots = pickTopLevelFolders(movingFolderPaths);
+  const dest = normalizeFolderPath(destination);
+  const fileIdSet = new Set(movingFileIds.filter(Boolean));
+
+  const rootMoves = roots.map((source) => ({
+    source,
+    destination: joinFolder(dest, basename(source)),
+  }));
+
+  const mapPath = (path: string) => {
+    let next = normalizeFolderPath(path);
+    for (const move of rootMoves) {
+      next = remapSubtreePath(next, move.source, move.destination);
+    }
+    return next;
+  };
+
+  const movedRootPaths = uniqStrings(rootMoves.map((move) => move.destination).filter(Boolean));
+
+  const nextFiles = files.map((file) => {
+    const currentFolder = normalizeFolderPath(file.folder_path || "");
+    const remappedFolder = mapPath(currentFolder);
+    const movedByFolder = remappedFolder !== currentFolder;
+    const nextFolder = movedByFolder || fileIdSet.has(file.id) ? (movedByFolder ? remappedFolder : dest) : currentFolder;
+
+    if (nextFolder === currentFolder) return file;
+    return {
+      ...file,
+      folder_path: nextFolder || null,
+    };
+  });
+
+  const nextFolderSet = new Set<string>();
+  for (const folderPath of folderPaths) {
+    const mapped = mapPath(folderPath);
+    if (mapped) nextFolderSet.add(mapped);
+  }
+  for (const movedRootPath of movedRootPaths) {
+    if (movedRootPath) nextFolderSet.add(movedRootPath);
+  }
+  if (dest) nextFolderSet.add(dest);
+
+  return {
+    files: nextFiles,
+    folderPaths: Array.from(nextFolderSet).sort((a, b) => a.localeCompare(b)),
+    movedRootPaths,
+    mapPath,
+  };
+}
+
 export function collectFolderPaths(root: TreeNode | null | undefined): string[] {
   const out: string[] = [];
   const walk = (node: TreeNode | null | undefined) => {
@@ -55,11 +150,7 @@ export function uniqStrings(ids: string[]): string[] {
 }
 
 export function isDescendantPath(ancestor: string, maybeDescendant: string): boolean {
-  const normalizedAncestor = (ancestor || "").split("/").filter(Boolean).join("/");
-  const normalizedDescendant = (maybeDescendant || "").split("/").filter(Boolean).join("/");
-  if (!normalizedAncestor || !normalizedDescendant) return false;
-  if (normalizedAncestor === normalizedDescendant) return false;
-  return normalizedDescendant.startsWith(normalizedAncestor + "/");
+  return isSameOrDescendantPath(ancestor, maybeDescendant) && normalizeFolderPath(ancestor) !== normalizeFolderPath(maybeDescendant);
 }
 
 export function pickTopLevelFolders(paths: string[]): string[] {
@@ -90,7 +181,7 @@ export function reduceNestedFolderPaths(paths: string[]): string[] {
 export function fileParentFolder(files: FileItem[], id: string): string {
   const file = files.find((item) => item.id === id);
   if (!file) return "";
-  return parentPath(file.name || "");
+  return normalizeFolderPath(file.folder_path || parentPath(file.name || ""));
 }
 
 export function filterFileIdsNotUnderFolders(files: FileItem[], fileIds: string[], folderPaths: string[]): string[] {

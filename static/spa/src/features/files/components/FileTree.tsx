@@ -77,6 +77,13 @@ function folderPrefixes(p: string) {
   return out;
 }
 
+function isSameOrDescendantFolder(root: string, path: string) {
+  const r = normPath(root);
+  const p = normPath(path);
+  if (!r || !p) return false;
+  return p === r || p.startsWith(r + "/");
+}
+
 export function FileTree({
   node,
   loading = false,
@@ -98,6 +105,7 @@ export function FileTree({
   onDeleteFolder,
   onMoveFilesTo,
   onDropFilesTo,
+  pendingFolderPaths = [],
 }: {
   node: TreeNode | null | undefined;
   loading?: boolean;
@@ -120,6 +128,7 @@ export function FileTree({
   onDeleteFolder?: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, dataTransfer: DataTransfer) => void;
+  pendingFolderPaths?: string[];
 }) {
   const children = useMemo(() => (node?.children || []) as TreeNode[], [node]);
 
@@ -186,6 +195,7 @@ export function FileTree({
         onDeleteFolder={onDeleteFolder}
         onMoveFilesTo={onMoveFilesTo}
         onDropFilesTo={onDropFilesTo}
+        pendingFolderPaths={pendingFolderPaths}
       />
     </div>
   );
@@ -214,6 +224,7 @@ function FolderRow({
   onDeleteFolder,
   onMoveFilesTo,
   onDropFilesTo,
+  pendingFolderPaths,
 }: {
   node: TreeNode;
   isRoot: boolean;
@@ -237,6 +248,7 @@ function FolderRow({
   onDeleteFolder?: (path: string) => void;
   onMoveFilesTo: (fileIds: string[], folderPath: string) => void;
   onDropFilesTo: (folderPath: string, dataTransfer: DataTransfer) => void;
+  pendingFolderPaths: string[];
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuKey, setMenuKey] = useState(0);
@@ -245,6 +257,7 @@ function FolderRow({
   const children = ((node.children || []) as TreeNode[]).filter((child) => child.type === "folder");
   const hasChildren = children.length > 0;
   const selected = selectedKey === folderKey(node.path);
+  const pending = !isRoot && pendingFolderPaths.some((root) => isSameOrDescendantFolder(root, node.path));
 
   const {
     attributes,
@@ -253,8 +266,8 @@ function FolderRow({
     setActivatorNodeRef,
     transform,
     isDragging,
-  } = useDraggable({ id: folderDndId(node.path), disabled: isRoot });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: folderDndId(node.path) });
+  } = useDraggable({ id: folderDndId(node.path), disabled: isRoot || pending });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: folderDndId(node.path), disabled: pending });
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -268,7 +281,7 @@ function FolderRow({
 
   const ignoreClick = () => {
     const until = suppressClickUntilRef?.current ?? 0;
-    return Date.now() < until;
+    return pending || Date.now() < until;
   };
 
   const caretClass = cn(
@@ -278,6 +291,7 @@ function FolderRow({
   );
 
   const activateFolder = () => {
+    if (pending) return;
     onSelectFolder(node.path);
     onOpenFolder(node.path);
     if (hasChildren && !open) toggleOpen(node.path);
@@ -285,7 +299,16 @@ function FolderRow({
 
   return (
     <div className="mb-0.5">
-      <ContextMenu open={menuOpen} onOpenChange={setMenuOpen}>
+      <ContextMenu
+        open={menuOpen}
+        onOpenChange={(open) => {
+          if (pending) {
+            setMenuOpen(false);
+            return;
+          }
+          setMenuOpen(open);
+        }}
+      >
         <ContextMenuTrigger asChild>
           <div
             ref={setDropRef}
@@ -311,18 +334,18 @@ function FolderRow({
             }}
             onDragOver={(e) => {
               // Allow external OS file drops only (upload)
-              if (!isExternalFilesDrag(e.dataTransfer)) return;
+              if (pending || !isExternalFilesDrag(e.dataTransfer)) return;
               e.preventDefault();
               e.dataTransfer.dropEffect = "copy";
             }}
             onDrop={(e) => {
               // External OS file drops only (upload)
-              if (!isExternalFilesDrag(e.dataTransfer)) return;
+              if (pending || !isExternalFilesDrag(e.dataTransfer)) return;
               e.preventDefault();
               e.stopPropagation();
               onDropFilesTo(node.path, e.dataTransfer);
             }}
-            title={node.path || "Root"}
+            title={pending ? "Moving…" : node.path || "Root"}
           >
             <div
               ref={setDragRef}
@@ -331,6 +354,7 @@ function FolderRow({
                 "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left select-none",
                 "hover:bg-muted/40",
                 selected && "bg-muted/50",
+                pending && "opacity-60 cursor-wait",
                 isDragging && "opacity-60"
               )}
             >
@@ -345,8 +369,9 @@ function FolderRow({
                   className={cn(
                     "inline-flex h-5 w-5 items-center justify-center rounded",
                     "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
-                    "cursor-grab active:cursor-grabbing touch-none select-none"
+                    pending ? "cursor-wait" : "cursor-grab active:cursor-grabbing touch-none select-none"
                   )}
+                  disabled={pending}
                   onClick={(e) => e.stopPropagation()}
                   onDoubleClick={(e) => e.stopPropagation()}
                   {...attributes}
@@ -355,40 +380,43 @@ function FolderRow({
                   <GripVertical className="h-4 w-4" />
                 </button>
               )}
-            <button
-              type="button"
-              className={cn(
-                "p-0.5 rounded hover:bg-muted/60",
-                !hasChildren && "opacity-0 pointer-events-none"
-              )}
-              aria-label={open ? "Collapse" : "Expand"}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (ignoreClick()) return;
-                if (!hasChildren) return;
-                toggleOpen(node.path);
-              }}
-            >
-              <ChevronRight className={caretClass} />
-            </button>
+              <button
+                type="button"
+                className={cn(
+                  "p-0.5 rounded hover:bg-muted/60",
+                  !hasChildren && "opacity-0 pointer-events-none"
+                )}
+                aria-label={open ? "Collapse" : "Expand"}
+                disabled={pending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (ignoreClick()) return;
+                  if (!hasChildren) return;
+                  toggleOpen(node.path);
+                }}
+              >
+                <ChevronRight className={caretClass} />
+              </button>
 
-            <button
-              type="button"
-              className="flex items-center gap-1.5 min-w-0 flex-1 text-left py-0.5"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (ignoreClick()) return;
-                activateFolder();
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (ignoreClick()) return;
-                activateFolder();
-              }}
-            >
-              <Folder className="h-4 w-4 shrink-0" />
-              <span className={cn("truncate", isRoot && "font-medium")}>{node.name || "Root"}</span>
-            </button>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 min-w-0 flex-1 text-left py-0.5"
+                disabled={pending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (ignoreClick()) return;
+                  activateFolder();
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (ignoreClick()) return;
+                  activateFolder();
+                }}
+              >
+                {pending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : <Folder className="h-4 w-4 shrink-0" />}
+                <span className={cn("truncate", isRoot && "font-medium")}>{node.name || "Root"}</span>
+                {pending ? <span className="shrink-0 text-xs text-muted-foreground">Moving…</span> : null}
+              </button>
             </div>
           </div>
         </ContextMenuTrigger>
@@ -414,16 +442,13 @@ function FolderRow({
           )}
           <ContextMenuSeparator />
 
-          <ContextMenuItem disabled={isRoot} onSelect={() => onCopyFolder?.(node.path)}
-          >
+          <ContextMenuItem disabled={isRoot} onSelect={() => onCopyFolder?.(node.path)}>
             <Copy className="h-4 w-4" /> Copy
           </ContextMenuItem>
-          <ContextMenuItem disabled={isRoot} onSelect={() => onCutFolder?.(node.path)}
-          >
+          <ContextMenuItem disabled={isRoot} onSelect={() => onCutFolder?.(node.path)}>
             <Scissors className="h-4 w-4" /> Cut
           </ContextMenuItem>
-          <ContextMenuItem disabled={!canPaste} onSelect={() => onPasteInto?.(node.path)}
-          >
+          <ContextMenuItem disabled={!canPaste} onSelect={() => onPasteInto?.(node.path)}>
             <Clipboard className="h-4 w-4" /> Paste
           </ContextMenuItem>
 
@@ -475,6 +500,7 @@ function FolderRow({
               onDeleteFolder={onDeleteFolder}
               onMoveFilesTo={onMoveFilesTo}
               onDropFilesTo={onDropFilesTo}
+              pendingFolderPaths={pendingFolderPaths}
             />
           ))}
         </div>

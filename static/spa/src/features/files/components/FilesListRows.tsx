@@ -16,6 +16,7 @@ import {
   Folder,
   FolderPlus,
   GripVertical,
+  Loader2,
   Pencil,
   Scissors,
   Trash2,
@@ -82,6 +83,7 @@ type FolderRowProps = SharedRowProps & {
   suppressClickUntilRef: MutableRefObject<number>;
   dragGroupActive?: boolean;
   dragGroupCount?: number;
+  pending?: boolean;
 };
 
 export function FolderRow({
@@ -102,6 +104,7 @@ export function FolderRow({
   suppressClickUntilRef,
   dragGroupActive,
   dragGroupCount,
+  pending = false,
 }: FolderRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuKey, setMenuKey] = useState(0);
@@ -113,8 +116,8 @@ export function FolderRow({
     setActivatorNodeRef,
     transform,
     isDragging,
-  } = useDraggable({ id: folderDndId(node.path) });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: folderDndId(node.path) });
+  } = useDraggable({ id: folderDndId(node.path), disabled: pending });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: folderDndId(node.path), disabled: pending });
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -127,6 +130,10 @@ export function FolderRow({
       open={menuOpen}
       onOpenChange={(open) => {
         ctxLog("FolderRow.onOpenChange", { open, path: node.path });
+        if (pending) {
+          setMenuOpen(false);
+          return;
+        }
         if (open) onBeforeMenuOpen?.();
         setMenuOpen(open);
       }}
@@ -148,28 +155,28 @@ export function FolderRow({
           }}
           onDoubleClick={(event) => {
             event.stopPropagation();
-            if (Date.now() < suppressClickUntilRef.current) return;
+            if (pending || Date.now() < suppressClickUntilRef.current) return;
             onOpen();
           }}
           onClick={(event) => {
             event.stopPropagation();
-            if (Date.now() < suppressClickUntilRef.current) return;
+            if (pending || Date.now() < suppressClickUntilRef.current) return;
             onSelect(event);
           }}
           onContextMenu={(event) => {
             event.stopPropagation();
-            if (Date.now() < suppressClickUntilRef.current) return;
+            if (pending || Date.now() < suppressClickUntilRef.current) return;
             if (!selected) onSelect(event);
           }}
           onDragOver={(event) => {
-            if (!isExternalFilesDrag(event.dataTransfer)) return;
+            if (pending || !isExternalFilesDrag(event.dataTransfer)) return;
             event.preventDefault();
             event.dataTransfer.dropEffect = "copy";
           }}
           data-folder-row
           data-folder-path={node.path}
           onDrop={(event) => {
-            if (!isExternalFilesDrag(event.dataTransfer)) return;
+            if (pending || !isExternalFilesDrag(event.dataTransfer)) return;
             event.preventDefault();
             event.stopPropagation();
             onDropFilesHere(event.dataTransfer);
@@ -183,6 +190,7 @@ export function FolderRow({
               "hover:bg-muted/40",
               selected && "bg-muted/60",
               "transition-opacity",
+              pending && "opacity-60 cursor-wait",
               isDragging && (multiDrag ? "opacity-0" : "opacity-60"),
               isDragging && "pointer-events-none",
               !isDragging && inDragGroup && "opacity-40"
@@ -208,8 +216,9 @@ export function FolderRow({
             </div>
 
             <div className="min-w-0 flex items-center gap-2">
-              <Folder className="h-4 w-4 shrink-0" />
+              {pending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : <Folder className="h-4 w-4 shrink-0" />}
               <span className="truncate font-medium">{node.name}</span>
+              {pending ? <span className="shrink-0 text-xs text-muted-foreground">Moving…</span> : null}
             </div>
 
             <div className="text-right text-muted-foreground">—</div>
@@ -289,6 +298,7 @@ type FileRowProps = SharedRowProps & {
   onMove: () => void;
   dragGroupActive?: boolean;
   dragGroupCount?: number;
+  pending?: boolean;
 };
 
 export function FileRow({
@@ -306,6 +316,7 @@ export function FileRow({
   onMove,
   dragGroupActive,
   dragGroupCount,
+  pending = false,
 }: FileRowProps) {
   const file = node.file as FileItem | undefined;
   if (!file) return null;
@@ -342,6 +353,7 @@ export function FileRow({
             "hover:bg-muted/40",
             selected && "bg-muted/60",
             "transition-opacity",
+              pending && "opacity-60 cursor-wait",
             isDragging && (multiDrag ? "opacity-0" : "opacity-60"),
             isDragging && "pointer-events-none",
             !isDragging && inDragGroup && "opacity-40"
