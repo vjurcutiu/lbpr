@@ -28,6 +28,27 @@ function fmtInt(n?: number) {
   try { return new Intl.NumberFormat().format(n ?? 0); } catch { return String(n ?? 0); }
 }
 
+function fmtCompactInt(n?: number) {
+  const value = Number(n ?? 0);
+  const abs = Math.abs(value);
+  if (abs < 1_000) return fmtInt(value);
+
+  const units = [
+    { threshold: 1_000_000_000, suffix: "B" },
+    { threshold: 1_000_000, suffix: "M" },
+    { threshold: 1_000, suffix: "K" },
+  ];
+  const unit = units.find((item) => abs >= item.threshold);
+  if (!unit) return fmtInt(value);
+
+  const scaled = value / unit.threshold;
+  const shouldShowDecimal = Math.abs(scaled) < 10 && !Number.isInteger(scaled);
+  const formatted = new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: shouldShowDecimal ? 1 : 0,
+  }).format(scaled);
+  return formatted + unit.suffix;
+}
+
 function fileProcessingValue(bucket: { file_processing_tokens?: number; upload_tokens?: number } | null | undefined): number {
   return Number(bucket?.file_processing_tokens ?? bucket?.upload_tokens ?? 0);
 }
@@ -474,12 +495,18 @@ function UsageStatValue({
   cap: number;
   suffix?: string;
 }) {
+  const fullLabel = `${fmtInt(used)} / ${fmtInt(cap)}${suffix ? ` ${suffix}` : ""}`;
+
   return (
-    <div className="min-w-0 flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
-      <span className="shrink-0">{fmtInt(used)}</span>
-      <span className="text-muted-foreground/70">/</span>
-      <span className="break-all">{fmtInt(cap)}</span>
-      {suffix ? <span className="text-sm text-muted-foreground">{suffix}</span> : null}
+    <div
+      className="min-w-0 flex flex-nowrap items-baseline gap-x-1 overflow-hidden whitespace-nowrap"
+      title={fullLabel}
+      aria-label={fullLabel}
+    >
+      <span className="shrink-0">{fmtCompactInt(used)}</span>
+      <span className="shrink-0 text-muted-foreground/70">/</span>
+      <span className="shrink-0">{fmtCompactInt(cap)}</span>
+      {suffix ? <span className="shrink-0 text-sm text-muted-foreground">{suffix}</span> : null}
     </div>
   );
 }

@@ -113,9 +113,13 @@ describe("BillingPage — usage tier upgrades", () => {
     render(<BillingPage />);
 
     expect(await screen.findByText(/Messages/i)).toBeInTheDocument();
-    expect(screen.getByText(/2,000/)).toBeInTheDocument();
-    expect(screen.getByText(/20,000,000/)).toBeInTheDocument();
-    expect(screen.getByText(/5,000,000/)).toBeInTheDocument();
+    expect(screen.getByLabelText("3 / 2,000")).toHaveTextContent("3/2K");
+    expect(screen.getByLabelText("1,234 / 20,000,000")).toHaveTextContent("1.2K/20M");
+    expect(screen.getByLabelText("4,567 / 5,000,000")).toHaveTextContent("4.6K/5M");
+
+    expect(screen.getByText(/2,000 messages \/ month/)).toBeInTheDocument();
+    expect(screen.getByText(/20,000,000 file upload tokens/)).toBeInTheDocument();
+    expect(screen.getByText(/5,000,000 workflow tokens \/ month/)).toBeInTheDocument();
 
     const btn = await getProButton();
     expect(btn).toBeDisabled();
