@@ -191,7 +191,7 @@ export function WorkflowLauncher({
                 onChange={(event) => setFocus(event.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Optional. Add a goal, audience, or output preference to steer the result.
+                Optional. Add a goal, context, or output preference to steer the result.
               </p>
             </div>
 

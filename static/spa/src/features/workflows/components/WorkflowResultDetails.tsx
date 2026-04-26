@@ -229,10 +229,6 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
       {!!summaryLayers.length && (
         <Section title="Briefing">
           <div className="space-y-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4">
-            <div className="flex flex-wrap gap-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-              {summaryProfile.audience ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">Audience: {String(summaryProfile.audience).replace(/_/g, " ")}</Badge> : null}
-              {summaryProfile.depth ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">Default: {String(summaryProfile.depth).replace(/_/g, " ")}</Badge> : null}
-            </div>
             <Tabs value={activeLayer} onValueChange={setActiveLayer}>
               <TabsList className="h-auto w-full max-w-full justify-start overflow-x-auto rounded-2xl bg-muted/40 p-1 sm:rounded-full">
                 {summaryLayers.map((layer) => (

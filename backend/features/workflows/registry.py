@@ -18,22 +18,12 @@ log = logging.getLogger("workflows.registry")
 
 WorkflowHandler = Callable[[WorkflowRun, list[WorkflowSourceFile]], WorkflowResult]
 
-_SUMMARY_AUDIENCE_LABELS = {
-    "leadership": "Leadership",
-    "team": "Internal team",
-    "client": "Client",
-    "new_hire": "New hire",
+_SUMMARY_LAYER_LABELS = {
+    "snapshot": "Quick read",
+    "standard": "Key takeaways",
+    "deep_dive": "Details",
 }
-_SUMMARY_DEPTH_LABELS = {
-    "concise": "30-second brief",
-    "standard": "3-minute brief",
-    "detailed": "Deep dive",
-}
-_SUMMARY_DEPTH_DEFAULT_LAYER = {
-    "concise": "snapshot",
-    "standard": "standard",
-    "detailed": "deep_dive",
-}
+
 
 _STOPWORDS = {
     "about", "after", "again", "against", "also", "between", "could", "first", "from", "have", "into",
@@ -317,11 +307,13 @@ def _input_text(run: WorkflowRun, key: str, default: str) -> str:
     return value or default
 
 
-def _summary_profile(run: WorkflowRun) -> tuple[str, str, str]:
-    audience = _input_text(run, "audience", "leadership")
-    depth = _input_text(run, "depth", "standard")
-    focus = _focus_text(run, "an executive-friendly summary")
-    return audience, depth, focus
+def _summary_focus(run: WorkflowRun) -> str:
+    return _focus_text(run, "the material that matters most")
+
+
+def _summary_default_layer(value: Any) -> str:
+    key = str(value or "").strip()
+    return key if key in _SUMMARY_LAYER_LABELS else "standard"
 
 
 def _summary_evidence_from_sources(sources: list[WorkflowSourceFile], *, limit: int = 4) -> list[dict[str, Any]]:
@@ -352,13 +344,13 @@ def _summary_layers_from_result(result: WorkflowResult, sources: list[WorkflowSo
     deep_insights = _first_insight_lines(sources, limit=6)
     deep_text = "\n".join(f"- {item}" for item in deep_insights) if deep_insights else "- Review the cited source material for more detail."
     return [
-        {"key": "snapshot", "label": _SUMMARY_DEPTH_LABELS["concise"], "text": snapshot or "No summary available yet."},
+        {"key": "snapshot", "label": _SUMMARY_LAYER_LABELS["snapshot"], "text": snapshot or "No summary available yet."},
         {
             "key": "standard",
-            "label": _SUMMARY_DEPTH_LABELS["standard"],
+            "label": _SUMMARY_LAYER_LABELS["standard"],
             "text": "\n".join(part for part in standard_parts if part).strip() or snapshot or "No standard brief available yet.",
         },
-        {"key": "deep_dive", "label": _SUMMARY_DEPTH_LABELS["detailed"], "text": deep_text},
+        {"key": "deep_dive", "label": _SUMMARY_LAYER_LABELS["deep_dive"], "text": deep_text},
     ]
 
 
@@ -369,7 +361,7 @@ def _normalize_summary_layers(value: Any, *, fallback: list[dict[str, str]]) -> 
             if not isinstance(item, dict):
                 continue
             key = str(item.get("key") or "").strip()
-            label = str(item.get("label") or "").strip()
+            label = _SUMMARY_LAYER_LABELS.get(key) or str(item.get("label") or "").strip()
             text = str(item.get("text") or "").strip()
             if key and text:
                 cleaned.append({"key": key, "label": label or key.replace("_", " ").title(), "text": text})
@@ -412,28 +404,27 @@ def _normalize_evidence_highlights(value: Any, *, fallback: list[dict[str, Any]]
     return cleaned or fallback
 
 
-def _summary_actions(focus: str, audience: str) -> list[dict[str, str]]:
-    audience_label = _SUMMARY_AUDIENCE_LABELS.get(audience, audience.replace("_", " ").title())
+def _summary_actions(focus: str) -> list[dict[str, str]]:
     return [
         {
             "kind": "workflow",
             "label": "Generate report",
             "workflow_id": "generate_report",
-            "focus": f"{audience_label} brief grounded in this summary. Keep the emphasis on {focus}.",
+            "focus": f"Turn the summary into a polished report. Keep the emphasis on {focus}.",
             "description": "Turn this summary into a more presentation-ready deliverable.",
         },
         {
             "kind": "workflow",
             "label": "Create action plan",
             "workflow_id": "create_action_plan",
-            "focus": f"Owner-ready follow-up plan based on this summary, with priorities and timelines for {focus}.",
+            "focus": f"Create a practical follow-up plan from this summary, with priorities, owners, and timelines for {focus}.",
             "description": "Convert the summary into concrete next steps.",
         },
         {
             "kind": "workflow",
             "label": "Draft memo",
             "workflow_id": "draft_from_sources",
-            "focus": f"Write an internal memo for {audience_label.lower()} that captures the summary and its implications for {focus}.",
+            "focus": f"Write a clear memo that captures the summary, decisions, risks, and implications for {focus}.",
             "description": "Start a reusable draft from the same source material.",
         },
     ]
@@ -448,11 +439,8 @@ def _render_summary_preview(
     sources: list[WorkflowSourceFile],
     layers: list[dict[str, str]],
     evidence_highlights: list[dict[str, Any]],
-    audience: str,
 ) -> str:
     lines = [f"# {run.title}", ""]
-    lines.append(f"Audience: {_SUMMARY_AUDIENCE_LABELS.get(audience, audience.replace('_', ' ').title())}")
-    lines.append("")
     for layer in layers:
         lines.append(f"## {layer.get('label') or layer.get('key', 'Summary').replace('_', ' ').title()}")
         lines.append(str(layer.get("text") or "").strip())
@@ -489,19 +477,19 @@ def _render_summary_preview(
 
 
 def _normalize_summary_result(run: WorkflowRun, result: WorkflowResult, sources: list[WorkflowSourceFile]) -> WorkflowResult:
-    audience, depth, focus = _summary_profile(run)
+    focus = _summary_focus(run)
     metadata = dict(result.metadata or {})
     profile = metadata.get("summary_profile") if isinstance(metadata.get("summary_profile"), dict) else {}
     profile = {
-        "audience": str(profile.get("audience") or audience).strip() or audience,
-        "depth": str(profile.get("depth") or depth).strip() or depth,
         "focus": str(profile.get("focus") or focus).strip() or focus,
-        "default_layer": str(profile.get("default_layer") or _SUMMARY_DEPTH_DEFAULT_LAYER.get(depth, "standard")).strip() or "standard",
+        "default_layer": _summary_default_layer(profile.get("default_layer")),
     }
     metadata["summary_profile"] = profile
-    metadata["audience"] = profile["audience"]
-    metadata["depth"] = profile["depth"]
     metadata["focus"] = profile["focus"]
+    # Older runs could carry audience/depth values from a previous launcher. Keep
+    # them out of customer-facing metadata so they do not leak back into the UI.
+    metadata.pop("audience", None)
+    metadata.pop("depth", None)
 
     layers = _normalize_summary_layers(
         metadata.get("summary_layers"),
@@ -533,7 +521,7 @@ def _normalize_summary_result(run: WorkflowRun, result: WorkflowResult, sources:
 
     suggested_actions = metadata.get("suggested_actions")
     if not isinstance(suggested_actions, list) or not suggested_actions:
-        suggested_actions = _summary_actions(profile["focus"], profile["audience"])
+        suggested_actions = _summary_actions(profile["focus"])
     metadata["suggested_actions"] = suggested_actions
     if not result.next_actions:
         result.next_actions = [str(item.get("label") or "").strip() for item in suggested_actions if isinstance(item, dict) and str(item.get("label") or "").strip()]
@@ -547,7 +535,6 @@ def _normalize_summary_result(run: WorkflowRun, result: WorkflowResult, sources:
         sources=sources,
         layers=layers,
         evidence_highlights=evidence_highlights,
-        audience=profile["audience"],
     )
     return result
 
@@ -655,38 +642,45 @@ def _llm_result(
             metadata=metadata,
         )
     except Exception:
-        log.exception("workflow_llm_failed", workflow_id=run.workflow_id)
+        log.exception("workflow_llm_failed", extra={"workflow_id": run.workflow_id})
         return fallback_factory()
 
 
 def summarize_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> WorkflowResult:
-    audience, depth, focus = _summary_profile(run)
-    audience_label = _SUMMARY_AUDIENCE_LABELS.get(audience, audience.replace("_", " ").title())
-    depth_label = _SUMMARY_DEPTH_LABELS.get(depth, depth.replace("_", " ").title())
+    focus = _summary_focus(run)
 
     def fallback() -> WorkflowResult:
         evidence_highlights = _summary_evidence_from_sources(sources)
         bullets = [
             f"{item['claim']} ({', '.join(item['sources'])})" if item.get("sources") else str(item["claim"])
             for item in evidence_highlights[:4]
-        ] or [f"Used {_source_label(source)} as source material." for source in sources[:3]]
-        next_actions = [item["label"] for item in _summary_actions(focus, audience)]
+        ]
+        if not bullets:
+            bullets = _first_insight_lines(sources, limit=4) or ["The selected material does not contain enough readable text to pull strong takeaways."]
+
+        first_takeaway = _strip_single_source_text(bullets[0], sources) if bullets else "The selected material needs a closer review."
+        source_count = _source_file_count(sources)
+        summary = (
+            f"The main takeaway is that {first_takeaway[0].lower() + first_takeaway[1:] if first_takeaway else 'the selected material needs a closer review'}"
+            if source_count == 1
+            else f"Across {source_count} selected files, the clearest takeaway is that {first_takeaway[0].lower() + first_takeaway[1:] if first_takeaway else 'the material needs a closer review'}"
+        )
+        next_actions = [item["label"] for item in _summary_actions(focus)]
         result = _result(
             run,
-            summary=f"Generated a {depth_label.lower()} for {audience_label.lower()} across {_source_file_count(sources)} selected file(s), focused on {focus}.",
+            summary=summary.rstrip(".") + ".",
             bullets=bullets,
             next_actions=next_actions,
             sources=sources,
             metadata={
                 "focus": focus,
-                "audience": audience,
-                "depth": depth,
+                "summary_profile": {"focus": focus, "default_layer": "standard"},
                 "summary_layers": _summary_layers_from_result(
-                    WorkflowResult(summary=f"Generated a {depth_label.lower()} for {audience_label.lower()} across {_source_file_count(sources)} selected file(s), focused on {focus}.", bullets=bullets, next_actions=next_actions),
+                    WorkflowResult(summary=summary, bullets=bullets, next_actions=next_actions),
                     sources,
                 ),
                 "evidence_highlights": evidence_highlights,
-                "suggested_actions": _summary_actions(focus, audience),
+                "suggested_actions": _summary_actions(focus),
             },
         )
         return _normalize_summary_result(run, result, sources)
@@ -695,24 +689,27 @@ def summarize_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Wo
         run,
         sources,
         task_brief=(
-            f"Create a grounded summary for {audience_label.lower()} that emphasizes {focus}. "
-            f"The requested default depth is {depth_label.lower()}."
+            f"Write a useful, source-grounded briefing focused on {focus}. "
+            "Prioritize what changed, what matters, the practical implications, unresolved questions, and any risks or decisions. "
+            "Use natural business language. Avoid generic workflow language, filler, and phrases like 'this document discusses' or 'generated a summary'."
         ),
         output_requirements=(
             (
-                "Include 3-5 bullets that each state a concrete claim without naming the source file. "
+                "For a single source file, do not name the file or use inline source labels anywhere in the user-facing text. "
                 if _is_single_source_output(sources)
-                else "Include 3-5 bullets that each state a concrete claim and mention the supporting source name in parentheses. "
+                else "For multi-file summaries, mention source names only where they help verify a specific claim. "
             )
-            + "Include 2-4 next actions. In metadata, include: "
-            "summary_profile with audience, depth, focus, and default_layer; "
-            "summary_layers as an array with snapshot, standard, and deep_dive items (each with key, label, text); "
+            + "Return a polished result, not a template. The summary should be a short, specific lead paragraph. "
+            "Bullets should be 3-6 concrete takeaways written as complete thoughts, with no generic headings inside the bullet text. "
+            "Next actions should be practical and specific to the content. "
+            "In metadata, include: summary_profile with focus and default_layer only; "
+            "summary_layers as an array with snapshot, standard, and deep_dive items using labels Quick read, Key takeaways, and Details; "
             "evidence_highlights as an array of objects with claim, importance, sources, and evidence where evidence is an array of {source_name, excerpt}; "
             "and suggested_actions as workflow actions with label, workflow_id, focus, and description. "
             + (
-                "The markdown should include separate sections for the quick brief, the fuller brief, supporting evidence, and next steps. Do not include source names inline; the final Sources used section is added automatically."
+                "The markdown should include concise briefing sections and next steps. Do not include source names inline; the final Sources used section is added automatically."
                 if _is_single_source_output(sources)
-                else "The markdown should include separate sections for the quick brief, the fuller brief, supporting evidence, next steps, and sources used."
+                else "The markdown should include concise briefing sections, supporting evidence, next steps, and sources used."
             )
         ),
         fallback_factory=fallback,
@@ -973,33 +970,11 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
         description="Create a clear brief from selected files or folders, with key takeaways, risks, and follow-up questions.",
         capability="summarize",
         launcher={
-            "prompt_label": "Summary goal",
-            "prompt_placeholder": "Executive summary, detailed notes, customer-ready recap…",
+            "prompt_label": "Summary focus",
+            "prompt_placeholder": "Key risks, important decisions, open questions, next steps…",
             "submit_label": "Generate summary",
-            "suggested_prompts": ["Executive summary", "Risks and open questions", "Customer-ready recap"],
-            "fields": [
-                {
-                    "key": "audience",
-                    "label": "Audience",
-                    "default_value": "leadership",
-                    "options": [
-                        {"value": "leadership", "label": "Leadership"},
-                        {"value": "team", "label": "Internal team"},
-                        {"value": "client", "label": "Client"},
-                        {"value": "new_hire", "label": "New hire"},
-                    ],
-                },
-                {
-                    "key": "depth",
-                    "label": "Depth",
-                    "default_value": "standard",
-                    "options": [
-                        {"value": "concise", "label": "30-second brief"},
-                        {"value": "standard", "label": "3-minute brief"},
-                        {"value": "detailed", "label": "Deep dive"},
-                    ],
-                },
-            ],
+            "suggested_prompts": ["Key takeaways", "Risks and open questions", "Decisions and next steps"],
+            "fields": [],
         },
         tags=["briefing", "multi-file", "cited"],
     ),

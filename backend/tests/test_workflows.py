@@ -205,8 +205,7 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
     assert 'summarize_documents' in workflow_ids
     assert 'compare_documents' in workflow_ids
     summarize = next(item for item in payload if item['workflow_id'] == 'summarize_documents')
-    assert summarize['launcher']['fields'][0]['key'] == 'audience'
-    assert summarize['launcher']['fields'][1]['key'] == 'depth'
+    assert summarize['launcher']['fields'] == []
 
     create = auth_client.post(
         '/v1/workflows/runs',
@@ -217,7 +216,7 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
                 'folder_paths': ['contracts'],
                 'current_folder': 'contracts',
             },
-            'inputs': {'focus': 'key risks and decisions', 'audience': 'client', 'depth': 'concise'},
+            'inputs': {'focus': 'key risks and decisions'},
         },
     )
     assert create.status_code == 202, create.text
@@ -227,10 +226,12 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
     assert run['result']['summary']
     assert run['result']['metadata']['source_files'][0]['name'] == 'Q1-plan.txt'
     assert run['result']['preview_markdown']
-    assert run['result']['metadata']['summary_profile']['audience'] == 'client'
+    assert run['result']['metadata']['summary_profile']['focus'] == 'key risks and decisions'
+    assert 'audience' not in run['result']['metadata']['summary_profile']
     assert run['artifact']['id'].startswith('wf_art_')
     assert run['artifact']['file_name'].endswith('.md')
-    assert run['result']['metadata']['summary_profile']['depth'] == 'concise'
+    assert run['result']['metadata']['summary_profile']['default_layer'] == 'standard'
+    assert 'depth' not in run['result']['metadata']['summary_profile']
     assert run['result']['metadata']['summary_layers'][0]['key'] == 'snapshot'
     assert run['result']['metadata']['evidence_highlights'][0]['claim']
     assert run['result']['metadata']['suggested_actions'][0]['workflow_id'] == 'generate_report'
