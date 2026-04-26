@@ -216,14 +216,18 @@ function formatSelection(run: WorkflowRun) {
   return parts.join(" • ") || "No source selection";
 }
 
-function renderStatusCopy(run: WorkflowRun) {
-  if (run.status === "completed") {
+function workflowDisplayStatus(run: WorkflowRun, refiningRunId: string | null): WorkflowStatus {
+  return refiningRunId === run.id ? "running" : run.status;
+}
+
+function renderStatusCopy(run: WorkflowRun, status: WorkflowStatus = run.status) {
+  if (status === "completed") {
     return "The output is ready to review.";
   }
-  if (run.status === "failed") {
+  if (status === "failed") {
     return run.error || "This workflow did not complete. Check the message below or try again with a different selection.";
   }
-  if (run.status === "running") {
+  if (status === "running") {
     return "Processing now. The result will appear here automatically when it finishes.";
   }
   return "Waiting to start. No action is needed.";
@@ -274,17 +278,20 @@ function PaneScroller({
 function RunListItem({
   run,
   active,
+  status,
   onSelect,
   onRename,
   onDelete,
 }: {
   run: WorkflowRun;
   active: boolean;
+  status?: WorkflowStatus;
   onSelect: (runId: string) => void;
   onRename: (run: WorkflowRun) => void;
   onDelete: (run: WorkflowRun) => void;
 }) {
-  const statusLabel = workflowStatusLabel(run.status);
+  const displayStatus = status || run.status;
+  const statusLabel = workflowStatusLabel(displayStatus);
 
   return (
     <div
@@ -304,12 +311,12 @@ function RunListItem({
             <div
               className={cn(
                 "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors",
-                workflowStatusAccentClass(run.status)
+                workflowStatusAccentClass(displayStatus)
               )}
               aria-label={`Workflow status: ${statusLabel}`}
               title={statusLabel}
             >
-              <WorkflowStatusIcon status={run.status} className="h-4 w-4" />
+              <WorkflowStatusIcon status={displayStatus} className="h-4 w-4" />
             </div>
 
             <div className="w-0 min-w-0 flex-1 overflow-hidden">
@@ -702,6 +709,9 @@ export default function WorkflowsPage() {
   const handleRefineRun = useCallback(async (run: WorkflowRun, prompt: string) => {
     if (!run.result || run.status !== "completed") return;
     setRefiningRunId(run.id);
+    toast.message("Refining workflow", {
+      description: "The output is updating now. This run will stay active until the revised version is ready.",
+    });
     try {
       const refined = await refineWorkflowRun(run.id, prompt);
       setRuns((prev) => prev.map((item) => (item.id === refined.id ? refined : item)));
@@ -820,9 +830,12 @@ export default function WorkflowsPage() {
   }, [flowsPaneWidth, isResizableDesktop, resizingPane, runsPaneWidth]);
 
   const stats = useMemo(() => {
-    const completed = runs.filter((run) => run.status === "completed");
-    const failed = runs.filter((run) => run.status === "failed");
-    const inFlight = runs.filter((run) => run.status === "queued" || run.status === "running");
+    const completed = runs.filter((run) => workflowDisplayStatus(run, refiningRunId) === "completed");
+    const failed = runs.filter((run) => workflowDisplayStatus(run, refiningRunId) === "failed");
+    const inFlight = runs.filter((run) => {
+      const status = workflowDisplayStatus(run, refiningRunId);
+      return status === "queued" || status === "running";
+    });
     const completedToday = completed.filter((run) => sameLocalDay(run.updated_at)).length;
     const terminalCount = completed.length + failed.length;
     const successRate = terminalCount ? Math.round((completed.length / terminalCount) * 100) : 0;
@@ -834,7 +847,7 @@ export default function WorkflowsPage() {
       completedToday,
       successRate,
     };
-  }, [runs]);
+  }, [refiningRunId, runs]);
 
 
 
@@ -853,6 +866,7 @@ export default function WorkflowsPage() {
   }, [selectedRunId, visibleRuns]);
 
   const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
+  const selectedRunDisplayStatus = selectedRun ? workflowDisplayStatus(selectedRun, refiningRunId) : null;
   const renamingRun = useMemo(() => runs.find((run) => run.id === renamingRunId) || null, [renamingRunId, runs]);
   const deletingRun = useMemo(() => runs.find((run) => run.id === deletingRunId) || null, [deletingRunId, runs]);
   const selectedRunChainSource = useMemo(() => chainSourceFromRun(selectedRun, catalog), [catalog, selectedRun]);
@@ -993,7 +1007,15 @@ export default function WorkflowsPage() {
               <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full w-full min-w-0 max-w-full overflow-hidden"}>
                 <div className="w-full min-w-0 max-w-full overflow-hidden divide-y divide-border/70">
                   {visibleRuns.map((run) => (
-                    <RunListItem key={run.id} run={run} active={run.id === selectedRunId} onSelect={handleSelectRun} onRename={startRenamingRun} onDelete={startDeletingRun} />
+                    <RunListItem
+                      key={run.id}
+                      run={run}
+                      active={run.id === selectedRunId}
+                      status={workflowDisplayStatus(run, refiningRunId)}
+                      onSelect={handleSelectRun}
+                      onRename={startRenamingRun}
+                      onDelete={startDeletingRun}
+                    />
                   ))}
                 </div>
               </PaneScroller>
@@ -1033,8 +1055,8 @@ export default function WorkflowsPage() {
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-3">
-                          <div className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background", workflowStatusAccentClass(selectedRun.status))}>
-                            <WorkflowStatusIcon status={selectedRun.status} className="h-5 w-5" />
+                          <div className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background", workflowStatusAccentClass(selectedRunDisplayStatus || selectedRun.status))}>
+                            <WorkflowStatusIcon status={selectedRunDisplayStatus || selectedRun.status} className="h-5 w-5" />
                           </div>
                           <div className="min-w-0 flex-1">
                             {selectedRunChainSource ? (
@@ -1073,7 +1095,7 @@ export default function WorkflowsPage() {
                               </button>
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                              <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
+                              <WorkflowStatusBadge status={selectedRunDisplayStatus || selectedRun.status} className="px-1.5 py-0 text-[10px]" />
                               {selectedRun.artifact ? (
                                 <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
                                   Output saved
@@ -1089,7 +1111,7 @@ export default function WorkflowsPage() {
                                 </>
                               ) : null}
                             </div>
-                            <p className="mt-4 max-w-3xl text-[15px] leading-7 text-foreground/90">{renderStatusCopy(selectedRun)}</p>
+                            <p className="mt-4 max-w-3xl text-[15px] leading-7 text-foreground/90">{renderStatusCopy(selectedRun, selectedRunDisplayStatus || selectedRun.status)}</p>
                             {selectedRunChainSource ? (
                               <div className="mt-4 max-w-3xl border border-border/70 bg-muted/15 px-3 py-3">
                                 <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Built from previous result</div>
