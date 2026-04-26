@@ -247,25 +247,6 @@ function statusAccent(status: WorkflowStatus) {
   }
 }
 
-function PaneHeader({
-  title,
-  meta,
-  action,
-}: {
-  title: string;
-  meta?: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-muted/10 px-3 py-2.5">
-      <div className="min-w-0">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">{title}</div>
-        {meta ? <div className="truncate text-xs text-muted-foreground">{meta}</div> : null}
-      </div>
-      {action}
-    </div>
-  );
-}
 
 function PaneScroller({
   mobile,
@@ -400,7 +381,7 @@ export default function WorkflowsPage() {
   const [catalog, setCatalog] = useState<WorkflowManifest[]>([]);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
@@ -686,10 +667,6 @@ export default function WorkflowsPage() {
           isMobile ? "border-t-0" : "grid h-full min-h-0 xl:grid-cols-[310px_minmax(0,1fr)_300px] xl:divide-x xl:divide-border/70"
         )}>
         <section className={cn("flex min-h-[220px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showInbox && "hidden")}>
-          <PaneHeader
-            title="Runs"
-            meta={refreshing ? "Updating recent activity…" : `Recent activity • ${stats.inFlight ? `${stats.inFlight} running` : "idle"} • ${stats.failed} failed • ${stats.completedToday} done today`}
-          />
           <div className="shrink-0 border-b border-border/70 px-3 py-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -721,10 +698,6 @@ export default function WorkflowsPage() {
         </section>
 
         <section className={cn("flex min-h-[320px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showDetails && "hidden")}>
-          <PaneHeader
-            title="Result"
-            meta={selectedRun ? `Updated ${formatRelativeTime(selectedRun.updated_at)}` : "Select a run to review its result"}
-          />
 
           {selectedRun ? (
             <div className={cn("min-h-0 flex-1 bg-muted/15", !isMobile && "overflow-hidden")}>
@@ -869,10 +842,6 @@ export default function WorkflowsPage() {
         </section>
 
         <section className={cn("flex min-h-[220px] min-w-0 flex-col xl:min-h-0", !showFlows && "hidden")}>
-          <PaneHeader
-            title="Start a workflow"
-            meta="Pick a task, then choose the files it should use"
-          />
           <div className="min-h-0 flex-1">
             {catalog.length ? (
               <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
