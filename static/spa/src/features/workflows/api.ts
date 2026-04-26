@@ -49,6 +49,13 @@ export async function selectWorkflowRunVersion(runId: string, versionId: string)
   );
 }
 
+export async function renameWorkflowRunVersion(runId: string, versionId: string, label: string): Promise<WorkflowRun> {
+  return patchJSON<WorkflowRun>(
+    `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/label`,
+    { label }
+  );
+}
+
 export async function branchWorkflowRunVersion(runId: string, versionId: string, prompt: string): Promise<WorkflowRun> {
   return postJSON<WorkflowRun>(
     `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/branch`,

@@ -83,6 +83,9 @@ class WorkflowRunCreate(BaseModel):
 class WorkflowRunTitleUpdate(BaseModel):
     title: str = Field(..., min_length=1, max_length=120)
 
+class WorkflowRunVersionLabelUpdate(BaseModel):
+    label: str = Field(..., min_length=1, max_length=120)
+
 
 class WorkflowRunRefineRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=2000)
@@ -142,6 +145,7 @@ class WorkflowRunVersion(BaseModel):
     parent_version_id: str | None = None
     version_number: int = 1
     title: str
+    label: str | None = None
     kind: Literal["original", "refinement", "branch"] = "original"
     prompt: str | None = None
     result: WorkflowResult

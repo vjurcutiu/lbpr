@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, Save, SendHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -123,6 +124,7 @@ type Props = {
   onSaveArtifact?: () => void;
   onDownloadArtifact?: (format: WorkflowArtifactFormat) => void;
   onSelectVersion?: (version: WorkflowRunVersion) => void;
+  onRenameVersion?: (version: WorkflowRunVersion, label: string) => void | Promise<void>;
   onDownloadVersion?: (version: WorkflowRunVersion, format: WorkflowArtifactFormat) => void;
   onBranchVersion?: (version: WorkflowRunVersion) => void;
   onRefine?: (prompt: string) => void;
@@ -141,10 +143,15 @@ type VersionHistoryPanelProps = {
   activeVersionId?: string | null;
   versionBusyId?: string | null;
   onSelectVersion?: (version: WorkflowRunVersion) => void;
+  onRenameVersion?: (version: WorkflowRunVersion, label: string) => void | Promise<void>;
 };
 
 function versionDisplayName(version: WorkflowRunVersion) {
   return String(version.title || version.prompt || `${versionKindLabel(version)} output`).trim();
+}
+
+function versionMapLabel(version: WorkflowRunVersion) {
+  return String(version.label || versionLabel(version)).trim();
 }
 
 function VersionHistoryPanel({
@@ -152,8 +159,12 @@ function VersionHistoryPanel({
   activeVersionId,
   versionBusyId,
   onSelectVersion,
+  onRenameVersion,
 }: VersionHistoryPanelProps) {
   const [treeOpen, setTreeOpen] = useState(false);
+  const [editingVersionId, setEditingVersionId] = useState<string | null>(null);
+  const [versionLabelDraft, setVersionLabelDraft] = useState("");
+  const editInputRef = useRef<HTMLInputElement | null>(null);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -172,7 +183,7 @@ function VersionHistoryPanel({
 
   const graphNodeById = useMemo(() => new Map(graphNodes.map((node) => [node.version.id, node])), [graphNodes]);
   const graphColumnGap = 96;
-  const graphRowGap = 64;
+  const graphRowGap = 84;
   const graphPaddingX = 980;
   const graphPaddingY = 760;
   const graphLeft = graphPaddingX;
@@ -205,6 +216,46 @@ function VersionHistoryPanel({
     const frame = window.requestAnimationFrame(() => centerVersion(activeVersion));
     return () => window.cancelAnimationFrame(frame);
   }, [activeVersion, centerVersion, treeOpen]);
+
+  useEffect(() => {
+    if (!editingVersionId) return;
+    editInputRef.current?.focus();
+    editInputRef.current?.select();
+  }, [editingVersionId]);
+
+  const beginLabelEdit = (version: WorkflowRunVersion) => {
+    setEditingVersionId(version.id);
+    setVersionLabelDraft(versionMapLabel(version));
+  };
+
+  const cancelLabelEdit = () => {
+    setEditingVersionId(null);
+    setVersionLabelDraft("");
+  };
+
+  const saveLabelEdit = async (version: WorkflowRunVersion) => {
+    const nextLabel = versionLabelDraft.trim();
+    const currentLabel = versionMapLabel(version);
+
+    if (!nextLabel || nextLabel === currentLabel) {
+      cancelLabelEdit();
+      return;
+    }
+
+    await onRenameVersion?.(version, nextLabel);
+    cancelLabelEdit();
+  };
+
+  const handleLabelKeyDown = (event: KeyboardEvent<HTMLInputElement>, version: WorkflowRunVersion) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void saveLabelEdit(version);
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelLabelEdit();
+    }
+  };
 
   const openVersion = (version: WorkflowRunVersion) => {
     if (version.id !== activeVersion?.id) {
@@ -254,7 +305,7 @@ function VersionHistoryPanel({
               Versions
               {activeVersion ? (
                 <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
-                  Viewing {versionLabel(activeVersion)}
+                  Viewing {versionMapLabel(activeVersion)}
                 </Badge>
               ) : null}
             </div>
@@ -268,7 +319,7 @@ function VersionHistoryPanel({
               <DropdownMenuTrigger asChild>
                 <Button type="button" variant="outline" size="sm" className="h-9 w-full justify-between rounded-full px-3 text-xs sm:w-[230px]">
                   <span className="truncate text-left">
-                    {activeVersion ? `Viewing ${versionLabel(activeVersion)} · ${versionKindLabel(activeVersion)}` : "Choose version"}
+                    {activeVersion ? `Viewing ${versionMapLabel(activeVersion)} · ${versionKindLabel(activeVersion)}` : "Choose version"}
                   </span>
                   <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0" />
                 </Button>
@@ -297,7 +348,7 @@ function VersionHistoryPanel({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium leading-5 text-foreground">{versionLabel(version)}</span>
+                          <span className="text-sm font-medium leading-5 text-foreground">{versionMapLabel(version)}</span>
                           <span className="text-xs leading-5 text-muted-foreground">{versionKindLabel(version)}</span>
                           {active ? <span className="ml-auto text-[11px] text-primary">Current</span> : null}
                         </div>
@@ -332,7 +383,7 @@ function VersionHistoryPanel({
               <div className="min-w-0">
                 <DialogTitle className="text-xl font-semibold">Version map</DialogTitle>
                 <DialogDescription className="mt-1">
-                  Hover over a dot to see the version name. Click a dot to open that version. Drag empty space to move around the map.
+                  Click a label to rename it. Click a dot to open that version. Drag empty space to move around the map.
                 </DialogDescription>
               </div>
               <Button
@@ -394,11 +445,69 @@ function VersionHistoryPanel({
                     style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}
                     onPointerDown={(event) => event.stopPropagation()}
                   >
+                    <div className="absolute bottom-6 left-1/2 z-10 -translate-x-1/2">
+                      {editingVersionId === node.version.id ? (
+                        <Input
+                          ref={editInputRef}
+                          value={versionLabelDraft}
+                          maxLength={120}
+                          disabled={busy}
+                          onChange={(event) => setVersionLabelDraft(event.target.value)}
+                          onBlur={() => { void saveLabelEdit(node.version); }}
+                          onKeyDown={(event) => handleLabelKeyDown(event, node.version)}
+                          onClick={(event) => event.stopPropagation()}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          className="h-auto w-32 rounded-xl border-border bg-background/95 px-2 py-1 text-center text-[11px] font-medium leading-4 shadow-lg"
+                        />
+                      ) : (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                beginLabelEdit(node.version);
+                              }}
+                              onPointerDown={(event) => event.stopPropagation()}
+                              className={cn(
+                                "max-w-[120px] rounded-xl border border-border/70 bg-background/95 px-2 py-1 text-center text-[11px] font-medium leading-4 text-foreground shadow-sm transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70",
+                                active && "border-primary/40 bg-primary/10 text-primary"
+                              )}
+                              style={{
+                                display: "-webkit-box",
+                                WebkitBoxOrient: "vertical",
+                                WebkitLineClamp: 3,
+                                overflow: "hidden",
+                                wordBreak: "break-word",
+                              }}
+                            >
+                              {versionMapLabel(node.version)}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" sideOffset={8} className="max-w-[240px] rounded-xl px-3 py-2 text-xs shadow-lg">
+                            <div
+                              className="font-medium leading-5"
+                              style={{
+                                display: "-webkit-box",
+                                WebkitBoxOrient: "vertical",
+                                WebkitLineClamp: 3,
+                                overflow: "hidden",
+                                wordBreak: "break-word",
+                              }}
+                            >
+                              {versionMapLabel(node.version)}
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
                           type="button"
-                          aria-label={`${versionLabel(node.version)} ${versionDisplayName(node.version)}`}
+                          aria-label={`${versionMapLabel(node.version)} ${versionDisplayName(node.version)}`}
                           aria-current={active ? "true" : undefined}
                           disabled={busy}
                           onClick={() => openVersion(node.version)}
@@ -416,8 +525,19 @@ function VersionHistoryPanel({
                           />
                         </button>
                       </TooltipTrigger>
-                      <TooltipContent side="top" sideOffset={8} className="max-w-[260px] rounded-xl px-3 py-2 text-xs shadow-lg">
-                        <div className="truncate font-medium">{versionDisplayName(node.version)}</div>
+                      <TooltipContent side="bottom" sideOffset={8} className="max-w-[240px] rounded-xl px-3 py-2 text-xs shadow-lg">
+                        <div
+                          className="font-medium leading-5"
+                          style={{
+                            display: "-webkit-box",
+                            WebkitBoxOrient: "vertical",
+                            WebkitLineClamp: 3,
+                            overflow: "hidden",
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {versionMapLabel(node.version)}
+                        </div>
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -444,6 +564,7 @@ export function WorkflowResultDetails({
   onSaveArtifact,
   onDownloadArtifact,
   onSelectVersion,
+  onRenameVersion,
   onRefine,
   onWorkflowAction,
 }: Props) {
@@ -486,6 +607,7 @@ export function WorkflowResultDetails({
         activeVersionId={activeVersionId}
         versionBusyId={versionBusyId}
         onSelectVersion={onSelectVersion}
+        onRenameVersion={onRenameVersion}
       />
 
       <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">

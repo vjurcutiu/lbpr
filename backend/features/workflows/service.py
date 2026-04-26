@@ -39,6 +39,7 @@ from .models import (
     WorkflowRunList,
     WorkflowRunRefineRequest,
     WorkflowRunTitleUpdate,
+    WorkflowRunVersionLabelUpdate,
     WorkflowRunVersion,
     WorkflowRunVersionList,
     WorkflowSelectionIn,
@@ -140,6 +141,17 @@ def _clean_run_title(value: str) -> str:
     if len(title) > 120:
         title = title[:120].rsplit(" ", 1)[0].strip() or title[:120].strip()
     return title
+
+
+def _clean_version_label(value: str) -> str:
+    label = re.sub(r"\s+", " ", str(value or "").strip())
+    label = re.sub(r"^#+\s*", "", label).strip(" .\t\n\r")
+    if not label:
+        raise HTTPException(status_code=400, detail="Version name cannot be empty")
+    if len(label) > 120:
+        label = label[:120].rsplit(" ", 1)[0].strip() or label[:120].strip()
+    return label
+
 
 
 def _retitle_markdown(markdown: str, title: str) -> str:
@@ -748,6 +760,16 @@ def select_run_version(uid: str, run_id: str, version_id: str) -> WorkflowRun:
     run.active_version_id = version.id
     run.status = "completed"
     run.error = None
+    _persist_run(uid, run)
+    return run
+
+def rename_run_version(uid: str, run_id: str, version_id: str, payload: WorkflowRunVersionLabelUpdate) -> WorkflowRun:
+    run = get_run(uid, run_id)
+    version = _find_version(run, version_id)
+    version.label = _clean_version_label(payload.label)
+    version.updated_at = datetime.now(UTC)
+    _replace_or_append_version(run, version)
+    run.updated_at = version.updated_at
     _persist_run(uid, run)
     return run
 

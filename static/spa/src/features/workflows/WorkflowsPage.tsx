@@ -39,6 +39,7 @@ import {
   listWorkflows,
   refineWorkflowRun,
   renameWorkflowRun,
+  renameWorkflowRunVersion,
   saveWorkflowArtifact,
   saveWorkflowVersionArtifact,
   selectWorkflowRunVersion,
@@ -668,6 +669,28 @@ export default function WorkflowsPage() {
     }
   }, [selectRun]);
 
+  const handleRenameVersion = useCallback(async (run: WorkflowRun, version: WorkflowRunVersion, label: string) => {
+    const nextLabel = label.trim();
+    if (!nextLabel) {
+      toast.error("Add a version name before saving.");
+      return;
+    }
+
+    setVersionBusyId(version.id);
+    try {
+      const updated = await renameWorkflowRunVersion(run.id, version.id, nextLabel);
+      setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      selectRun(updated.id);
+      toast.success("Version renamed", { description: nextLabel });
+    } catch (err) {
+      console.error("[workflows] rename version error", err);
+      toast.error("Failed to rename version", { description: parseErr(err) });
+      throw err;
+    } finally {
+      setVersionBusyId((current) => (current === version.id ? null : current));
+    }
+  }, [selectRun]);
+
   const handleDownloadVersion = useCallback(async (run: WorkflowRun, version: WorkflowRunVersion, format: WorkflowArtifactFormat = "markdown") => {
     setVersionBusyId(version.id);
     try {
@@ -1200,6 +1223,7 @@ export default function WorkflowsPage() {
                         onSaveArtifact={() => { void handleSaveArtifact(selectedRun); }}
                         onDownloadArtifact={(format) => { void handleDownloadArtifact(selectedRun, format); }}
                         onSelectVersion={(version) => { void handleSelectVersion(selectedRun, version); }}
+                        onRenameVersion={(version, label) => handleRenameVersion(selectedRun, version, label)}
                         onDownloadVersion={(version, format) => { void handleDownloadVersion(selectedRun, version, format); }}
                         onBranchVersion={(version) => openBranchDialog(selectedRun, version)}
                         onRefine={(prompt) => { void handleRefineRun(selectedRun, prompt); }}

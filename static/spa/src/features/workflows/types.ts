@@ -90,6 +90,7 @@ export type WorkflowRunVersion = {
   parent_version_id?: string | null;
   version_number: number;
   title: string;
+  label?: string | null;
   kind: "original" | "refinement" | "branch";
   prompt?: string | null;
   result: WorkflowResult;
