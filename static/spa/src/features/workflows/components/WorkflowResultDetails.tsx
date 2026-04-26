@@ -672,7 +672,7 @@ function VersionHistoryPanel({
                               }}
                               onPointerDown={(event) => event.stopPropagation()}
                               className={cn(
-                                "max-w-[120px] rounded-xl border border-border/70 bg-background/95 px-2 py-1 text-center text-[11px] font-medium leading-4 text-foreground shadow-sm transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70",
+                                "min-w-[2.75rem] max-w-[120px] rounded-xl border border-border/70 bg-background/95 px-2 py-1 text-center text-[11px] font-medium leading-4 text-foreground shadow-sm transition hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70",
                                 active && "border-primary/40 bg-primary/10 text-primary"
                               )}
                               style={{
@@ -680,7 +680,8 @@ function VersionHistoryPanel({
                                 WebkitBoxOrient: "vertical",
                                 WebkitLineClamp: 3,
                                 overflow: "hidden",
-                                wordBreak: "break-word",
+                                overflowWrap: "break-word",
+                                wordBreak: "normal",
                               }}
                             >
                               {versionMapLabel(node.version)}
