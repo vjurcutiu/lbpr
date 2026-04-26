@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, RefreshCw, Save, SendHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -278,8 +278,24 @@ function VersionHistoryPanel({
 
   const graphOriginX = draggingVersionId ? graphOriginRef.current.x : computedGraphOriginX;
   const graphOriginY = draggingVersionId ? graphOriginRef.current.y : computedGraphOriginY;
+  const renderedGraphOriginRef = useRef({ x: graphOriginX, y: graphOriginY });
   const graphWidth = Math.max(3400, graphBounds.maxX - graphBounds.minX + graphPaddingX * 2);
   const graphHeight = Math.max(2400, graphBounds.maxY - graphBounds.minY + graphPaddingY * 2);
+
+  useLayoutEffect(() => {
+    const previousOrigin = renderedGraphOriginRef.current;
+    const nextOrigin = { x: graphOriginX, y: graphOriginY };
+    if (previousOrigin.x === nextOrigin.x && previousOrigin.y === nextOrigin.y) return;
+
+    if (treeOpen && treeWasOpenRef.current) {
+      setPanOffset((current) => ({
+        x: current.x + previousOrigin.x - nextOrigin.x,
+        y: current.y + previousOrigin.y - nextOrigin.y,
+      }));
+    }
+
+    renderedGraphOriginRef.current = nextOrigin;
+  }, [graphOriginX, graphOriginY, treeOpen]);
 
   const getNodePosition = useCallback((node: VersionGraphNode) => ({
     x: graphOriginX + node.x,
