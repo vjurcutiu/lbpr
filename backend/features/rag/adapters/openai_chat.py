@@ -15,7 +15,7 @@ try:
 except Exception:  # pragma: no cover
     OpenAI = None  # type: ignore
 
-DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")
+DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-5.4-mini")
 
 
 @dataclass
