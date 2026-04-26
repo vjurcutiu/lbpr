@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import type { WorkflowArtifactFormat, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowRunVersion, WorkflowSelection, WorkflowSuggestedAction } from "../types";
@@ -77,6 +78,23 @@ function versionDepth(version: WorkflowRunVersion, versions: WorkflowRunVersion[
     cursor = byId.get(cursor)?.parent_version_id || "";
   }
   return depth;
+}
+
+function versionLineage(version: WorkflowRunVersion, versions: WorkflowRunVersion[]) {
+  const byId = new Map(versions.map((item) => [item.id, item]));
+  const lineage: WorkflowRunVersion[] = [version];
+  let cursor = version.parent_version_id || "";
+  const seen = new Set<string>([version.id]);
+
+  while (cursor && byId.has(cursor) && !seen.has(cursor) && lineage.length < 12) {
+    const parent = byId.get(cursor);
+    if (!parent) break;
+    lineage.unshift(parent);
+    seen.add(parent.id);
+    cursor = parent.parent_version_id || "";
+  }
+
+  return lineage;
 }
 
 function stripSourcesUsedSection(markdown: string) {
@@ -164,18 +182,37 @@ function VersionHistoryPanel({
   onBranchVersion,
 }: VersionHistoryPanelProps) {
   const [treeOpen, setTreeOpen] = useState(false);
+  const [inspectedVersionId, setInspectedVersionId] = useState<string | null>(null);
   const orderedVersions = useMemo(() => sortedVersions(versions), [versions]);
   const activeVersion = orderedVersions.find((version) => version.id === activeVersionId) || orderedVersions[orderedVersions.length - 1];
+  const inspectedVersion = orderedVersions.find((version) => version.id === inspectedVersionId) || activeVersion;
   const hasMultipleVersions = orderedVersions.length > 1;
+
+  const graphNodes = useMemo(() => {
+    return orderedVersions.map((version, row) => ({
+      version,
+      row,
+      depth: Math.min(versionDepth(version, orderedVersions), 6),
+    }));
+  }, [orderedVersions]);
+
+  const graphNodeById = useMemo(() => new Map(graphNodes.map((node) => [node.version.id, node])), [graphNodes]);
+  const graphColumnGap = 92;
+  const graphRowGap = 70;
+  const graphLeft = 54;
+  const graphTop = 44;
+  const graphMaxDepth = graphNodes.reduce((max, node) => Math.max(max, node.depth), 0);
+  const graphWidth = Math.max(360, graphLeft * 2 + graphMaxDepth * graphColumnGap + 140);
+  const graphHeight = Math.max(240, graphTop * 2 + Math.max(0, graphNodes.length - 1) * graphRowGap);
 
   if (!hasMultipleVersions) return null;
 
   return (
     <>
       <div className="rounded-2xl border border-border/70 bg-muted/10 px-4 py-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-medium leading-5 text-foreground">
+            <div className="flex flex-wrap items-center gap-2 text-sm font-medium leading-5 text-foreground">
               <History className="h-4 w-4 text-muted-foreground" />
               Versions
               {activeVersion ? (
@@ -184,163 +221,261 @@ function VersionHistoryPanel({
                 </Badge>
               ) : null}
             </div>
-            <div className="mt-1 text-xs leading-5 text-muted-foreground">
-              Select an earlier output, download it, or branch from it with a new prompt.
+            <div className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+              Pick a saved output from the dropdown or open the map to explore branches.
             </div>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 w-full rounded-full px-3 text-xs sm:w-auto"
-            onClick={() => setTreeOpen(true)}
-          >
-            <GitBranch className="mr-1 h-4 w-4" />
-            Tree view
-          </Button>
-        </div>
 
-        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-          {orderedVersions.map((version) => {
-            const active = version.id === activeVersion?.id;
-            const busy = versionBusyId === version.id;
-            return (
-              <button
-                key={version.id}
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  if (!active) onSelectVersion?.(version);
-                }}
-                className={cn(
-                  "min-w-[150px] rounded-2xl border px-3 py-2 text-left transition-colors disabled:cursor-wait disabled:opacity-70",
-                  active
-                    ? "border-primary/40 bg-primary/5 text-foreground"
-                    : "border-border/70 bg-background hover:bg-muted/30"
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  {active ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
-                  <span className="text-sm font-medium">{versionLabel(version)}</span>
-                  <span className="text-[11px] text-muted-foreground">{versionKindLabel(version)}</span>
-                </div>
-                <div className="mt-1 truncate text-xs text-muted-foreground">
-                  {version.prompt || formatVersionTime(version.updated_at)}
-                </div>
-              </button>
-            );
-          })}
+          <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto lg:justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm" className="h-9 w-full justify-between rounded-full px-3 text-xs sm:w-[230px]">
+                  <span className="truncate text-left">
+                    {activeVersion ? `Viewing ${versionLabel(activeVersion)} · ${versionKindLabel(activeVersion)}` : "Choose version"}
+                  </span>
+                  <ChevronDown className="ml-2 h-3.5 w-3.5 shrink-0" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-[360px] w-[320px] overflow-y-auto rounded-2xl p-2">
+                <DropdownMenuLabel className="px-2 text-xs uppercase tracking-[0.14em] text-muted-foreground">Saved outputs</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {orderedVersions.map((version) => {
+                  const active = version.id === activeVersion?.id;
+                  const busy = versionBusyId === version.id;
+                  return (
+                    <DropdownMenuItem
+                      key={version.id}
+                      disabled={busy}
+                      className="items-start gap-2 rounded-xl px-2 py-2"
+                      onSelect={(event) => {
+                        if (active) {
+                          event.preventDefault();
+                          return;
+                        }
+                        onSelectVersion?.(version);
+                      }}
+                    >
+                      <div className="pt-0.5">
+                        {active ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium leading-5 text-foreground">{versionLabel(version)}</span>
+                          <span className="text-xs leading-5 text-muted-foreground">{versionKindLabel(version)}</span>
+                          {active ? <span className="ml-auto text-[11px] text-primary">Current</span> : null}
+                        </div>
+                        <div className="truncate text-[11px] leading-4 text-muted-foreground">
+                          {version.title || version.prompt || formatVersionTime(version.updated_at)}
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 w-full rounded-full px-3 text-xs sm:w-auto"
+              onClick={() => {
+                setInspectedVersionId(activeVersion?.id || null);
+                setTreeOpen(true);
+              }}
+            >
+              <GitBranch className="mr-1 h-4 w-4" />
+              Open map
+            </Button>
+          </div>
         </div>
       </div>
 
       <Dialog open={treeOpen} onOpenChange={setTreeOpen}>
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_80px_rgba(15,23,42,0.18)]">
+        <DialogContent className="flex max-h-[90vh] w-[96vw] max-w-[1080px] flex-col overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_90px_rgba(15,23,42,0.22)]">
           <DialogHeader className="border-b border-border/70 px-6 pt-6 pb-4">
-            <DialogTitle className="text-base font-semibold">Version tree</DialogTitle>
+            <DialogTitle className="text-lg font-semibold">Version map</DialogTitle>
             <DialogDescription>
-              Older versions stay available even after you refine or branch the output.
+              Hover over a dot to see its name. Select a dot to inspect, open, branch, or download that version.
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-[62vh] overflow-y-auto px-4 py-4">
-            <div className="space-y-2">
-              {orderedVersions.map((version) => {
-                const active = version.id === activeVersion?.id;
-                const busy = versionBusyId === version.id;
-                const depth = versionDepth(version, orderedVersions);
-                return (
-                  <div key={version.id} className="flex min-w-0 gap-2" style={{ paddingLeft: `${Math.min(depth, 5) * 22}px` }}>
-                    {depth > 0 ? (
-                      <div className="mt-5 h-px w-4 shrink-0 bg-border" />
-                    ) : null}
-                    <div
-                      className={cn(
-                        "min-w-0 flex-1 rounded-2xl border px-3 py-3",
-                        active ? "border-primary/40 bg-primary/5" : "border-border/70 bg-background"
-                      )}
-                    >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant={active ? "default" : "secondary"} className="rounded-full px-2 py-0 text-[10px] font-normal">
-                              {versionLabel(version)}
-                            </Badge>
-                            <span className="text-sm font-medium text-foreground">{versionKindLabel(version)}</span>
-                            <span className="text-xs text-muted-foreground">{formatVersionTime(version.updated_at)}</span>
-                          </div>
-                          {version.prompt ? (
-                            <p className="mt-2 text-sm leading-6 text-foreground/85">{version.prompt}</p>
-                          ) : (
-                            <p className="mt-2 text-sm leading-6 text-muted-foreground">First generated output.</p>
-                          )}
-                        </div>
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          <Button
+
+          <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="min-h-[360px] overflow-auto border-b border-border/70 bg-muted/10 p-4 lg:border-b-0 lg:border-r">
+              <div className="relative rounded-3xl border border-border/70 bg-background/95 shadow-sm" style={{ width: graphWidth, height: graphHeight }}>
+                <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
+                  {graphNodes.map((node) => {
+                    if (!node.version.parent_version_id) return null;
+                    const parent = graphNodeById.get(node.version.parent_version_id);
+                    if (!parent) return null;
+                    const x1 = graphLeft + parent.depth * graphColumnGap;
+                    const y1 = graphTop + parent.row * graphRowGap;
+                    const x2 = graphLeft + node.depth * graphColumnGap;
+                    const y2 = graphTop + node.row * graphRowGap;
+                    const midX = x1 + Math.max(28, (x2 - x1) / 2);
+                    return (
+                      <path
+                        key={`${node.version.id}-line`}
+                        d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
+                        className="fill-none stroke-border"
+                        strokeWidth="2"
+                      />
+                    );
+                  })}
+                </svg>
+
+                {graphNodes.map((node) => {
+                  const active = node.version.id === activeVersion?.id;
+                  const selected = node.version.id === inspectedVersion?.id;
+                  const busy = versionBusyId === node.version.id;
+                  const x = graphLeft + node.depth * graphColumnGap;
+                  const y = graphTop + node.row * graphRowGap;
+                  return (
+                    <div key={node.version.id} className="absolute" style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
                             type="button"
-                            variant={active ? "secondary" : "outline"}
-                            size="sm"
-                            className="h-8 rounded-full px-3 text-xs"
-                            disabled={busy || active}
-                            onClick={() => {
-                              onSelectVersion?.(version);
-                              setTreeOpen(false);
-                            }}
+                            aria-label={`${versionLabel(node.version)} ${node.version.title || versionKindLabel(node.version)}`}
+                            aria-pressed={selected}
+                            onMouseEnter={() => setInspectedVersionId(node.version.id)}
+                            onFocus={() => setInspectedVersionId(node.version.id)}
+                            onClick={() => setInspectedVersionId(node.version.id)}
+                            className={cn(
+                              "group relative grid h-9 w-9 place-items-center rounded-full border bg-background shadow-sm transition-all hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                              active ? "border-primary bg-primary/10" : "border-border hover:border-primary/50",
+                              selected && "ring-4 ring-primary/15",
+                              busy && "cursor-wait opacity-70"
+                            )}
                           >
-                            {active ? "Viewing" : "Select"}
-                          </Button>
+                            <span
+                              className={cn(
+                                "h-3.5 w-3.5 rounded-full bg-muted-foreground/45 transition-colors group-hover:bg-primary",
+                                node.version.kind === "branch" && "h-4 w-4",
+                                active && "bg-primary",
+                                selected && "bg-primary"
+                              )}
+                            />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" sideOffset={8} className="max-w-[260px]">
+                          <div className="font-medium">{versionLabel(node.version)} · {node.version.title || versionKindLabel(node.version)}</div>
+                          <div className="mt-0.5 text-[11px] opacity-80">{versionKindLabel(node.version)} · {formatVersionTime(node.version.updated_at)}</div>
+                        </TooltipContent>
+                      </Tooltip>
+                      <div className="mt-2 w-16 -translate-x-[14px] truncate text-center text-[11px] text-muted-foreground">
+                        {versionLabel(node.version)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <aside className="min-h-0 overflow-y-auto p-5">
+              {inspectedVersion ? (
+                <div className="space-y-5">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant={inspectedVersion.id === activeVersion?.id ? "default" : "secondary"} className="rounded-full px-2 py-0 text-[10px] font-normal">
+                        {versionLabel(inspectedVersion)}
+                      </Badge>
+                      <span className="text-sm font-medium text-foreground">{versionKindLabel(inspectedVersion)}</span>
+                      {inspectedVersion.id === activeVersion?.id ? <span className="text-xs text-primary">Viewing now</span> : null}
+                    </div>
+                    <h3 className="mt-3 text-lg font-semibold leading-6 text-foreground">
+                      {inspectedVersion.title || `${versionKindLabel(inspectedVersion)} output`}
+                    </h3>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">Updated {formatVersionTime(inspectedVersion.updated_at)}</p>
+                  </div>
+
+                  <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Prompt</div>
+                    <p className="mt-2 text-sm leading-6 text-foreground/85">
+                      {inspectedVersion.prompt || "First generated output."}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      type="button"
+                      variant={inspectedVersion.id === activeVersion?.id ? "secondary" : "default"}
+                      size="sm"
+                      className="h-9 rounded-full px-3 text-xs"
+                      disabled={versionBusyId === inspectedVersion.id || inspectedVersion.id === activeVersion?.id}
+                      onClick={() => {
+                        onSelectVersion?.(inspectedVersion);
+                        setTreeOpen(false);
+                      }}
+                    >
+                      {inspectedVersion.id === activeVersion?.id ? "Viewing" : "Open this version"}
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-9 rounded-full px-3 text-xs"
+                      disabled={versionBusyId === inspectedVersion.id}
+                      onClick={() => {
+                        onBranchVersion?.(inspectedVersion);
+                        setTreeOpen(false);
+                      }}
+                    >
+                      <GitBranch className="mr-1 h-3.5 w-3.5" />
+                      Branch from this version
+                    </Button>
+
+                    {onDownloadVersion ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-8 rounded-full px-3 text-xs"
-                            disabled={busy}
-                            onClick={() => {
-                              onBranchVersion?.(version);
-                              setTreeOpen(false);
-                            }}
+                            className="h-9 rounded-full px-3 text-xs"
+                            disabled={versionBusyId === inspectedVersion.id}
                           >
-                            <GitBranch className="mr-1 h-3.5 w-3.5" />
-                            Branch
+                            <Download className="mr-1 h-3.5 w-3.5" />
+                            Download
+                            <ChevronDown className="ml-1 h-3.5 w-3.5" />
                           </Button>
-                          {onDownloadVersion ? (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 rounded-full px-3 text-xs"
-                                  disabled={busy}
-                                >
-                                  <Download className="mr-1 h-3.5 w-3.5" />
-                                  Download
-                                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-64 rounded-2xl">
-                                <DropdownMenuLabel className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Download format</DropdownMenuLabel>
-                                <DropdownMenuSeparator />
-                                {DOWNLOAD_FORMATS.map((item) => (
-                                  <DropdownMenuItem
-                                    key={item.value}
-                                    className="items-start rounded-xl px-2 py-2"
-                                    onSelect={() => onDownloadVersion(version, item.value)}
-                                  >
-                                    <div className="min-w-0">
-                                      <div className="text-xs font-medium leading-5 text-foreground">{item.label}</div>
-                                      <div className="text-[11px] leading-4 text-muted-foreground">{item.helper}</div>
-                                    </div>
-                                  </DropdownMenuItem>
-                                ))}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          ) : null}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-64 rounded-2xl">
+                          <DropdownMenuLabel className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Download format</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          {DOWNLOAD_FORMATS.map((item) => (
+                            <DropdownMenuItem
+                              key={item.value}
+                              className="items-start rounded-xl px-2 py-2"
+                              onSelect={() => onDownloadVersion(inspectedVersion, item.value)}
+                            >
+                              <div className="min-w-0">
+                                <div className="text-xs font-medium leading-5 text-foreground">{item.label}</div>
+                                <div className="text-[11px] leading-4 text-muted-foreground">{item.helper}</div>
+                              </div>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-2xl border border-border/70 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Path</div>
+                    <div className="mt-3 space-y-2">
+                      {versionLineage(inspectedVersion, orderedVersions).map((version) => (
+                        <div key={version.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className={cn("h-2 w-2 rounded-full", version.id === inspectedVersion.id ? "bg-primary" : "bg-muted-foreground/50")} />
+                          <span className="font-medium text-foreground">{versionLabel(version)}</span>
+                          <span className="truncate">{version.title || versionKindLabel(version)}</span>
                         </div>
-                      </div>
+                      ))}
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              ) : null}
+            </aside>
           </div>
         </DialogContent>
       </Dialog>
