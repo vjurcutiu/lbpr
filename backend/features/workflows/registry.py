@@ -289,6 +289,133 @@ def _top_terms(text: str, *, limit: int = 5) -> list[str]:
     return [term for term, _ in counts.most_common(limit)]
 
 
+
+
+def _workflow_title_prefix(run: WorkflowRun) -> str:
+    labels = {
+        "summarize": "Summary",
+        "compare": "Compare",
+        "extract": "Extract",
+        "draft": "Draft",
+        "report": "Report",
+        "plan": "Action Plan",
+    }
+    return labels.get(run.capability, run.title or "Workflow")
+
+
+def _clean_title_topic(value: str) -> str:
+    text = str(value or "").rsplit("/", 1)[-1]
+    text = re.sub(r"\.[A-Za-z0-9]{1,8}$", "", text)
+    text = re.sub(r"[_-]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" .:-_—–")
+    if not text:
+        return "selected files"
+
+    def _title_word(word: str) -> str:
+        return word if any(char.isupper() for char in word[1:]) or any(char.isdigit() for char in word) else word.capitalize()
+
+    return " ".join(_title_word(part) for part in text.split())
+
+
+def _fallback_title_topic(sources: list[WorkflowSourceFile]) -> str:
+    visible_sources = _customer_visible_sources(sources)
+    names = [_clean_title_topic(_display_source_label(source)) for source in visible_sources if _display_source_label(source)]
+    names = [name for name in names if name and name.lower() != "selected files"]
+    if len(names) == 1:
+        return names[0]
+    if len(names) == 2:
+        return f"{names[0]} vs {names[1]}"
+    if len(names) > 2:
+        combined = " ".join(source.excerpt for source in visible_sources[:4])
+        terms = [term.replace("_", " ").title() for term in _top_terms(combined, limit=2)]
+        if terms:
+            return f"{names[0]} + {len(names) - 1} more on {' and '.join(terms)}"
+        return f"{names[0]} + {len(names) - 1} more"
+
+    terms = [term.replace("_", " ").title() for term in _top_terms(" ".join(source.excerpt for source in sources), limit=3)]
+    return " and ".join(terms) if terms else "selected files"
+
+
+def _fallback_workflow_title(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> str:
+    return _sanitize_generated_title(f"{_workflow_title_prefix(run)}: {_fallback_title_topic(sources)}", run)
+
+
+def _sanitize_generated_title(candidate: str, run: WorkflowRun) -> str:
+    prefix = _workflow_title_prefix(run)
+    text = str(candidate or "").strip()
+    if not text:
+        return f"{prefix}: selected files"
+    # Reject JSON-like or multi-line responses. Title generation should return a
+    # plain title; anything else falls back to deterministic file-based naming.
+    if "{" in text or "}" in text:
+        return ""
+    text = text.splitlines()[0].strip()
+    text = re.sub(r"^#+\s*", "", text)
+    text = re.sub(r"^[\"'‘’“”]+|[\"'‘’“”]+$", "", text).strip()
+    text = re.sub(r"\s+", " ", text)
+    text = text.strip(" .:-_—–")
+    if len(text) < 4:
+        return ""
+    if not text.lower().startswith(prefix.lower()):
+        text = f"{prefix}: {text}"
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > 96:
+        text = text[:96].rsplit(" ", 1)[0].strip(" .:-_—–")
+    return text or f"{prefix}: selected files"
+
+
+def generate_workflow_run_title(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> tuple[str, dict[str, Any]]:
+    fallback = _fallback_workflow_title(run, sources)
+    if OpenAIChat is None:
+        return fallback, {"source": "fallback"}
+
+    try:
+        visible_sources = _customer_visible_sources(sources)[:5]
+        file_lines = [f"- {_display_source_label(source)}" for source in visible_sources]
+        snippets = []
+        for source in visible_sources[:3]:
+            excerpt = re.sub(r"\s+", " ", source.excerpt or "").strip()
+            if excerpt:
+                snippets.append(f"{_display_source_label(source)}: {excerpt[:360]}")
+        model = OpenAIChat()
+        prefix = _workflow_title_prefix(run)
+        system = textwrap.dedent(
+            f"""
+            Create short, human-readable titles for document workflow runs.
+            Return one plain title only. Do not return JSON, markdown, quotes, or explanations.
+            The title must start with "{prefix}:" and then describe the source topic.
+            Keep it under 10 words when possible.
+            """
+        ).strip()
+        user = textwrap.dedent(
+            f"""
+            Workflow type: {prefix}
+            User focus: {_focus_text(run, 'the selected material')}
+            Files:
+            {chr(10).join(file_lines) or '- selected files'}
+
+            Source signals:
+            {chr(10).join(snippets) or 'No readable source snippet available.'}
+            """
+        ).strip()
+        response = model.generate_with_usage(system=system, user=user)
+        title = _sanitize_generated_title(response.text, run)
+        if not title:
+            return fallback, {"source": "fallback", "rejected_ai_title": True}
+        return title, {
+            "source": "ai",
+            "title_llm_usage": {
+                "prompt_tokens": int(response.usage.prompt_tokens or 0),
+                "completion_tokens": int(response.usage.completion_tokens or 0),
+                "total_tokens": int(response.usage.total_tokens or 0),
+                "operation": str(response.operation or "responses.create"),
+                "approximate": bool(response.usage.approximate),
+            },
+        }
+    except Exception:
+        log.debug("workflow_title_generation_failed", extra={"workflow_id": run.workflow_id}, exc_info=True)
+        return fallback, {"source": "fallback", "title_generation_failed": True}
+
 def _first_insight_lines(sources: list[WorkflowSourceFile], *, limit: int = 4) -> list[str]:
     lines: list[str] = []
     for source in sources:

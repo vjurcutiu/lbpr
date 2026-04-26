@@ -1,4 +1,4 @@
-import { API_BASE, getJSON, postJSON } from "@/shared/api";
+import { API_BASE, getJSON, patchJSON, postJSON } from "@/shared/api";
 import type {
   CreateWorkflowRunRequest,
   WorkflowArtifact,
@@ -22,6 +22,10 @@ export async function createWorkflowRun(payload: CreateWorkflowRunRequest): Prom
 
 export async function getWorkflowRun(runId: string): Promise<WorkflowRun> {
   return getJSON<WorkflowRun>(`/v1/workflows/runs/${encodeURIComponent(runId)}`);
+}
+
+export async function renameWorkflowRun(runId: string, title: string): Promise<WorkflowRun> {
+  return patchJSON<WorkflowRun>(`/v1/workflows/runs/${encodeURIComponent(runId)}/title`, { title });
 }
 
 

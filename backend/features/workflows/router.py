@@ -6,7 +6,7 @@ from fastapi.responses import Response
 from features.auth.deps import get_current_user
 from features.auth.models import SessionOut
 
-from .models import WorkflowArtifact, WorkflowArtifactDownloadFormat, WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList
+from .models import WorkflowArtifact, WorkflowArtifactDownloadFormat, WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList, WorkflowRunTitleUpdate
 from . import service
 
 router = APIRouter(prefix="/v1/workflows", tags=["workflows"])
@@ -33,6 +33,11 @@ def create_workflow_run(payload: WorkflowRunCreate, user: SessionOut = Depends(g
 @router.get("/runs/{run_id}", response_model=WorkflowRun)
 def get_workflow_run(run_id: str, user: SessionOut = Depends(get_current_user)) -> WorkflowRun:
     return service.get_run(user.uid, run_id)
+
+
+@router.patch("/runs/{run_id}/title", response_model=WorkflowRun)
+def rename_workflow_run(run_id: str, payload: WorkflowRunTitleUpdate, user: SessionOut = Depends(get_current_user)) -> WorkflowRun:
+    return service.rename_run(user.uid, run_id, payload)
 
 
 @router.post("/runs/{run_id}/artifact", response_model=WorkflowArtifact)

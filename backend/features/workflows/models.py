@@ -80,6 +80,10 @@ class WorkflowRunCreate(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkflowRunTitleUpdate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=120)
+
+
 class WorkflowSourceFile(BaseModel):
     file_id: str
     name: str

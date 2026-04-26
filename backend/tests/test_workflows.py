@@ -222,6 +222,8 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
     assert create.status_code == 202, create.text
     run = create.json()
     assert run['workflow_id'] == 'summarize_documents'
+    assert run['title'].startswith('Summary:')
+    assert 'Q1 Plan' in run['title']
     assert run['status'] in {'queued', 'completed'}
     assert run['result']['summary']
     assert run['result']['metadata']['source_files'][0]['name'] == 'Q1-plan.txt'
@@ -303,6 +305,34 @@ def test_workflow_runs_persist_in_firestore(auth_client, inline_workflow_jobs, s
     assert fetched.json()['result']['metadata']['source_files'][0]['chunk_ids'] == []
     assert fetched.json()['result']['metadata']['source_files'][0]['chunk_ids_omitted'] is True
 
+
+
+def test_workflow_run_rename_updates_run_and_artifact(auth_client, inline_workflow_jobs, stub_workflow_sources, fake_workflow_firestore):
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'summarize_documents',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': ''},
+            'inputs': {'focus': 'key risks and decisions'},
+        },
+    )
+    assert create.status_code == 202, create.text
+    run = create.json()
+    artifact_id = run['artifact']['id']
+
+    rename = auth_client.patch(f"/v1/workflows/runs/{run['id']}/title", json={'title': 'Client Brief: Launch Plan'})
+    assert rename.status_code == 200, rename.text
+    renamed = rename.json()
+    assert renamed['title'] == 'Client Brief: Launch Plan'
+    assert renamed['artifact']['file_name'] == 'client-brief-launch-plan.md'
+    assert renamed['result']['preview_markdown'].startswith('# Client Brief: Launch Plan')
+
+    artifact = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}')
+    assert artifact.status_code == 200, artifact.text
+    artifact_payload = artifact.json()
+    assert artifact_payload['title'] == 'Client Brief: Launch Plan'
+    assert artifact_payload['file_name'] == 'client-brief-launch-plan.md'
+    assert artifact_payload['content'].startswith('# Client Brief: Launch Plan')
 
 
 def test_compare_requires_exactly_two_files(auth_client):
@@ -428,19 +458,19 @@ def test_workflow_artifact_routes(auth_client, inline_workflow_jobs, stub_workfl
     txt_download = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}/download?format=txt')
     assert txt_download.status_code == 200, txt_download.text
     assert txt_download.headers['content-type'].startswith('text/plain')
-    assert 'filename="summarize-documents.txt"' in txt_download.headers['content-disposition']
+    assert 'filename="summary-q1-plan.txt"' in txt_download.headers['content-disposition']
     assert b'Key points' in txt_download.content or b'Quick brief' in txt_download.content
 
     docx_download = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}/download?format=docx')
     assert docx_download.status_code == 200, docx_download.text
     assert docx_download.headers['content-type'].startswith('application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-    assert 'filename="summarize-documents.docx"' in docx_download.headers['content-disposition']
+    assert 'filename="summary-q1-plan.docx"' in docx_download.headers['content-disposition']
     assert docx_download.content[:4] == b'PK\x03\x04'
 
     pdf_download = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}/download?format=pdf')
     assert pdf_download.status_code == 200, pdf_download.text
     assert pdf_download.headers['content-type'].startswith('application/pdf')
-    assert 'filename="summarize-documents.pdf"' in pdf_download.headers['content-disposition']
+    assert 'filename="summary-q1-plan.pdf"' in pdf_download.headers['content-disposition']
     assert pdf_download.content.startswith(b'%PDF')
 
     fake_workflow_firestore._docs.pop(("users", "u_test", "workflow_artifacts", artifact_id), None)

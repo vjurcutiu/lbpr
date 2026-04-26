@@ -35,10 +35,11 @@ from .models import (
     WorkflowRun,
     WorkflowRunCreate,
     WorkflowRunList,
+    WorkflowRunTitleUpdate,
     WorkflowSelectionIn,
     WorkflowSourceFile,
 )
-from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX
+from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX, generate_workflow_run_title
 from .exporting import ExportedArtifact, export_artifact, sanitize_export_markdown
 
 log = logging.getLogger("workflows.service")
@@ -91,6 +92,71 @@ def _slugify_filename(value: str, fallback: str = "workflow-output") -> str:
     safe = re.sub(r"-{2,}", "-", safe)
     return safe or fallback
 
+
+
+
+def _workflow_type_label(manifest: WorkflowManifest | None = None, *, capability: str | None = None) -> str:
+    cap = capability or (manifest.capability if manifest else "")
+    labels = {
+        "summarize": "Summary",
+        "compare": "Compare",
+        "extract": "Extract",
+        "draft": "Draft",
+        "report": "Report",
+        "plan": "Action Plan",
+    }
+    return labels.get(str(cap), (manifest.title if manifest else "Workflow") or "Workflow")
+
+
+def _initial_run_title(manifest: WorkflowManifest, selection: WorkflowSelectionIn) -> str:
+    label = _workflow_type_label(manifest)
+    folder = _normalize_folder_path(selection.current_folder)
+    if folder:
+        topic = folder.rsplit("/", 1)[-1].replace("-", " ").replace("_", " ").strip().title()
+        if topic:
+            return f"{label}: {topic}"
+    if selection.folder_paths:
+        folder_name = _normalize_folder_path(selection.folder_paths[0]).rsplit("/", 1)[-1]
+        topic = folder_name.replace("-", " ").replace("_", " ").strip().title()
+        if topic:
+            return f"{label}: {topic}"
+    total = selection.total_items
+    if total:
+        return f"{label}: selected {total} item{'s' if total != 1 else ''}"
+    return label
+
+
+def _clean_run_title(value: str) -> str:
+    title = re.sub(r"\s+", " ", str(value or "").strip())
+    title = re.sub(r"^#+\s*", "", title).strip(" .\t\n\r")
+    if not title:
+        raise HTTPException(status_code=400, detail="Workflow title cannot be empty")
+    if len(title) > 120:
+        title = title[:120].rsplit(" ", 1)[0].strip() or title[:120].strip()
+    return title
+
+
+def _retitle_markdown(markdown: str, title: str) -> str:
+    content = str(markdown or "").strip()
+    if not content:
+        return content
+    heading = f"# {title}"
+    if re.match(r"(?m)^#\s+", content):
+        return re.sub(r"(?m)^#\s+.*$", heading, content, count=1).strip()
+    return f"{heading}\n\n{content}".strip()
+
+
+def _attach_title_metadata(run: WorkflowRun, title_metadata: dict[str, object] | None) -> None:
+    if run.result is None or not title_metadata:
+        return
+    metadata = dict(run.result.metadata or {})
+    source = str(title_metadata.get("source") or "").strip()
+    if source:
+        metadata["workflow_title_source"] = source
+    usage = title_metadata.get("title_llm_usage")
+    if isinstance(usage, dict):
+        metadata["title_llm_usage"] = usage
+    run.result.metadata = metadata
 
 def _build_artifact_content(run: WorkflowRun) -> str:
     result = run.result
@@ -239,6 +305,8 @@ def _trim_run_doc_for_firestore(payload: dict[str, Any]) -> dict[str, Any]:
                 "selection",
                 "usage_accounting",
                 "llm_usage",
+                "title_llm_usage",
+                "workflow_title_source",
                 "source_strategy",
                 "selected_files",
                 "used_source_files",
@@ -451,6 +519,36 @@ def save_artifact_for_run(uid: str, run_id: str) -> WorkflowArtifact:
     return artifact
 
 
+
+
+def rename_run(uid: str, run_id: str, payload: WorkflowRunTitleUpdate) -> WorkflowRun:
+    run = get_run(uid, run_id)
+    title = _clean_run_title(payload.title)
+    run.title = title
+    run.updated_at = datetime.now(UTC)
+
+    if run.result is not None:
+        run.result.preview_markdown = _retitle_markdown(run.result.preview_markdown, title)
+
+    if run.artifact and run.result is not None:
+        try:
+            _upsert_artifact_for_run(uid, run)
+        except Exception:
+            log.warning("workflow_artifact_retitle_failed", uid=uid, run_id=run.id, artifact_id=run.artifact.id, exc_info=True)
+    elif run.artifact:
+        try:
+            artifact = get_artifact(uid, run.artifact.id)
+            artifact.title = title
+            artifact.file_name = f"{_slugify_filename(title, fallback=run.workflow_id)}.md"
+            artifact.updated_at = datetime.now(UTC)
+            _persist_artifact(uid, artifact)
+            run.artifact = _artifact_summary(artifact)
+        except Exception:
+            log.warning("workflow_artifact_title_sync_failed", uid=uid, run_id=run.id, exc_info=True)
+
+    _persist_run(uid, run)
+    return run
+
 def _validate_selection(payload: WorkflowRunCreate) -> WorkflowManifest:
     manifest = WORKFLOW_INDEX.get(payload.workflow_id)
     if manifest is None:
@@ -508,9 +606,12 @@ def _remaining_file_processing_tokens(snap: dict[str, object]) -> int:
 def _workflow_usage_breakdown(run: WorkflowRun, source_stats: dict[str, object]) -> tuple[int, dict[str, int], dict[str, object]]:
     metadata = dict((run.result.metadata if run.result else {}) or {})
     llm_usage = metadata.get("llm_usage") if isinstance(metadata.get("llm_usage"), dict) else {}
-    prompt_tokens = max(0, int(llm_usage.get("prompt_tokens") or 0))
-    completion_tokens = max(0, int(llm_usage.get("completion_tokens") or 0))
-    total_tokens = max(0, int(llm_usage.get("total_tokens") or (prompt_tokens + completion_tokens)))
+    title_llm_usage = metadata.get("title_llm_usage") if isinstance(metadata.get("title_llm_usage"), dict) else {}
+    prompt_tokens = max(0, int(llm_usage.get("prompt_tokens") or 0)) + max(0, int(title_llm_usage.get("prompt_tokens") or 0))
+    completion_tokens = max(0, int(llm_usage.get("completion_tokens") or 0)) + max(0, int(title_llm_usage.get("completion_tokens") or 0))
+    total_tokens = max(0, int(llm_usage.get("total_tokens") or 0)) + max(0, int(title_llm_usage.get("total_tokens") or 0))
+    if total_tokens <= 0:
+        total_tokens = prompt_tokens + completion_tokens
 
     source_strategy = str(source_stats.get("source_strategy") or "coverage")
     rag_overhead_tokens = _WORKFLOW_TARGETED_RAG_OVERHEAD_TOKENS if "targeted_rag" in source_strategy else 0
@@ -529,6 +630,8 @@ def _workflow_usage_breakdown(run: WorkflowRun, source_stats: dict[str, object])
         "llm_completion_tokens": completion_tokens,
         "llm_total_tokens": total_tokens,
     }
+    if title_llm_usage:
+        details["title_llm_total_tokens"] = max(0, int(title_llm_usage.get("total_tokens") or 0))
     return billed_total, breakdown, details
 
 
@@ -764,9 +867,21 @@ def _execute_run(uid: str, run_id: str) -> None:
         if manifest.selection.exact_file_count is not None and len(source_documents) < manifest.selection.exact_file_count:
             raise HTTPException(status_code=400, detail="Could not extract usable text from every selected file for this workflow")
 
+        title_metadata: dict[str, object] = {}
+        try:
+            generated_title, title_metadata = generate_workflow_run_title(run, source_documents)
+            cleaned_title = _clean_run_title(generated_title)
+            if cleaned_title and cleaned_title != run.title:
+                run.title = cleaned_title
+                run.updated_at = datetime.now(UTC)
+                _persist_run(uid, run)
+        except Exception:
+            log.debug("workflow_run_title_update_failed", uid=uid, run_id=run.id, exc_info=True)
+
         result = handler(run, source_documents)
         run.mark_completed(result)
         _augment_result_metadata(run, source_documents, source_stats)
+        _attach_title_metadata(run, title_metadata)
         billed_total, breakdown, usage_details = _workflow_usage_breakdown(run, source_stats)
         if billed_total > 0:
             ok, used, cap = asyncio.run(
@@ -836,7 +951,7 @@ def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
 
     run = WorkflowRun(
         workflow_id=manifest.workflow_id,
-        title=manifest.title,
+        title=_initial_run_title(manifest, payload.selection),
         capability=manifest.capability,
         selection=payload.selection,
         inputs=payload.inputs,

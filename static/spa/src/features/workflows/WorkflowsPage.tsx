@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ChevronRight, CornerDownRight, Search } from "lucide-react";
+import { ArrowRight, Check, ChevronRight, CornerDownRight, Pencil, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,7 @@ import { useMediaQuery } from "@/features/files/hooks/useMediaQuery";
 import { parseErr } from "@/features/files/utils/formatters";
 import { cn } from "@/lib/utils";
 
-import { createWorkflowRun, downloadWorkflowArtifact, listWorkflowRuns, listWorkflows, saveWorkflowArtifact } from "./api";
+import { createWorkflowRun, downloadWorkflowArtifact, listWorkflowRuns, listWorkflows, renameWorkflowRun, saveWorkflowArtifact } from "./api";
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
@@ -411,6 +411,9 @@ export default function WorkflowsPage() {
   const [launcherFilesLoading, setLauncherFilesLoading] = useState(false);
   const [workflowSubmitting, setWorkflowSubmitting] = useState(false);
   const [artifactBusyRunId, setArtifactBusyRunId] = useState<string | null>(null);
+  const [renamingRunId, setRenamingRunId] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
   const prevRunStatusRef = useRef<Map<string, WorkflowStatus>>(new Map());
   const hasHydratedRunStatusesRef = useRef(false);
 
@@ -652,6 +655,45 @@ export default function WorkflowsPage() {
     setSelectedRunId(runId);
     if (isMobile) setMobilePanel("details");
   }, [isMobile]);
+
+  const startRenamingRun = useCallback((run: WorkflowRun) => {
+    setRenamingRunId(run.id);
+    setRenameTitle(run.title);
+  }, []);
+
+  const cancelRenamingRun = useCallback(() => {
+    if (renameSaving) return;
+    setRenamingRunId(null);
+    setRenameTitle("");
+  }, [renameSaving]);
+
+  const submitRunRename = useCallback(async (run: WorkflowRun) => {
+    const title = renameTitle.replace(/\s+/g, " ").trim();
+    if (!title) {
+      toast.error("Add a title before saving.");
+      return;
+    }
+    if (title === run.title) {
+      setRenamingRunId(null);
+      setRenameTitle("");
+      return;
+    }
+
+    setRenameSaving(true);
+    try {
+      const updated = await renameWorkflowRun(run.id, title);
+      setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setRenamingRunId(null);
+      setRenameTitle("");
+      toast.success("Workflow renamed");
+    } catch (err) {
+      console.error("[workflows] rename error", err);
+      toast.error("Failed to rename workflow", { description: parseErr(err) });
+    } finally {
+      setRenameSaving(false);
+    }
+  }, [renameTitle]);
+
   const showInbox = !isMobile || mobilePanel === "inbox";
   const showDetails = !isMobile || mobilePanel === "details";
   const showFlows = !isMobile || mobilePanel === "flows";
@@ -758,7 +800,59 @@ export default function WorkflowsPage() {
                                 </button>
                               </div>
                             ) : null}
-                            <div className="text-lg font-semibold leading-7 text-foreground md:text-[1.35rem]">{selectedRun.title}</div>
+                            {renamingRunId === selectedRun.id ? (
+                              <form
+                                className="flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center"
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void submitRunRename(selectedRun);
+                                }}
+                              >
+                                <Input
+                                  autoFocus
+                                  value={renameTitle}
+                                  onChange={(event) => setRenameTitle(event.target.value)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Escape") cancelRenamingRun();
+                                  }}
+                                  className="h-10 rounded-xl text-base font-semibold md:text-lg"
+                                  maxLength={120}
+                                  disabled={renameSaving}
+                                />
+                                <div className="flex shrink-0 gap-1.5">
+                                  <button
+                                    type="submit"
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                                    disabled={renameSaving}
+                                    aria-label="Save workflow title"
+                                  >
+                                    <Check className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                                    onClick={cancelRenamingRun}
+                                    disabled={renameSaving}
+                                    aria-label="Cancel rename"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </form>
+                            ) : (
+                              <div className="flex max-w-3xl items-start gap-2">
+                                <div className="min-w-0 flex-1 text-lg font-semibold leading-7 text-foreground md:text-[1.35rem]">{selectedRun.title}</div>
+                                <button
+                                  type="button"
+                                  className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground transition-colors hover:text-foreground"
+                                  onClick={() => startRenamingRun(selectedRun)}
+                                  aria-label="Rename workflow"
+                                  title="Rename"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            )}
                             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                               <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
                               {selectedRun.artifact ? (
