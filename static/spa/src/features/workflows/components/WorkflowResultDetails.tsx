@@ -506,7 +506,6 @@ function VersionHistoryPanel({
     setLocalNodePositions({});
     try {
       await onResetVersionLayout();
-      window.requestAnimationFrame(() => centerVersion(activeVersion));
     } finally {
       setResettingLayout(false);
     }
