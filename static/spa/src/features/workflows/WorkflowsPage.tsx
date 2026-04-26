@@ -1,8 +1,24 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Check, ChevronRight, CornerDownRight, Pencil, Search, X } from "lucide-react";
+import { ArrowRight, ChevronRight, CornerDownRight, MoreVertical, Pencil, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,7 +27,7 @@ import { useMediaQuery } from "@/features/files/hooks/useMediaQuery";
 import { parseErr } from "@/features/files/utils/formatters";
 import { cn } from "@/lib/utils";
 
-import { createWorkflowRun, downloadWorkflowArtifact, listWorkflowRuns, listWorkflows, renameWorkflowRun, saveWorkflowArtifact } from "./api";
+import { createWorkflowRun, deleteWorkflowRun, downloadWorkflowArtifact, listWorkflowRuns, listWorkflows, renameWorkflowRun, saveWorkflowArtifact } from "./api";
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
@@ -286,59 +302,107 @@ function RunListItem({
   run,
   active,
   onSelect,
+  onRename,
+  onDelete,
 }: {
   run: WorkflowRun;
   active: boolean;
   onSelect: (runId: string) => void;
+  onRename: (run: WorkflowRun) => void;
+  onDelete: (run: WorkflowRun) => void;
 }) {
   const Icon = getWorkflowIcon(run.workflow_id);
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(run.id)}
+    <div
       className={cn(
-        "w-full border-l-2 px-3 py-3 text-left transition-colors",
+        "group w-full min-w-0 overflow-hidden border-l-2 px-3 py-3 text-left transition-colors",
         active ? "border-l-primary bg-primary/5" : "border-l-transparent hover:bg-muted/30"
       )}
     >
-      <div className="flex items-start gap-2">
-        <div
-          className={cn(
-            "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background",
-            statusAccent(run.status)
-          )}
+      <div className="flex min-w-0 max-w-full items-start gap-2 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => onSelect(run.id)}
+          className="block min-w-0 flex-1 overflow-hidden text-left"
+          title={run.title || "Untitled workflow"}
         >
-          <Icon className="h-4 w-4" />
-        </div>
+          <div className="flex min-w-0 items-start gap-2">
+            <div
+              className={cn(
+                "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background",
+                statusAccent(run.status)
+              )}
+            >
+              <Icon className="h-4 w-4" />
+            </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium leading-5 text-foreground">{run.title}</div>
-              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                <span>{formatCapability(run.capability)}</span>
-                <span className="h-1 w-1 rounded-full bg-border" />
-                <span>{formatRelativeTime(run.updated_at)}</span>
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+                <div className="min-w-0 overflow-hidden">
+                  <div className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-5 text-foreground">{run.title || "Untitled workflow"}</div>
+                  <div className="mt-0.5 flex min-w-0 max-w-full flex-nowrap items-center gap-1.5 overflow-hidden text-[11px] text-muted-foreground">
+                    <span className="min-w-0 shrink truncate">{formatCapability(run.capability)}</span>
+                    <span className="h-1 w-1 shrink-0 rounded-full bg-border" />
+                    <span className="shrink-0">{formatRelativeTime(run.updated_at)}</span>
+                  </div>
+                </div>
+                <WorkflowStatusBadge status={run.status} className="shrink-0 px-1.5 py-0 text-[10px]" />
+              </div>
+
+              <div className="mt-1.5 flex min-w-0 max-w-full items-center gap-x-2 gap-y-1 overflow-hidden text-xs text-muted-foreground">
+                <span className="min-w-0 shrink truncate">{formatSelection(run)}</span>
+                {run.selection.current_folder ? (
+                  <>
+                    <span className="h-1 w-1 shrink-0 rounded-full bg-border" />
+                    <span className="min-w-0 shrink truncate">{run.selection.current_folder}</span>
+                  </>
+                ) : null}
               </div>
             </div>
-            <WorkflowStatusBadge status={run.status} className="shrink-0 px-1.5 py-0 text-[10px]" />
           </div>
+        </button>
 
-          <p className="mt-1.5 line-clamp-2 text-sm leading-5 text-muted-foreground">{renderStatusCopy(run)}</p>
-
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <span>{formatSelection(run)}</span>
-            {run.selection.current_folder ? (
-              <>
-                <span className="h-1 w-1 rounded-full bg-border" />
-                <span className="truncate">{run.selection.current_folder}</span>
-              </>
-            ) : null}
-          </div>
+        <div className="shrink-0">
+          <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground opacity-100 transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="Workflow actions"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <MoreVertical className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" sideOffset={6} className="min-w-[170px] rounded-2xl border-border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.16)]">
+            <DropdownMenuItem
+              className="cursor-pointer rounded-xl px-2.5 py-2"
+              onSelect={(event) => {
+                event.preventDefault();
+                onRename(run);
+              }}
+            >
+              <Pencil className="h-4 w-4" />
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="my-1 bg-border/70" />
+            <DropdownMenuItem
+              variant="destructive"
+              className="cursor-pointer rounded-xl px-2.5 py-2"
+              onSelect={(event) => {
+                event.preventDefault();
+                onDelete(run);
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -414,6 +478,8 @@ export default function WorkflowsPage() {
   const [renamingRunId, setRenamingRunId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
+  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
   const prevRunStatusRef = useRef<Map<string, WorkflowStatus>>(new Map());
   const hasHydratedRunStatusesRef = useRef(false);
 
@@ -650,6 +716,8 @@ export default function WorkflowsPage() {
   }, [selectedRunId, visibleRuns]);
 
   const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
+  const renamingRun = useMemo(() => runs.find((run) => run.id === renamingRunId) || null, [renamingRunId, runs]);
+  const deletingRun = useMemo(() => runs.find((run) => run.id === deletingRunId) || null, [deletingRunId, runs]);
   const selectedRunChainSource = useMemo(() => chainSourceFromRun(selectedRun, catalog), [catalog, selectedRun]);
   const handleSelectRun = useCallback((runId: string) => {
     setSelectedRunId(runId);
@@ -658,7 +726,7 @@ export default function WorkflowsPage() {
 
   const startRenamingRun = useCallback((run: WorkflowRun) => {
     setRenamingRunId(run.id);
-    setRenameTitle(run.title);
+    setRenameTitle(run.title || "");
   }, []);
 
   const cancelRenamingRun = useCallback(() => {
@@ -693,6 +761,40 @@ export default function WorkflowsPage() {
       setRenameSaving(false);
     }
   }, [renameTitle]);
+
+  const startDeletingRun = useCallback((run: WorkflowRun) => {
+    setDeletingRunId(run.id);
+  }, []);
+
+  const cancelDeletingRun = useCallback(() => {
+    if (deleteSaving) return;
+    setDeletingRunId(null);
+  }, [deleteSaving]);
+
+  const submitRunDelete = useCallback(async () => {
+    if (!deletingRun) return;
+
+    setDeleteSaving(true);
+    try {
+      await deleteWorkflowRun(deletingRun.id);
+      setRuns((prev) => prev.filter((item) => item.id !== deletingRun.id));
+      if (selectedRunId === deletingRun.id) {
+        setSelectedRunId(null);
+      }
+      if (renamingRunId === deletingRun.id) {
+        setRenamingRunId(null);
+        setRenameTitle("");
+      }
+      setDeletingRunId(null);
+      toast.success("Workflow deleted");
+    } catch (err) {
+      console.error("[workflows] delete error", err);
+      toast.error("Failed to delete workflow", { description: parseErr(err) });
+    } finally {
+      setDeleteSaving(false);
+    }
+  }, [deletingRun, renamingRunId, selectedRunId]);
+
 
   const showInbox = !isMobile || mobilePanel === "inbox";
   const showDetails = !isMobile || mobilePanel === "details";
@@ -748,7 +850,7 @@ export default function WorkflowsPage() {
               <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
                 <div className="divide-y divide-border/70">
                   {visibleRuns.map((run) => (
-                    <RunListItem key={run.id} run={run} active={run.id === selectedRunId} onSelect={handleSelectRun} />
+                    <RunListItem key={run.id} run={run} active={run.id === selectedRunId} onSelect={handleSelectRun} onRename={startRenamingRun} onDelete={startDeletingRun} />
                   ))}
                 </div>
               </PaneScroller>
@@ -800,59 +902,18 @@ export default function WorkflowsPage() {
                                 </button>
                               </div>
                             ) : null}
-                            {renamingRunId === selectedRun.id ? (
-                              <form
-                                className="flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center"
-                                onSubmit={(event) => {
-                                  event.preventDefault();
-                                  void submitRunRename(selectedRun);
-                                }}
+                            <div className="flex max-w-3xl items-start gap-2">
+                              <div className="min-w-0 flex-1 text-lg font-semibold leading-7 text-foreground md:text-[1.35rem]">{selectedRun.title}</div>
+                              <button
+                                type="button"
+                                className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground transition-colors hover:text-foreground"
+                                onClick={() => startRenamingRun(selectedRun)}
+                                aria-label="Rename workflow"
+                                title="Rename"
                               >
-                                <Input
-                                  autoFocus
-                                  value={renameTitle}
-                                  onChange={(event) => setRenameTitle(event.target.value)}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Escape") cancelRenamingRun();
-                                  }}
-                                  className="h-10 rounded-xl text-base font-semibold md:text-lg"
-                                  maxLength={120}
-                                  disabled={renameSaving}
-                                />
-                                <div className="flex shrink-0 gap-1.5">
-                                  <button
-                                    type="submit"
-                                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
-                                    disabled={renameSaving}
-                                    aria-label="Save workflow title"
-                                  >
-                                    <Check className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                                    onClick={cancelRenamingRun}
-                                    disabled={renameSaving}
-                                    aria-label="Cancel rename"
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </button>
-                                </div>
-                              </form>
-                            ) : (
-                              <div className="flex max-w-3xl items-start gap-2">
-                                <div className="min-w-0 flex-1 text-lg font-semibold leading-7 text-foreground md:text-[1.35rem]">{selectedRun.title}</div>
-                                <button
-                                  type="button"
-                                  className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground transition-colors hover:text-foreground"
-                                  onClick={() => startRenamingRun(selectedRun)}
-                                  aria-label="Rename workflow"
-                                  title="Rename"
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                            )}
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                               <WorkflowStatusBadge status={selectedRun.status} className="px-1.5 py-0 text-[10px]" />
                               {selectedRun.artifact ? (
@@ -980,6 +1041,69 @@ export default function WorkflowsPage() {
         </section>
         </div>
       </div>
+
+      <Dialog open={!!renamingRunId} onOpenChange={(open) => {
+        if (!open) cancelRenamingRun();
+      }}>
+        <DialogContent className="max-w-md rounded-3xl border-border p-0 shadow-[0_32px_80px_rgba(15,23,42,0.18)]">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (renamingRun) void submitRunRename(renamingRun);
+            }}
+          >
+            <DialogHeader className="px-6 pt-6">
+              <DialogTitle className="text-base font-semibold">Rename workflow</DialogTitle>
+              <DialogDescription>Give this run a clearer name so it is easier to find later.</DialogDescription>
+            </DialogHeader>
+            <div className="px-6 py-2">
+              <Input
+                autoFocus
+                value={renameTitle}
+                onChange={(event) => setRenameTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") cancelRenamingRun();
+                }}
+                className="h-10 rounded-2xl"
+                maxLength={120}
+                disabled={renameSaving}
+                placeholder="Workflow title"
+              />
+            </div>
+            <DialogFooter className="px-6 pb-6">
+              <Button type="button" variant="outline" onClick={cancelRenamingRun} disabled={renameSaving}>Cancel</Button>
+              <Button type="submit" disabled={renameSaving || !renameTitle.trim()}>Save</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deletingRunId} onOpenChange={(open) => {
+        if (!open) cancelDeletingRun();
+      }}>
+        <DialogContent className="max-w-md rounded-3xl border-border p-0 shadow-[0_32px_80px_rgba(15,23,42,0.18)]">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitRunDelete();
+            }}
+          >
+            <DialogHeader className="px-6 pt-6">
+              <DialogTitle className="text-base font-semibold">Delete workflow</DialogTitle>
+              <DialogDescription>This removes the selected workflow run from your history.</DialogDescription>
+            </DialogHeader>
+            <div className="px-6 py-2 text-sm leading-6 text-muted-foreground">
+              Are you sure you want to delete{" "}
+              <span className="font-medium text-foreground">“{deletingRun?.title || "Untitled workflow"}”</span>
+              ? This action cannot be undone.
+            </div>
+            <DialogFooter className="px-6 pb-6">
+              <Button type="button" variant="outline" onClick={cancelDeletingRun} disabled={deleteSaving}>Cancel</Button>
+              <Button type="submit" variant="destructive" disabled={deleteSaving}>Delete</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <WorkflowLauncher
         open={workflowLauncherOpen}

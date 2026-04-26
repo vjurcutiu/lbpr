@@ -49,6 +49,7 @@ _WORKFLOW_RUNS_SUBCOLLECTION = "workflow_runs"
 _WORKFLOW_ARTIFACTS_SUBCOLLECTION = "workflow_artifacts"
 _RUNS_BY_UID: dict[str, list[WorkflowRun]] = defaultdict(list)
 _ARTIFACTS_BY_UID: dict[str, list[WorkflowArtifact]] = defaultdict(list)
+_DELETED_RUN_IDS_BY_UID: dict[str, set[str]] = defaultdict(set)
 _LOCK = threading.Lock()
 _MAX_RUNS_PER_USER = 25
 _MAX_SOURCE_FILES = 8
@@ -392,22 +393,44 @@ def _run_from_doc(doc_id: str, data: dict[str, Any]) -> WorkflowRun:
 
 
 
+def _is_run_deleted(uid: str, run_id: str) -> bool:
+    with _LOCK:
+        return str(run_id) in _DELETED_RUN_IDS_BY_UID.get(uid, set())
+
+
+def _mark_run_deleted(uid: str, run_id: str) -> None:
+    with _LOCK:
+        _DELETED_RUN_IDS_BY_UID[uid].add(str(run_id))
+
+
 def _cache_run(uid: str, run: WorkflowRun) -> None:
     with _LOCK:
+        if run.id in _DELETED_RUN_IDS_BY_UID.get(uid, set()):
+            return
         existing = [item for item in _RUNS_BY_UID.get(uid, []) if item.id != run.id]
         _RUNS_BY_UID[uid] = [run, *existing][:_MAX_RUNS_PER_USER]
 
 
+def _remove_cached_run(uid: str, run_id: str) -> None:
+    with _LOCK:
+        _RUNS_BY_UID[uid] = [item for item in _RUNS_BY_UID.get(uid, []) if item.id != run_id]
+
 
 def _cached_runs(uid: str) -> list[WorkflowRun]:
     with _LOCK:
-        return list(_RUNS_BY_UID.get(uid, []))
+        deleted = _DELETED_RUN_IDS_BY_UID.get(uid, set())
+        return [item for item in _RUNS_BY_UID.get(uid, []) if item.id not in deleted]
 
 
 def _cache_artifact(uid: str, artifact: WorkflowArtifact) -> None:
     with _LOCK:
         existing = [item for item in _ARTIFACTS_BY_UID.get(uid, []) if item.id != artifact.id]
         _ARTIFACTS_BY_UID[uid] = [artifact, *existing][:_MAX_RUNS_PER_USER]
+
+
+def _remove_cached_artifact(uid: str, artifact_id: str) -> None:
+    with _LOCK:
+        _ARTIFACTS_BY_UID[uid] = [item for item in _ARTIFACTS_BY_UID.get(uid, []) if item.id != artifact_id]
 
 
 def _cached_artifacts(uid: str) -> list[WorkflowArtifact]:
@@ -475,6 +498,7 @@ def list_runs(uid: str, limit: int = 10) -> WorkflowRunList:
                 log.warning("workflow_runs_list_firestore_failed", uid=uid, exc_info=True)
                 rows = []
         if rows:
+            rows = [item for item in rows if not _is_run_deleted(uid, item.id)]
             return WorkflowRunList(items=rows[:limit])
 
     items = _cached_runs(uid)
@@ -549,6 +573,32 @@ def rename_run(uid: str, run_id: str, payload: WorkflowRunTitleUpdate) -> Workfl
     _persist_run(uid, run)
     return run
 
+
+def delete_run(uid: str, run_id: str) -> None:
+    run = get_run(uid, run_id)
+    artifact_id = run.artifact.id if run.artifact else ""
+
+    _mark_run_deleted(uid, run.id)
+    _remove_cached_run(uid, run.id)
+    if artifact_id:
+        _remove_cached_artifact(uid, artifact_id)
+
+    db, _fs = _get_firestore_handles()
+    if db is None:
+        return
+
+    try:
+        _workflow_runs_ref(db, uid).document(run.id).delete()
+    except Exception:
+        log.warning("workflow_run_delete_firestore_failed", uid=uid, run_id=run.id, exc_info=True)
+
+    if artifact_id:
+        try:
+            _workflow_artifacts_ref(db, uid).document(artifact_id).delete()
+        except Exception:
+            log.warning("workflow_artifact_delete_firestore_failed", uid=uid, run_id=run.id, artifact_id=artifact_id, exc_info=True)
+
+
 def _validate_selection(payload: WorkflowRunCreate) -> WorkflowManifest:
     manifest = WORKFLOW_INDEX.get(payload.workflow_id)
     if manifest is None:
@@ -571,6 +621,9 @@ def _validate_selection(payload: WorkflowRunCreate) -> WorkflowManifest:
 
 
 def _persist_run(uid: str, run: WorkflowRun) -> None:
+    if _is_run_deleted(uid, run.id):
+        return
+
     _cache_run(uid, run)
 
     db, _fs = _get_firestore_handles()

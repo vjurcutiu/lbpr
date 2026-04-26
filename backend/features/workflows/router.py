@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import Response
 
 from features.auth.deps import get_current_user
@@ -38,6 +38,12 @@ def get_workflow_run(run_id: str, user: SessionOut = Depends(get_current_user)) 
 @router.patch("/runs/{run_id}/title", response_model=WorkflowRun)
 def rename_workflow_run(run_id: str, payload: WorkflowRunTitleUpdate, user: SessionOut = Depends(get_current_user)) -> WorkflowRun:
     return service.rename_run(user.uid, run_id, payload)
+
+
+@router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_workflow_run(run_id: str, user: SessionOut = Depends(get_current_user)) -> Response:
+    service.delete_run(user.uid, run_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/runs/{run_id}/artifact", response_model=WorkflowArtifact)
