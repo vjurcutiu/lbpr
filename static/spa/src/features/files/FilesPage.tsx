@@ -324,9 +324,9 @@ const internalDragPreviewLabels = useMemo(() => {
   type LimitsResp = {
     plan: "FREE" | "PRO";
     window: string;
-    caps: { messages: number; file_processing_tokens?: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
-    usage: { messages: number; file_processing_tokens?: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
-    remaining: { messages: number; file_processing_tokens?: number; upload_tokens: number; transcribe_seconds: number; ocr_images: number };
+    caps: { messages: number; file_processing_tokens?: number; upload_tokens: number; workflow_tokens?: number; transcribe_seconds: number; ocr_images: number };
+    usage: { messages: number; file_processing_tokens?: number; upload_tokens: number; workflow_tokens?: number; transcribe_seconds: number; ocr_images: number };
+    remaining: { messages: number; file_processing_tokens?: number; upload_tokens: number; workflow_tokens?: number; transcribe_seconds: number; ocr_images: number };
   };
   const fileProcessingValue = (bucket: { file_processing_tokens?: number; upload_tokens?: number } | null | undefined) => Number(bucket?.file_processing_tokens ?? bucket?.upload_tokens ?? 0);
   type PendingAction = "upload" | "ocr" | "transcribe";

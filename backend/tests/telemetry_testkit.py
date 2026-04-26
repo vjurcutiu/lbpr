@@ -39,6 +39,7 @@ class FakeBusinessInstruments:
     messages_used_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_messages_used_total"))
     upload_tokens_used_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_upload_tokens_used_total"))
     file_processing_tokens_used_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_file_processing_tokens_used_total"))
+    workflow_tokens_used_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_workflow_tokens_used_total"))
     chat_duration_ms: FakeHistogram = field(default_factory=lambda: FakeHistogram("lbpr_chat_duration_ms"))
     ingest_duration_ms: FakeHistogram = field(default_factory=lambda: FakeHistogram("lbpr_ingest_duration_ms"))
     openai_call_total: FakeCounter = field(default_factory=lambda: FakeCounter("lbpr_openai_call_total"))

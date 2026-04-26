@@ -49,14 +49,18 @@ type LimitsMe = {
   plan: "FREE" | "PRO";
   window: string;
   period: { start_ts: number; end_ts: number };
-  caps: { messages: number; file_processing_tokens?: number; upload_tokens: number };
-  usage: { messages: number; file_processing_tokens?: number; upload_tokens: number };
-  remaining: { messages: number; file_processing_tokens?: number; upload_tokens: number };
+  caps: { messages: number; file_processing_tokens?: number; upload_tokens: number; workflow_tokens?: number };
+  usage: { messages: number; file_processing_tokens?: number; upload_tokens: number; workflow_tokens?: number };
+  remaining: { messages: number; file_processing_tokens?: number; upload_tokens: number; workflow_tokens?: number };
 };
 
 
 function fileProcessingValue(bucket: { file_processing_tokens?: number; upload_tokens?: number } | null | undefined): number {
   return Number(bucket?.file_processing_tokens ?? bucket?.upload_tokens ?? 0);
+}
+
+function workflowTokensValue(bucket: { workflow_tokens?: number } | null | undefined): number {
+  return Number(bucket?.workflow_tokens ?? 0);
 }
 
 async function fetchLimits(): Promise<LimitsMe | null> {
@@ -981,7 +985,7 @@ function LimitReachedCard({ payload }: { payload: any }) {
               {resetsText ? <> {resetsText}</> : null}
             </div>
 
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
               <div className="rounded-xl border bg-background p-3">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
                   <Gauge className="h-3.5 w-3.5" /> Messages used
@@ -993,8 +997,12 @@ function LimitReachedCard({ payload }: { payload: any }) {
                 <div className="text-sm font-medium mt-1">{remaining ?? "0"}</div>
               </div>
               <div className="rounded-xl border bg-background p-3">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">File processing this month</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">File uploads this month</div>
                 <div className="text-sm font-medium mt-1">{String(fileProcessingValue(lim?.usage))} / {String(fileProcessingValue(lim?.caps))}</div>
+              </div>
+              <div className="rounded-xl border bg-background p-3">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Workflows this month</div>
+                <div className="text-sm font-medium mt-1">{String(workflowTokensValue(lim?.usage))} / {String(workflowTokensValue(lim?.caps))}</div>
               </div>
             </div>
 

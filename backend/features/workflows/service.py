@@ -21,7 +21,7 @@ from core.business_metrics import (
     record_workflow_started,
 )
 from core.plan import sync_caps_and_plan
-from core.rate_limit import add_file_processing_tokens, usage_snapshot
+from core.rate_limit import add_workflow_tokens, usage_snapshot
 from core.user_store import USERS_COLLECTION
 from features.files import service as files_service
 from features.files.schemas import FileItem
@@ -839,8 +839,8 @@ def _refine_from_version(
     try:
         asyncio.run(sync_caps_and_plan(uid))
         snap = asyncio.run(usage_snapshot(uid))
-        if _remaining_file_processing_tokens(snap) <= 0:
-            raise HTTPException(status_code=402, detail="File processing usage limit reached for this billing period.")
+        if _remaining_workflow_tokens(snap) <= 0:
+            raise HTTPException(status_code=402, detail="Workflow usage limit reached for this billing period.")
     except HTTPException:
         raise
     except Exception:
@@ -886,7 +886,7 @@ def _refine_from_version(
     billed_total, breakdown, usage_details = _workflow_usage_breakdown(run, source_stats)
     if billed_total > 0:
         ok, used, cap = asyncio.run(
-            add_file_processing_tokens(
+            add_workflow_tokens(
                 uid,
                 billed_total,
                 category="workflow_refinement",
@@ -894,7 +894,7 @@ def _refine_from_version(
             )
         )
         if not ok:
-            raise HTTPException(status_code=402, detail="File processing usage limit reached for this billing period.")
+            raise HTTPException(status_code=402, detail="Workflow usage limit reached for this billing period.")
         _attach_usage_details(run, usage_details=usage_details, used=used, cap=cap)
     else:
         _attach_usage_details(run, usage_details=usage_details)
@@ -1019,9 +1019,9 @@ def _is_within_folder(file_item: FileItem, folder_path: str) -> bool:
 
 
 
-def _remaining_file_processing_tokens(snap: dict[str, object]) -> int:
-    cap = int(snap.get("cap_file_processing_tokens") or snap.get("cap_upload_tokens") or 0)
-    used = int(snap.get("file_processing_tokens_used") or snap.get("upload_tokens_used") or 0)
+def _remaining_workflow_tokens(snap: dict[str, object]) -> int:
+    cap = int(snap.get("cap_workflow_tokens") or snap.get("cap_file_processing_tokens") or snap.get("cap_upload_tokens") or 0)
+    used = int(snap.get("workflow_tokens_used") or 0)
     return max(0, cap - used)
 
 
@@ -1274,8 +1274,8 @@ def _execute_run(uid: str, run_id: str) -> None:
         try:
             asyncio.run(sync_caps_and_plan(uid))
             snap = asyncio.run(usage_snapshot(uid))
-            if _remaining_file_processing_tokens(snap) <= 0:
-                raise HTTPException(status_code=402, detail="File processing usage limit reached for this billing period.")
+            if _remaining_workflow_tokens(snap) <= 0:
+                raise HTTPException(status_code=402, detail="Workflow usage limit reached for this billing period.")
         except HTTPException:
             raise
         except Exception:
@@ -1308,7 +1308,7 @@ def _execute_run(uid: str, run_id: str) -> None:
         billed_total, breakdown, usage_details = _workflow_usage_breakdown(run, source_stats)
         if billed_total > 0:
             ok, used, cap = asyncio.run(
-                add_file_processing_tokens(
+                add_workflow_tokens(
                     uid,
                     billed_total,
                     category="workflow",
@@ -1316,7 +1316,7 @@ def _execute_run(uid: str, run_id: str) -> None:
                 )
             )
             if not ok:
-                raise HTTPException(status_code=402, detail="File processing usage limit reached for this billing period.")
+                raise HTTPException(status_code=402, detail="Workflow usage limit reached for this billing period.")
             _attach_usage_details(run, usage_details=usage_details, used=used, cap=cap)
         else:
             _attach_usage_details(run, usage_details=usage_details)

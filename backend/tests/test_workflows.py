@@ -394,11 +394,11 @@ def test_workflow_usage_accounting(auth_client, fake_business_metrics, inline_wo
         return {'plan': 'PRO'}
 
     async def fake_usage_snapshot(uid: str):
-        return {'cap_file_processing_tokens': 1000, 'file_processing_tokens_used': 0}
+        return {'cap_workflow_tokens': 1000, 'workflow_tokens_used': 0}
 
     calls = []
 
-    async def fake_add_file_processing_tokens(uid: str, n_tokens: int, *, category: str = 'general', breakdown=None):
+    async def fake_add_workflow_tokens(uid: str, n_tokens: int, *, category: str = 'general', breakdown=None):
         calls.append((uid, n_tokens, category, dict(breakdown or {})))
         return True, n_tokens, 1000
 
@@ -406,7 +406,7 @@ def test_workflow_usage_accounting(auth_client, fake_business_metrics, inline_wo
     monkeypatch.setattr(workflow_service, '_load_source_documents', _fake_loader)
     monkeypatch.setattr(workflow_service, 'sync_caps_and_plan', fake_sync_caps_and_plan)
     monkeypatch.setattr(workflow_service, 'usage_snapshot', fake_usage_snapshot)
-    monkeypatch.setattr(workflow_service, 'add_file_processing_tokens', fake_add_file_processing_tokens)
+    monkeypatch.setattr(workflow_service, 'add_workflow_tokens', fake_add_workflow_tokens)
 
     create = auth_client.post(
         '/v1/workflows/runs',

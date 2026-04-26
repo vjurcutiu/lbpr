@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import pytest
 import core.business_metrics as business_metrics
-from core.rate_limit import add_file_processing_tokens, add_message, add_upload_tokens
+from core.rate_limit import add_file_processing_tokens, add_message, add_upload_tokens, add_workflow_tokens
 from features.rag.schemas import IngestResponse, QueryResponse, Source
 from tests.telemetry_testkit import FakeBusinessInstruments, assert_call
 
@@ -205,15 +205,48 @@ async def test_add_file_processing_tokens_limit_records_plan_limit(fake_business
     async def fake_load_meta(uid: str):
         return {"plan": "free", "cap_upload_tokens": "100", "cap_file_processing_tokens": "100", "free_no_refresh": "1", "billing_anchor_ts": "0"}
 
-    async def fake_check_and_add(uid: str, metric: str, inc: int, cap: int, pstart: int, pend: int, period_id: str):
+    async def fake_check_and_add_file_processing(uid: str, inc: int, cap: int, pstart: int, pend: int, period_id: str):
         return False, 100
 
     monkeypatch.setattr(rate_limit, "_load_meta", fake_load_meta)
-    monkeypatch.setattr(rate_limit, "_check_and_add", fake_check_and_add)
+    monkeypatch.setattr(rate_limit, "_check_and_add_file_processing", fake_check_and_add_file_processing)
 
-    ok, used, cap = await add_file_processing_tokens("u_test", 25, category="workflow")
+    ok, used, cap = await add_file_processing_tokens("u_test", 25, category="upload_ingest")
     assert ok is False
     assert used == 100
     assert cap == 100
     assert_call(fake_business_metrics.plan_limit_hit_total.calls, amount=1, metric="file_processing_tokens", plan="free")
+    assert fake_business_metrics.file_processing_tokens_used_total.calls == []
+
+
+@pytest.mark.asyncio
+async def test_add_workflow_tokens_records_separate_usage(fake_business_metrics, monkeypatch):
+    import core.rate_limit as rate_limit
+
+    async def fake_load_meta(uid: str):
+        return {"plan": "pro", "cap_workflow_tokens": "500", "free_no_refresh": "0", "billing_anchor_ts": "0"}
+
+    async def fake_check_and_add(uid: str, metric: str, inc: int, cap: int, pstart: int, pend: int, period_id: str):
+        assert metric == "workflow_tokens"
+        assert inc == 42
+        assert cap == 500
+        return True, 242
+
+    async def fake_record_usage_breakdown(uid: str, period_id: str, mapping):
+        assert mapping == {"workflow_input_tokens": 30, "workflow_output_tokens": 12}
+
+    monkeypatch.setattr(rate_limit, "_load_meta", fake_load_meta)
+    monkeypatch.setattr(rate_limit, "_check_and_add", fake_check_and_add)
+    monkeypatch.setattr(rate_limit, "_record_usage_breakdown", fake_record_usage_breakdown)
+
+    ok, used, cap = await add_workflow_tokens(
+        "u_test",
+        42,
+        category="workflow",
+        breakdown={"workflow_input_tokens": 30, "workflow_output_tokens": 12},
+    )
+    assert ok is True
+    assert used == 242
+    assert cap == 500
+    assert_call(fake_business_metrics.workflow_tokens_used_total.calls, amount=42, plan="pro", category="workflow")
     assert fake_business_metrics.file_processing_tokens_used_total.calls == []

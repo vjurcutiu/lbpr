@@ -335,7 +335,8 @@ function HomePage() {
                 summary="A simple way to test the workflow with no credit card required."
                 features={[
                   '50 messages',
-                  '100,000 upload tokens (≈75 pages)',
+                  '100,000 file upload tokens (≈75 pages)',
+                  'Separate workflow token allowance',
                   '5 minutes of transcription',
                   '5 OCR images',
                   'Create an account and get started right away',
@@ -351,7 +352,8 @@ function HomePage() {
                 summary="More capacity, stronger privacy features, and direct support for teams using it every day."
                 features={[
                   '10,000 messages per month',
-                  '20,000,000 upload tokens (≈15,000 pages) per month',
+                  '20,000,000 file upload tokens (≈15,000 pages) per month',
+                  'Separate workflow token allowance per month',
                   '1,000 minutes of transcription per month',
                   '1,000 OCR images per month',
                   'PII pseudonymization and phone + email support (≤24h SLA)',

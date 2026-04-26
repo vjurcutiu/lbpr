@@ -115,7 +115,7 @@ Expected metrics:
 - `lbpr_ingest_started_total{flow="api"}` increments
 - `lbpr_ingest_error_total{flow="api",stage="limit"}` increments
 - `lbpr_ingest_duration_ms{flow="api",status="error"}` records
-- `lbpr_plan_limit_hit_total{metric="upload_tokens",plan="..."}` increments
+- `lbpr_plan_limit_hit_total{metric="file_processing_tokens",plan="..."}` increments
 
 ### 5) File upload success
 
@@ -134,13 +134,17 @@ Expected metrics:
 Trigger:
 - successful chat/query path
 - successful ingest/upload path
+- successful workflow path
 - forced message-limit denial
-- forced upload-token denial
+- forced file-processing-token denial
+- forced workflow-token denial
 
 Expected metrics:
 - `lbpr_messages_used_total{plan="pro|free|..."}` increments on success
-- `lbpr_upload_tokens_used_total{plan="pro|free|..."}` increments on success
-- `lbpr_plan_limit_hit_total{metric="messages|upload_tokens",plan="..."}` increments on denial
+- `lbpr_upload_tokens_used_total{plan="pro|free|..."}` increments on upload success
+- `lbpr_file_processing_tokens_used_total{plan="pro|free|...",category="upload_ingest"}` increments on upload success
+- `lbpr_workflow_tokens_used_total{plan="pro|free|...",category="workflow|workflow_refinement"}` increments on workflow success
+- `lbpr_plan_limit_hit_total{metric="messages|file_processing_tokens|workflow_tokens",plan="..."}` increments on denial
 
 ## Grafana validation flow
 
@@ -212,6 +216,10 @@ sum(increase(lbpr_messages_used_total[15m])) by (job, plan)
 
 ```promql
 sum(increase(lbpr_upload_tokens_used_total[15m])) by (job, plan)
+```
+
+```promql
+sum(increase(lbpr_workflow_tokens_used_total[15m])) by (job, plan, category)
 ```
 
 ```promql
@@ -302,6 +310,10 @@ sum(increase(lbpr_messages_used_total[$__range])) by (plan)
 
 ```promql
 sum(increase(lbpr_upload_tokens_used_total[$__range])) by (plan)
+```
+
+```promql
+sum(increase(lbpr_workflow_tokens_used_total[$__range])) by (plan, category)
 ```
 
 ```promql

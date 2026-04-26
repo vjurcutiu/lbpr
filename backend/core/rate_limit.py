@@ -7,6 +7,7 @@ from core.business_metrics import (
     record_messages_used,
     record_plan_limit_hit,
     record_upload_tokens_used,
+    record_workflow_tokens_used,
 )
 try:
     from core.redis_utils import get_client as _get_client
@@ -21,6 +22,7 @@ def _env_int(name: str, default: int) -> int:
 DEFAULT_CAP_MESSAGES = _env_int("LIMITS_DEFAULT_MESSAGES", 1000)
 DEFAULT_CAP_UPLOAD_TOKENS = _env_int("LIMITS_DEFAULT_UPLOAD_TOKENS", 200_000)
 DEFAULT_CAP_FILE_PROCESSING_TOKENS = _env_int("LIMITS_DEFAULT_FILE_PROCESSING_TOKENS", DEFAULT_CAP_UPLOAD_TOKENS)
+DEFAULT_CAP_WORKFLOW_TOKENS = _env_int("LIMITS_DEFAULT_WORKFLOW_TOKENS", DEFAULT_CAP_UPLOAD_TOKENS)
 DEFAULT_CAP_TRANSCRIBE_SECONDS = _env_int("LIMITS_DEFAULT_TRANSCRIBE_SECONDS", 300)
 DEFAULT_CAP_OCR_IMAGES = _env_int("LIMITS_DEFAULT_OCR_IMAGES", 5)
 WINDOW_DAYS = _env_int("LIMITS_WINDOW_DAYS", 30)
@@ -60,6 +62,7 @@ async def _load_meta(uid: str) -> Dict[str, str]:
             "cap_messages": str(DEFAULT_CAP_MESSAGES),
             "cap_upload_tokens": str(DEFAULT_CAP_UPLOAD_TOKENS),
             "cap_file_processing_tokens": str(DEFAULT_CAP_FILE_PROCESSING_TOKENS),
+            "cap_workflow_tokens": str(DEFAULT_CAP_WORKFLOW_TOKENS),
             "cap_transcribe_seconds": str(DEFAULT_CAP_TRANSCRIBE_SECONDS),
             "cap_ocr_images": str(DEFAULT_CAP_OCR_IMAGES),
             "billing_anchor_ts": "0",
@@ -94,9 +97,21 @@ local pstart = tostring(ARGV[3])
 local pend = tostring(ARGV[4])
 local legacy = redis.call('HGET', key, 'upload_tokens')
 if not legacy then legacy = 0 else legacy = tonumber(legacy) end
+local upload_ingest = redis.call('HGET', key, 'upload_ingest_tokens')
 local unified = redis.call('HGET', key, 'file_processing_tokens')
+local workflow_input = redis.call('HGET', key, 'workflow_input_tokens')
+local workflow_output = redis.call('HGET', key, 'workflow_output_tokens')
+local workflow_rag = redis.call('HGET', key, 'workflow_rag_overhead_tokens')
+if upload_ingest then
+  upload_ingest = tonumber(upload_ingest)
+else
+  upload_ingest = nil
+end
 if not unified then unified = 0 else unified = tonumber(unified) end
-local cur = legacy + unified
+if (not upload_ingest) and (workflow_input or workflow_output or workflow_rag) then
+  upload_ingest = 0
+end
+local cur = legacy + (upload_ingest or unified)
 local newv = cur + inc
 if newv > cap then
   return {0, cur}
@@ -125,6 +140,7 @@ async def set_caps(
     cap_messages: Optional[int] = None,
     cap_upload_tokens: Optional[int] = None,
     cap_file_processing_tokens: Optional[int] = None,
+    cap_workflow_tokens: Optional[int] = None,
     cap_transcribe_seconds: Optional[int] = None,
     cap_ocr_images: Optional[int] = None,
 ) -> None:
@@ -137,6 +153,8 @@ async def set_caps(
         mapping["cap_upload_tokens"] = str(int(cap_upload_tokens))
     if cap_file_processing_tokens is not None:
         mapping["cap_file_processing_tokens"] = str(int(cap_file_processing_tokens))
+    if cap_workflow_tokens is not None:
+        mapping["cap_workflow_tokens"] = str(int(cap_workflow_tokens))
     if cap_transcribe_seconds is not None:
         mapping["cap_transcribe_seconds"] = str(int(cap_transcribe_seconds))
     if cap_ocr_images is not None:
@@ -154,8 +172,23 @@ def _file_processing_cap(meta: Dict[str, str]) -> int:
 
 def _file_processing_used(usage: Dict[str, str]) -> int:
     legacy = int(usage.get("upload_tokens") or 0)
+    upload_ingest = usage.get("upload_ingest_tokens")
+    has_workflow_breakdown = any(
+        field in usage
+        for field in ("workflow_input_tokens", "workflow_output_tokens", "workflow_rag_overhead_tokens")
+    )
+    if upload_ingest is not None or has_workflow_breakdown:
+        return legacy + int(upload_ingest or 0)
     unified = int(usage.get("file_processing_tokens") or 0)
     return legacy + unified
+
+
+def _workflow_cap(meta: Dict[str, str]) -> int:
+    raw = meta.get("cap_workflow_tokens") or str(DEFAULT_CAP_WORKFLOW_TOKENS)
+    try:
+        return int(raw)
+    except Exception:
+        return DEFAULT_CAP_WORKFLOW_TOKENS
 
 
 async def _check_and_add_file_processing(uid: str, inc: int, cap: int, pstart: int, pend: int, period_id: str):
@@ -251,6 +284,27 @@ async def add_upload_tokens(uid: str, n_tokens: int):
     return ok, newv, cap
 
 
+async def add_workflow_tokens(
+    uid: str,
+    n_tokens: int,
+    *,
+    category: str = "workflow",
+    breakdown: Optional[Dict[str, int]] = None,
+):
+    meta = await _load_meta(uid)
+    cap = _workflow_cap(meta)
+    period_id, start, end = _period_id_for_user(meta)
+    inc = max(0, int(n_tokens))
+    ok, newv = await _check_and_add(uid, "workflow_tokens", inc, cap, start, end, period_id)
+    plan = str(meta.get("plan") or "free").lower()
+    if ok:
+        record_workflow_tokens_used(amount=inc, plan=plan, category=category)
+        await _record_usage_breakdown(uid, period_id, breakdown or {})
+    else:
+        record_plan_limit_hit(metric="workflow_tokens", plan=plan)
+    return ok, newv, cap
+
+
 async def add_transcribe_seconds(uid: str, n_seconds: float):
     """Track billed audio seconds for transcription."""
     meta = await _load_meta(uid)
@@ -281,6 +335,7 @@ async def reset_usage_current_window(uid: str) -> None:
         "upload_tokens": "0",
         "file_processing_tokens": "0",
         "upload_ingest_tokens": "0",
+        "workflow_tokens": "0",
         "workflow_input_tokens": "0",
         "workflow_output_tokens": "0",
         "workflow_rag_overhead_tokens": "0",
@@ -302,6 +357,7 @@ async def usage_snapshot(uid: str):
         "cap_messages": int(meta.get("cap_messages") or DEFAULT_CAP_MESSAGES),
         "cap_upload_tokens": int(meta.get("cap_upload_tokens") or DEFAULT_CAP_UPLOAD_TOKENS),
         "cap_file_processing_tokens": _file_processing_cap(meta),
+        "cap_workflow_tokens": _workflow_cap(meta),
         "cap_transcribe_seconds": int(meta.get("cap_transcribe_seconds") or DEFAULT_CAP_TRANSCRIBE_SECONDS),
         "cap_ocr_images": int(meta.get("cap_ocr_images") or DEFAULT_CAP_OCR_IMAGES),
         "period_id": period_id,
@@ -311,6 +367,7 @@ async def usage_snapshot(uid: str):
         "upload_tokens_used": _file_processing_used(usage),
         "file_processing_tokens_used": _file_processing_used(usage),
         "upload_ingest_tokens_used": int(usage.get("upload_ingest_tokens") or 0),
+        "workflow_tokens_used": int(usage.get("workflow_tokens") or 0),
         "workflow_input_tokens_used": int(usage.get("workflow_input_tokens") or 0),
         "workflow_output_tokens_used": int(usage.get("workflow_output_tokens") or 0),
         "workflow_rag_overhead_tokens_used": int(usage.get("workflow_rag_overhead_tokens") or 0),

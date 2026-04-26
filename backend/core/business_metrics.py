@@ -23,6 +23,7 @@ class _Instruments:
     messages_used_total: Any
     upload_tokens_used_total: Any
     file_processing_tokens_used_total: Any
+    workflow_tokens_used_total: Any
     chat_duration_ms: Any
     ingest_duration_ms: Any
     openai_call_total: Any
@@ -113,7 +114,12 @@ def init_business_metrics() -> None:
         file_processing_tokens_used_total=meter.create_counter(
             "lbpr_file_processing_tokens_used_total",
             unit="1",
-            description="Unified file processing tokens consumed against plan quotas.",
+            description="File upload and ingest tokens consumed against plan quotas.",
+        ),
+        workflow_tokens_used_total=meter.create_counter(
+            "lbpr_workflow_tokens_used_total",
+            unit="1",
+            description="Workflow generation tokens consumed against workflow plan quotas.",
         ),
         chat_duration_ms=meter.create_histogram(
             "lbpr_chat_duration_ms",
@@ -260,6 +266,18 @@ def record_file_processing_tokens_used(*, amount: int, plan: str, category: str 
     if amount <= 0:
         return
     _ins().file_processing_tokens_used_total.add(
+        amount,
+        {
+            "plan": _clean_str(plan, default="free").lower(),
+            "category": _clean_str(category),
+        },
+    )
+
+
+def record_workflow_tokens_used(*, amount: int, plan: str, category: str = "workflow") -> None:
+    if amount <= 0:
+        return
+    _ins().workflow_tokens_used_total.add(
         amount,
         {
             "plan": _clean_str(plan, default="free").lower(),

@@ -17,6 +17,7 @@ async def test_limits_me_is_no_store(monkeypatch):
             "messages": 10000,
             "file_processing_tokens": 20000000,
             "upload_tokens": 20000000,
+            "workflow_tokens": 20000000,
             "transcribe_seconds": 60000,
             "ocr_images": 1000,
         }
@@ -29,6 +30,7 @@ async def test_limits_me_is_no_store(monkeypatch):
             "messages_used": 2,
             "file_processing_tokens_used": 10,
             "upload_tokens_used": 10,
+            "workflow_tokens_used": 4,
             "transcribe_seconds_used": 3,
             "ocr_images_used": 1,
         }

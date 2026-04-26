@@ -19,8 +19,8 @@ import { Check, Crown, MessageSquare, UploadCloud, AlertTriangle, Loader2, Info,
 type LimitsResp = {
   plan: "FREE" | "PRO";
   window: string; // YYYYMM
-  caps: { messages: number; file_processing_tokens?: number; upload_tokens: number; transcribe_seconds?: number; ocr_images?: number };
-  usage: { messages: number; file_processing_tokens?: number; upload_tokens: number; transcribe_seconds?: number; ocr_images?: number };
+  caps: { messages: number; file_processing_tokens?: number; upload_tokens: number; workflow_tokens?: number; transcribe_seconds?: number; ocr_images?: number };
+  usage: { messages: number; file_processing_tokens?: number; upload_tokens: number; workflow_tokens?: number; transcribe_seconds?: number; ocr_images?: number };
 };
 
 /* ------------------------------ Helpers ----------------------------- */
@@ -30,6 +30,10 @@ function fmtInt(n?: number) {
 
 function fileProcessingValue(bucket: { file_processing_tokens?: number; upload_tokens?: number } | null | undefined): number {
   return Number(bucket?.file_processing_tokens ?? bucket?.upload_tokens ?? 0);
+}
+
+function workflowTokensValue(bucket: { workflow_tokens?: number } | null | undefined): number {
+  return Number(bucket?.workflow_tokens ?? 0);
 }
 
 function formatMoney(amount?: number, currency?: string) {
@@ -267,7 +271,7 @@ export default function BillingPage() {
             <PlanBadge onPro={onPro} />
           </div>
 
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
             <QuickStat
               icon={<MessageSquare className="h-4 w-4" />}
               label="Messages used"
@@ -275,8 +279,13 @@ export default function BillingPage() {
             />
             <QuickStat
               icon={<UploadCloud className="h-4 w-4" />}
-              label="File processing tokens"
+              label="File upload tokens"
               value={limits ? <UsageStatValue used={fileProcessingValue(limits.usage)} cap={fileProcessingValue(limits.caps)} /> : "—"}
+            />
+            <QuickStat
+              icon={<Check className="h-4 w-4" />}
+              label="Workflow tokens"
+              value={limits ? <UsageStatValue used={workflowTokensValue(limits.usage)} cap={workflowTokensValue(limits.caps)} /> : "—"}
             />
             <QuickStat
               icon={<Mic className="h-4 w-4" />}
@@ -328,7 +337,8 @@ export default function BillingPage() {
           {/* features */}
           <ul className="text-sm space-y-2 mb-6 flex-1">
             <li>• 50 messages</li>
-            <li>• 100,000 file processing tokens (≈75 pages)</li>
+            <li>• 100,000 file upload tokens (≈75 pages)</li>
+            <li>• Separate workflow token allowance</li>
             <li>• 5 minutes transcription</li>
             <li>• 5 OCR images</li>
             <li>• Get started — no credit card</li>
@@ -371,7 +381,8 @@ export default function BillingPage() {
           {/* features */}
           <ul className="text-sm space-y-2 mb-6 flex-1">
             <li>• 10,000 messages / month</li>
-            <li>• 20,000,000 file processing tokens (≈15,000 pages) / month</li>
+            <li>• 20,000,000 file upload tokens (≈15,000 pages) / month</li>
+            <li>• Separate workflow token allowance / month</li>
             <li>• 1,000 minutes transcription / month</li>
             <li>• 1,000 OCR images / month</li>
             <li>• Pseudonymization to protect sensitive data (PII)</li>

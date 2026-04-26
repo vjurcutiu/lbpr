@@ -60,10 +60,12 @@ class Settings(BaseSettings):
     # Default "FREE" limits
     LIMITS_FREE_MESSAGES: int = 200              # number of chat messages per calendar month
     LIMITS_FREE_UPLOAD_TOKENS: int = 200_000     # tokens accepted by /ingest & file uploads per month
+    LIMITS_FREE_WORKFLOW_TOKENS: int = 200_000   # tokens accepted by workflow generation per month
 
     # Default "PRO" limits
     LIMITS_PRO_MESSAGES: int = 10000
     LIMITS_PRO_UPLOAD_TOKENS: int = 20_000_000
+    LIMITS_PRO_WORKFLOW_TOKENS: int = 20_000_000
 
     # Transcription usage (billed audio seconds)
     # NOTE: Product plans are expressed in minutes in the UI; backend stores seconds.

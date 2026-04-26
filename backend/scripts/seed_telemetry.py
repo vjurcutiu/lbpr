@@ -28,6 +28,7 @@ from core.config import settings
 from core.rate_limit import (
     DEFAULT_CAP_MESSAGES,
     DEFAULT_CAP_UPLOAD_TOKENS,
+    DEFAULT_CAP_WORKFLOW_TOKENS,
     _period_id_for_user,
     _usage_key,
 )
@@ -64,6 +65,8 @@ def _load_meta_sync(uid: str) -> dict[str, str]:
                 "plan": "free",
                 "cap_messages": str(DEFAULT_CAP_MESSAGES),
                 "cap_upload_tokens": str(DEFAULT_CAP_UPLOAD_TOKENS),
+                "cap_file_processing_tokens": str(DEFAULT_CAP_UPLOAD_TOKENS),
+                "cap_workflow_tokens": str(DEFAULT_CAP_WORKFLOW_TOKENS),
                 "billing_anchor_ts": "0",
                 "free_no_refresh": "1",
             }
@@ -128,8 +131,12 @@ def _set_usage_at_cap(uid: str, *, metric: str, cap: int) -> None:
 def _get_caps(uid: str) -> tuple[int, int]:
     meta = _load_meta_sync(uid)
     cap_messages = int(meta.get("cap_messages") or DEFAULT_CAP_MESSAGES)
-    cap_upload_tokens = int(meta.get("cap_upload_tokens") or DEFAULT_CAP_UPLOAD_TOKENS)
-    return cap_messages, cap_upload_tokens
+    cap_file_processing_tokens = int(
+        meta.get("cap_file_processing_tokens")
+        or meta.get("cap_upload_tokens")
+        or DEFAULT_CAP_UPLOAD_TOKENS
+    )
+    return cap_messages, cap_file_processing_tokens
 
 
 def _seed_text() -> str:
@@ -241,7 +248,7 @@ def run_seed(*, dataset_prefix: str, skip_upload: bool, skip_contracts_chat: boo
             detail = _request_ok(resp, 429)
             results.append(StepResult("message limit hit", not detail, detail))
 
-            _set_usage_at_cap(SEED_UID, metric="upload_tokens", cap=cap_upload_tokens)
+            _set_usage_at_cap(SEED_UID, metric="file_processing_tokens", cap=cap_upload_tokens)
             resp = client.post(
                 "/features/rag/ingest",
                 json={

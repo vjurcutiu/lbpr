@@ -5,7 +5,8 @@ Limits are enforced per user per billing period (Free = no refresh; Pro = rollin
 
 Currently tracked metrics:
 - **messages** (chat requests)
-- **upload_tokens** (estimated tokens extracted from uploaded documents)
+- **upload_tokens** / **file_processing_tokens** (estimated tokens extracted from uploaded documents)
+- **workflow_tokens** (estimated tokens billed for workflow generation and refinement)
 - **transcribe_seconds** (billed audio seconds)
 - **ocr_images** (number of images/pages processed by OCR)
 
