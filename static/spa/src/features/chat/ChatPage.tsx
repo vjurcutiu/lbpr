@@ -923,38 +923,7 @@ function EmptyState({
 }
 
 function ConversationLoadingState() {
-  return (
-    <div
-      className="flex h-full min-h-[22rem] items-center justify-center px-4 py-8"
-      aria-label="Loading conversation"
-      role="status"
-    >
-      <div className="w-full max-w-3xl rounded-[28px] border border-border/80 bg-card/80 p-5 shadow-sm backdrop-blur-sm">
-        <div className="flex items-center gap-3 border-b border-border/70 pb-4">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[hsl(var(--chat-action-border))] bg-[hsl(var(--chat-action-bg))] text-[hsl(var(--chat-action-foreground-strong))] shadow-sm">
-            <Loader2 className="h-4 w-4 animate-spin" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-foreground">Opening conversation</div>
-            <div className="mt-1 text-xs text-muted-foreground">Loading the saved thread before we swap the view.</div>
-          </div>
-        </div>
-
-        <div className="space-y-4 pt-5">
-          <div className="flex justify-end">
-            <div className="h-16 w-[68%] animate-pulse rounded-3xl border border-[hsl(var(--chat-user-border))] bg-[hsl(var(--chat-user-bg))]/80" />
-          </div>
-          <div className="flex items-start gap-3">
-            <div className="mt-1 h-9 w-9 shrink-0 animate-pulse rounded-2xl border border-border/70 bg-muted/70" />
-            <div className="min-w-0 flex-1 space-y-3">
-              <div className="h-20 w-[88%] animate-pulse rounded-3xl border border-border/70 bg-muted/60" />
-              <div className="h-16 w-[72%] animate-pulse rounded-3xl border border-border/70 bg-muted/50" />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="h-full w-full bg-background" aria-hidden="true" />;
 }
 
 /** Friendly card shown when monthly chat/message limit is hit (HTTP 429). */
