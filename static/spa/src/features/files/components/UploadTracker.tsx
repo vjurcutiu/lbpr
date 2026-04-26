@@ -13,7 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { listWorkflowRuns } from "@/features/workflows/api";
 import { WorkflowStatusBadge } from "@/features/workflows/components/WorkflowStatusBadge";
-import { getWorkflowIcon } from "@/features/workflows/registry";
+import { WorkflowStatusIcon, workflowStatusAccentClass } from "@/features/workflows/components/WorkflowStatusIcon";
 import type { WorkflowRun } from "@/features/workflows/types";
 
 import { clearUploadJobs, listUploadJobs, type UploadJob } from "../uploadTrackerApi";
@@ -466,14 +466,13 @@ export function UploadTrackerPanel({
 
             <div className="space-y-2">
               {workflowRuns.map((run) => {
-                const Icon = getWorkflowIcon(run.workflow_id);
                 return (
                   <div key={run.id} className="rounded-xl border p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-3">
-                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border bg-primary/5 text-primary">
-                            <Icon className="h-4 w-4" />
+                          <div className={cn("mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border", workflowStatusAccentClass(run.status))}>
+                            <WorkflowStatusIcon status={run.status} className="h-4 w-4" />
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm font-medium">{run.title}</div>

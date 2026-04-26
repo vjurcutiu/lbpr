@@ -44,6 +44,7 @@ import {
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
+import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel } from "./components/WorkflowStatusIcon";
 import { getWorkflowIcon } from "./registry";
 import type {
   WorkflowCapability,
@@ -257,23 +258,6 @@ function matchesSearch(run: WorkflowRun, query: string) {
   return haystack.includes(needle);
 }
 
-function statusAccent(status: WorkflowStatus) {
-  switch (status) {
-    case "completed":
-      return "border-emerald-200 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-300";
-    case "failed":
-      return "border-destructive/30 bg-destructive/10 text-destructive";
-    case "running":
-      return "border-sky-200 bg-sky-500/10 text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-300";
-    case "queued":
-      return "border-amber-200 bg-amber-500/10 text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300";
-    default:
-      return "border-border/70 bg-muted text-muted-foreground";
-  }
-}
-
-
-
 function PaneScroller({
   mobile,
   className,
@@ -300,8 +284,7 @@ function RunListItem({
   onRename: (run: WorkflowRun) => void;
   onDelete: (run: WorkflowRun) => void;
 }) {
-  const Icon = getWorkflowIcon(run.workflow_id);
-  const statusLabel = run.status.charAt(0).toUpperCase() + run.status.slice(1);
+  const statusLabel = workflowStatusLabel(run.status);
 
   return (
     <div
@@ -321,12 +304,12 @@ function RunListItem({
             <div
               className={cn(
                 "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors",
-                statusAccent(run.status)
+                workflowStatusAccentClass(run.status)
               )}
               aria-label={`Workflow status: ${statusLabel}`}
               title={statusLabel}
             >
-              <Icon className="h-4 w-4" />
+              <WorkflowStatusIcon status={run.status} className="h-4 w-4" />
             </div>
 
             <div className="w-0 min-w-0 flex-1 overflow-hidden">
@@ -1050,11 +1033,8 @@ export default function WorkflowsPage() {
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-3">
-                          <div className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background", statusAccent(selectedRun.status))}>
-                            {(() => {
-                              const Icon = getWorkflowIcon(selectedRun.workflow_id);
-                              return <Icon className="h-5 w-5" />;
-                            })()}
+                          <div className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background", workflowStatusAccentClass(selectedRun.status))}>
+                            <WorkflowStatusIcon status={selectedRun.status} className="h-5 w-5" />
                           </div>
                           <div className="min-w-0 flex-1">
                             {selectedRunChainSource ? (

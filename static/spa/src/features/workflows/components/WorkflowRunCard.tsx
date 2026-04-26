@@ -3,11 +3,12 @@ import { CircleAlert, Files, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 import type { WorkflowCapability, WorkflowRun } from "../types";
-import { getWorkflowIcon } from "../registry";
 import { WorkflowResultDetails } from "./WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./WorkflowStatusBadge";
+import { WorkflowStatusIcon, workflowStatusAccentClass } from "./WorkflowStatusIcon";
 
 function formatSelection(run: WorkflowRun) {
   const files = run.selection.file_ids.length;
@@ -70,15 +71,14 @@ type Props = {
 };
 
 export function WorkflowRunCard({ run }: Props) {
-  const Icon = getWorkflowIcon(run.workflow_id);
   return (
     <Card className="overflow-hidden rounded-3xl border bg-gradient-to-b from-background via-background to-muted/20 shadow-sm">
       <CardContent className="space-y-5 p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl border bg-primary/5 text-primary">
-                <Icon className="h-5 w-5" />
+              <div className={cn("flex h-10 w-10 items-center justify-center rounded-2xl border", workflowStatusAccentClass(run.status))}>
+                <WorkflowStatusIcon status={run.status} className="h-5 w-5" />
               </div>
               <div>
                 <div className="text-base font-semibold leading-tight">{run.title}</div>
