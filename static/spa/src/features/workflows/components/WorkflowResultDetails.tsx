@@ -169,6 +169,10 @@ function versionMapLabel(version: WorkflowRunVersion) {
 }
 
 function savedVersionPosition(version: WorkflowRunVersion): VersionNodePosition | null {
+  if (version.layout_x == null || version.layout_y == null) {
+    return null;
+  }
+
   const x = Number(version.layout_x);
   const y = Number(version.layout_y);
   return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
