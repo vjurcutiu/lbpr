@@ -272,17 +272,18 @@ function matchesSearch(run: WorkflowRun, query: string) {
 function statusAccent(status: WorkflowStatus) {
   switch (status) {
     case "completed":
-      return "bg-emerald-500/8 text-emerald-700 dark:text-emerald-300";
+      return "border-emerald-200 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-300";
     case "failed":
-      return "bg-destructive/8 text-destructive";
+      return "border-destructive/30 bg-destructive/10 text-destructive";
     case "running":
-      return "bg-sky-500/8 text-sky-700 dark:text-sky-300";
+      return "border-sky-200 bg-sky-500/10 text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-300";
     case "queued":
-      return "bg-amber-500/8 text-amber-700 dark:text-amber-300";
+      return "border-amber-200 bg-amber-500/10 text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300";
     default:
-      return "bg-muted text-muted-foreground";
+      return "border-border/70 bg-muted text-muted-foreground";
   }
 }
+
 
 
 function PaneScroller({
@@ -312,50 +313,50 @@ function RunListItem({
   onDelete: (run: WorkflowRun) => void;
 }) {
   const Icon = getWorkflowIcon(run.workflow_id);
+  const statusLabel = run.status.charAt(0).toUpperCase() + run.status.slice(1);
 
   return (
     <div
       className={cn(
-        "group w-full min-w-0 overflow-hidden border-l-2 px-3 py-3 text-left transition-colors",
+        "group w-full min-w-0 max-w-full overflow-hidden border-l-2 px-3 py-3 text-left transition-colors",
         active ? "border-l-primary bg-primary/5" : "border-l-transparent hover:bg-muted/30"
       )}
     >
-      <div className="flex min-w-0 max-w-full items-start gap-2 overflow-hidden">
+      <div className="flex w-full min-w-0 max-w-full items-start gap-2 overflow-hidden">
         <button
           type="button"
           onClick={() => onSelect(run.id)}
-          className="block min-w-0 flex-1 overflow-hidden text-left"
+          className="block min-w-0 flex-1 basis-0 overflow-hidden text-left"
           title={run.title || "Untitled workflow"}
         >
-          <div className="flex min-w-0 items-start gap-2">
+          <div className="flex w-full min-w-0 items-start gap-2 overflow-hidden">
             <div
               className={cn(
-                "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background",
+                "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors",
                 statusAccent(run.status)
               )}
+              aria-label={`Workflow status: ${statusLabel}`}
+              title={statusLabel}
             >
               <Icon className="h-4 w-4" />
             </div>
 
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-                <div className="min-w-0 overflow-hidden">
-                  <div className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-5 text-foreground">{run.title || "Untitled workflow"}</div>
-                  <div className="mt-0.5 flex min-w-0 max-w-full flex-nowrap items-center gap-1.5 overflow-hidden text-[11px] text-muted-foreground">
-                    <span className="min-w-0 shrink truncate">{formatCapability(run.capability)}</span>
-                    <span className="h-1 w-1 shrink-0 rounded-full bg-border" />
-                    <span className="shrink-0">{formatRelativeTime(run.updated_at)}</span>
-                  </div>
+            <div className="w-0 min-w-0 flex-1 overflow-hidden">
+              <div className="min-w-0 overflow-hidden">
+                <div className="truncate text-sm font-medium leading-5 text-foreground">{run.title || "Untitled workflow"}</div>
+                <div className="mt-0.5 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden text-[11px] text-muted-foreground">
+                  <span className="min-w-0 flex-1 basis-0 truncate">{formatCapability(run.capability)}</span>
+                  <span className="h-1 w-1 shrink-0 rounded-full bg-border" />
+                  <span className="shrink-0 truncate">{formatRelativeTime(run.updated_at)}</span>
                 </div>
-                <WorkflowStatusBadge status={run.status} className="shrink-0 px-1.5 py-0 text-[10px]" />
               </div>
 
-              <div className="mt-1.5 flex min-w-0 max-w-full items-center gap-x-2 gap-y-1 overflow-hidden text-xs text-muted-foreground">
-                <span className="min-w-0 shrink truncate">{formatSelection(run)}</span>
+              <div className="mt-1.5 flex w-full min-w-0 items-center gap-x-2 gap-y-1 overflow-hidden text-xs text-muted-foreground">
+                <span className="min-w-0 flex-1 basis-0 truncate">{formatSelection(run)}</span>
                 {run.selection.current_folder ? (
                   <>
                     <span className="h-1 w-1 shrink-0 rounded-full bg-border" />
-                    <span className="min-w-0 shrink truncate">{run.selection.current_folder}</span>
+                    <span className="min-w-0 flex-1 basis-0 truncate">{run.selection.current_folder}</span>
                   </>
                 ) : null}
               </div>
@@ -365,46 +366,47 @@ function RunListItem({
 
         <div className="shrink-0">
           <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground opacity-100 transition-colors hover:bg-muted hover:text-foreground"
-              aria-label="Workflow actions"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <MoreVertical className="h-4 w-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" sideOffset={6} className="min-w-[170px] rounded-2xl border-border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.16)]">
-            <DropdownMenuItem
-              className="cursor-pointer rounded-xl px-2.5 py-2"
-              onSelect={(event) => {
-                event.preventDefault();
-                onRename(run);
-              }}
-            >
-              <Pencil className="h-4 w-4" />
-              Rename
-            </DropdownMenuItem>
-            <DropdownMenuSeparator className="my-1 bg-border/70" />
-            <DropdownMenuItem
-              variant="destructive"
-              className="cursor-pointer rounded-xl px-2.5 py-2"
-              onSelect={(event) => {
-                event.preventDefault();
-                onDelete(run);
-              }}
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground opacity-100 transition-colors hover:bg-muted hover:text-foreground"
+                aria-label="Workflow actions"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={6} className="min-w-[170px] rounded-2xl border-border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.16)]">
+              <DropdownMenuItem
+                className="cursor-pointer rounded-xl px-2.5 py-2"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onRename(run);
+                }}
+              >
+                <Pencil className="h-4 w-4" />
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="my-1 bg-border/70" />
+              <DropdownMenuItem
+                variant="destructive"
+                className="cursor-pointer rounded-xl px-2.5 py-2"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onDelete(run);
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
     </div>
   );
 }
+
 
 function WorkflowCatalogItem({
   workflow,
@@ -831,7 +833,7 @@ export default function WorkflowsPage() {
           "border border-border/70 bg-background shadow-sm",
           isMobile ? "border-t-0" : "grid h-full min-h-0 xl:grid-cols-[310px_minmax(0,1fr)_300px] xl:divide-x xl:divide-border/70"
         )}>
-        <section className={cn("flex min-h-[220px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showInbox && "hidden")}>
+        <section className={cn("flex min-h-[220px] min-w-0 flex-col overflow-hidden border-b border-border/70 xl:min-h-0 xl:border-b-0", !showInbox && "hidden")}>
           <div className="shrink-0 border-b border-border/70 px-3 py-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -843,12 +845,12 @@ export default function WorkflowsPage() {
               />
             </div>
           </div>
-          <div className="min-h-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-hidden">
             {loading ? (
               <div className="p-3 text-sm text-muted-foreground">Loading workflow runs…</div>
             ) : visibleRuns.length ? (
-              <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
-                <div className="divide-y divide-border/70">
+              <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full w-full min-w-0 max-w-full overflow-hidden"}>
+                <div className="w-full min-w-0 max-w-full overflow-hidden divide-y divide-border/70">
                   {visibleRuns.map((run) => (
                     <RunListItem key={run.id} run={run} active={run.id === selectedRunId} onSelect={handleSelectRun} onRename={startRenamingRun} onDelete={startDeletingRun} />
                   ))}
