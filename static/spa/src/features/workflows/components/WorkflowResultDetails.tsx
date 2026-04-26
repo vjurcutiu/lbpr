@@ -195,6 +195,7 @@ function VersionHistoryPanel({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const panDragRef = useRef({ active: false, lastX: 0, lastY: 0 });
   const graphOriginRef = useRef({ x: 0, y: 0 });
+  const treeWasOpenRef = useRef(false);
   const nodeDragRef = useRef<{
     active: boolean;
     versionId: string;
@@ -219,6 +220,7 @@ function VersionHistoryPanel({
 
   const orderedVersions = useMemo(() => sortedVersions(versions), [versions]);
   const activeVersion = orderedVersions.find((version) => version.id === activeVersionId) || orderedVersions[orderedVersions.length - 1];
+  const activeVersionRef = useRef<WorkflowRunVersion | undefined>(activeVersion);
   const hasMultipleVersions = orderedVersions.length > 1;
 
   const graphColumnGap = 112;
@@ -292,13 +294,30 @@ function VersionHistoryPanel({
       y: viewportRef.current.clientHeight / 2 - y,
     });
   }, [activeVersion, getNodePosition, graphNodeById]);
+  const centerVersionRef = useRef(centerVersion);
 
   useEffect(() => {
-    if (!treeOpen) return undefined;
+    activeVersionRef.current = activeVersion;
+  }, [activeVersion]);
 
-    const frame = window.requestAnimationFrame(() => centerVersion(activeVersion));
+  useEffect(() => {
+    centerVersionRef.current = centerVersion;
+  }, [centerVersion]);
+
+  useEffect(() => {
+    if (!treeOpen) {
+      treeWasOpenRef.current = false;
+      return undefined;
+    }
+
+    if (treeWasOpenRef.current) return undefined;
+
+    treeWasOpenRef.current = true;
+    const frame = window.requestAnimationFrame(() => {
+      centerVersionRef.current(activeVersionRef.current);
+    });
     return () => window.cancelAnimationFrame(frame);
-  }, [activeVersion, centerVersion, treeOpen]);
+  }, [treeOpen]);
 
   useEffect(() => {
     if (!editingVersionId) return;
