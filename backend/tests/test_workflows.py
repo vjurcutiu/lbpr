@@ -539,7 +539,11 @@ def test_workflow_preview_keeps_warnings_internal(auth_client, inline_workflow_j
     assert b'internal workflow handling' not in txt_download.content
 
 
-def test_single_source_workflow_hides_source_name_from_customer_text(auth_client, inline_workflow_jobs, stub_workflow_sources):
+def _without_sources_used_section(markdown: str) -> str:
+    return workflow_registry._strip_markdown_source_sections(markdown)
+
+
+def test_single_source_workflow_hides_source_name_from_body_but_keeps_sources_used(auth_client, inline_workflow_jobs, stub_workflow_sources):
     create = auth_client.post(
         '/v1/workflows/runs',
         json={
@@ -556,8 +560,10 @@ def test_single_source_workflow_hides_source_name_from_customer_text(auth_client
     assert result['metadata']['single_source_workflow'] is True
     assert result['metadata']['source_file_count'] == 1
     assert 'Q1-plan.txt' not in result['summary']
-    assert 'Q1-plan.txt' not in result['preview_markdown']
-    assert 'Sources used' not in result['preview_markdown']
+    preview_body = _without_sources_used_section(result['preview_markdown'])
+    assert 'Q1-plan.txt' not in preview_body
+    assert 'Sources used' in result['preview_markdown']
+    assert result['preview_markdown'].count('Q1-plan.txt') == 1
     assert all('Q1-plan.txt' not in item for item in result['bullets'])
     assert all(not item.get('sources') for item in result['metadata']['evidence_highlights'])
 
@@ -575,7 +581,7 @@ def test_single_source_llm_preview_strips_source_section_and_inline_label(auth_c
             "summary":"Done from Q1-plan.txt.",
             "bullets":["Legal review is needed (Q1-plan.txt)."],
             "next_actions":["Share the brief."],
-            "preview_markdown":"# Done\\n\\n## Highlights\\n- Legal review is needed (Q1-plan.txt).\\n\\n## Sources used\\n- Q1-plan.txt",
+            "preview_markdown":"# Done\\n\\n## Highlights\\n- Legal review is needed (Q1-plan.txt).\\n\\n## Sources used\\n- Q1-plan.txt\\n- Q1-plan.txt — retrieved evidence",
             "metadata":{}
         }'''
         usage = _FakeUsage()
@@ -583,7 +589,7 @@ def test_single_source_llm_preview_strips_source_section_and_inline_label(auth_c
 
     class _FakeModel:
         def generate_with_usage(self, *, system: str, user: str, history=None):
-            assert 'Do not mention the file name' in system
+            assert 'The application will add the final Sources used section automatically.' in system
             return _FakeResponse()
 
     def _fake_loader(uid, selection, **kwargs):
@@ -597,6 +603,17 @@ def test_single_source_llm_preview_strips_source_section_and_inline_label(auth_c
                 full_text_chars=38,
                 excerpt_chars=38,
                 truncated=False,
+            ),
+            WorkflowSourceFile(
+                file_id='file-1',
+                name='Q1-plan.txt — retrieved evidence',
+                folder_path='contracts',
+                content_type='text/plain',
+                excerpt='Launch should wait for review.',
+                full_text_chars=30,
+                excerpt_chars=30,
+                truncated=False,
+                source_kind='retrieved',
             )
         ]
         return docs, {
@@ -625,5 +642,8 @@ def test_single_source_llm_preview_strips_source_section_and_inline_label(auth_c
     assert result['metadata']['single_source_workflow'] is True
     assert 'Q1-plan.txt' not in result['summary']
     assert 'Q1-plan.txt' not in result['bullets'][0]
-    assert 'Q1-plan.txt' not in result['preview_markdown']
-    assert 'Sources used' not in result['preview_markdown']
+    preview_body = _without_sources_used_section(result['preview_markdown'])
+    assert 'Q1-plan.txt' not in preview_body
+    assert 'retrieved evidence' not in result['preview_markdown']
+    assert 'Sources used' in result['preview_markdown']
+    assert result['preview_markdown'].count('Q1-plan.txt') == 1

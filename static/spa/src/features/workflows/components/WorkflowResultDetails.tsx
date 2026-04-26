@@ -58,7 +58,7 @@ function asArray<T>(value: unknown): T[] {
 }
 
 function formatSourceLabel(source: SourceFileMeta) {
-  const base = source.name || source.file_id || "Source file";
+  const base = String(source.name || source.file_id || "Source file").replace(" — retrieved evidence", "").trim();
   return source.folder_path ? `${base} · ${source.folder_path}` : base;
 }
 
@@ -117,7 +117,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
   const rawSourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
   const sourceFiles = useMemo(() => uniqueSourceFiles(rawSourceFiles), [result.metadata]);
   const hideSourceLabels = isSingleSourceResult(result, sourceFiles);
-  const visibleSourceFiles = hideSourceLabels ? [] : sourceFiles;
+  const visibleSourceFiles = sourceFiles;
   const fields = asArray<FieldMeta>(result.metadata?.fields);
   const differences = asArray<DifferenceMeta>(result.metadata?.differences);
   const planItems = asArray<PlanItemMeta>(result.metadata?.plan_items);
@@ -307,7 +307,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
       )}
 
       {!!visibleSourceFiles.length && (
-        <Section title="Sources" icon={Files}>
+        <Section title="Sources used" icon={Files}>
           <div className="flex flex-wrap gap-1">
             {visibleSourceFiles.map((source, idx) => (
               <Badge
