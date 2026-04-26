@@ -1,17 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import {
-  ArrowRight,
-  ChevronRight,
-  CornerDownRight,
-  RefreshCw,
-  Search,
-  Sparkles,
-} from "lucide-react";
+import { ArrowRight, ChevronRight, CornerDownRight, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -222,21 +213,6 @@ function sameLocalDay(iso: string, now = new Date()) {
   );
 }
 
-type RunView = "all" | "active" | "completed" | "attention";
-
-function filterRunsByView(runs: WorkflowRun[], view: RunView) {
-  switch (view) {
-    case "active":
-      return runs.filter((run) => run.status === "queued" || run.status === "running");
-    case "completed":
-      return runs.filter((run) => run.status === "completed");
-    case "attention":
-      return runs.filter((run) => run.status === "failed");
-    default:
-      return runs;
-  }
-}
-
 function matchesSearch(run: WorkflowRun, query: string) {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
@@ -425,7 +401,6 @@ export default function WorkflowsPage() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [view, setView] = useState<RunView>("all");
   const [search, setSearch] = useState("");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
@@ -653,19 +628,11 @@ export default function WorkflowsPage() {
     };
   }, [runs]);
 
-  const runsByView = useMemo(
-    () => ({
-      all: runs,
-      active: filterRunsByView(runs, "active"),
-      completed: filterRunsByView(runs, "completed"),
-      attention: filterRunsByView(runs, "attention"),
-    }),
-    [runs]
-  );
+
 
   const visibleRuns = useMemo(() => {
-    return filterRunsByView(runs, view).filter((run) => matchesSearch(run, search));
-  }, [runs, search, view]);
+    return runs.filter((run) => matchesSearch(run, search));
+  }, [runs, search]);
 
   useEffect(() => {
     if (!visibleRuns.length) {
@@ -699,32 +666,6 @@ export default function WorkflowsPage() {
                   {stats.inFlight ? `${stats.inFlight} active run${stats.inFlight === 1 ? "" : "s"}` : "Run document workflows and review finished outputs."}
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm"
-                  className="h-8 rounded-full px-3 text-xs"
-                  onClick={() => catalog[0] && openWorkflowLauncher(catalog[0])}
-                  disabled={!catalog.length || workflowSubmitting}
-                >
-                  <Sparkles className="mr-1 h-3 w-3" />
-                  New workflow
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-full px-3 text-xs"
-                  onClick={() => loadPage({ silent: true })}
-                  disabled={loading || refreshing}
-                >
-                  <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
-                  Refresh
-                </Button>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1.5 text-[11px]">
-              <Badge variant="outline" className="rounded-full px-2 py-0 font-normal">{runs.length} total</Badge>
-              <Badge variant="outline" className="rounded-full px-2 py-0 font-normal">{stats.completedToday} done today</Badge>
-              <Badge variant="outline" className="rounded-full px-2 py-0 font-normal">{stats.successRate}% success</Badge>
             </div>
           </div>
           <div className="px-4 py-3">
@@ -747,41 +688,10 @@ export default function WorkflowsPage() {
         <section className={cn("flex min-h-[220px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showInbox && "hidden")}>
           <PaneHeader
             title="Runs"
-            meta={`Recent activity • ${stats.inFlight ? `${stats.inFlight} running` : "idle"} • ${stats.failed} failed • ${stats.completedToday} done today`}
-            action={!isMobile ? (
-              <div className="flex items-center gap-1">
-                <Button
-                  size="sm"
-                  className="h-8 rounded-full px-3 text-xs"
-                  onClick={() => catalog[0] && openWorkflowLauncher(catalog[0])}
-                  disabled={!catalog.length || workflowSubmitting}
-                >
-                  <Sparkles className="mr-1 h-3 w-3" />
-                  New workflow
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 rounded-full px-3 text-xs"
-                  onClick={() => loadPage({ silent: true })}
-                  disabled={loading || refreshing}
-                >
-                  <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
-                  Refresh
-                </Button>
-              </div>
-            ) : null}
+            meta={refreshing ? "Updating recent activity…" : `Recent activity • ${stats.inFlight ? `${stats.inFlight} running` : "idle"} • ${stats.failed} failed • ${stats.completedToday} done today`}
           />
           <div className="shrink-0 border-b border-border/70 px-3 py-3">
-            <Tabs value={view} onValueChange={(value) => setView(value as RunView)}>
-              <TabsList className="h-auto w-full justify-start rounded-full bg-muted/40 p-1">
-                <TabsTrigger value="all" className="h-7 rounded-full px-2 text-xs">All {runsByView.all.length}</TabsTrigger>
-                <TabsTrigger value="active" className="h-7 rounded-full px-2 text-xs">Working {runsByView.active.length}</TabsTrigger>
-                <TabsTrigger value="completed" className="h-7 rounded-full px-2 text-xs">Finished {runsByView.completed.length}</TabsTrigger>
-                <TabsTrigger value="attention" className="h-7 rounded-full px-2 text-xs">Needs review {runsByView.attention.length}</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <div className="relative mt-2">
+            <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
@@ -795,7 +705,7 @@ export default function WorkflowsPage() {
             {loading ? (
               <div className="p-3 text-sm text-muted-foreground">Loading workflow runs…</div>
             ) : visibleRuns.length ? (
-              <PaneScroller mobile={isMobile} className="h-full">
+              <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
                 <div className="divide-y divide-border/70">
                   {visibleRuns.map((run) => (
                     <RunListItem key={run.id} run={run} active={run.id === selectedRunId} onSelect={handleSelectRun} />
@@ -804,15 +714,7 @@ export default function WorkflowsPage() {
               </PaneScroller>
             ) : (
               <div className="p-3 text-sm leading-5 text-muted-foreground">
-                {search.trim()
-                  ? "No workflow runs match this search yet."
-                  : view === "all"
-                    ? "No workflow runs yet. Start one from the workflow list."
-                    : view === "active"
-                      ? "No workflows are running right now."
-                      : view === "completed"
-                        ? "Finished results will appear here."
-                        : "Nothing needs review right now."}
+                {search.trim() ? "No workflow runs match this search yet." : "No workflow runs yet. Start one from the workflow list."}
               </div>
             )}
           </div>
@@ -822,24 +724,12 @@ export default function WorkflowsPage() {
           <PaneHeader
             title="Result"
             meta={selectedRun ? `Updated ${formatRelativeTime(selectedRun.updated_at)}` : "Select a run to review its result"}
-            action={!isMobile ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 rounded-full px-3 text-xs"
-                onClick={() => loadPage({ silent: true })}
-                disabled={loading || refreshing}
-              >
-                <RefreshCw className={cn("mr-1 h-3 w-3", refreshing && "animate-spin")} />
-                Refresh
-              </Button>
-            ) : null}
           />
 
           {selectedRun ? (
-            <div className="min-h-0 flex-1 overflow-hidden bg-muted/15">
-              <PaneScroller mobile={isMobile} className="h-full">
-                <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-4 py-5 md:px-8 lg:px-10 xl:px-12">
+            <div className={cn("min-h-0 flex-1 bg-muted/15", !isMobile && "overflow-hidden")}>
+              <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
+                <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-3 py-4 sm:px-4 md:px-8 lg:px-10 xl:px-12">
                   <div className="rounded-2xl border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-7">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 flex-1">
@@ -909,24 +799,6 @@ export default function WorkflowsPage() {
                           </div>
                         </div>
                       </div>
-
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 rounded-full px-4 text-xs"
-                        onClick={() => {
-                          const workflow = catalog.find((item) => item.workflow_id === selectedRun.workflow_id);
-                          if (workflow) {
-                            openWorkflowLauncher(workflow, {
-                              selection: selectedRun.selection,
-                              initialInputs: cleanLauncherInputs(selectedRun.inputs),
-                            });
-                          }
-                        }}
-                        disabled={!catalog.some((item) => item.workflow_id === selectedRun.workflow_id)}
-                      >
-                        Run again
-                      </Button>
                     </div>
 
                     {(selectedRun.result?.bullets?.length || selectedRun.result?.next_actions?.length) ? (
@@ -989,17 +861,9 @@ export default function WorkflowsPage() {
             </div>
           ) : (
             <div className="p-5 text-sm leading-6 text-muted-foreground md:px-8 md:py-6">
-              {isMobile ? (
-                <div className="space-y-3">
-                  <div>Choose a run to review it, or start a workflow from the list.</div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" className="h-8 rounded-full px-3 text-xs" onClick={() => setMobilePanel("inbox")}>Open runs</Button>
-                    <Button size="sm" className="h-8 rounded-full px-3 text-xs" onClick={() => setMobilePanel("flows")}>Browse workflows</Button>
-                  </div>
-                </div>
-              ) : (
-                "Start a workflow from the right panel, or choose a run to review its result."
-              )}
+              {isMobile
+                ? "Choose a run to review it, or open the Workflows tab to start a new one."
+                : "Start a workflow from the right panel, or choose a run to review its result."}
             </div>
           )}
         </section>
@@ -1008,18 +872,10 @@ export default function WorkflowsPage() {
           <PaneHeader
             title="Start a workflow"
             meta="Pick a task, then choose the files it should use"
-            action={
-              <Button asChild variant="ghost" size="sm" className="h-8 rounded-full px-3 text-xs">
-                <Link to="/files">
-                  Open files
-                  <ArrowRight className="ml-1 h-3 w-3" />
-                </Link>
-              </Button>
-            }
           />
           <div className="min-h-0 flex-1">
             {catalog.length ? (
-              <PaneScroller mobile={isMobile} className="h-full">
+              <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
                 <div>
                   {catalog.map((workflow) => (
                     <WorkflowCatalogItem

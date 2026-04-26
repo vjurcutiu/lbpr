@@ -146,7 +146,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
     <div className="space-y-5">
       {(onSaveArtifact || onDownloadArtifact) && (
         <Section title="Export">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4">
+          <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="text-sm font-medium leading-5 text-foreground">
                 {artifact ? "Saved output ready" : "Save this result"}
@@ -157,14 +157,14 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
                   : "Save this result so it can be downloaded as Markdown, text, Word, or PDF."}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
               {artifact ? (
                 <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
                   Saved
                 </Badge>
               ) : null}
               {!artifact && onSaveArtifact ? (
-                <Button variant="outline" size="sm" className="h-8 rounded-full px-3 text-xs" onClick={onSaveArtifact} disabled={artifactBusy}>
+                <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={onSaveArtifact} disabled={artifactBusy}>
                   <Save className="mr-1 h-4 w-4" />
                   Save output
                 </Button>
@@ -172,7 +172,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
               {onDownloadArtifact ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button size="sm" className="h-8 rounded-full px-3 text-xs" disabled={artifactBusy}>
+                    <Button size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" disabled={artifactBusy}>
                       <Download className="mr-1 h-4 w-4" />
                       {artifact ? "Download" : "Save and download"}
                       <ChevronDown className="ml-1 h-4 w-4" />
@@ -210,9 +210,9 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
               {summaryProfile.depth ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">Default: {String(summaryProfile.depth).replace(/_/g, " ")}</Badge> : null}
             </div>
             <Tabs value={activeLayer} onValueChange={setActiveLayer}>
-              <TabsList className="h-auto w-full justify-start rounded-full bg-muted/40 p-1">
+              <TabsList className="h-auto w-full max-w-full justify-start overflow-x-auto rounded-2xl bg-muted/40 p-1 sm:rounded-full">
                 {summaryLayers.map((layer) => (
-                  <TabsTrigger key={layer.key} value={layer.key} className="h-7 rounded-full px-2 text-xs">
+                  <TabsTrigger key={layer.key} value={layer.key} className="h-7 shrink-0 rounded-full px-2 text-xs">
                     {layer.label || layer.key}
                   </TabsTrigger>
                 ))}
@@ -265,7 +265,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
               <Button
                 key={`${action.workflow_id}-${action.label}`}
                 variant="outline"
-                className="h-auto min-h-[116px] w-full items-start justify-start whitespace-normal rounded-2xl px-4 py-4 text-left"
+                className="h-auto min-h-[104px] w-full items-start justify-start whitespace-normal rounded-2xl px-4 py-4 text-left"
                 onClick={() => onWorkflowAction(action, selection, sourceRun)}
               >
                 <div className="min-w-0 space-y-2">
