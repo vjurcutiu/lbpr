@@ -657,9 +657,14 @@ def _load_source_documents(
         warnings.append(f"Skipped {len(skipped_source_files)} file(s) that could not provide usable text.")
     warnings.extend(str(item) for item in toolkit_stats.get("warnings") or [] if str(item).strip())
 
+    unique_document_file_ids = {str(doc.file_id).strip() for doc in documents if str(doc.file_id).strip()}
+    used_source_file_count = len(unique_document_file_ids) if unique_document_file_ids else len(documents)
     stats: dict[str, object] = {
         "selected_files": len(selected_files),
-        "used_source_files": len(documents),
+        "used_source_files": used_source_file_count,
+        "single_source_workflow": used_source_file_count == 1,
+        "source_file_count": used_source_file_count,
+        "source_record_count": len(documents),
         "warnings": warnings,
         "skipped_source_files": skipped_source_files,
         "truncated_source_files": [doc.name for doc in documents if doc.truncated],
@@ -712,7 +717,13 @@ def _augment_result_metadata(run: WorkflowRun, docs: list[WorkflowSourceFile], s
             "current_folder": run.selection.current_folder,
         },
     )
+    unique_doc_file_ids = {str(doc.file_id).strip() for doc in docs if str(doc.file_id).strip()}
+    source_file_count = len(unique_doc_file_ids) if unique_doc_file_ids else len(docs)
+    metadata.setdefault("source_file_count", source_file_count)
+    metadata.setdefault("source_record_count", len(docs))
+    metadata.setdefault("single_source_workflow", source_file_count == 1)
     metadata.update(stats)
+    metadata["single_source_workflow"] = bool(metadata.get("single_source_workflow") or source_file_count == 1)
     warnings = [str(item) for item in metadata.get("warnings") or [] if str(item).strip()]
     run.result.metadata = metadata
     run.result.preview_markdown = _append_preview_warnings(run.result.preview_markdown, warnings)

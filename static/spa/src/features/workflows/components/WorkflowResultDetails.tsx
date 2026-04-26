@@ -62,6 +62,27 @@ function formatSourceLabel(source: SourceFileMeta) {
   return source.folder_path ? `${base} · ${source.folder_path}` : base;
 }
 
+function sourceIdentity(source: SourceFileMeta) {
+  return String(source.file_id || source.name || "").trim();
+}
+
+function uniqueSourceFiles(sources: SourceFileMeta[]) {
+  const seen = new Set<string>();
+  return sources.filter((source) => {
+    const key = sourceIdentity(source);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function isSingleSourceResult(result: WorkflowResult, sourceFiles: SourceFileMeta[]) {
+  if (result.metadata?.single_source_workflow === true) return true;
+  const explicitCount = Number(result.metadata?.source_file_count || 0);
+  if (explicitCount === 1) return true;
+  return uniqueSourceFiles(sourceFiles).length === 1;
+}
+
 function Section({ title, icon: Icon, children }: { title: string; icon?: typeof Files; children: ReactNode }) {
   return (
     <section className="border-t border-border/70 pt-5 first:border-t-0 first:pt-0">
@@ -93,7 +114,10 @@ const DOWNLOAD_FORMATS: Array<{ value: WorkflowArtifactFormat; label: string; he
 ];
 
 export function WorkflowResultDetails({ result, selection, sourceRun, artifact, artifactBusy = false, onSaveArtifact, onDownloadArtifact, onWorkflowAction }: Props) {
-  const sourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
+  const rawSourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
+  const sourceFiles = useMemo(() => uniqueSourceFiles(rawSourceFiles), [result.metadata]);
+  const hideSourceLabels = isSingleSourceResult(result, sourceFiles);
+  const visibleSourceFiles = hideSourceLabels ? [] : sourceFiles;
   const fields = asArray<FieldMeta>(result.metadata?.fields);
   const differences = asArray<DifferenceMeta>(result.metadata?.differences);
   const planItems = asArray<PlanItemMeta>(result.metadata?.plan_items);
@@ -117,7 +141,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
         sources: asArray<string>(item.sources).map((source) => String(source || "").trim()).filter(Boolean),
         evidence: asArray<{ source_name?: string; excerpt?: string }>(item.evidence)
           .map((evidence) => ({
-            source_name: String(evidence.source_name || "Source").trim(),
+            source_name: String(evidence.source_name || "").trim(),
             excerpt: String(evidence.excerpt || "").trim(),
           }))
           .filter((evidence) => evidence.excerpt),
@@ -233,7 +257,7 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
             {evidenceHighlights.map((item, idx) => (
               <div key={`${item.claim}-${idx}`} className="rounded-2xl border border-border/70 bg-background px-4 py-4">
                 <div className="text-sm font-medium leading-5 text-foreground">{item.claim}</div>
-                {!!item.sources?.length && (
+                {!hideSourceLabels && !!item.sources?.length && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {item.sources.map((source) => (
                       <Badge key={`${item.claim}-${source}`} variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
@@ -245,9 +269,11 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
                 {!!item.evidence?.length && (
                   <div className="mt-3 grid gap-2">
                     {item.evidence.map((evidence, evidenceIdx) => (
-                      <div key={`${item.claim}-${evidence.source_name}-${evidenceIdx}`} className="border-l-2 border-border/70 pl-3 text-sm leading-6 text-muted-foreground">
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">{evidence.source_name}</div>
-                        <div className="mt-1">{evidence.excerpt}</div>
+                      <div key={`${item.claim}-${evidence.source_name || "evidence"}-${evidenceIdx}`} className="border-l-2 border-border/70 pl-3 text-sm leading-6 text-muted-foreground">
+                        {!hideSourceLabels && evidence.source_name ? (
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">{evidence.source_name}</div>
+                        ) : null}
+                        <div className={!hideSourceLabels && evidence.source_name ? "mt-1" : ""}>{evidence.excerpt}</div>
                       </div>
                     ))}
                   </div>
@@ -280,10 +306,10 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
         </Section>
       )}
 
-      {!!sourceFiles.length && (
+      {!!visibleSourceFiles.length && (
         <Section title="Sources" icon={Files}>
           <div className="flex flex-wrap gap-1">
-            {sourceFiles.map((source, idx) => (
+            {visibleSourceFiles.map((source, idx) => (
               <Badge
                 key={`${source.file_id || source.name || "source"}-${idx}`}
                 variant="secondary"

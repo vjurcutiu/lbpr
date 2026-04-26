@@ -537,3 +537,93 @@ def test_workflow_preview_keeps_warnings_internal(auth_client, inline_workflow_j
     assert txt_download.status_code == 200, txt_download.text
     assert b'Workflow notes' not in txt_download.content
     assert b'internal workflow handling' not in txt_download.content
+
+
+def test_single_source_workflow_hides_source_name_from_customer_text(auth_client, inline_workflow_jobs, stub_workflow_sources):
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'summarize_documents',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': ''},
+            'inputs': {'focus': 'client-ready summary'},
+        },
+    )
+    assert create.status_code == 202, create.text
+    run = create.json()
+    result = run['result']
+
+    assert result['metadata']['source_files'][0]['name'] == 'Q1-plan.txt'
+    assert result['metadata']['single_source_workflow'] is True
+    assert result['metadata']['source_file_count'] == 1
+    assert 'Q1-plan.txt' not in result['summary']
+    assert 'Q1-plan.txt' not in result['preview_markdown']
+    assert 'Sources used' not in result['preview_markdown']
+    assert all('Q1-plan.txt' not in item for item in result['bullets'])
+    assert all(not item.get('sources') for item in result['metadata']['evidence_highlights'])
+
+
+
+def test_single_source_llm_preview_strips_source_section_and_inline_label(auth_client, inline_workflow_jobs, monkeypatch):
+    class _FakeUsage:
+        prompt_tokens = 20
+        completion_tokens = 10
+        total_tokens = 30
+        approximate = False
+
+    class _FakeResponse:
+        text = '''{
+            "summary":"Done from Q1-plan.txt.",
+            "bullets":["Legal review is needed (Q1-plan.txt)."],
+            "next_actions":["Share the brief."],
+            "preview_markdown":"# Done\\n\\n## Highlights\\n- Legal review is needed (Q1-plan.txt).\\n\\n## Sources used\\n- Q1-plan.txt",
+            "metadata":{}
+        }'''
+        usage = _FakeUsage()
+        operation = 'responses.create'
+
+    class _FakeModel:
+        def generate_with_usage(self, *, system: str, user: str, history=None):
+            assert 'Do not mention the file name' in system
+            return _FakeResponse()
+
+    def _fake_loader(uid, selection, **kwargs):
+        docs = [
+            WorkflowSourceFile(
+                file_id='file-1',
+                name='Q1-plan.txt',
+                folder_path='contracts',
+                content_type='text/plain',
+                excerpt='Legal review is needed before launch.',
+                full_text_chars=38,
+                excerpt_chars=38,
+                truncated=False,
+            )
+        ]
+        return docs, {
+            'selected_files': 1,
+            'used_source_files': 1,
+            'warnings': [],
+            'skipped_source_files': [],
+            'truncated_source_files': [],
+            'max_source_files': 8,
+        }
+
+    monkeypatch.setattr(workflow_registry, 'OpenAIChat', _FakeModel)
+    monkeypatch.setattr(workflow_service, '_load_source_documents', _fake_loader)
+
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'draft_from_sources',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': ''},
+            'inputs': {'focus': 'client-ready draft'},
+        },
+    )
+    assert create.status_code == 202, create.text
+    result = create.json()['result']
+
+    assert result['metadata']['single_source_workflow'] is True
+    assert 'Q1-plan.txt' not in result['summary']
+    assert 'Q1-plan.txt' not in result['bullets'][0]
+    assert 'Q1-plan.txt' not in result['preview_markdown']
+    assert 'Sources used' not in result['preview_markdown']

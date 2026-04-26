@@ -32,15 +32,36 @@ function asObjectArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function sourceFileKeysFromMetadata(metadata: Record<string, unknown> | undefined | null) {
+  const sourceFiles = asObjectArray<{ file_id?: string; name?: string }>(metadata?.source_files);
+  return Array.from(
+    new Set(
+      sourceFiles
+        .map((source) => String(source.file_id || source.name || "").trim())
+        .filter(Boolean),
+    ),
+  );
+}
+
+function isSingleSourceWorkflow(run: WorkflowRun) {
+  if (run.result?.metadata?.single_source_workflow === true) return true;
+  const explicitCount = Number(run.result?.metadata?.source_file_count || 0);
+  if (explicitCount === 1) return true;
+  return sourceFileKeysFromMetadata(run.result?.metadata).length === 1;
+}
+
 function evidenceBackedTakeaways(run: WorkflowRun) {
   const evidence = asObjectArray<{ claim?: string; sources?: string[] }>(run.result?.metadata?.evidence_highlights);
+  const hideSources = isSingleSourceWorkflow(run);
   const items = evidence
     .map((item) => {
       const claim = String(item.claim || "").trim();
       if (!claim) return null;
-      const sources = asObjectArray<string>(item.sources)
-        .map((source) => String(source || "").trim())
-        .filter(Boolean);
+      const sources = hideSources
+        ? []
+        : asObjectArray<string>(item.sources)
+            .map((source) => String(source || "").trim())
+            .filter(Boolean);
       return sources.length ? `${claim} (${sources.join(", ")})` : claim;
     })
     .filter((item): item is string => Boolean(item));

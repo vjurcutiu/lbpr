@@ -74,6 +74,99 @@ def _source_manifest_lines(sources: list[WorkflowSourceFile]) -> list[str]:
     return lines
 
 
+
+
+def _unique_source_file_ids(sources: list[WorkflowSourceFile]) -> set[str]:
+    return {str(source.file_id).strip() for source in sources if str(source.file_id).strip()}
+
+
+def _source_file_count(sources: list[WorkflowSourceFile]) -> int:
+    unique_ids = _unique_source_file_ids(sources)
+    return len(unique_ids) if unique_ids else len(sources)
+
+
+def _is_single_source_output(sources: list[WorkflowSourceFile]) -> bool:
+    return _source_file_count(sources) == 1
+
+
+def _customer_visible_sources(sources: list[WorkflowSourceFile]) -> list[WorkflowSourceFile]:
+    # Targeted retrieval can add multiple source records for the same selected
+    # file. Keep that metadata for inspection/export, but avoid repeating the
+    # only file name throughout the customer-facing result text.
+    return [] if _is_single_source_output(sources) else sources
+
+
+def _single_source_labels(sources: list[WorkflowSourceFile]) -> list[str]:
+    labels: set[str] = set()
+    for source in sources:
+        label = _source_label(source).strip()
+        if not label:
+            continue
+        labels.add(label)
+        labels.add(label.replace(" — retrieved evidence", "").strip())
+        if source.folder_path:
+            labels.add(f"{label} · {source.folder_path}".strip())
+            labels.add(f"{label} ({source.folder_path})".strip())
+    return sorted((label for label in labels if label), key=len, reverse=True)
+
+
+def _strip_markdown_source_sections(text: str) -> str:
+    cleaned = str(text or "")
+    for heading in ("Sources used", "Source used", "Sources", "Source material"):
+        pattern = rf"(?ims)^\s*#+\s+{re.escape(heading)}\s*$.*?(?=^\s*#+\s+|\Z)"
+        cleaned = re.sub(pattern, "", cleaned)
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _strip_single_source_text(text: str, sources: list[WorkflowSourceFile]) -> str:
+    cleaned = _strip_markdown_source_sections(str(text or ""))
+    if not cleaned or not _is_single_source_output(sources):
+        return cleaned
+
+    for label in _single_source_labels(sources):
+        escaped = re.escape(label)
+        cleaned = re.sub(rf"\s*\(({escaped})\)", "", cleaned)
+        cleaned = re.sub(rf"\s*\[({escaped})\]", "", cleaned)
+        cleaned = re.sub(rf"(?im)^\s*(?:source|file)\s*:\s*{escaped}\s*$", "", cleaned)
+        cleaned = re.sub(rf"(?im)^\s*[-*]\s*{escaped}\s*(?:— excerpt truncated)?\s*$", "", cleaned)
+        cleaned = re.sub(rf"(?im)^\s*{escaped}\s*:\s*", "", cleaned)
+        cleaned = re.sub(rf"(?i)(?:from|using|in|based on|grounded in)\s+{escaped}", "", cleaned)
+        cleaned = re.sub(rf"(?<!\w){escaped}(?!\w)", "", cleaned)
+
+    cleaned = re.sub(r"(?im)^\s*(?:source|sources used|source used)\s*:\s*$", "", cleaned)
+    cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    cleaned = re.sub(r"\b(from|using|in|based on|grounded in)\s*([,.;:])", r"\2", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return cleaned.strip()
+
+
+def _strip_single_source_list(items: list[str], sources: list[WorkflowSourceFile]) -> list[str]:
+    return [item for item in (_strip_single_source_text(str(item), sources) for item in items) if item]
+
+
+def _without_single_source_evidence_labels(items: list[dict[str, Any]], sources: list[WorkflowSourceFile]) -> list[dict[str, Any]]:
+    if not _is_single_source_output(sources):
+        return items
+
+    cleaned_items: list[dict[str, Any]] = []
+    for item in items:
+        next_item = dict(item)
+        next_item["claim"] = _strip_single_source_text(str(next_item.get("claim") or ""), sources)
+        next_item["sources"] = []
+        evidence_items: list[dict[str, str]] = []
+        for evidence in next_item.get("evidence") or []:
+            if not isinstance(evidence, dict):
+                continue
+            excerpt = _strip_single_source_text(str(evidence.get("excerpt") or ""), sources)
+            if excerpt:
+                evidence_items.append({"excerpt": excerpt})
+        next_item["evidence"] = evidence_items
+        if str(next_item.get("claim") or "").strip():
+            cleaned_items.append(next_item)
+    return cleaned_items
+
+
 def _render_preview(summary: str, bullets: list[str], next_actions: list[str], *, heading: str, sources: list[WorkflowSourceFile]) -> str:
     lines = [f"# {heading}", "", summary.strip(), ""]
     if bullets:
@@ -84,9 +177,10 @@ def _render_preview(summary: str, bullets: list[str], next_actions: list[str], *
         lines.append("## Suggested next steps")
         lines.extend(f"- {item}" for item in next_actions)
         lines.append("")
-    if sources:
+    visible_sources = _customer_visible_sources(sources)
+    if visible_sources:
         lines.append("## Sources used")
-        lines.extend(_source_manifest_lines(sources))
+        lines.extend(_source_manifest_lines(visible_sources))
     return "\n".join(line for line in lines if line is not None).strip()
 
 
@@ -100,10 +194,11 @@ def _result(
     preview_markdown: str = "",
     metadata: dict[str, Any] | None = None,
 ) -> WorkflowResult:
-    cleaned_summary = (summary or "").strip() or f"Generated output for {run.title}."
-    cleaned_bullets = [str(item).strip() for item in bullets if str(item).strip()]
-    cleaned_actions = [str(item).strip() for item in next_actions if str(item).strip()]
-    preview = (preview_markdown or "").strip() or _render_preview(
+    cleaned_summary = _strip_single_source_text((summary or "").strip() or f"Generated output for {run.title}.", sources)
+    cleaned_bullets = _strip_single_source_list([str(item).strip() for item in bullets if str(item).strip()], sources)
+    cleaned_actions = _strip_single_source_list([str(item).strip() for item in next_actions if str(item).strip()], sources)
+    raw_preview = (preview_markdown or "").strip()
+    preview = _strip_single_source_text(raw_preview, sources) if raw_preview else _render_preview(
         cleaned_summary,
         cleaned_bullets,
         cleaned_actions,
@@ -325,29 +420,34 @@ def _render_summary_preview(
         lines.append("## Evidence-backed highlights")
         lines.extend(f"- {item}" for item in bullets)
         lines.append("")
+    show_source_labels = not _is_single_source_output(sources)
     if evidence_highlights:
         lines.append("## Supporting evidence")
         for item in evidence_highlights:
-            claim = str(item.get("claim") or "").strip()
-            sources_line = ", ".join(str(source).strip() for source in item.get("sources") or [] if str(source).strip())
+            claim = _strip_single_source_text(str(item.get("claim") or "").strip(), sources)
+            sources_line = ", ".join(str(source).strip() for source in item.get("sources") or [] if str(source).strip()) if show_source_labels else ""
             if claim:
                 lines.append(f"- {claim}{f' [{sources_line}]' if sources_line else ''}")
             for evidence in item.get("evidence") or []:
                 if not isinstance(evidence, dict):
                     continue
-                excerpt = str(evidence.get("excerpt") or "").strip()
+                excerpt = _strip_single_source_text(str(evidence.get("excerpt") or "").strip(), sources)
                 if not excerpt:
                     continue
                 source_name = str(evidence.get("source_name") or "Source").strip()
-                lines.append(f"  - {source_name}: {excerpt}")
+                if show_source_labels and source_name:
+                    lines.append(f"  - {source_name}: {excerpt}")
+                else:
+                    lines.append(f"  - {excerpt}")
         lines.append("")
     if next_actions:
         lines.append("## Suggested next steps")
         lines.extend(f"- {item}" for item in next_actions)
         lines.append("")
-    if sources:
+    visible_sources = _customer_visible_sources(sources)
+    if visible_sources:
         lines.append("## Sources used")
-        lines.extend(_source_manifest_lines(sources))
+        lines.extend(_source_manifest_lines(visible_sources))
     return "\n".join(line for line in lines if line is not None).strip()
 
 
@@ -370,12 +470,18 @@ def _normalize_summary_result(run: WorkflowRun, result: WorkflowResult, sources:
         metadata.get("summary_layers"),
         fallback=_summary_layers_from_result(result, sources),
     )
+    if _is_single_source_output(sources):
+        layers = [
+            {**layer, "text": _strip_single_source_text(str(layer.get("text") or ""), sources)}
+            for layer in layers
+        ]
     metadata["summary_layers"] = layers
 
     evidence_highlights = _normalize_evidence_highlights(
         metadata.get("evidence_highlights"),
         fallback=_summary_evidence_from_sources(sources),
     )
+    evidence_highlights = _without_single_source_evidence_labels(evidence_highlights, sources)
     metadata["evidence_highlights"] = evidence_highlights
 
     if evidence_highlights:
@@ -384,6 +490,9 @@ def _normalize_summary_result(run: WorkflowRun, result: WorkflowResult, sources:
             for item in evidence_highlights[:4]
             if str(item.get("claim") or "").strip()
         ] or result.bullets
+    result.summary = _strip_single_source_text(result.summary, sources)
+    result.bullets = _strip_single_source_list(result.bullets, sources)
+    result.next_actions = _strip_single_source_list(result.next_actions, sources)
 
     suggested_actions = metadata.get("suggested_actions")
     if not isinstance(suggested_actions, list) or not suggested_actions:
@@ -446,11 +555,18 @@ def _llm_result(
                 ).strip()
             )
 
+        single_source_instruction = (
+            "There is one underlying source file. Do not mention the file name, add inline source labels, "
+            "or include a Sources/Sources used section in the customer-facing summary, bullets, next_actions, or preview_markdown."
+            if _is_single_source_output(sources)
+            else "Mention supporting source names only where it helps the reader verify multi-file claims."
+        )
         system = textwrap.dedent(
-            """
+            f"""
             You create workflow outputs for a document workspace.
             Use only the provided source excerpts.
             Do not invent source facts.
+            {single_source_instruction}
             Return valid JSON only.
             The JSON must have exactly these top-level keys:
             summary, bullets, next_actions, preview_markdown, metadata.
@@ -519,7 +635,7 @@ def summarize_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Wo
         next_actions = [item["label"] for item in _summary_actions(focus, audience)]
         result = _result(
             run,
-            summary=f"Generated a {depth_label.lower()} for {audience_label.lower()} across {len(sources)} selected file(s), focused on {focus}.",
+            summary=f"Generated a {depth_label.lower()} for {audience_label.lower()} across {_source_file_count(sources)} selected file(s), focused on {focus}.",
             bullets=bullets,
             next_actions=next_actions,
             sources=sources,
@@ -528,7 +644,7 @@ def summarize_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Wo
                 "audience": audience,
                 "depth": depth,
                 "summary_layers": _summary_layers_from_result(
-                    WorkflowResult(summary=f"Generated a {depth_label.lower()} for {audience_label.lower()} across {len(sources)} selected file(s), focused on {focus}.", bullets=bullets, next_actions=next_actions),
+                    WorkflowResult(summary=f"Generated a {depth_label.lower()} for {audience_label.lower()} across {_source_file_count(sources)} selected file(s), focused on {focus}.", bullets=bullets, next_actions=next_actions),
                     sources,
                 ),
                 "evidence_highlights": evidence_highlights,
@@ -545,13 +661,21 @@ def summarize_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Wo
             f"The requested default depth is {depth_label.lower()}."
         ),
         output_requirements=(
-            "Include 3-5 bullets that each state a concrete claim and mention the supporting source name in parentheses. "
-            "Include 2-4 next actions. In metadata, include: "
+            (
+                "Include 3-5 bullets that each state a concrete claim without naming the source file. "
+                if _is_single_source_output(sources)
+                else "Include 3-5 bullets that each state a concrete claim and mention the supporting source name in parentheses. "
+            )
+            + "Include 2-4 next actions. In metadata, include: "
             "summary_profile with audience, depth, focus, and default_layer; "
             "summary_layers as an array with snapshot, standard, and deep_dive items (each with key, label, text); "
             "evidence_highlights as an array of objects with claim, importance, sources, and evidence where evidence is an array of {source_name, excerpt}; "
             "and suggested_actions as workflow actions with label, workflow_id, focus, and description. "
-            "The markdown should include separate sections for the quick brief, the fuller brief, supporting evidence, next steps, and sources used."
+            + (
+                "The markdown should include separate sections for the quick brief, the fuller brief, supporting evidence, and next steps. Do not include a sources section."
+                if _is_single_source_output(sources)
+                else "The markdown should include separate sections for the quick brief, the fuller brief, supporting evidence, next steps, and sources used."
+            )
         ),
         fallback_factory=fallback,
     )
@@ -648,7 +772,7 @@ def extract_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Work
         bullets = [f"Requested focus: {focus}."] + [f"{field['field']}: {field['value']}" for field in fields[:3]]
         return _result(
             run,
-            summary=f"Extracted structured details from {len(sources)} selected file(s).",
+            summary=f"Extracted structured details from {_source_file_count(sources)} selected file(s).",
             bullets=bullets,
             next_actions=[
                 "Validate the extracted fields before exporting or sharing them.",
@@ -691,7 +815,7 @@ def draft_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Workfl
         ).strip()
         return _result(
             run,
-            summary=f"Prepared a first draft using {len(sources)} selected file(s).",
+            summary=f"Prepared a first draft using {_source_file_count(sources)} selected file(s).",
             bullets=[f"Draft intent: {focus}."] + body_points[:3],
             next_actions=[
                 "Edit the draft tone and audience before sharing it externally.",
@@ -740,7 +864,7 @@ def report_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Workf
         ).strip()
         return _result(
             run,
-            summary=f"Prepared a reusable report structure from {len(sources)} selected file(s).",
+            summary=f"Prepared a reusable report structure from {_source_file_count(sources)} selected file(s).",
             bullets=highlights[:4] or [f"Audience goal: {focus}."],
             next_actions=[
                 "Review the report sections and adjust the audience framing if needed.",
@@ -785,7 +909,7 @@ def plan_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Workflo
         bullets = [f"Planning goal: {focus}."] + highlights[:3]
         return _result(
             run,
-            summary=f"Built an action-oriented outline from {len(sources)} selected file(s).",
+            summary=f"Built an action-oriented outline from {_source_file_count(sources)} selected file(s).",
             bullets=bullets,
             next_actions=[item["action"] for item in plan_items],
             sources=sources,
