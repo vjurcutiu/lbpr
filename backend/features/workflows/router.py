@@ -6,7 +6,18 @@ from fastapi.responses import Response
 from features.auth.deps import get_current_user
 from features.auth.models import SessionOut
 
-from .models import WorkflowArtifact, WorkflowArtifactDownloadFormat, WorkflowManifest, WorkflowRun, WorkflowRunCreate, WorkflowRunList, WorkflowRunRefineRequest, WorkflowRunTitleUpdate
+from .models import (
+    WorkflowArtifact,
+    WorkflowArtifactDownloadFormat,
+    WorkflowManifest,
+    WorkflowRun,
+    WorkflowRunBranchRequest,
+    WorkflowRunCreate,
+    WorkflowRunList,
+    WorkflowRunRefineRequest,
+    WorkflowRunTitleUpdate,
+    WorkflowRunVersionList,
+)
 from . import service
 
 router = APIRouter(prefix="/v1/workflows", tags=["workflows"])
@@ -43,6 +54,35 @@ def rename_workflow_run(run_id: str, payload: WorkflowRunTitleUpdate, user: Sess
 @router.post("/runs/{run_id}/refine", response_model=WorkflowRun)
 def refine_workflow_run(run_id: str, payload: WorkflowRunRefineRequest, user: SessionOut = Depends(get_current_user)) -> WorkflowRun:
     return service.refine_run(user.uid, run_id, payload)
+
+
+@router.get("/runs/{run_id}/versions", response_model=WorkflowRunVersionList)
+def list_workflow_run_versions(run_id: str, user: SessionOut = Depends(get_current_user)) -> WorkflowRunVersionList:
+    return service.list_run_versions(user.uid, run_id)
+
+
+@router.post("/runs/{run_id}/versions/{version_id}/select", response_model=WorkflowRun)
+def select_workflow_run_version(run_id: str, version_id: str, user: SessionOut = Depends(get_current_user)) -> WorkflowRun:
+    return service.select_run_version(user.uid, run_id, version_id)
+
+
+@router.post("/runs/{run_id}/versions/{version_id}/branch", response_model=WorkflowRun)
+def branch_workflow_run_version(
+    run_id: str,
+    version_id: str,
+    payload: WorkflowRunBranchRequest,
+    user: SessionOut = Depends(get_current_user),
+) -> WorkflowRun:
+    return service.branch_run_version(user.uid, run_id, version_id, payload)
+
+
+@router.post("/runs/{run_id}/versions/{version_id}/artifact", response_model=WorkflowArtifact)
+def save_workflow_version_artifact(
+    run_id: str,
+    version_id: str,
+    user: SessionOut = Depends(get_current_user),
+) -> WorkflowArtifact:
+    return service.save_artifact_for_version(user.uid, run_id, version_id)
 
 
 @router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)

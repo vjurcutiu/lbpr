@@ -84,6 +84,24 @@ export type WorkflowResult = {
   metadata: Record<string, unknown>;
 };
 
+export type WorkflowRunVersion = {
+  id: string;
+  run_id: string;
+  parent_version_id?: string | null;
+  version_number: number;
+  title: string;
+  kind: "original" | "refinement" | "branch";
+  prompt?: string | null;
+  result: WorkflowResult;
+  artifact?: WorkflowArtifactSummary | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkflowRunVersionList = {
+  items: WorkflowRunVersion[];
+};
+
 export type WorkflowRun = {
   id: string;
   workflow_id: string;
@@ -94,6 +112,8 @@ export type WorkflowRun = {
   inputs: Record<string, unknown>;
   result: WorkflowResult | null;
   artifact?: WorkflowArtifactSummary | null;
+  versions: WorkflowRunVersion[];
+  active_version_id?: string | null;
   error?: string | null;
   created_at: string;
   updated_at: string;

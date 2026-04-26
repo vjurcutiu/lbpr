@@ -1,15 +1,16 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { ChevronDown, Copy, Download, Files, Save, SendHorizontal } from "lucide-react";
+import { CheckCircle2, ChevronDown, Circle, Copy, Download, Files, GitBranch, History, Save, SendHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
-import type { WorkflowArtifactFormat, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowSelection, WorkflowSuggestedAction } from "../types";
+import type { WorkflowArtifactFormat, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowRunVersion, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
 type SourceFileMeta = {
   file_id?: string;
@@ -38,6 +39,44 @@ function uniqueSourceFiles(sources: SourceFileMeta[]) {
     seen.add(key);
     return true;
   });
+}
+
+function formatVersionTime(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Just now";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function versionKindLabel(version: WorkflowRunVersion) {
+  if (version.kind === "original") return "Original";
+  if (version.kind === "branch") return "Branch";
+  return "Refined";
+}
+
+function versionLabel(version: WorkflowRunVersion) {
+  return `V${version.version_number || 1}`;
+}
+
+function sortedVersions(versions: WorkflowRunVersion[]) {
+  return [...(versions || [])].sort((a, b) => (a.version_number || 0) - (b.version_number || 0));
+}
+
+function versionDepth(version: WorkflowRunVersion, versions: WorkflowRunVersion[]) {
+  const byId = new Map(versions.map((item) => [item.id, item]));
+  let depth = 0;
+  let cursor = version.parent_version_id || "";
+  const seen = new Set<string>();
+  while (cursor && byId.has(cursor) && !seen.has(cursor) && depth < 8) {
+    seen.add(cursor);
+    depth += 1;
+    cursor = byId.get(cursor)?.parent_version_id || "";
+  }
+  return depth;
 }
 
 function stripSourcesUsedSection(markdown: string) {
@@ -88,8 +127,14 @@ type Props = {
   artifact?: WorkflowArtifactSummary | null;
   artifactBusy?: boolean;
   refineBusy?: boolean;
+  versions?: WorkflowRunVersion[];
+  activeVersionId?: string | null;
+  versionBusyId?: string | null;
   onSaveArtifact?: () => void;
   onDownloadArtifact?: (format: WorkflowArtifactFormat) => void;
+  onSelectVersion?: (version: WorkflowRunVersion) => void;
+  onDownloadVersion?: (version: WorkflowRunVersion, format: WorkflowArtifactFormat) => void;
+  onBranchVersion?: (version: WorkflowRunVersion) => void;
   onRefine?: (prompt: string) => void;
   onWorkflowAction?: (action: WorkflowSuggestedAction, selection: WorkflowSelection, sourceRun: WorkflowRun) => void;
 };
@@ -101,6 +146,208 @@ const DOWNLOAD_FORMATS: Array<{ value: WorkflowArtifactFormat; label: string; he
   { value: "pdf", label: "PDF (.pdf)", helper: "Polished file for sharing." },
 ];
 
+type VersionHistoryPanelProps = {
+  versions: WorkflowRunVersion[];
+  activeVersionId?: string | null;
+  versionBusyId?: string | null;
+  onSelectVersion?: (version: WorkflowRunVersion) => void;
+  onDownloadVersion?: (version: WorkflowRunVersion, format: WorkflowArtifactFormat) => void;
+  onBranchVersion?: (version: WorkflowRunVersion) => void;
+};
+
+function VersionHistoryPanel({
+  versions,
+  activeVersionId,
+  versionBusyId,
+  onSelectVersion,
+  onDownloadVersion,
+  onBranchVersion,
+}: VersionHistoryPanelProps) {
+  const [treeOpen, setTreeOpen] = useState(false);
+  const orderedVersions = useMemo(() => sortedVersions(versions), [versions]);
+  const activeVersion = orderedVersions.find((version) => version.id === activeVersionId) || orderedVersions[orderedVersions.length - 1];
+  const hasMultipleVersions = orderedVersions.length > 1;
+
+  if (!hasMultipleVersions) return null;
+
+  return (
+    <>
+      <div className="rounded-2xl border border-border/70 bg-muted/10 px-4 py-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-medium leading-5 text-foreground">
+              <History className="h-4 w-4 text-muted-foreground" />
+              Versions
+              {activeVersion ? (
+                <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
+                  Viewing {versionLabel(activeVersion)}
+                </Badge>
+              ) : null}
+            </div>
+            <div className="mt-1 text-xs leading-5 text-muted-foreground">
+              Select an earlier output, download it, or branch from it with a new prompt.
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 w-full rounded-full px-3 text-xs sm:w-auto"
+            onClick={() => setTreeOpen(true)}
+          >
+            <GitBranch className="mr-1 h-4 w-4" />
+            Tree view
+          </Button>
+        </div>
+
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          {orderedVersions.map((version) => {
+            const active = version.id === activeVersion?.id;
+            const busy = versionBusyId === version.id;
+            return (
+              <button
+                key={version.id}
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  if (!active) onSelectVersion?.(version);
+                }}
+                className={cn(
+                  "min-w-[150px] rounded-2xl border px-3 py-2 text-left transition-colors disabled:cursor-wait disabled:opacity-70",
+                  active
+                    ? "border-primary/40 bg-primary/5 text-foreground"
+                    : "border-border/70 bg-background hover:bg-muted/30"
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  {active ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <Circle className="h-4 w-4 text-muted-foreground" />}
+                  <span className="text-sm font-medium">{versionLabel(version)}</span>
+                  <span className="text-[11px] text-muted-foreground">{versionKindLabel(version)}</span>
+                </div>
+                <div className="mt-1 truncate text-xs text-muted-foreground">
+                  {version.prompt || formatVersionTime(version.updated_at)}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <Dialog open={treeOpen} onOpenChange={setTreeOpen}>
+        <DialogContent className="max-h-[85vh] max-w-2xl overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_80px_rgba(15,23,42,0.18)]">
+          <DialogHeader className="border-b border-border/70 px-6 pt-6 pb-4">
+            <DialogTitle className="text-base font-semibold">Version tree</DialogTitle>
+            <DialogDescription>
+              Older versions stay available even after you refine or branch the output.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[62vh] overflow-y-auto px-4 py-4">
+            <div className="space-y-2">
+              {orderedVersions.map((version) => {
+                const active = version.id === activeVersion?.id;
+                const busy = versionBusyId === version.id;
+                const depth = versionDepth(version, orderedVersions);
+                return (
+                  <div key={version.id} className="flex min-w-0 gap-2" style={{ paddingLeft: `${Math.min(depth, 5) * 22}px` }}>
+                    {depth > 0 ? (
+                      <div className="mt-5 h-px w-4 shrink-0 bg-border" />
+                    ) : null}
+                    <div
+                      className={cn(
+                        "min-w-0 flex-1 rounded-2xl border px-3 py-3",
+                        active ? "border-primary/40 bg-primary/5" : "border-border/70 bg-background"
+                      )}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={active ? "default" : "secondary"} className="rounded-full px-2 py-0 text-[10px] font-normal">
+                              {versionLabel(version)}
+                            </Badge>
+                            <span className="text-sm font-medium text-foreground">{versionKindLabel(version)}</span>
+                            <span className="text-xs text-muted-foreground">{formatVersionTime(version.updated_at)}</span>
+                          </div>
+                          {version.prompt ? (
+                            <p className="mt-2 text-sm leading-6 text-foreground/85">{version.prompt}</p>
+                          ) : (
+                            <p className="mt-2 text-sm leading-6 text-muted-foreground">First generated output.</p>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant={active ? "secondary" : "outline"}
+                            size="sm"
+                            className="h-8 rounded-full px-3 text-xs"
+                            disabled={busy || active}
+                            onClick={() => {
+                              onSelectVersion?.(version);
+                              setTreeOpen(false);
+                            }}
+                          >
+                            {active ? "Viewing" : "Select"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 rounded-full px-3 text-xs"
+                            disabled={busy}
+                            onClick={() => {
+                              onBranchVersion?.(version);
+                              setTreeOpen(false);
+                            }}
+                          >
+                            <GitBranch className="mr-1 h-3.5 w-3.5" />
+                            Branch
+                          </Button>
+                          {onDownloadVersion ? (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 rounded-full px-3 text-xs"
+                                  disabled={busy}
+                                >
+                                  <Download className="mr-1 h-3.5 w-3.5" />
+                                  Download
+                                  <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-64 rounded-2xl">
+                                <DropdownMenuLabel className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Download format</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                {DOWNLOAD_FORMATS.map((item) => (
+                                  <DropdownMenuItem
+                                    key={item.value}
+                                    className="items-start rounded-xl px-2 py-2"
+                                    onSelect={() => onDownloadVersion(version, item.value)}
+                                  >
+                                    <div className="min-w-0">
+                                      <div className="text-xs font-medium leading-5 text-foreground">{item.label}</div>
+                                      <div className="text-[11px] leading-4 text-muted-foreground">{item.helper}</div>
+                                    </div>
+                                  </DropdownMenuItem>
+                                ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export function WorkflowResultDetails({
   result,
   selection,
@@ -108,8 +355,14 @@ export function WorkflowResultDetails({
   artifact,
   artifactBusy = false,
   refineBusy = false,
+  versions = [],
+  activeVersionId,
+  versionBusyId = null,
   onSaveArtifact,
   onDownloadArtifact,
+  onSelectVersion,
+  onDownloadVersion,
+  onBranchVersion,
   onRefine,
   onWorkflowAction,
 }: Props) {
@@ -147,6 +400,15 @@ export function WorkflowResultDetails({
 
   return (
     <div className="space-y-5">
+      <VersionHistoryPanel
+        versions={versions}
+        activeVersionId={activeVersionId}
+        versionBusyId={versionBusyId}
+        onSelectVersion={onSelectVersion}
+        onDownloadVersion={onDownloadVersion}
+        onBranchVersion={onBranchVersion}
+      />
+
       <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="text-sm font-medium leading-5 text-foreground">Output</div>
@@ -238,7 +500,7 @@ export function WorkflowResultDetails({
                   event.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder="Ask for a revision, for example: make it shorter, change the tone, add risks, or turn it into an email."
+              placeholder="Ask for a revision. The new output will be saved as another version."
               className="min-h-[88px] flex-1 rounded-2xl resize-none"
               disabled={refineBusy}
             />

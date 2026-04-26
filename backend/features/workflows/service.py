@@ -32,11 +32,15 @@ from .models import (
     WorkflowArtifactDownloadFormat,
     WorkflowArtifactSummary,
     WorkflowManifest,
+    WorkflowResult,
     WorkflowRun,
+    WorkflowRunBranchRequest,
     WorkflowRunCreate,
     WorkflowRunList,
     WorkflowRunRefineRequest,
     WorkflowRunTitleUpdate,
+    WorkflowRunVersion,
+    WorkflowRunVersionList,
     WorkflowSelectionIn,
     WorkflowSourceFile,
 )
@@ -160,8 +164,7 @@ def _attach_title_metadata(run: WorkflowRun, title_metadata: dict[str, object] |
         metadata["title_llm_usage"] = usage
     run.result.metadata = metadata
 
-def _build_artifact_content(run: WorkflowRun) -> str:
-    result = run.result
+def _build_artifact_content_from_result(title: str, result: WorkflowResult | None) -> str:
     if result is None:
         return ""
 
@@ -169,7 +172,7 @@ def _build_artifact_content(run: WorkflowRun) -> str:
     if preview:
         return preview
 
-    lines = [f"# {run.title}"]
+    lines = [f"# {title}"]
     summary = str(result.summary or "").strip()
     if summary:
         lines.extend(["", summary])
@@ -185,18 +188,26 @@ def _build_artifact_content(run: WorkflowRun) -> str:
     return sanitize_export_markdown("\n".join(lines).strip())
 
 
-def _build_artifact_from_run(run: WorkflowRun) -> WorkflowArtifact:
-    if run.result is None:
-        raise HTTPException(status_code=400, detail="This workflow run does not have an output to save yet.")
+def _build_artifact_content(run: WorkflowRun) -> str:
+    return _build_artifact_content_from_result(run.title, run.result)
 
-    content = _build_artifact_content(run)
+
+def _build_artifact_from_result(
+    run: WorkflowRun,
+    result: WorkflowResult,
+    *,
+    artifact_summary: WorkflowArtifactSummary | None = None,
+    version_id: str | None = None,
+) -> WorkflowArtifact:
+    content = _build_artifact_content_from_result(run.title, result)
     if not content:
         raise HTTPException(status_code=400, detail="This workflow output is empty and cannot be saved yet.")
 
     file_name = f"{_slugify_filename(run.title, fallback=run.workflow_id)}.md"
-    artifact_id = (run.artifact.id if run.artifact else "") or f"wf_art_{uuid4().hex[:12]}"
+    artifact_id = (artifact_summary.id if artifact_summary else "") or f"wf_art_{uuid4().hex[:12]}"
     metadata = {
         "run_id": run.id,
+        "version_id": version_id or run.active_version_id,
         "selection": {
             "file_ids": list(run.selection.file_ids),
             "folder_paths": list(run.selection.folder_paths),
@@ -207,11 +218,11 @@ def _build_artifact_from_run(run: WorkflowRun) -> WorkflowArtifact:
             "folder_count": len(run.selection.folder_paths),
         },
     }
-    if run.result.metadata:
-        metadata["workflow_result_metadata"] = _sanitize_jsonish(run.result.metadata)
+    if result.metadata:
+        metadata["workflow_result_metadata"] = _sanitize_jsonish(result.metadata)
 
     now = datetime.now(UTC)
-    created_at = run.artifact.created_at if run.artifact else now
+    created_at = artifact_summary.created_at if artifact_summary else now
     return WorkflowArtifact(
         id=artifact_id,
         run_id=run.id,
@@ -225,6 +236,158 @@ def _build_artifact_from_run(run: WorkflowRun) -> WorkflowArtifact:
         created_at=created_at,
         updated_at=now,
     )
+
+
+def _build_artifact_from_run(run: WorkflowRun) -> WorkflowArtifact:
+    if run.result is None:
+        raise HTTPException(status_code=400, detail="This workflow run does not have an output to save yet.")
+
+    return _build_artifact_from_result(
+        run,
+        run.result,
+        artifact_summary=run.artifact,
+        version_id=run.active_version_id,
+    )
+
+
+
+
+def _copy_result(result: WorkflowResult) -> WorkflowResult:
+    return result.model_copy(deep=True)
+
+
+def _copy_artifact_summary(artifact: WorkflowArtifactSummary | None) -> WorkflowArtifactSummary | None:
+    return artifact.model_copy(deep=True) if artifact else None
+
+
+def _next_version_number(run: WorkflowRun) -> int:
+    numbers = [int(version.version_number or 0) for version in run.versions]
+    return (max(numbers) if numbers else 0) + 1
+
+
+def _make_version(
+    run: WorkflowRun,
+    *,
+    result: WorkflowResult,
+    parent_version_id: str | None,
+    prompt: str | None,
+    kind: str,
+    version_id: str | None = None,
+    created_at: datetime | None = None,
+    artifact: WorkflowArtifactSummary | None = None,
+) -> WorkflowRunVersion:
+    now = created_at or datetime.now(UTC)
+    return WorkflowRunVersion(
+        id=version_id or f"wf_ver_{uuid4().hex[:12]}",
+        run_id=run.id,
+        parent_version_id=parent_version_id,
+        version_number=_next_version_number(run),
+        title=run.title,
+        kind=kind,  # type: ignore[arg-type]
+        prompt=prompt,
+        result=_copy_result(result),
+        artifact=_copy_artifact_summary(artifact),
+        created_at=now,
+        updated_at=now,
+    )
+
+
+def _hydrate_run_versions(run: WorkflowRun) -> WorkflowRun:
+    if run.result is not None and not run.versions:
+        version = WorkflowRunVersion(
+            id=run.active_version_id or f"wf_ver_{uuid4().hex[:12]}",
+            run_id=run.id,
+            parent_version_id=None,
+            version_number=1,
+            title=run.title,
+            kind="original",
+            prompt=None,
+            result=_copy_result(run.result),
+            artifact=_copy_artifact_summary(run.artifact),
+            created_at=_parse_datetime(run.created_at),
+            updated_at=_parse_datetime(run.updated_at),
+        )
+        run.versions = [version]
+        run.active_version_id = version.id
+
+    if run.versions and not run.active_version_id:
+        latest = max(run.versions, key=lambda item: (int(item.version_number or 0), _parse_datetime(item.updated_at)))
+        run.active_version_id = latest.id
+        run.result = _copy_result(latest.result)
+        run.artifact = _copy_artifact_summary(latest.artifact)
+
+    return run
+
+
+def _find_version(run: WorkflowRun, version_id: str) -> WorkflowRunVersion:
+    _hydrate_run_versions(run)
+    target = str(version_id or "").strip()
+    for version in run.versions:
+        if version.id == target:
+            return version
+    raise HTTPException(status_code=404, detail="Workflow version not found")
+
+
+def _active_version(run: WorkflowRun) -> WorkflowRunVersion | None:
+    _hydrate_run_versions(run)
+    if not run.versions:
+        return None
+    active_id = str(run.active_version_id or "").strip()
+    if active_id:
+        for version in run.versions:
+            if version.id == active_id:
+                return version
+    latest = max(run.versions, key=lambda item: (int(item.version_number or 0), _parse_datetime(item.updated_at)))
+    run.active_version_id = latest.id
+    run.result = _copy_result(latest.result)
+    run.artifact = _copy_artifact_summary(latest.artifact)
+    return latest
+
+
+def _replace_or_append_version(run: WorkflowRun, version: WorkflowRunVersion) -> None:
+    run.versions = [item for item in run.versions if item.id != version.id] + [version]
+    run.versions.sort(key=lambda item: int(item.version_number or 0))
+
+
+def _version_has_children(run: WorkflowRun, version_id: str) -> bool:
+    target = str(version_id or "").strip()
+    return bool(target) and any(str(version.parent_version_id or "").strip() == target for version in run.versions)
+
+
+def _sync_active_version_from_run(run: WorkflowRun) -> None:
+    if run.result is None or not run.active_version_id:
+        return
+    for idx, version in enumerate(run.versions):
+        if version.id == run.active_version_id:
+            updated = version.model_copy(deep=True)
+            updated.title = run.title
+            updated.result = _copy_result(run.result)
+            updated.artifact = _copy_artifact_summary(run.artifact)
+            updated.updated_at = _parse_datetime(run.updated_at)
+            run.versions[idx] = updated
+            return
+
+
+def _record_new_active_version(
+    run: WorkflowRun,
+    *,
+    result: WorkflowResult,
+    parent_version_id: str | None,
+    prompt: str | None,
+    kind: str,
+) -> WorkflowRunVersion:
+    version = _make_version(
+        run,
+        result=result,
+        parent_version_id=parent_version_id,
+        prompt=prompt,
+        kind=kind,
+    )
+    run.result = _copy_result(result)
+    run.artifact = None
+    run.active_version_id = version.id
+    _replace_or_append_version(run, version)
+    return version
 
 
 def export_artifact_for_download(artifact: WorkflowArtifact, *, target_format: WorkflowArtifactDownloadFormat = "markdown") -> ExportedArtifact:
@@ -290,6 +453,26 @@ def _trim_run_doc_for_firestore(payload: dict[str, Any]) -> dict[str, Any]:
                         slim["chunk_ids_omitted"] = True
                     slim_sources.append(slim)
                 metadata["source_files"] = slim_sources
+
+    versions = trimmed.get("versions")
+    if isinstance(versions, list):
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            version_result = version.get("result")
+            if not isinstance(version_result, dict):
+                continue
+            preview_markdown = str(version_result.get("preview_markdown") or "")
+            if len(preview_markdown) > 120_000:
+                version_result["preview_markdown"] = preview_markdown[:120_000].rstrip() + "\n\n...[truncated for Firestore storage]"
+            metadata = version_result.get("metadata")
+            if isinstance(metadata, dict):
+                source_files = metadata.get("source_files")
+                if isinstance(source_files, list):
+                    for item in source_files:
+                        if isinstance(item, dict) and isinstance(item.get("chunk_ids"), list) and item["chunk_ids"]:
+                            item["chunk_ids"] = []
+                            item["chunk_ids_omitted"] = True
 
     encoded = json.dumps(trimmed, ensure_ascii=False, default=str).encode("utf-8")
     if len(encoded) <= _MAX_FIRESTORE_DOC_BYTES:
@@ -374,6 +557,7 @@ def _artifact_from_doc(doc_id: str, data: dict[str, Any]) -> WorkflowArtifact:
 
 
 def _run_to_doc(run: WorkflowRun) -> dict[str, Any]:
+    _hydrate_run_versions(run)
     payload = run.model_dump(mode="json")
     payload["created_at"] = _to_iso_utc(run.created_at)
     payload["updated_at"] = _to_iso_utc(run.updated_at)
@@ -390,7 +574,7 @@ def _run_from_doc(doc_id: str, data: dict[str, Any]) -> WorkflowRun:
     payload["updated_at"] = _to_iso_utc(payload.get("updated_at") or payload.get("updated_at_ts"))
     payload.pop("created_at_ts", None)
     payload.pop("updated_at_ts", None)
-    return WorkflowRun(**payload)
+    return _hydrate_run_versions(WorkflowRun(**payload))
 
 
 
@@ -405,6 +589,7 @@ def _mark_run_deleted(uid: str, run_id: str) -> None:
 
 
 def _cache_run(uid: str, run: WorkflowRun) -> None:
+    _hydrate_run_versions(run)
     with _LOCK:
         if run.id in _DELETED_RUN_IDS_BY_UID.get(uid, set()):
             return
@@ -472,6 +657,7 @@ def _upsert_artifact_for_run(uid: str, run: WorkflowRun) -> WorkflowArtifact:
     artifact = _build_artifact_from_run(run)
     _persist_artifact(uid, artifact)
     run.artifact = _artifact_summary(artifact)
+    _sync_active_version_from_run(run)
     return artifact
 
 
@@ -519,7 +705,7 @@ def get_run(uid: str, run_id: str) -> WorkflowRun:
 
     for run in _cached_runs(uid):
         if run.id == run_id:
-            return run
+            return _hydrate_run_versions(run)
     raise HTTPException(status_code=404, detail="Workflow run not found")
 
 
@@ -534,6 +720,7 @@ def save_artifact_for_run(uid: str, run_id: str) -> WorkflowArtifact:
         try:
             artifact = get_artifact(uid, existing_id)
             run.artifact = _artifact_summary(artifact)
+            _sync_active_version_from_run(run)
             _persist_run(uid, run)
             return artifact
         except HTTPException:
@@ -546,10 +733,62 @@ def save_artifact_for_run(uid: str, run_id: str) -> WorkflowArtifact:
 
 
 
+def list_run_versions(uid: str, run_id: str) -> WorkflowRunVersionList:
+    run = get_run(uid, run_id)
+    _hydrate_run_versions(run)
+    versions = sorted(run.versions, key=lambda item: int(item.version_number or 0))
+    return WorkflowRunVersionList(items=versions)
+
+
+def select_run_version(uid: str, run_id: str, version_id: str) -> WorkflowRun:
+    run = get_run(uid, run_id)
+    version = _find_version(run, version_id)
+    run.result = _copy_result(version.result)
+    run.artifact = _copy_artifact_summary(version.artifact)
+    run.active_version_id = version.id
+    run.status = "completed"
+    run.error = None
+    _persist_run(uid, run)
+    return run
+
+
+def save_artifact_for_version(uid: str, run_id: str, version_id: str) -> WorkflowArtifact:
+    run = get_run(uid, run_id)
+    version = _find_version(run, version_id)
+    if run.status != "completed" and run.result is None:
+        raise HTTPException(status_code=400, detail="Only completed workflow versions can be saved as artifacts.")
+
+    if version.artifact:
+        try:
+            return get_artifact(uid, version.artifact.id)
+        except HTTPException:
+            version.artifact = None
+
+    artifact = _build_artifact_from_result(
+        run,
+        version.result,
+        artifact_summary=version.artifact,
+        version_id=version.id,
+    )
+    _persist_artifact(uid, artifact)
+    version.artifact = _artifact_summary(artifact)
+    version.updated_at = datetime.now(UTC)
+    _replace_or_append_version(run, version)
+
+    if run.active_version_id == version.id:
+        run.result = _copy_result(version.result)
+        run.artifact = _copy_artifact_summary(version.artifact)
+
+    _persist_run(uid, run)
+    return artifact
+
+
 def rename_run(uid: str, run_id: str, payload: WorkflowRunTitleUpdate) -> WorkflowRun:
     run = get_run(uid, run_id)
     title = _clean_run_title(payload.title)
     run.title = title
+    for version in run.versions:
+        version.title = title
     run.updated_at = datetime.now(UTC)
 
     if run.result is not None:
@@ -571,18 +810,31 @@ def rename_run(uid: str, run_id: str, payload: WorkflowRunTitleUpdate) -> Workfl
         except Exception:
             log.warning("workflow_artifact_title_sync_failed", uid=uid, run_id=run.id, exc_info=True)
 
+    _sync_active_version_from_run(run)
     _persist_run(uid, run)
     return run
 
 
 
-def refine_run(uid: str, run_id: str, payload: WorkflowRunRefineRequest) -> WorkflowRun:
+def _refine_from_version(
+    uid: str,
+    run_id: str,
+    *,
+    prompt: str,
+    base_version_id: str | None = None,
+    force_branch_kind: bool = False,
+) -> WorkflowRun:
     run = get_run(uid, run_id)
-    prompt = str(payload.prompt or "").strip()
+    prompt = str(prompt or "").strip()
     if run.status != "completed" or run.result is None:
         raise HTTPException(status_code=400, detail="Only completed workflow runs can be refined.")
     if not prompt:
         raise HTTPException(status_code=400, detail="A refinement prompt is required.")
+
+    _hydrate_run_versions(run)
+    base_version = _find_version(run, base_version_id) if base_version_id else _active_version(run)
+    if base_version is None:
+        raise HTTPException(status_code=400, detail="This workflow does not have a version to refine yet.")
 
     try:
         asyncio.run(sync_caps_and_plan(uid))
@@ -600,10 +852,16 @@ def refine_run(uid: str, run_id: str, payload: WorkflowRunRefineRequest) -> Work
         workflow_id=run.workflow_id,
         inputs={**run.inputs, "focus": prompt},
     )
-    existing_markdown = _build_artifact_content(run)
+
+    base_run = run.model_copy(deep=True)
+    base_run.result = _copy_result(base_version.result)
+    base_run.artifact = _copy_artifact_summary(base_version.artifact)
+    base_run.active_version_id = base_version.id
+    existing_markdown = _build_artifact_content(base_run)
+
     try:
         refined = refine_workflow_result(
-            run,
+            base_run,
             source_documents,
             existing_markdown=existing_markdown,
             instruction=prompt,
@@ -613,7 +871,7 @@ def refine_run(uid: str, run_id: str, payload: WorkflowRunRefineRequest) -> Work
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    previous_metadata = dict(run.result.metadata or {})
+    previous_metadata = dict(base_version.result.metadata or {})
     run.mark_completed(refined)
     _augment_result_metadata(run, source_documents, source_stats)
     metadata = dict(run.result.metadata or {}) if run.result else {}
@@ -621,6 +879,7 @@ def refine_run(uid: str, run_id: str, payload: WorkflowRunRefineRequest) -> Work
     if isinstance(previous_actions, list) and previous_actions and not metadata.get("suggested_actions"):
         metadata["suggested_actions"] = previous_actions
     metadata["refined_at"] = _to_iso_utc(datetime.now(UTC))
+    metadata["parent_version_id"] = base_version.id
     if run.result is not None:
         run.result.metadata = metadata
 
@@ -640,6 +899,16 @@ def refine_run(uid: str, run_id: str, payload: WorkflowRunRefineRequest) -> Work
     else:
         _attach_usage_details(run, usage_details=usage_details)
 
+    is_branch = force_branch_kind or _version_has_children(run, base_version.id)
+    if run.result is not None:
+        _record_new_active_version(
+            run,
+            result=run.result,
+            parent_version_id=base_version.id,
+            prompt=prompt,
+            kind="branch" if is_branch else "refinement",
+        )
+
     try:
         _upsert_artifact_for_run(uid, run)
     except Exception:
@@ -648,13 +917,40 @@ def refine_run(uid: str, run_id: str, payload: WorkflowRunRefineRequest) -> Work
     return run
 
 
+def refine_run(uid: str, run_id: str, payload: WorkflowRunRefineRequest) -> WorkflowRun:
+    return _refine_from_version(
+        uid,
+        run_id,
+        prompt=payload.prompt,
+        base_version_id=payload.base_version_id,
+        force_branch_kind=False,
+    )
+
+
+def branch_run_version(uid: str, run_id: str, version_id: str, payload: WorkflowRunBranchRequest) -> WorkflowRun:
+    return _refine_from_version(
+        uid,
+        run_id,
+        prompt=payload.prompt,
+        base_version_id=version_id,
+        force_branch_kind=True,
+    )
+
+
 def delete_run(uid: str, run_id: str) -> None:
     run = get_run(uid, run_id)
-    artifact_id = run.artifact.id if run.artifact else ""
+    artifact_ids = {
+        str(artifact.id).strip()
+        for artifact in [run.artifact]
+        if artifact and str(artifact.id).strip()
+    }
+    for version in run.versions:
+        if version.artifact and str(version.artifact.id).strip():
+            artifact_ids.add(str(version.artifact.id).strip())
 
     _mark_run_deleted(uid, run.id)
     _remove_cached_run(uid, run.id)
-    if artifact_id:
+    for artifact_id in artifact_ids:
         _remove_cached_artifact(uid, artifact_id)
 
     db, _fs = _get_firestore_handles()
@@ -666,7 +962,7 @@ def delete_run(uid: str, run_id: str) -> None:
     except Exception:
         log.warning("workflow_run_delete_firestore_failed", uid=uid, run_id=run.id, exc_info=True)
 
-    if artifact_id:
+    for artifact_id in artifact_ids:
         try:
             _workflow_artifacts_ref(db, uid).document(artifact_id).delete()
         except Exception:
@@ -1024,6 +1320,15 @@ def _execute_run(uid: str, run_id: str) -> None:
             _attach_usage_details(run, usage_details=usage_details, used=used, cap=cap)
         else:
             _attach_usage_details(run, usage_details=usage_details)
+
+        if run.result is not None and not run.versions:
+            _record_new_active_version(
+                run,
+                result=run.result,
+                parent_version_id=None,
+                prompt=None,
+                kind="original",
+            )
 
         try:
             _upsert_artifact_for_run(uid, run)

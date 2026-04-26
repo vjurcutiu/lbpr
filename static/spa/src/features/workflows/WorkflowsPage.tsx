@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ChevronRight, CornerDownRight, MoreVertical, Pencil, Search, Trash2 } from "lucide-react";
+import { ArrowRight, ChevronRight, CornerDownRight, GitBranch, MoreVertical, Pencil, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { listFiles, type FileItem } from "@/features/files/api";
@@ -27,7 +28,19 @@ import { useMediaQuery } from "@/features/files/hooks/useMediaQuery";
 import { parseErr } from "@/features/files/utils/formatters";
 import { cn } from "@/lib/utils";
 
-import { createWorkflowRun, deleteWorkflowRun, downloadWorkflowArtifact, listWorkflowRuns, listWorkflows, refineWorkflowRun, renameWorkflowRun, saveWorkflowArtifact } from "./api";
+import {
+  branchWorkflowRunVersion,
+  createWorkflowRun,
+  deleteWorkflowRun,
+  downloadWorkflowArtifact,
+  listWorkflowRuns,
+  listWorkflows,
+  refineWorkflowRun,
+  renameWorkflowRun,
+  saveWorkflowArtifact,
+  saveWorkflowVersionArtifact,
+  selectWorkflowRunVersion,
+} from "./api";
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
@@ -37,6 +50,7 @@ import type {
   WorkflowArtifactFormat,
   WorkflowManifest,
   WorkflowRun,
+  WorkflowRunVersion,
   WorkflowSelection,
   WorkflowChainSource,
   WorkflowSuggestedAction,
@@ -74,6 +88,22 @@ function workflowQueuedDescription(selection: WorkflowSelection, chained: boolea
 function workflowCompletedDescription(run: WorkflowRun) {
   const artifactName = String(run.artifact?.file_name || "").trim();
   return artifactName ? `${artifactName} is ready to review.` : "The output is ready to review.";
+}
+
+function versionLabel(version: WorkflowRunVersion) {
+  return `V${version.version_number || 1}`;
+}
+
+function attachArtifactToVersion(run: WorkflowRun, versionId: string, artifact: WorkflowRun["artifact"]): WorkflowRun {
+  if (!artifact) return run;
+  const active = run.active_version_id === versionId;
+  return {
+    ...run,
+    artifact: active ? artifact : run.artifact,
+    versions: (run.versions || []).map((version) =>
+      version.id === versionId ? { ...version, artifact } : version
+    ),
+  };
 }
 
 function cleanLauncherInputs(inputs: Record<string, unknown> | undefined | null) {
@@ -440,7 +470,12 @@ export default function WorkflowsPage() {
   const [launcherFilesLoading, setLauncherFilesLoading] = useState(false);
   const [workflowSubmitting, setWorkflowSubmitting] = useState(false);
   const [artifactBusyRunId, setArtifactBusyRunId] = useState<string | null>(null);
+  const [versionBusyId, setVersionBusyId] = useState<string | null>(null);
   const [refiningRunId, setRefiningRunId] = useState<string | null>(null);
+  const [branchingRunId, setBranchingRunId] = useState<string | null>(null);
+  const [branchingVersion, setBranchingVersion] = useState<WorkflowRunVersion | null>(null);
+  const [branchPrompt, setBranchPrompt] = useState("");
+  const [branchSaving, setBranchSaving] = useState(false);
   const [renamingRunId, setRenamingRunId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
@@ -557,7 +592,13 @@ export default function WorkflowsPage() {
     setArtifactBusyRunId(run.id);
     try {
       const artifact = await saveWorkflowArtifact(run.id);
-      setRuns((prev) => prev.map((item) => (item.id === run.id ? { ...item, artifact } : item)));
+      setRuns((prev) => prev.map((item) => (
+        item.id === run.id && item.active_version_id
+          ? attachArtifactToVersion(item, item.active_version_id, artifact)
+          : item.id === run.id
+            ? { ...item, artifact }
+            : item
+      )));
       toast.success("Output saved", {
         description: `${artifact.file_name} is saved with this result.`,
       });
@@ -578,7 +619,13 @@ export default function WorkflowsPage() {
       let artifact = run.artifact || null;
       if (!artifact) {
         artifact = await saveWorkflowArtifact(run.id);
-        setRuns((prev) => prev.map((item) => (item.id === run.id ? { ...item, artifact } : item)));
+        setRuns((prev) => prev.map((item) => (
+          item.id === run.id && item.active_version_id
+            ? attachArtifactToVersion(item, item.active_version_id, artifact)
+            : item.id === run.id
+              ? { ...item, artifact }
+              : item
+        )));
       }
       await downloadWorkflowArtifact(artifact.id, format);
       toast.success("Download started", { description: `${artifact.title} • ${format.toUpperCase()}` });
@@ -589,6 +636,85 @@ export default function WorkflowsPage() {
       setArtifactBusyRunId((current) => (current === run.id ? null : current));
     }
   }, []);
+
+  const handleSelectVersion = useCallback(async (run: WorkflowRun, version: WorkflowRunVersion) => {
+    if (run.active_version_id === version.id) return;
+    setVersionBusyId(version.id);
+    try {
+      const updated = await selectWorkflowRunVersion(run.id, version.id);
+      setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setSelectedRunId(updated.id);
+      toast.message(`Viewing ${versionLabel(version)}`, {
+        description: "You can download it, refine it, or branch from it.",
+      });
+    } catch (err) {
+      console.error("[workflows] select version error", err);
+      toast.error("Failed to open version", { description: parseErr(err) });
+    } finally {
+      setVersionBusyId((current) => (current === version.id ? null : current));
+    }
+  }, []);
+
+  const handleDownloadVersion = useCallback(async (run: WorkflowRun, version: WorkflowRunVersion, format: WorkflowArtifactFormat = "markdown") => {
+    setVersionBusyId(version.id);
+    try {
+      let artifact = version.artifact || null;
+      if (!artifact) {
+        artifact = await saveWorkflowVersionArtifact(run.id, version.id);
+        const savedArtifact = artifact;
+        setRuns((prev) => prev.map((item) => (item.id === run.id ? attachArtifactToVersion(item, version.id, savedArtifact) : item)));
+      }
+      await downloadWorkflowArtifact(artifact.id, format);
+      toast.success("Download started", { description: `${versionLabel(version)} • ${format.toUpperCase()}` });
+    } catch (err) {
+      console.error("[workflows] download version error", err);
+      toast.error("Failed to download version", { description: parseErr(err) });
+    } finally {
+      setVersionBusyId((current) => (current === version.id ? null : current));
+    }
+  }, []);
+
+  const openBranchDialog = useCallback((run: WorkflowRun, version: WorkflowRunVersion) => {
+    setBranchingRunId(run.id);
+    setBranchingVersion(version);
+    setBranchPrompt("");
+  }, []);
+
+  const closeBranchDialog = useCallback(() => {
+    if (branchSaving) return;
+    setBranchingRunId(null);
+    setBranchingVersion(null);
+    setBranchPrompt("");
+  }, [branchSaving]);
+
+  const submitBranchVersion = useCallback(async () => {
+    const prompt = branchPrompt.trim();
+    if (!branchingRunId || !branchingVersion || !prompt) {
+      toast.error("Add a prompt before branching.");
+      return;
+    }
+
+    setBranchSaving(true);
+    setVersionBusyId(branchingVersion.id);
+    try {
+      const updated = await branchWorkflowRunVersion(branchingRunId, branchingVersion.id, prompt);
+      setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setSelectedRunId(updated.id);
+      setBranchingRunId(null);
+      setBranchingVersion(null);
+      setBranchPrompt("");
+      if (isMobile) setMobilePanel("details");
+      toast.success("Branch created", {
+        description: "The new version is ready to review.",
+      });
+    } catch (err) {
+      console.error("[workflows] branch version error", err);
+      toast.error("Failed to create branch", { description: parseErr(err) });
+    } finally {
+      setBranchSaving(false);
+      setVersionBusyId((current) => (current === branchingVersion?.id ? null : current));
+    }
+  }, [branchPrompt, branchingRunId, branchingVersion, isMobile]);
 
   const handleRefineRun = useCallback(async (run: WorkflowRun, prompt: string) => {
     if (!run.result || run.status !== "completed") return;
@@ -1012,9 +1138,15 @@ export default function WorkflowsPage() {
                         sourceRun={selectedRun}
                         artifact={selectedRun.artifact || null}
                         artifactBusy={artifactBusyRunId === selectedRun.id}
-                        refineBusy={refiningRunId === selectedRun.id}
+                        refineBusy={refiningRunId === selectedRun.id || branchSaving}
+                        versions={selectedRun.versions || []}
+                        activeVersionId={selectedRun.active_version_id || null}
+                        versionBusyId={versionBusyId}
                         onSaveArtifact={() => { void handleSaveArtifact(selectedRun); }}
                         onDownloadArtifact={(format) => { void handleDownloadArtifact(selectedRun, format); }}
+                        onSelectVersion={(version) => { void handleSelectVersion(selectedRun, version); }}
+                        onDownloadVersion={(version, format) => { void handleDownloadVersion(selectedRun, version, format); }}
+                        onBranchVersion={(version) => openBranchDialog(selectedRun, version)}
                         onRefine={(prompt) => { void handleRefineRun(selectedRun, prompt); }}
                         onWorkflowAction={handleWorkflowAction}
                       />
@@ -1141,6 +1273,56 @@ export default function WorkflowsPage() {
             <DialogFooter className="px-6 pb-6">
               <Button type="button" variant="outline" onClick={cancelDeletingRun} disabled={deleteSaving}>Cancel</Button>
               <Button type="submit" variant="destructive" disabled={deleteSaving}>Delete</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!branchingVersion} onOpenChange={(open) => {
+        if (!open) closeBranchDialog();
+      }}>
+        <DialogContent className="max-w-lg rounded-3xl border-border p-0 shadow-[0_32px_80px_rgba(15,23,42,0.18)]">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitBranchVersion();
+            }}
+          >
+            <DialogHeader className="px-6 pt-6">
+              <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+                <GitBranch className="h-4 w-4" />
+                Branch from {branchingVersion ? versionLabel(branchingVersion) : "version"}
+              </DialogTitle>
+              <DialogDescription>
+                Create a new version from this output without replacing any existing versions.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="px-6 py-3">
+              {branchingVersion?.prompt ? (
+                <div className="mb-3 rounded-2xl border border-border/70 bg-muted/20 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  Starting from: {branchingVersion.prompt}
+                </div>
+              ) : null}
+              <Textarea
+                autoFocus
+                value={branchPrompt}
+                onChange={(event) => setBranchPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") closeBranchDialog();
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                className="min-h-[120px] resize-none rounded-2xl"
+                disabled={branchSaving}
+                placeholder="Describe the new direction for this branch."
+              />
+            </div>
+            <DialogFooter className="px-6 pb-6">
+              <Button type="button" variant="outline" onClick={closeBranchDialog} disabled={branchSaving}>Cancel</Button>
+              <Button type="submit" disabled={branchSaving || !branchPrompt.trim()}>
+                {branchSaving ? "Branching" : "Create branch"}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

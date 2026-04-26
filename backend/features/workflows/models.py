@@ -86,6 +86,12 @@ class WorkflowRunTitleUpdate(BaseModel):
 
 class WorkflowRunRefineRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=2000)
+    base_version_id: str | None = None
+
+
+class WorkflowRunBranchRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=2000)
+
 
 class WorkflowSourceFile(BaseModel):
     file_id: str
@@ -130,6 +136,24 @@ class WorkflowResult(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class WorkflowRunVersion(BaseModel):
+    id: str = Field(default_factory=lambda: f"wf_ver_{uuid4().hex[:12]}")
+    run_id: str
+    parent_version_id: str | None = None
+    version_number: int = 1
+    title: str
+    kind: Literal["original", "refinement", "branch"] = "original"
+    prompt: str | None = None
+    result: WorkflowResult
+    artifact: WorkflowArtifactSummary | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class WorkflowRunVersionList(BaseModel):
+    items: list[WorkflowRunVersion] = Field(default_factory=list)
+
+
 class WorkflowRun(BaseModel):
     id: str = Field(default_factory=lambda: f"wf_run_{uuid4().hex[:12]}")
     workflow_id: str
@@ -140,6 +164,8 @@ class WorkflowRun(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
     result: WorkflowResult | None = None
     artifact: WorkflowArtifactSummary | None = None
+    versions: list[WorkflowRunVersion] = Field(default_factory=list)
+    active_version_id: str | None = None
     error: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

@@ -6,6 +6,7 @@ import type {
   WorkflowManifest,
   WorkflowRun,
   WorkflowRunList,
+  WorkflowRunVersionList,
 } from "./types";
 
 export async function listWorkflows(): Promise<WorkflowManifest[]> {
@@ -36,6 +37,31 @@ export async function deleteWorkflowRun(runId: string): Promise<void> {
   await deleteJSON(`/v1/workflows/runs/${encodeURIComponent(runId)}`);
 }
 
+
+export async function listWorkflowRunVersions(runId: string): Promise<WorkflowRunVersionList> {
+  return getJSON<WorkflowRunVersionList>(`/v1/workflows/runs/${encodeURIComponent(runId)}/versions`);
+}
+
+export async function selectWorkflowRunVersion(runId: string, versionId: string): Promise<WorkflowRun> {
+  return postJSON<WorkflowRun>(
+    `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/select`,
+    {}
+  );
+}
+
+export async function branchWorkflowRunVersion(runId: string, versionId: string, prompt: string): Promise<WorkflowRun> {
+  return postJSON<WorkflowRun>(
+    `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/branch`,
+    { prompt }
+  );
+}
+
+export async function saveWorkflowVersionArtifact(runId: string, versionId: string): Promise<WorkflowArtifact> {
+  return postJSON<WorkflowArtifact>(
+    `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/artifact`,
+    {}
+  );
+}
 
 export async function saveWorkflowArtifact(runId: string): Promise<WorkflowArtifact> {
   return postJSON<WorkflowArtifact>(`/v1/workflows/runs/${encodeURIComponent(runId)}/artifact`, {});
