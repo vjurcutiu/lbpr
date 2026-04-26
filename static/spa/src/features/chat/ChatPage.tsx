@@ -89,6 +89,9 @@ export default function ChatPage() {
 
   const { namespace } = useNamespace();
   const listRef = useRef<HTMLDivElement>(null);
+  const chatShellRef = useRef<HTMLDivElement>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(296);
+  const [isSidebarResizing, setIsSidebarResizing] = useState(false);
   const canSend = input.trim().length > 0 && !sending;
 
   const { user, loading } = useAuthContext();
@@ -158,6 +161,36 @@ export default function ChatPage() {
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [sending]);
+
+  useEffect(() => {
+    if (!isSidebarResizing) return;
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMove = (event: MouseEvent) => {
+      const shellRect = chatShellRef.current?.getBoundingClientRect();
+      const shellLeft = shellRect?.left ?? 0;
+      const shellWidth = shellRect?.width ?? window.innerWidth;
+      const minSidebar = 240;
+      const maxSidebar = Math.min(520, Math.max(minSidebar, shellWidth - 360));
+      const nextWidth = event.clientX - shellLeft;
+      setSidebarWidth(Math.min(maxSidebar, Math.max(minSidebar, nextWidth)));
+    };
+
+    const onUp = () => setIsSidebarResizing(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [isSidebarResizing]);
 
   const historyForRequest: chatApi.ChatTurn[] = useMemo(
     () => messages.map((m) => ({ role: m.role, content: m.content })),
@@ -283,8 +316,9 @@ export default function ChatPage() {
   const isAssistantTyping = sending || persistedTyping;
 
   return (
-    <div className="h-full w-full overflow-hidden flex">
+    <div ref={chatShellRef} className="h-full w-full overflow-hidden flex">
       <LeftSidebar
+        width={sidebarWidth}
         sessions={sessions}
         currentId={sessionId || ""}
         onNew={startNewSearch}
@@ -299,6 +333,17 @@ export default function ChatPage() {
             setPersistedTyping(false);
           }
         }}
+      />
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize conversation list"
+        onMouseDown={(event) => {
+          event.preventDefault();
+          setIsSidebarResizing(true);
+        }}
+        className={`hidden sm:block w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-primary/20 ${isSidebarResizing ? "bg-primary/30" : ""}`}
+        title="Drag to resize"
       />
 
       <div className="flex-1 min-h-0 min-w-0 flex flex-col">
@@ -361,6 +406,7 @@ export default function ChatPage() {
 /* --- Sidebar, Message, and Helper Components --- */
 
 function LeftSidebar({
+  width,
   sessions,
   currentId,
   onNew,
@@ -368,6 +414,7 @@ function LeftSidebar({
   onRename,
   onDelete,
 }: {
+  width: number;
   sessions: ConversationMeta[];
   currentId: string;
   onNew: () => void;
@@ -382,7 +429,10 @@ function LeftSidebar({
   const sMap = new Map(sessions.map(s => [s.id, s]));
 
   return (
-    <aside className="hidden sm:flex w-[18.5rem] shrink-0 border-r border-border/70 bg-gradient-to-b from-background via-background to-muted/20 backdrop-blur-xl flex-col dark:from-background dark:via-background dark:to-muted/10">
+    <aside
+      className="hidden min-w-0 shrink-0 flex-col border-r border-border/70 bg-gradient-to-b from-background via-background to-muted/20 backdrop-blur-xl sm:flex dark:from-background dark:via-background dark:to-muted/10"
+      style={{ width }}
+    >
       <div className="border-b border-border/70 px-3 py-3.5">
         <Button
           className="h-11 w-full justify-start gap-2 rounded-2xl border border-[hsl(var(--chat-action-border))] bg-[hsl(var(--chat-action-bg))] px-4 text-sm font-semibold text-[hsl(var(--chat-action-foreground))] shadow-sm transition hover:bg-[hsl(var(--chat-action-bg-hover))] hover:text-[hsl(var(--chat-action-foreground-strong))]"

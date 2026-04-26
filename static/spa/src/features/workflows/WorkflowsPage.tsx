@@ -464,7 +464,12 @@ type MobilePanel = "inbox" | "details" | "flows";
 
 export default function WorkflowsPage() {
   const isMobile = useMediaQuery("(max-width: 767px)");
+  const isResizableDesktop = useMediaQuery("(min-width: 1280px)");
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("inbox");
+  const workflowPanelsRef = useRef<HTMLDivElement>(null);
+  const [runsPaneWidth, setRunsPaneWidth] = useState(310);
+  const [flowsPaneWidth, setFlowsPaneWidth] = useState(300);
+  const [resizingPane, setResizingPane] = useState<"runs" | "flows" | null>(null);
   const [catalog, setCatalog] = useState<WorkflowManifest[]>([]);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -684,6 +689,52 @@ export default function WorkflowsPage() {
     if (!isMobile) setMobilePanel("inbox");
   }, [isMobile]);
 
+  useEffect(() => {
+    if (!isResizableDesktop) setResizingPane(null);
+  }, [isResizableDesktop]);
+
+  useEffect(() => {
+    if (!isResizableDesktop || !resizingPane) return;
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const clampPaneWidth = (value: number, maxAvailable: number) => {
+      const minPane = 240;
+      const maxPane = Math.min(560, Math.max(minPane, maxAvailable));
+      return Math.min(maxPane, Math.max(minPane, value));
+    };
+
+    const onMove = (event: MouseEvent) => {
+      const rect = workflowPanelsRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const minCenter = 420;
+      const handleAllowance = 8;
+      if (resizingPane === "runs") {
+        const maxAvailable = rect.width - flowsPaneWidth - minCenter - handleAllowance;
+        setRunsPaneWidth(clampPaneWidth(event.clientX - rect.left, maxAvailable));
+        return;
+      }
+
+      const maxAvailable = rect.width - runsPaneWidth - minCenter - handleAllowance;
+      setFlowsPaneWidth(clampPaneWidth(rect.right - event.clientX, maxAvailable));
+    };
+
+    const onUp = () => setResizingPane(null);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [flowsPaneWidth, isResizableDesktop, resizingPane, runsPaneWidth]);
+
   const stats = useMemo(() => {
     const completed = runs.filter((run) => run.status === "completed");
     const failed = runs.filter((run) => run.status === "failed");
@@ -829,11 +880,17 @@ export default function WorkflowsPage() {
       ) : null}
 
       <div className={cn("min-h-0 flex-1", isMobile ? "overflow-y-auto overscroll-contain" : "overflow-hidden")}>
-        <div className={cn(
-          "border border-border/70 bg-background shadow-sm",
-          isMobile ? "border-t-0" : "grid h-full min-h-0 xl:grid-cols-[310px_minmax(0,1fr)_300px] xl:divide-x xl:divide-border/70"
-        )}>
-        <section className={cn("flex min-h-[220px] min-w-0 flex-col overflow-hidden border-b border-border/70 xl:min-h-0 xl:border-b-0", !showInbox && "hidden")}>
+        <div
+          ref={workflowPanelsRef}
+          className={cn(
+            "border border-border/70 bg-background shadow-sm",
+            isMobile ? "border-t-0" : "flex h-full min-h-0 flex-col xl:flex-row"
+          )}
+        >
+        <section
+          className={cn("flex min-h-[220px] min-w-0 flex-col overflow-hidden border-b border-border/70 xl:min-h-0 xl:border-b-0", !showInbox && "hidden")}
+          style={isResizableDesktop ? { flex: `0 0 ${runsPaneWidth}px`, width: runsPaneWidth } : undefined}
+        >
           <div className="shrink-0 border-b border-border/70 px-3 py-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -864,7 +921,25 @@ export default function WorkflowsPage() {
           </div>
         </section>
 
-        <section className={cn("flex min-h-[320px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showDetails && "hidden")}>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize workflow runs panel"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            setResizingPane("runs");
+          }}
+          className={cn(
+            "hidden w-1 shrink-0 cursor-col-resize bg-border/70 transition-colors hover:bg-primary/20 xl:block",
+            resizingPane === "runs" && "bg-primary/30"
+          )}
+          title="Drag to resize"
+        />
+
+        <section
+          className={cn("flex min-h-[320px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showDetails && "hidden")}
+          style={isResizableDesktop ? { flex: "1 1 0", minWidth: 0 } : undefined}
+        >
 
           {selectedRun ? (
             <div className={cn("min-h-0 flex-1 bg-muted/15", !isMobile && "overflow-hidden")}>
@@ -1019,7 +1094,25 @@ export default function WorkflowsPage() {
           )}
         </section>
 
-        <section className={cn("flex min-h-[220px] min-w-0 flex-col xl:min-h-0", !showFlows && "hidden")}>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize workflow list panel"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            setResizingPane("flows");
+          }}
+          className={cn(
+            "hidden w-1 shrink-0 cursor-col-resize bg-border/70 transition-colors hover:bg-primary/20 xl:block",
+            resizingPane === "flows" && "bg-primary/30"
+          )}
+          title="Drag to resize"
+        />
+
+        <section
+          className={cn("flex min-h-[220px] min-w-0 flex-col xl:min-h-0", !showFlows && "hidden")}
+          style={isResizableDesktop ? { flex: `0 0 ${flowsPaneWidth}px`, width: flowsPaneWidth } : undefined}
+        >
           <div className="min-h-0 flex-1">
             {catalog.length ? (
               <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
