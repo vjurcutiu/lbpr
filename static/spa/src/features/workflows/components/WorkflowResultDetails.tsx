@@ -42,17 +42,6 @@ function uniqueSourceFiles(sources: SourceFileMeta[]) {
   });
 }
 
-function formatVersionTime(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "Just now";
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
 function versionKindLabel(version: WorkflowRunVersion) {
   if (version.kind === "original") return "Original";
   if (version.kind === "branch") return "Branch";
@@ -78,23 +67,6 @@ function versionDepth(version: WorkflowRunVersion, versions: WorkflowRunVersion[
     cursor = byId.get(cursor)?.parent_version_id || "";
   }
   return depth;
-}
-
-function versionLineage(version: WorkflowRunVersion, versions: WorkflowRunVersion[]) {
-  const byId = new Map(versions.map((item) => [item.id, item]));
-  const lineage: WorkflowRunVersion[] = [version];
-  let cursor = version.parent_version_id || "";
-  const seen = new Set<string>([version.id]);
-
-  while (cursor && byId.has(cursor) && !seen.has(cursor) && lineage.length < 12) {
-    const parent = byId.get(cursor);
-    if (!parent) break;
-    lineage.unshift(parent);
-    seen.add(parent.id);
-    cursor = parent.parent_version_id || "";
-  }
-
-  return lineage;
 }
 
 function stripSourcesUsedSection(markdown: string) {
@@ -169,23 +141,21 @@ type VersionHistoryPanelProps = {
   activeVersionId?: string | null;
   versionBusyId?: string | null;
   onSelectVersion?: (version: WorkflowRunVersion) => void;
-  onDownloadVersion?: (version: WorkflowRunVersion, format: WorkflowArtifactFormat) => void;
-  onBranchVersion?: (version: WorkflowRunVersion) => void;
 };
+
+function versionDisplayName(version: WorkflowRunVersion) {
+  return String(version.title || version.prompt || `${versionKindLabel(version)} output`).trim();
+}
 
 function VersionHistoryPanel({
   versions,
   activeVersionId,
   versionBusyId,
   onSelectVersion,
-  onDownloadVersion,
-  onBranchVersion,
 }: VersionHistoryPanelProps) {
   const [treeOpen, setTreeOpen] = useState(false);
-  const [inspectedVersionId, setInspectedVersionId] = useState<string | null>(null);
   const orderedVersions = useMemo(() => sortedVersions(versions), [versions]);
   const activeVersion = orderedVersions.find((version) => version.id === activeVersionId) || orderedVersions[orderedVersions.length - 1];
-  const inspectedVersion = orderedVersions.find((version) => version.id === inspectedVersionId) || activeVersion;
   const hasMultipleVersions = orderedVersions.length > 1;
 
   const graphNodes = useMemo(() => {
@@ -197,13 +167,20 @@ function VersionHistoryPanel({
   }, [orderedVersions]);
 
   const graphNodeById = useMemo(() => new Map(graphNodes.map((node) => [node.version.id, node])), [graphNodes]);
-  const graphColumnGap = 92;
-  const graphRowGap = 70;
-  const graphLeft = 54;
-  const graphTop = 44;
+  const graphColumnGap = 96;
+  const graphRowGap = 68;
+  const graphLeft = 70;
+  const graphTop = 58;
   const graphMaxDepth = graphNodes.reduce((max, node) => Math.max(max, node.depth), 0);
-  const graphWidth = Math.max(360, graphLeft * 2 + graphMaxDepth * graphColumnGap + 140);
-  const graphHeight = Math.max(240, graphTop * 2 + Math.max(0, graphNodes.length - 1) * graphRowGap);
+  const graphWidth = Math.max(520, graphLeft * 2 + graphMaxDepth * graphColumnGap + 180);
+  const graphHeight = Math.max(320, graphTop * 2 + Math.max(0, graphNodes.length - 1) * graphRowGap);
+
+  const openVersion = (version: WorkflowRunVersion) => {
+    if (version.id !== activeVersion?.id) {
+      onSelectVersion?.(version);
+    }
+    setTreeOpen(false);
+  };
 
   if (!hasMultipleVersions) return null;
 
@@ -222,7 +199,7 @@ function VersionHistoryPanel({
               ) : null}
             </div>
             <div className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-              Pick a saved output from the dropdown or open the map to explore branches.
+              Pick a saved output from the dropdown or use the map to jump between versions.
             </div>
           </div>
 
@@ -265,7 +242,7 @@ function VersionHistoryPanel({
                           {active ? <span className="ml-auto text-[11px] text-primary">Current</span> : null}
                         </div>
                         <div className="truncate text-[11px] leading-4 text-muted-foreground">
-                          {version.title || version.prompt || formatVersionTime(version.updated_at)}
+                          {versionDisplayName(version)}
                         </div>
                       </div>
                     </DropdownMenuItem>
@@ -279,10 +256,7 @@ function VersionHistoryPanel({
               variant="outline"
               size="sm"
               className="h-9 w-full rounded-full px-3 text-xs sm:w-auto"
-              onClick={() => {
-                setInspectedVersionId(activeVersion?.id || null);
-                setTreeOpen(true);
-              }}
+              onClick={() => setTreeOpen(true)}
             >
               <GitBranch className="mr-1 h-4 w-4" />
               Open map
@@ -296,186 +270,70 @@ function VersionHistoryPanel({
           <DialogHeader className="border-b border-border/70 px-6 pt-6 pb-4">
             <DialogTitle className="text-lg font-semibold">Version map</DialogTitle>
             <DialogDescription>
-              Hover over a dot to see its name. Select a dot to inspect, open, branch, or download that version.
+              Hover over a dot to see the version name. Click a dot to open that version.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px]">
-            <div className="min-h-[360px] overflow-auto border-b border-border/70 bg-muted/10 p-4 lg:border-b-0 lg:border-r">
-              <div className="relative rounded-3xl border border-border/70 bg-background/95 shadow-sm" style={{ width: graphWidth, height: graphHeight }}>
-                <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
-                  {graphNodes.map((node) => {
-                    if (!node.version.parent_version_id) return null;
-                    const parent = graphNodeById.get(node.version.parent_version_id);
-                    if (!parent) return null;
-                    const x1 = graphLeft + parent.depth * graphColumnGap;
-                    const y1 = graphTop + parent.row * graphRowGap;
-                    const x2 = graphLeft + node.depth * graphColumnGap;
-                    const y2 = graphTop + node.row * graphRowGap;
-                    const midX = x1 + Math.max(28, (x2 - x1) / 2);
-                    return (
-                      <path
-                        key={`${node.version.id}-line`}
-                        d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
-                        className="fill-none stroke-border"
-                        strokeWidth="2"
-                      />
-                    );
-                  })}
-                </svg>
-
+          <div className="min-h-[420px] flex-1 overflow-auto bg-muted/10 p-5">
+            <div className="relative rounded-3xl border border-border/70 bg-background/95 shadow-sm" style={{ width: graphWidth, height: graphHeight }}>
+              <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true">
                 {graphNodes.map((node) => {
-                  const active = node.version.id === activeVersion?.id;
-                  const selected = node.version.id === inspectedVersion?.id;
-                  const busy = versionBusyId === node.version.id;
-                  const x = graphLeft + node.depth * graphColumnGap;
-                  const y = graphTop + node.row * graphRowGap;
+                  if (!node.version.parent_version_id) return null;
+                  const parent = graphNodeById.get(node.version.parent_version_id);
+                  if (!parent) return null;
+                  const x1 = graphLeft + parent.depth * graphColumnGap;
+                  const y1 = graphTop + parent.row * graphRowGap;
+                  const x2 = graphLeft + node.depth * graphColumnGap;
+                  const y2 = graphTop + node.row * graphRowGap;
+                  const midX = x1 + Math.max(28, (x2 - x1) / 2);
                   return (
-                    <div key={node.version.id} className="absolute" style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={`${versionLabel(node.version)} ${node.version.title || versionKindLabel(node.version)}`}
-                            aria-pressed={selected}
-                            onMouseEnter={() => setInspectedVersionId(node.version.id)}
-                            onFocus={() => setInspectedVersionId(node.version.id)}
-                            onClick={() => setInspectedVersionId(node.version.id)}
-                            className={cn(
-                              "group relative grid h-9 w-9 place-items-center rounded-full border bg-background shadow-sm transition-all hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                              active ? "border-primary bg-primary/10" : "border-border hover:border-primary/50",
-                              selected && "ring-4 ring-primary/15",
-                              busy && "cursor-wait opacity-70"
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                "h-3.5 w-3.5 rounded-full bg-muted-foreground/45 transition-colors group-hover:bg-primary",
-                                node.version.kind === "branch" && "h-4 w-4",
-                                active && "bg-primary",
-                                selected && "bg-primary"
-                              )}
-                            />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" sideOffset={8} className="max-w-[260px]">
-                          <div className="font-medium">{versionLabel(node.version)} · {node.version.title || versionKindLabel(node.version)}</div>
-                          <div className="mt-0.5 text-[11px] opacity-80">{versionKindLabel(node.version)} · {formatVersionTime(node.version.updated_at)}</div>
-                        </TooltipContent>
-                      </Tooltip>
-                      <div className="mt-2 w-16 -translate-x-[14px] truncate text-center text-[11px] text-muted-foreground">
-                        {versionLabel(node.version)}
-                      </div>
-                    </div>
+                    <path
+                      key={`${node.version.id}-line`}
+                      d={`M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`}
+                      className="fill-none stroke-border"
+                      strokeWidth="2"
+                    />
                   );
                 })}
-              </div>
+              </svg>
+
+              {graphNodes.map((node) => {
+                const active = node.version.id === activeVersion?.id;
+                const busy = versionBusyId === node.version.id;
+                const x = graphLeft + node.depth * graphColumnGap;
+                const y = graphTop + node.row * graphRowGap;
+                return (
+                  <div key={node.version.id} className="absolute" style={{ left: x, top: y, transform: "translate(-50%, -50%)" }}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={`${versionLabel(node.version)} ${versionDisplayName(node.version)}`}
+                          aria-current={active ? "true" : undefined}
+                          disabled={busy}
+                          onClick={() => openVersion(node.version)}
+                          className={cn(
+                            "group relative grid h-10 w-10 place-items-center rounded-full border bg-background shadow-sm transition-all hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-70",
+                            active ? "border-primary bg-primary/10 ring-4 ring-primary/15" : "border-border hover:border-primary/50"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "h-3.5 w-3.5 rounded-full bg-muted-foreground/45 transition-colors group-hover:bg-primary",
+                              node.version.kind === "branch" && "h-4 w-4",
+                              active && "bg-primary"
+                            )}
+                          />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={8} className="max-w-[260px] rounded-xl px-3 py-2 text-xs shadow-lg">
+                        <div className="truncate font-medium">{versionDisplayName(node.version)}</div>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                );
+              })}
             </div>
-
-            <aside className="min-h-0 overflow-y-auto p-5">
-              {inspectedVersion ? (
-                <div className="space-y-5">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={inspectedVersion.id === activeVersion?.id ? "default" : "secondary"} className="rounded-full px-2 py-0 text-[10px] font-normal">
-                        {versionLabel(inspectedVersion)}
-                      </Badge>
-                      <span className="text-sm font-medium text-foreground">{versionKindLabel(inspectedVersion)}</span>
-                      {inspectedVersion.id === activeVersion?.id ? <span className="text-xs text-primary">Viewing now</span> : null}
-                    </div>
-                    <h3 className="mt-3 text-lg font-semibold leading-6 text-foreground">
-                      {inspectedVersion.title || `${versionKindLabel(inspectedVersion)} output`}
-                    </h3>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">Updated {formatVersionTime(inspectedVersion.updated_at)}</p>
-                  </div>
-
-                  <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Prompt</div>
-                    <p className="mt-2 text-sm leading-6 text-foreground/85">
-                      {inspectedVersion.prompt || "First generated output."}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <Button
-                      type="button"
-                      variant={inspectedVersion.id === activeVersion?.id ? "secondary" : "default"}
-                      size="sm"
-                      className="h-9 rounded-full px-3 text-xs"
-                      disabled={versionBusyId === inspectedVersion.id || inspectedVersion.id === activeVersion?.id}
-                      onClick={() => {
-                        onSelectVersion?.(inspectedVersion);
-                        setTreeOpen(false);
-                      }}
-                    >
-                      {inspectedVersion.id === activeVersion?.id ? "Viewing" : "Open this version"}
-                    </Button>
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-9 rounded-full px-3 text-xs"
-                      disabled={versionBusyId === inspectedVersion.id}
-                      onClick={() => {
-                        onBranchVersion?.(inspectedVersion);
-                        setTreeOpen(false);
-                      }}
-                    >
-                      <GitBranch className="mr-1 h-3.5 w-3.5" />
-                      Branch from this version
-                    </Button>
-
-                    {onDownloadVersion ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-9 rounded-full px-3 text-xs"
-                            disabled={versionBusyId === inspectedVersion.id}
-                          >
-                            <Download className="mr-1 h-3.5 w-3.5" />
-                            Download
-                            <ChevronDown className="ml-1 h-3.5 w-3.5" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-64 rounded-2xl">
-                          <DropdownMenuLabel className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Download format</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          {DOWNLOAD_FORMATS.map((item) => (
-                            <DropdownMenuItem
-                              key={item.value}
-                              className="items-start rounded-xl px-2 py-2"
-                              onSelect={() => onDownloadVersion(inspectedVersion, item.value)}
-                            >
-                              <div className="min-w-0">
-                                <div className="text-xs font-medium leading-5 text-foreground">{item.label}</div>
-                                <div className="text-[11px] leading-4 text-muted-foreground">{item.helper}</div>
-                              </div>
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-2xl border border-border/70 px-4 py-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Path</div>
-                    <div className="mt-3 space-y-2">
-                      {versionLineage(inspectedVersion, orderedVersions).map((version) => (
-                        <div key={version.id} className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span className={cn("h-2 w-2 rounded-full", version.id === inspectedVersion.id ? "bg-primary" : "bg-muted-foreground/50")} />
-                          <span className="font-medium text-foreground">{versionLabel(version)}</span>
-                          <span className="truncate">{version.title || versionKindLabel(version)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </aside>
           </div>
         </DialogContent>
       </Dialog>
@@ -496,8 +354,6 @@ export function WorkflowResultDetails({
   onSaveArtifact,
   onDownloadArtifact,
   onSelectVersion,
-  onDownloadVersion,
-  onBranchVersion,
   onRefine,
   onWorkflowAction,
 }: Props) {
@@ -540,8 +396,6 @@ export function WorkflowResultDetails({
         activeVersionId={activeVersionId}
         versionBusyId={versionBusyId}
         onSelectVersion={onSelectVersion}
-        onDownloadVersion={onDownloadVersion}
-        onBranchVersion={onBranchVersion}
       />
 
       <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
