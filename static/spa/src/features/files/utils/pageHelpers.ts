@@ -46,6 +46,42 @@ function remapSubtreePath(path: string, sourceRoot: string, destinationRoot: str
   return joinFolder(destination, relative);
 }
 
+
+export type OptimisticFileMoveResult = {
+  files: FileItem[];
+  movedFileIds: string[];
+};
+
+export function applyOptimisticFileMoveState({
+  files,
+  fileIds,
+  destination,
+}: {
+  files: FileItem[];
+  fileIds: string[];
+  destination: string;
+}): OptimisticFileMoveResult {
+  const dest = normalizeFolderPath(destination);
+  const idSet = new Set(uniqStrings(fileIds));
+  const movedFileIds: string[] = [];
+
+  const nextFiles = files.map((file) => {
+    if (!idSet.has(file.id)) return file;
+    const currentFolder = normalizeFolderPath(file.folder_path || "");
+    if (currentFolder === dest) return file;
+    movedFileIds.push(file.id);
+    return {
+      ...file,
+      folder_path: dest || null,
+    };
+  });
+
+  return {
+    files: nextFiles,
+    movedFileIds: uniqStrings(movedFileIds),
+  };
+}
+
 export type OptimisticFolderMoveResult = {
   files: FileItem[];
   folderPaths: string[];

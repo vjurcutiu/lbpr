@@ -7,7 +7,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import type { FileItem } from "../api";
 import type { TreeNode } from "../utils/fileTree";
-import { folderDndId, isExternalFilesDrag } from "../utils/dnd";
+import { folderDndId, folderDropData, folderDropDndId, isExternalFilesDrag, normalizeFolderPath } from "../utils/dnd";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -266,8 +266,16 @@ function FolderRow({
     setActivatorNodeRef,
     transform,
     isDragging,
-  } = useDraggable({ id: folderDndId(node.path), disabled: isRoot || pending });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: folderDndId(node.path), disabled: pending });
+  } = useDraggable({
+    id: folderDndId(node.path),
+    data: { type: "folder", folderPath: normalizeFolderPath(node.path) },
+    disabled: isRoot || pending,
+  });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: folderDropDndId("tree", node.path),
+    data: folderDropData("tree", node.path),
+    disabled: pending,
+  });
 
   const style = {
     transform: CSS.Translate.toString(transform),

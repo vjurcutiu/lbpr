@@ -4,14 +4,14 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
-  useDroppable,
-  useDraggable,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import { flushSync } from "react-dom";
 import {
   Upload,
@@ -90,7 +90,7 @@ import {
 import { transcribeAudio, type TranscribeResponse } from "@/features/transcription/api";
 import { runOcr, type OcrResponse, type OcrMode } from "@/features/ocr/api";
 import { buildTree, findNode, type TreeNode } from "./utils/fileTree";
-import { fileDndId, folderDndId, normalizeFolderPath, parseDndId, isExternalFilesDrag } from "./utils/dnd";
+import { normalizeFolderPath, parseDndId, parseFolderDropDndId, isExternalFilesDrag } from "./utils/dnd";
 import { fmtSize, parseErr } from "./utils/formatters";
 import { FileTree } from "./components/FileTree";
 import { FileViewer } from "./components/FileViewer";
@@ -113,7 +113,9 @@ import {
   pickTopLevelFolders,
   reduceNestedFolderPaths,
   filterFileIdsNotUnderFolders,
+  fileParentFolder,
   applyOptimisticFolderMoveState,
+  applyOptimisticFileMoveState,
   type ClipboardState,
 } from "./utils/pageHelpers";
 import { WorkflowActionBar } from "@/features/workflows/components/WorkflowActionBar";
@@ -194,6 +196,7 @@ export default function FilesPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [folderPaths, setFolderPaths] = useState<string[]>([]);
   const [pendingFolderMoveRoots, setPendingFolderMoveRoots] = useState<string[]>([]);
+  const [pendingFileMoveIds, setPendingFileMoveIds] = useState<string[]>([]);
   const [tree, setTree] = useState<TreeNode | null>(null);
   // Navigation
   const [selectedFolder, setSelectedFolder] = useState<string>(() => {
@@ -246,11 +249,50 @@ type ActiveInternalDrag = {
   label?: string;
 };
 const [activeInternalDrag, setActiveInternalDrag] = useState<ActiveInternalDrag | null>(null);
+const activeInternalDragRef = useRef<ActiveInternalDrag | null>(null);
+const setActiveInternalDragPayload = useCallback((payload: ActiveInternalDrag) => {
+  activeInternalDragRef.current = payload;
+  setActiveInternalDrag(payload);
+}, []);
+const clearActiveInternalDrag = useCallback(() => {
+  activeInternalDragRef.current = null;
+  setActiveInternalDrag(null);
+}, []);
 const sensors = useSensors(
   useSensor(PointerSensor, {
     activationConstraint: { distance: 6 },
   })
 );
+const folderDropCollisionDetection = useCallback<CollisionDetection>((args) => {
+  const folderDropContainers = args.droppableContainers.filter((container) => {
+    const data = container.data.current as { type?: string } | undefined;
+    return data?.type === "folder-drop";
+  });
+  const priorityContainers = folderDropContainers.filter((container) => {
+    const data = container.data.current as { kind?: string } | undefined;
+    return data?.kind === "list-row" || data?.kind === "tree";
+  });
+  const currentFolderContainers = folderDropContainers.filter((container) => {
+    const data = container.data.current as { kind?: string } | undefined;
+    return data?.kind === "current";
+  });
+  const pickFirstCollision = (droppableContainers: typeof args.droppableContainers) => {
+    if (!droppableContainers.length) return [];
+    const pointerCollisions = pointerWithin({ ...args, droppableContainers });
+    if (pointerCollisions.length) return pointerCollisions;
+    return rectIntersection({ ...args, droppableContainers });
+  };
+
+  return pickFirstCollision(priorityContainers).concat(pickFirstCollision(currentFolderContainers)).slice(0, 1);
+}, []);
+const folderPathFromDropTarget = useCallback((over: DragEndEvent["over"]): string | null => {
+  const data = over?.data?.current as { type?: string; folderPath?: unknown } | undefined;
+  if (data?.type === "folder-drop" && typeof data.folderPath === "string") {
+    return normalizeFolderPath(data.folderPath);
+  }
+  const parsed = parseFolderDropDndId(over?.id);
+  return parsed ? normalizeFolderPath(parsed.value) : null;
+}, []);
 const internalDragPreviewLabels = useMemo(() => {
   if (!activeInternalDrag) return [] as string[];
   if (activeInternalDrag.kind === "file") {
@@ -652,6 +694,49 @@ const internalDragPreviewLabels = useMemo(() => {
     setPendingFolderMoveRoots((prev) => prev.filter((root) => !roots.includes(root)));
   }, []);
 
+  const applyOptimisticFileMove = useCallback(
+    (movingFileIds: string[], destination: string) => {
+      const optimistic = applyOptimisticFileMoveState({
+        files,
+        fileIds: movingFileIds,
+        destination,
+      });
+      const snapshot = {
+        files,
+        tree,
+        selectedFileIds,
+        selectedFolderRowPaths,
+      };
+
+      if (optimistic.movedFileIds.length) {
+        setFiles(optimistic.files);
+        setTree(buildTree(optimistic.files, folderPaths));
+        setPendingFileMoveIds((prev) => uniqStrings([...prev, ...optimistic.movedFileIds]));
+      }
+
+      return {
+        snapshot,
+        pendingFileIds: optimistic.movedFileIds,
+      };
+    },
+    [files, folderPaths, selectedFileIds, selectedFolderRowPaths, tree]
+  );
+
+  const restoreFileMoveSnapshot = useCallback(
+    (snapshot: { files: FileItem[]; tree: TreeNode | null; selectedFileIds: string[]; selectedFolderRowPaths: string[] }) => {
+      setFiles(snapshot.files);
+      setTree(snapshot.tree);
+      setSelectedFileIds(snapshot.selectedFileIds);
+      setSelectedFolderRowPaths(snapshot.selectedFolderRowPaths);
+    },
+    []
+  );
+
+  const clearPendingFileMoveIds = useCallback((ids: string[]) => {
+    if (!ids.length) return;
+    setPendingFileMoveIds((prev) => prev.filter((id) => !ids.includes(id)));
+  }, []);
+
   const pasteIntoFolder = useCallback(
     async (destPath: string) => {
       if (!clipboard || !clipboardHasItems) return;
@@ -953,6 +1038,10 @@ const internalDragPreviewLabels = useMemo(() => {
   const isFolderMovePending = useCallback(
     (path: string) => pendingFolderMoveRoots.some((root) => isSameOrDescendantPath(root, path)),
     [pendingFolderMoveRoots]
+  );
+  const isFileMovePending = useCallback(
+    (fileId: string | null | undefined) => !!fileId && pendingFileMoveIds.includes(fileId),
+    [pendingFileMoveIds]
   );
 
   const currentNode = useMemo(() => findNode(tree, selectedFolder) || tree, [tree, selectedFolder]);
@@ -1799,12 +1888,22 @@ const breadcrumb = useMemo(() => {
     }
   };
   const moveFilesToFolder = async (fileIds: string[], folder: string) => {
-    const ids = uniqStrings(fileIds);
-    if (ids.length === 0) return;
-    const dest = (folder || "").split("/").filter(Boolean).join("/");
+    const dest = normalizeFolderPath(folder);
+    const pendingIds = new Set(pendingFileMoveIds);
+    const ids = uniqStrings(fileIds).filter((id) => !pendingIds.has(id));
+    const movableIds = ids.filter((id) => {
+      const currentFolder = normalizeFolderPath(fileParentFolder(files, id));
+      if (currentFolder === dest) return false;
+      if (isFolderMovePending(currentFolder)) return false;
+      return true;
+    });
+    if (movableIds.length === 0) return;
+
+    const optimisticMove = applyOptimisticFileMove(movableIds, dest);
     try {
+      setBusy(true);
       const results = await Promise.allSettled(
-        ids.map((id) => updateFile(id, { folder: dest ? dest : null }))
+        movableIds.map((id) => updateFile(id, { folder: dest ? dest : null }))
       );
       const failed = results.filter((r) => r.status === "rejected") as PromiseRejectedResult[];
       if (failed.length) {
@@ -1812,30 +1911,35 @@ const breadcrumb = useMemo(() => {
         toast.error("Move failed", {
           description: failed.length === 1
             ? parseErr(first)
-            : `${failed.length} of ${ids.length} failed. ${parseErr(first)}`,
+            : `${failed.length} of ${movableIds.length} failed. ${parseErr(first)}`,
         });
       } else {
         toast.success("Moved", {
           description:
-            ids.length === 1
+            movableIds.length === 1
               ? dest ? `Moved into “${dest}”` : "Moved to Root"
-              : dest ? `Moved ${ids.length} files into “${dest}”` : `Moved ${ids.length} files to Root`,
+              : dest ? `Moved ${movableIds.length} files into “${dest}”` : `Moved ${movableIds.length} files to Root`,
         });
       }
       setSelectedFileIds([]);
       setSelectedFolderRowPaths([]);
       selectionAnchorRef.current = null;
-      await refresh();
+      await loadFilesFromServer(selectedFolderRef.current);
     } catch (err) {
+      restoreFileMoveSnapshot(optimisticMove.snapshot);
       toast.error("Move failed", { description: parseErr(err) });
+    } finally {
+      clearPendingFileMoveIds(optimisticMove.pendingFileIds);
+      setBusy(false);
     }
   };
   const moveFoldersToFolder = async (folderPathsToMove: string[], destParent: string) => {
-    const paths = pickTopLevelFolders(folderPathsToMove);
-    if (!paths.length) return;
-    const dest = (destParent || "").split("/").filter(Boolean).join("/");
+    const dest = normalizeFolderPath(destParent);
+    const paths = pickTopLevelFolders(folderPathsToMove).filter((path) => !isFolderMovePending(path));
+    const movablePaths = paths.filter((path) => normalizeFolderPath(parentPath(path)) !== dest);
+    if (!movablePaths.length) return;
     // Guardrail: prevent moving a folder into itself/child.
-    const invalid = paths.find((p) => p === dest || isDescendantPath(p, dest));
+    const invalid = movablePaths.find((p) => p === dest || isDescendantPath(p, dest));
     if (invalid) {
       toast.error("Invalid move", {
         description: "You can’t move a parent folder into itself or one of its children.",
@@ -1843,20 +1947,20 @@ const breadcrumb = useMemo(() => {
       return;
     }
 
-    const optimisticMove = applyOptimisticFolderMove(paths, dest);
+    const optimisticMove = applyOptimisticFolderMove(movablePaths, dest);
 
     try {
       setBusy(true);
-      await pasteClipboard({ op: "move", destination: dest, files: [], folders: paths });
+      await pasteClipboard({ op: "move", destination: dest, files: [], folders: movablePaths });
       toast.success("Moved", {
         description:
-          paths.length === 1
+          movablePaths.length === 1
             ? dest
               ? `Moved into “${dest}”`
               : "Moved to Root"
             : dest
-            ? `Moved ${paths.length} folders into “${dest}”`
-            : `Moved ${paths.length} folders to Root`,
+            ? `Moved ${movablePaths.length} folders into “${dest}”`
+            : `Moved ${movablePaths.length} folders to Root`,
       });
       setSelectedFileIds([]);
       setSelectedFolderRowPaths([]);
@@ -2111,6 +2215,7 @@ const breadcrumb = useMemo(() => {
 {/* Main split */}
 <DndContext
   sensors={sensors}
+  collisionDetection={folderDropCollisionDetection}
   onDragStart={(evt: DragStartEvent) => {
     const a = parseDndId(evt.active.id);
     if (!a) return;
@@ -2124,7 +2229,7 @@ const breadcrumb = useMemo(() => {
         selectionAnchorRef.current = `f:${fileId}`;
       }
       const name = files.find((f) => f.id === fileId)?.name || "File";
-      setActiveInternalDrag({
+      setActiveInternalDragPayload({
         kind: "file",
         ids,
         count: ids.length,
@@ -2142,7 +2247,7 @@ const breadcrumb = useMemo(() => {
         setSelectedFileIds([]);
         selectionAnchorRef.current = `d:${folderPath}`;
       }
-      setActiveInternalDrag({
+      setActiveInternalDragPayload({
         kind: "folder",
         ids: paths,
         count: paths.length,
@@ -2151,29 +2256,19 @@ const breadcrumb = useMemo(() => {
     }
   }}
   onDragEnd={(evt: DragEndEvent) => {
-    setActiveInternalDrag(null);
-    const a = parseDndId(evt.active.id);
-    const o = parseDndId(evt.over?.id);
-    if (!a || !o || o.kind !== "folder") return;
-    const dest = normalizeFolderPath(o.value);
+    const dragPayload = activeInternalDragRef.current;
+    clearActiveInternalDrag();
+    const dest = folderPathFromDropTarget(evt.over);
+    if (!dragPayload || dest === null) return;
     suppressClickUntilRef.current = Date.now() + 250;
-    if (a.kind === "file") {
-      const fileId = a.value;
-      const ids = selectedFileSet.has(fileId) ? selectedFileIds : [fileId];
-      if (!ids.length) return;
-      moveFilesToFolder(ids, dest);
+    if (dragPayload.kind === "file") {
+      moveFilesToFolder(dragPayload.ids, dest);
       return;
     }
-    if (a.kind === "folder") {
-      const folderPath = normalizeFolderPath(a.value);
-      if (!folderPath) return;
-      const paths = selectedFolderRowSet.has(folderPath) ? selectedFolderRowPaths : [folderPath];
-      if (!paths.length) return;
-      moveFoldersToFolder(paths, dest);
-    }
+    moveFoldersToFolder(dragPayload.ids, dest);
   }}
   onDragCancel={() => {
-    setActiveInternalDrag(null);
+    clearActiveInternalDrag();
   }}
 >
       <ContextMenu open={bgContextOpen} onOpenChange={setBgContextOpen}>
@@ -2482,7 +2577,7 @@ const breadcrumb = useMemo(() => {
                           <FileRow
                             key={n.file?.id || n.path}
                             node={n}
-                            pending={isFolderMovePending(n.path)}
+                            pending={isFolderMovePending(n.path) || isFileMovePending(n.file?.id)}
                             selected={!!(n.file?.id && selectedFileSet.has(n.file.id))}
                             onBeforeMenuOpen={() => cancelMarqueeAndReleaseCapture("ctxmenu.open")}
                             onSelect={(e) => n.file && selectFile(n.file.id, e)}

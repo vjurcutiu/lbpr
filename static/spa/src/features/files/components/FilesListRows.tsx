@@ -33,7 +33,14 @@ import {
 import { cn } from "@/lib/utils";
 
 import { fileDownloadUrl, type FileItem } from "../api";
-import { folderDndId, fileDndId, isExternalFilesDrag } from "../utils/dnd";
+import {
+  fileDndId,
+  folderDndId,
+  folderDropData,
+  folderDropDndId,
+  isExternalFilesDrag,
+  normalizeFolderPath,
+} from "../utils/dnd";
 import { fmtSize } from "../utils/formatters";
 import type { TreeNode } from "../utils/fileTree";
 import { ctxEvtSummary, ctxLog, safeAction } from "../utils/contextMenuDebug";
@@ -56,7 +63,11 @@ type CurrentFolderDropProps = {
 };
 
 export function CurrentFolderDrop({ folderPath, className, children, onDragOver, onDrop }: CurrentFolderDropProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: folderDndId(folderPath) });
+  const normalizedFolderPath = normalizeFolderPath(folderPath);
+  const { setNodeRef, isOver } = useDroppable({
+    id: folderDropDndId("current", normalizedFolderPath),
+    data: folderDropData("current", normalizedFolderPath),
+  });
 
   return (
     <div
@@ -116,8 +127,16 @@ export function FolderRow({
     setActivatorNodeRef,
     transform,
     isDragging,
-  } = useDraggable({ id: folderDndId(node.path), disabled: pending });
-  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: folderDndId(node.path), disabled: pending });
+  } = useDraggable({
+    id: folderDndId(node.path),
+    data: { type: "folder", folderPath: normalizeFolderPath(node.path) },
+    disabled: pending,
+  });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: folderDropDndId("list-row", node.path),
+    data: folderDropData("list-row", node.path),
+    disabled: pending,
+  });
 
   const style = {
     transform: CSS.Translate.toString(transform),
@@ -204,8 +223,9 @@ export function FolderRow({
                 className={cn(
                   "inline-flex h-5 w-5 items-center justify-center rounded",
                   "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
-                  "cursor-grab active:cursor-grabbing touch-none select-none"
+                  pending ? "cursor-wait" : "cursor-grab active:cursor-grabbing touch-none select-none"
                 )}
+                disabled={pending}
                 onClick={(event) => event.stopPropagation()}
                 onDoubleClick={(event) => event.stopPropagation()}
                 {...attributes}
@@ -327,6 +347,8 @@ export function FileRow({
 
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } = useDraggable({
     id: fileDndId(file.id),
+    data: { type: "file", fileId: file.id },
+    disabled: pending,
   });
 
   const style = {
@@ -340,6 +362,10 @@ export function FileRow({
       open={menuOpen}
       onOpenChange={(open) => {
         ctxLog("FileRow.onOpenChange", { open, id: file.id });
+        if (pending) {
+          setMenuOpen(false);
+          return;
+        }
         if (open) onBeforeMenuOpen?.();
         setMenuOpen(open);
       }}
@@ -369,13 +395,19 @@ export function FileRow({
               setMenuKey((value) => value + 1);
             }
           }}
-          onDoubleClick={onOpen}
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            if (pending) return;
+            onOpen();
+          }}
           onClick={(event) => {
             event.stopPropagation();
+            if (pending) return;
             onSelect(event);
           }}
           onContextMenu={(event) => {
             event.stopPropagation();
+            if (pending) return;
             if (!selected) onSelect(event);
           }}
           data-file-row
@@ -390,8 +422,9 @@ export function FileRow({
               className={cn(
                 "inline-flex h-5 w-5 items-center justify-center rounded",
                 "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
-                "cursor-grab active:cursor-grabbing touch-none select-none"
+                pending ? "cursor-wait" : "cursor-grab active:cursor-grabbing touch-none select-none"
               )}
+              disabled={pending}
               onClick={(event) => event.stopPropagation()}
               onDoubleClick={(event) => event.stopPropagation()}
               {...attributes}
