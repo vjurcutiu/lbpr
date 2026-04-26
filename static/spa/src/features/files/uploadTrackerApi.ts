@@ -7,7 +7,7 @@ export type UploadJob = {
   dataset: string;
   total_bytes: number;
   bytes: number;
-  phase: "receive" | "upload" | "transcribe" | "ocr" | "extract" | "embed" | "upsert" | "complete" | "error";
+  phase: "receive" | "queued" | "upload" | "transcribe" | "ocr" | "extract" | "embed" | "upsert" | "complete" | "error";
   pct: number;
   status: "running" | "done" | "error";
   error?: string | null;

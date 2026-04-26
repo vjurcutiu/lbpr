@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Loader2, MoreHorizontal, ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, Loader2, MoreHorizontal, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,8 @@ function phaseLabel(p: UploadJob["phase"]) {
   switch (p) {
     case "receive":
       return "Receiving";
+    case "queued":
+      return "Queued";
     case "upload":
       return "Storing";
     case "transcribe":
@@ -88,12 +90,49 @@ function workflowRunPath(runId: string) {
   return `/workflows?run=${encodeURIComponent(runId)}`;
 }
 
+function uploadStatusLabel(status: UploadJob["status"]) {
+  switch (status) {
+    case "done":
+      return "Complete";
+    case "error":
+      return "Error";
+    case "running":
+      return "Running";
+  }
+}
+
+function UploadStatusIcon({ status }: { status: UploadJob["status"] }) {
+  if (status === "done") return <CheckCircle2 className="h-4 w-4" />;
+  if (status === "error") return <XCircle className="h-4 w-4" />;
+  return <Loader2 className="h-4 w-4 animate-spin" />;
+}
+
+function uploadStatusAccentClass(status: UploadJob["status"]) {
+  if (status === "done") {
+    return "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+  }
+  if (status === "error") {
+    return "border-destructive/30 bg-destructive/10 text-destructive";
+  }
+  return "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400";
+}
+
+function formatUploadSecondaryText(job: UploadJob) {
+  if (job.status === "running") {
+    return `${fmtBytes(job.bytes)} / ${fmtBytes(job.total_bytes || 0)}`;
+  }
+  if (job.status === "error") {
+    return job.error?.trim() || "Upload failed.";
+  }
+  return `Uploaded ${formatRelativeTime(new Date(job.updated_at * 1000).toISOString())}`;
+}
 export function UploadTrackerPanel({
   open,
   onClose,
   refreshKey,
   onAnyComplete,
   onCleared,
+  onOpenUpload,
   optimistic = [],
   batchFilenames = [],
   showHistory = false,
@@ -105,6 +144,7 @@ export function UploadTrackerPanel({
   refreshKey?: number | string;
   onAnyComplete?: (newlyCompleted: UploadJob[]) => void;
   onCleared?: (scope: "done" | "all") => void;
+  onOpenUpload?: (job: UploadJob) => void;
   optimistic?: UploadJob[];
   batchFilenames?: string[];
   showHistory?: boolean;
@@ -455,40 +495,84 @@ export function UploadTrackerPanel({
             </div>
 
             <div className="space-y-2">
-              {mergedJobs.map((j) => (
-                <div key={j.job_id} className="rounded-xl border p-2.5">
-                  <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                    <div className="truncate font-medium" title={j.filename}>
-                      {j.filename}
+              {mergedJobs.map((j) => {
+                const isRunning = j.status === "running";
+                const canOpen = j.status === "done" && !!onOpenUpload && j.job_id.includes("/uploads/");
+                const content = (
+                  <>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={cn(
+                              "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border",
+                              uploadStatusAccentClass(j.status)
+                            )}
+                          >
+                            <UploadStatusIcon status={j.status} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-foreground" title={j.filename}>
+                              {j.filename}
+                            </div>
+                            <div
+                              className={cn(
+                                "mt-1 text-xs text-muted-foreground",
+                                j.status === "error" && "text-destructive"
+                              )}
+                            >
+                              {formatUploadSecondaryText(j)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className={cn(
+                          "shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                          uploadStatusAccentClass(j.status)
+                        )}
+                      >
+                        {isRunning ? phaseLabel(j.phase) : uploadStatusLabel(j.status)}
+                      </div>
                     </div>
-                    <div
-                      className={cn(
-                        "rounded px-1.5 py-0.5",
-                        j.status === "error"
-                          ? "bg-destructive/20 text-destructive"
-                          : j.status === "done"
-                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                            : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                      )}
+
+                    {isRunning ? (
+                      <>
+                        <div className="mt-2 h-2 overflow-hidden rounded bg-muted">
+                          <div
+                            className="h-full bg-primary transition-all"
+                            style={{ width: `${Math.max(0, Math.min(100, j.pct))}%` }}
+                          />
+                        </div>
+                        <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+                          <div>{fmtBytes(j.bytes)} / {fmtBytes(j.total_bytes || 0)}</div>
+                          <div>{j.pct}%</div>
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                );
+
+                if (canOpen) {
+                  return (
+                    <button
+                      key={j.job_id}
+                      type="button"
+                      onClick={() => onOpenUpload?.(j)}
+                      className="block w-full rounded-xl border p-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      aria-label={`Open file ${j.filename}`}
                     >
-                      {phaseLabel(j.phase)}
-                    </div>
+                      {content}
+                    </button>
+                  );
+                }
+
+                return (
+                  <div key={j.job_id} className="rounded-xl border p-3">
+                    {content}
                   </div>
-                  <div className="h-2 overflow-hidden rounded bg-muted">
-                    <div
-                      className={cn("h-full transition-all", j.status === "error" ? "bg-destructive" : "bg-primary")}
-                      style={{ width: `${Math.max(0, Math.min(100, j.pct))}%` }}
-                    />
-                  </div>
-                  <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
-                    <div>
-                      {fmtBytes(j.bytes)} / {fmtBytes(j.total_bytes || 0)}
-                    </div>
-                    <div>{j.pct}%</div>
-                  </div>
-                  {j.error && j.status === "error" ? <div className="mt-1 text-xs text-destructive">{j.error}</div> : null}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         ) : null}

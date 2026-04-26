@@ -1922,6 +1922,46 @@ const breadcrumb = useMemo(() => {
       }
     }
   };
+
+  const openUploadFromTracker = async (job: UploadJob) => {
+    const findUploadedFile = (items: FileItem[]) => {
+      const byId = items.find((file) => file.id === job.job_id);
+      if (byId) return byId;
+
+      return items.find((file) => {
+        const baseName = (file.original_name || file.name.split("/").pop() || file.name).trim();
+        return baseName === job.filename || file.name === job.filename;
+      });
+    };
+
+    let file = findUploadedFile(files);
+    if (!file) {
+      try {
+        const [latestFiles, latestFolders] = await Promise.all([listFiles(), listFolders()]);
+        setFiles(latestFiles);
+        setFolderPaths(latestFolders);
+        const nextTree = buildTree(latestFiles, latestFolders);
+        setTree(nextTree);
+        if (selectedFolder && !findNode(nextTree, selectedFolder)) setSelectedFolder("");
+        file = findUploadedFile(latestFiles);
+      } catch (err) {
+        console.error("[files] open uploaded file from tracker failed", err);
+        toast.error("File is not ready yet", { description: parseErr(err) });
+        return;
+      }
+    }
+
+    if (!file) {
+      toast.message("File is not ready yet", { description: "Refresh and try again in a moment." });
+      return;
+    }
+
+    setTrackerOpen(false);
+    setSelectedFolder(file.folder_path || "");
+    setSelectedFileIds([file.id]);
+    selectionAnchorRef.current = `f:${file.id}`;
+    await openViewer(file);
+  };
   // --- Right panel drop target (external OS file drops into current folder)
   const onDropIntoCurrent = (e: React.DragEvent) => {
     if (!isExternalFilesDrag(e.dataTransfer)) return;
@@ -3186,6 +3226,7 @@ const breadcrumb = useMemo(() => {
         refreshKey={trackerRefreshKey}
         onAnyComplete={refresh}
         onCleared={handleTrackerCleared}
+        onOpenUpload={openUploadFromTracker}
         optimistic={optimisticJobs}
         batchFilenames={batchFilenames}
         showHistory={true}
