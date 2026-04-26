@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, ChevronRight, CornerDownRight, GitBranch, MoreVertical, Pencil, Search, Trash2 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +34,7 @@ import {
   createWorkflowRun,
   deleteWorkflowRun,
   downloadWorkflowArtifact,
+  getWorkflowRun,
   listWorkflowRuns,
   listWorkflows,
   refineWorkflowRun,
@@ -443,6 +445,8 @@ type MobilePanel = "inbox" | "details" | "flows";
 export default function WorkflowsPage() {
   const isMobile = useMediaQuery("(max-width: 767px)");
   const isResizableDesktop = useMediaQuery("(min-width: 1280px)");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedRunId = searchParams.get("run")?.trim() || null;
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("inbox");
   const workflowPanelsRef = useRef<HTMLDivElement>(null);
   const [runsPaneWidth, setRunsPaneWidth] = useState(310);
@@ -473,6 +477,7 @@ export default function WorkflowsPage() {
   const [deleteSaving, setDeleteSaving] = useState(false);
   const prevRunStatusRef = useRef<Map<string, WorkflowStatus>>(new Map());
   const hasHydratedRunStatusesRef = useRef(false);
+  const linkedRunFetchesRef = useRef<Set<string>>(new Set());
 
   const emptyLauncherSelection = useMemo(
     () => summarizeWorkflowSelection({ file_ids: [], folder_paths: [], current_folder: "" }),
@@ -482,6 +487,20 @@ export default function WorkflowsPage() {
   const [launcherInitialInputs, setLauncherInitialInputs] = useState<Record<string, unknown>>({});
   const [launcherChainSource, setLauncherChainSource] = useState<WorkflowChainSource | null>(null);
 
+  const selectRun = useCallback(
+    (runId: string | null) => {
+      setSelectedRunId(runId);
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        if (runId) next.set("run", runId);
+        else next.delete("run");
+        return next;
+      }, { replace: true });
+      if (runId && isMobile) setMobilePanel("details");
+    },
+    [isMobile, setSearchParams]
+  );
+
   const loadPage = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = !!opts?.silent;
     if (silent) setRefreshing(true);
@@ -490,7 +509,12 @@ export default function WorkflowsPage() {
     try {
       const [catalogRes, runsRes] = await Promise.all([listWorkflows(), listWorkflowRuns(24)]);
       setCatalog(catalogRes || []);
-      setRuns(runsRes.items || []);
+      setRuns((prev) => {
+        const incoming = runsRes.items || [];
+        if (!linkedRunId || incoming.some((run) => run.id === linkedRunId)) return incoming;
+        const linkedRun = prev.find((run) => run.id === linkedRunId);
+        return linkedRun ? [linkedRun, ...incoming.filter((run) => run.id !== linkedRun.id)].slice(0, 24) : incoming;
+      });
     } catch (err) {
       console.error("[workflows] load error", err);
       toast.error("Failed to load workflows", { description: parseErr(err) });
@@ -498,7 +522,7 @@ export default function WorkflowsPage() {
       if (silent) setRefreshing(false);
       else setLoading(false);
     }
-  }, []);
+  }, [linkedRunId]);
 
   const ensureLauncherFilesLoaded = useCallback(async () => {
     if (launcherFiles.length || launcherFilesLoading) return;
@@ -539,13 +563,12 @@ export default function WorkflowsPage() {
           },
         });
         setRuns((prev) => [run, ...prev.filter((item) => item.id !== run.id)].slice(0, 24));
-        setSelectedRunId(run.id);
+        selectRun(run.id);
         setWorkflowLauncherOpen(false);
         setActiveWorkflow(null);
         setLauncherSelection(emptyLauncherSelection);
         setLauncherInitialInputs({});
         setLauncherChainSource(null);
-        if (isMobile) setMobilePanel("details");
         toast.message(`${workflow.title} queued`, {
           description: workflowQueuedDescription(selection, !!launcherChainSource),
         });
@@ -556,7 +579,7 @@ export default function WorkflowsPage() {
         setWorkflowSubmitting(false);
       }
     },
-    [emptyLauncherSelection, isMobile, launcherChainSource]
+    [emptyLauncherSelection, launcherChainSource, selectRun]
   );
 
   const handleWorkflowAction = useCallback(
@@ -633,7 +656,7 @@ export default function WorkflowsPage() {
     try {
       const updated = await selectWorkflowRunVersion(run.id, version.id);
       setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-      setSelectedRunId(updated.id);
+      selectRun(updated.id);
       toast.message(`Viewing ${versionLabel(version)}`, {
         description: "You can download it, refine it, or branch from it.",
       });
@@ -643,7 +666,7 @@ export default function WorkflowsPage() {
     } finally {
       setVersionBusyId((current) => (current === version.id ? null : current));
     }
-  }, []);
+  }, [selectRun]);
 
   const handleDownloadVersion = useCallback(async (run: WorkflowRun, version: WorkflowRunVersion, format: WorkflowArtifactFormat = "markdown") => {
     setVersionBusyId(version.id);
@@ -689,11 +712,10 @@ export default function WorkflowsPage() {
     try {
       const updated = await branchWorkflowRunVersion(branchingRunId, branchingVersion.id, prompt);
       setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-      setSelectedRunId(updated.id);
+      selectRun(updated.id);
       setBranchingRunId(null);
       setBranchingVersion(null);
       setBranchPrompt("");
-      if (isMobile) setMobilePanel("details");
       toast.success("Branch created", {
         description: "The new version is ready to review.",
       });
@@ -704,7 +726,7 @@ export default function WorkflowsPage() {
       setBranchSaving(false);
       setVersionBusyId((current) => (current === branchingVersion?.id ? null : current));
     }
-  }, [branchPrompt, branchingRunId, branchingVersion, isMobile]);
+  }, [branchPrompt, branchingRunId, branchingVersion, selectRun]);
 
   const handleRefineRun = useCallback(async (run: WorkflowRun, prompt: string) => {
     if (!run.result || run.status !== "completed") return;
@@ -715,7 +737,7 @@ export default function WorkflowsPage() {
     try {
       const refined = await refineWorkflowRun(run.id, prompt);
       setRuns((prev) => prev.map((item) => (item.id === refined.id ? refined : item)));
-      setSelectedRunId(refined.id);
+      selectRun(refined.id);
       toast.success("Output refined", { description: "The revised version is ready to review." });
     } catch (err) {
       console.error("[workflows] refine error", err);
@@ -723,7 +745,7 @@ export default function WorkflowsPage() {
     } finally {
       setRefiningRunId((current) => (current === run.id ? null : current));
     }
-  }, []);
+  }, [selectRun]);
 
   useEffect(() => {
     const nextMap = new Map<string, WorkflowStatus>();
@@ -856,14 +878,47 @@ export default function WorkflowsPage() {
   }, [runs, search]);
 
   useEffect(() => {
+    if (!linkedRunId || runs.some((run) => run.id === linkedRunId)) return;
+    if (linkedRunFetchesRef.current.has(linkedRunId)) return;
+
+    let cancelled = false;
+    linkedRunFetchesRef.current.add(linkedRunId);
+    void getWorkflowRun(linkedRunId)
+      .then((run) => {
+        if (cancelled) return;
+        setRuns((prev) => [run, ...prev.filter((item) => item.id !== run.id)].slice(0, 24));
+        setSelectedRunId(run.id);
+        if (isMobile) setMobilePanel("details");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("[workflows] linked run load error", err);
+        toast.error("Could not open that workflow", { description: parseErr(err) });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isMobile, linkedRunId, runs]);
+
+  useEffect(() => {
+    if (linkedRunId && runs.some((run) => run.id === linkedRunId)) {
+      if (selectedRunId !== linkedRunId) {
+        setSelectedRunId(linkedRunId);
+        if (isMobile) setMobilePanel("details");
+      }
+      return;
+    }
+
     if (!visibleRuns.length) {
       setSelectedRunId(null);
       return;
     }
+
     if (!selectedRunId || !visibleRuns.some((run) => run.id === selectedRunId)) {
       setSelectedRunId(visibleRuns[0]?.id ?? null);
     }
-  }, [selectedRunId, visibleRuns]);
+  }, [isMobile, linkedRunId, runs, selectedRunId, visibleRuns]);
 
   const selectedRun = useMemo(() => runs.find((run) => run.id === selectedRunId) || null, [runs, selectedRunId]);
   const selectedRunDisplayStatus = selectedRun ? workflowDisplayStatus(selectedRun, refiningRunId) : null;
@@ -871,9 +926,8 @@ export default function WorkflowsPage() {
   const deletingRun = useMemo(() => runs.find((run) => run.id === deletingRunId) || null, [deletingRunId, runs]);
   const selectedRunChainSource = useMemo(() => chainSourceFromRun(selectedRun, catalog), [catalog, selectedRun]);
   const handleSelectRun = useCallback((runId: string) => {
-    setSelectedRunId(runId);
-    if (isMobile) setMobilePanel("details");
-  }, [isMobile]);
+    selectRun(runId);
+  }, [selectRun]);
 
   const startRenamingRun = useCallback((run: WorkflowRun) => {
     setRenamingRunId(run.id);
@@ -930,7 +984,7 @@ export default function WorkflowsPage() {
       await deleteWorkflowRun(deletingRun.id);
       setRuns((prev) => prev.filter((item) => item.id !== deletingRun.id));
       if (selectedRunId === deletingRun.id) {
-        setSelectedRunId(null);
+        selectRun(null);
       }
       if (renamingRunId === deletingRun.id) {
         setRenamingRunId(null);
@@ -944,7 +998,7 @@ export default function WorkflowsPage() {
     } finally {
       setDeleteSaving(false);
     }
-  }, [deletingRun, renamingRunId, selectedRunId]);
+  }, [deletingRun, renamingRunId, selectedRunId, selectRun]);
 
 
   const showInbox = !isMobile || mobilePanel === "inbox";
@@ -1070,8 +1124,7 @@ export default function WorkflowsPage() {
                                   className="inline-flex items-center gap-1 text-left transition-colors hover:text-foreground"
                                   onClick={() => {
                                     if (runs.some((item) => item.id === selectedRunChainSource.parent_run_id)) {
-                                      setSelectedRunId(selectedRunChainSource.parent_run_id);
-                                      if (isMobile) setMobilePanel("details");
+                                      selectRun(selectedRunChainSource.parent_run_id);
                                     }
                                   }}
                                   disabled={!runs.some((item) => item.id === selectedRunChainSource.parent_run_id)}

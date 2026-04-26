@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Loader2, MoreHorizontal, ArrowUpRight } from "lucide-react";
 import { toast } from "sonner";
@@ -84,6 +84,10 @@ function workflowCompletionDescription(run: WorkflowRun) {
   return artifactName ? `${artifactName} is ready to review.` : "The output is ready to review.";
 }
 
+function workflowRunPath(runId: string) {
+  return `/workflows?run=${encodeURIComponent(runId)}`;
+}
+
 export function UploadTrackerPanel({
   open,
   onClose,
@@ -109,13 +113,14 @@ export function UploadTrackerPanel({
 }) {
   const [jobsFetched, setJobsFetched] = useState<UploadJob[]>(seedFetched || []);
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>(seedWorkflowRuns || []);
-  const [busy, setBusy] = useState(false);
+  const [manualRefreshBusy, setManualRefreshBusy] = useState(false);
   const prevStatusRef = useRef<Map<string, UploadJob["status"]>>(new Map());
   const prevWorkflowStatusRef = useRef<Map<string, WorkflowRun["status"]>>(new Map());
   const hasHydratedWorkflowStatusesRef = useRef(false);
   const latestWorkflowRunsRef = useRef<Map<string, WorkflowRun>>(new Map());
   const terminalWorkflowToastRef = useRef<Map<string, WorkflowRun["status"]>>(new Map());
   const pendingWorkflowFailureToastRef = useRef<Map<string, number>>(new Map());
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     if (seedFetched && seedFetched.length > 0) {
@@ -204,32 +209,47 @@ export function UploadTrackerPanel({
       pendingWorkflowFailureToastRef.current.set(run.id, timerId);
     }
   }, [workflowRuns]);
-  const refresh = async () => {
-    setBusy(true);
-    try {
-      const [items, workflowRes] = await Promise.all([listUploadJobs(), listWorkflowRuns(12)]);
-      const prev = prevStatusRef.current;
-      const newly: UploadJob[] = [];
-      for (const j of items) {
-        const before = prev.get(j.job_id);
-        if ((before === "running" || before === undefined) && (j.status === "done" || j.status === "error")) {
-          newly.push(j);
-        }
+  const refresh = useCallback(
+    async (options?: { showBusy?: boolean }) => {
+      const showBusy = !!options?.showBusy;
+      if (showBusy) setManualRefreshBusy(true);
+
+      if (!refreshInFlightRef.current) {
+        refreshInFlightRef.current = (async () => {
+          try {
+            const [items, workflowRes] = await Promise.all([listUploadJobs(), listWorkflowRuns(12)]);
+            const prev = prevStatusRef.current;
+            const newly: UploadJob[] = [];
+            for (const j of items) {
+              const before = prev.get(j.job_id);
+              if ((before === "running" || before === undefined) && (j.status === "done" || j.status === "error")) {
+                newly.push(j);
+              }
+            }
+
+            const nextMap = new Map<string, UploadJob["status"]>();
+            for (const j of items) nextMap.set(j.job_id, j.status);
+            prevStatusRef.current = nextMap;
+
+            setJobsFetched(items);
+            setWorkflowRuns((prev) => mergeWorkflowRuns(prev, workflowRes.items || [], 12));
+            if (newly.length > 0) onAnyComplete?.(newly);
+          } catch (e) {
+            console.error("[taskTracker] list error", e);
+          }
+        })().finally(() => {
+          refreshInFlightRef.current = null;
+        });
       }
 
-      const nextMap = new Map<string, UploadJob["status"]>();
-      for (const j of items) nextMap.set(j.job_id, j.status);
-      prevStatusRef.current = nextMap;
-
-      setJobsFetched(items);
-      setWorkflowRuns((prev) => mergeWorkflowRuns(prev, workflowRes.items || [], 12));
-      if (newly.length > 0) onAnyComplete?.(newly);
-    } catch (e) {
-      console.error("[taskTracker] list error", e);
-    } finally {
-      setBusy(false);
-    }
-  };
+      try {
+        await refreshInFlightRef.current;
+      } finally {
+        if (showBusy) setManualRefreshBusy(false);
+      }
+    },
+    [onAnyComplete]
+  );
 
   const mergedJobs = useMemo(() => {
     const fetchedByFilename = new Map<string, UploadJob>();
@@ -290,38 +310,31 @@ export function UploadTrackerPanel({
 
   useEffect(() => {
     if (shouldTrack) void refresh();
-  }, [shouldTrack]);
+  }, [refresh, shouldTrack]);
   useEffect(() => {
     if (shouldTrack) void refresh();
-  }, [refreshKey, shouldTrack]);
-
+  }, [refresh, refreshKey, shouldTrack]);
 
   useEffect(() => {
     if (!shouldTrack) return;
     let cancelled = false;
     let timer: number | null = null;
-    let inflight = false;
 
     const tick = async () => {
-      if (cancelled || inflight) return;
-      inflight = true;
-      try {
-        await refresh();
-      } finally {
-        inflight = false;
-        if (cancelled) return;
-        const delay = anyActive ? 1000 : 5000;
-        timer = window.setTimeout(tick, delay);
-      }
+      await refresh();
+      if (cancelled) return;
+      const delay = anyActive ? 1000 : 5000;
+      timer = window.setTimeout(tick, delay);
     };
 
-    tick();
+    const delay = anyActive ? 1000 : 5000;
+    timer = window.setTimeout(tick, delay);
 
     return () => {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [shouldTrack, anyActive, refreshKey]);
+  }, [refresh, shouldTrack, anyActive]);
 
   const uploadTotals = useMemo(() => {
     const all = mergedJobs.length;
@@ -413,8 +426,8 @@ export function UploadTrackerPanel({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button size="sm" variant="ghost" onClick={refresh} disabled={busy}>
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
+        <Button size="sm" variant="ghost" onClick={() => void refresh({ showBusy: true })} disabled={manualRefreshBusy}>
+          {manualRefreshBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Refresh"}
         </Button>
         <Button size="sm" variant="ghost" onClick={onClose}>
           Close
@@ -500,7 +513,13 @@ export function UploadTrackerPanel({
             <div className="space-y-2">
               {workflowRuns.map((run) => {
                 return (
-                  <div key={run.id} className="rounded-xl border p-3">
+                  <Link
+                    key={run.id}
+                    to={workflowRunPath(run.id)}
+                    onClick={onClose}
+                    className="block rounded-xl border p-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    aria-label={`Open workflow ${run.title}`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-3">
@@ -508,7 +527,7 @@ export function UploadTrackerPanel({
                             <WorkflowStatusIcon status={run.status} className="h-4 w-4" />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium">{run.title}</div>
+                            <div className="truncate text-sm font-medium text-foreground">{run.title}</div>
                             <div className="mt-1 text-xs text-muted-foreground">{formatWorkflowSelection(run)}</div>
                           </div>
                         </div>
@@ -516,7 +535,7 @@ export function UploadTrackerPanel({
                       <WorkflowStatusBadge status={run.status} className="shrink-0" />
                     </div>
                     <div className="mt-2 text-[11px] text-muted-foreground">Updated {formatRelativeTime(run.updated_at)}</div>
-                  </div>
+                  </Link>
                 );
               })}
             </div>
