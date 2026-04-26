@@ -28,6 +28,10 @@ export async function renameWorkflowRun(runId: string, title: string): Promise<W
   return patchJSON<WorkflowRun>(`/v1/workflows/runs/${encodeURIComponent(runId)}/title`, { title });
 }
 
+export async function refineWorkflowRun(runId: string, prompt: string): Promise<WorkflowRun> {
+  return postJSON<WorkflowRun>(`/v1/workflows/runs/${encodeURIComponent(runId)}/refine`, { prompt });
+}
+
 export async function deleteWorkflowRun(runId: string): Promise<void> {
   await deleteJSON(`/v1/workflows/runs/${encodeURIComponent(runId)}`);
 }

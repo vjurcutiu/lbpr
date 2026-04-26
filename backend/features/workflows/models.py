@@ -84,6 +84,9 @@ class WorkflowRunTitleUpdate(BaseModel):
     title: str = Field(..., min_length=1, max_length=120)
 
 
+class WorkflowRunRefineRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=2000)
+
 class WorkflowSourceFile(BaseModel):
     file_id: str
     name: str

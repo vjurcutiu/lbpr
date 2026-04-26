@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, Download, Files, Save } from "lucide-react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { ChevronDown, Copy, Download, Files, Save, SendHorizontal } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 import type { WorkflowArtifactFormat, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
@@ -11,46 +15,6 @@ type SourceFileMeta = {
   file_id?: string;
   name?: string;
   folder_path?: string | null;
-  content_type?: string | null;
-  excerpt_chars?: number;
-  full_text_chars?: number;
-  truncated?: boolean;
-};
-
-type FieldMeta = {
-  field?: string;
-  value?: string;
-  confidence?: string;
-};
-
-type DifferenceMeta = {
-  topic?: string;
-  file_a?: string;
-  file_b?: string;
-  impact?: string;
-};
-
-type PlanItemMeta = {
-  action?: string;
-  priority?: string;
-  owner?: string;
-  timeline?: string;
-};
-
-type SummaryLayerMeta = {
-  key?: string;
-  label?: string;
-  text?: string;
-};
-
-type EvidenceMeta = {
-  claim?: string;
-  importance?: string;
-  sources?: string[];
-  evidence?: Array<{
-    source_name?: string;
-    excerpt?: string;
-  }>;
 };
 
 function asArray<T>(value: unknown): T[] {
@@ -76,11 +40,33 @@ function uniqueSourceFiles(sources: SourceFileMeta[]) {
   });
 }
 
-function isSingleSourceResult(result: WorkflowResult, sourceFiles: SourceFileMeta[]) {
-  if (result.metadata?.single_source_workflow === true) return true;
-  const explicitCount = Number(result.metadata?.source_file_count || 0);
-  if (explicitCount === 1) return true;
-  return uniqueSourceFiles(sourceFiles).length === 1;
+function stripSourcesUsedSection(markdown: string) {
+  return String(markdown || "")
+    .replace(/^\s*#{1,6}\s+(?:sources used|source used|sources|source material)\s*$[\s\S]*?(?=^\s*#{1,6}\s+|\s*$)/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function fallbackMarkdown(result: WorkflowResult) {
+  const lines: string[] = [];
+  const summary = String(result.summary || "").trim();
+  if (summary) lines.push(summary);
+
+  const bullets = (result.bullets || []).map((item) => String(item || "").trim()).filter(Boolean);
+  if (bullets.length) {
+    lines.push("", "## Summary", ...bullets.map((item) => `- ${item}`));
+  }
+
+  const actions = (result.next_actions || []).map((item) => String(item || "").trim()).filter(Boolean);
+  if (actions.length) {
+    lines.push("", "## Next steps", ...actions.map((item) => `- ${item}`));
+  }
+
+  return lines.join("\n").trim() || "No workflow output is available yet.";
+}
+
+function documentMarkdown(result: WorkflowResult) {
+  return stripSourcesUsedSection(result.preview_markdown || fallbackMarkdown(result));
 }
 
 function Section({ title, icon: Icon, children }: { title: string; icon?: typeof Files; children: ReactNode }) {
@@ -101,8 +87,10 @@ type Props = {
   sourceRun?: WorkflowRun;
   artifact?: WorkflowArtifactSummary | null;
   artifactBusy?: boolean;
+  refineBusy?: boolean;
   onSaveArtifact?: () => void;
   onDownloadArtifact?: (format: WorkflowArtifactFormat) => void;
+  onRefine?: (prompt: string) => void;
   onWorkflowAction?: (action: WorkflowSuggestedAction, selection: WorkflowSelection, sourceRun: WorkflowRun) => void;
 };
 
@@ -113,41 +101,24 @@ const DOWNLOAD_FORMATS: Array<{ value: WorkflowArtifactFormat; label: string; he
   { value: "pdf", label: "PDF (.pdf)", helper: "Polished file for sharing." },
 ];
 
-export function WorkflowResultDetails({ result, selection, sourceRun, artifact, artifactBusy = false, onSaveArtifact, onDownloadArtifact, onWorkflowAction }: Props) {
+export function WorkflowResultDetails({
+  result,
+  selection,
+  sourceRun,
+  artifact,
+  artifactBusy = false,
+  refineBusy = false,
+  onSaveArtifact,
+  onDownloadArtifact,
+  onRefine,
+  onWorkflowAction,
+}: Props) {
   const rawSourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
-  const sourceFiles = useMemo(() => uniqueSourceFiles(rawSourceFiles), [result.metadata]);
-  const hideSourceLabels = isSingleSourceResult(result, sourceFiles);
-  const visibleSourceFiles = sourceFiles;
-  const fields = asArray<FieldMeta>(result.metadata?.fields);
-  const differences = asArray<DifferenceMeta>(result.metadata?.differences);
-  const planItems = asArray<PlanItemMeta>(result.metadata?.plan_items);
-  const summaryLayers = useMemo(() => {
-    return asArray<SummaryLayerMeta>(result.metadata?.summary_layers)
-      .map((layer) => ({
-        key: String(layer.key || "").trim(),
-        label: String(layer.label || "").trim(),
-        text: String(layer.text || "").trim(),
-      }))
-      .filter((layer) => layer.key && layer.text);
-  }, [result.metadata]);
-  const summaryProfile = (result.metadata?.summary_profile || {}) as Record<string, unknown>;
-  const defaultLayer = String(summaryProfile.default_layer || summaryLayers[0]?.key || "snapshot");
-  const [activeLayer, setActiveLayer] = useState(defaultLayer);
-  const evidenceHighlights = useMemo(() => {
-    return asArray<EvidenceMeta>(result.metadata?.evidence_highlights)
-      .map((item) => ({
-        claim: String(item.claim || "").trim(),
-        importance: String(item.importance || "medium").trim(),
-        sources: asArray<string>(item.sources).map((source) => String(source || "").trim()).filter(Boolean),
-        evidence: asArray<{ source_name?: string; excerpt?: string }>(item.evidence)
-          .map((evidence) => ({
-            source_name: String(evidence.source_name || "").trim(),
-            excerpt: String(evidence.excerpt || "").trim(),
-          }))
-          .filter((evidence) => evidence.excerpt),
-      }))
-      .filter((item) => item.claim);
-  }, [result.metadata]);
+  const visibleSourceFiles = useMemo(() => uniqueSourceFiles(rawSourceFiles), [rawSourceFiles]);
+  const markdown = useMemo(() => documentMarkdown(result), [result]);
+  const [refinePrompt, setRefinePrompt] = useState("");
+  const [copied, setCopied] = useState(false);
+
   const suggestedActions = useMemo(() => {
     return asArray<WorkflowSuggestedAction>(result.metadata?.suggested_actions)
       .map((action) => ({
@@ -160,147 +131,124 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
       .filter((action) => action.label && action.workflow_id);
   }, [result.metadata]);
 
-  useEffect(() => {
-    setActiveLayer(defaultLayer);
-  }, [defaultLayer, result]);
+  const submitRefinement = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const prompt = refinePrompt.trim();
+    if (!prompt || refineBusy) return;
+    onRefine?.(prompt);
+    setRefinePrompt("");
+  };
 
-
+  const copyOutput = async () => {
+    await navigator.clipboard.writeText(markdown);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  };
 
   return (
     <div className="space-y-5">
-      {(onSaveArtifact || onDownloadArtifact) && (
-        <Section title="Export">
-          <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <div className="text-sm font-medium leading-5 text-foreground">
-                {artifact ? "Saved output ready" : "Save this result"}
-              </div>
-              <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                {artifact
-                  ? `${artifact.file_name} • ${Math.max(1, Math.round((artifact.byte_size || 0) / 1024))} KB`
-                  : "Save this result so it can be downloaded as Markdown, text, Word, or PDF."}
-              </div>
-            </div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-              {artifact ? (
-                <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
-                  Saved
-                </Badge>
-              ) : null}
-              {!artifact && onSaveArtifact ? (
-                <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={onSaveArtifact} disabled={artifactBusy}>
-                  <Save className="mr-1 h-4 w-4" />
-                  Save output
+      <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="text-sm font-medium leading-5 text-foreground">Output</div>
+          <div className="mt-1 text-xs leading-5 text-muted-foreground">
+            {artifact
+              ? `${artifact.file_name} • ${Math.max(1, Math.round((artifact.byte_size || 0) / 1024))} KB`
+              : "Save, copy, or download this output when it is ready."}
+          </div>
+        </div>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+          <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={() => { void copyOutput(); }}>
+            <Copy className="mr-1 h-4 w-4" />
+            {copied ? "Copied" : "Copy"}
+          </Button>
+          {!artifact && onSaveArtifact ? (
+            <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={onSaveArtifact} disabled={artifactBusy}>
+              <Save className="mr-1 h-4 w-4" />
+              Save
+            </Button>
+          ) : null}
+          {onDownloadArtifact ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" disabled={artifactBusy}>
+                  <Download className="mr-1 h-4 w-4" />
+                  {artifact ? "Download" : "Save and download"}
+                  <ChevronDown className="ml-1 h-4 w-4" />
                 </Button>
-              ) : null}
-              {onDownloadArtifact ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" disabled={artifactBusy}>
-                      <Download className="mr-1 h-4 w-4" />
-                      {artifact ? "Download" : "Save and download"}
-                      <ChevronDown className="ml-1 h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-64 rounded-2xl">
-                    <DropdownMenuLabel className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Download format</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {DOWNLOAD_FORMATS.map((item) => (
-                      <DropdownMenuItem
-                        key={item.value}
-                        className="items-start rounded-xl px-2 py-2"
-                        onSelect={() => onDownloadArtifact(item.value)}
-                      >
-                        <div className="min-w-0">
-                          <div className="text-xs font-medium leading-5 text-foreground">{item.label}</div>
-                          <div className="text-[11px] leading-4 text-muted-foreground">{item.helper}</div>
-                        </div>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-            </div>
-          </div>
-        </Section>
-      )}
-
-
-      {!!summaryLayers.length && (
-        <Section title="Briefing">
-          <div className="space-y-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4">
-            <Tabs value={activeLayer} onValueChange={setActiveLayer}>
-              <TabsList className="h-auto w-full max-w-full justify-start overflow-x-auto rounded-2xl bg-muted/40 p-1 sm:rounded-full">
-                {summaryLayers.map((layer) => (
-                  <TabsTrigger key={layer.key} value={layer.key} className="h-7 shrink-0 rounded-full px-2 text-xs">
-                    {layer.label || layer.key}
-                  </TabsTrigger>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 rounded-2xl">
+                <DropdownMenuLabel className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Download format</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {DOWNLOAD_FORMATS.map((item) => (
+                  <DropdownMenuItem
+                    key={item.value}
+                    className="items-start rounded-xl px-2 py-2"
+                    onSelect={() => onDownloadArtifact(item.value)}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium leading-5 text-foreground">{item.label}</div>
+                      <div className="text-[11px] leading-4 text-muted-foreground">{item.helper}</div>
+                    </div>
+                  </DropdownMenuItem>
                 ))}
-              </TabsList>
-              {summaryLayers.map((layer) => (
-                <TabsContent key={layer.key} value={layer.key} className="mt-3">
-                  <div className="text-sm leading-6 whitespace-pre-wrap">{layer.text}</div>
-                </TabsContent>
-              ))}
-            </Tabs>
-          </div>
-        </Section>
-      )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
+      </div>
 
-      {!!evidenceHighlights.length && (
-        <Section title="Supported takeaways">
-          <div className="grid gap-2">
-            {evidenceHighlights.map((item, idx) => (
-              <div key={`${item.claim}-${idx}`} className="rounded-2xl border border-border/70 bg-background px-4 py-4">
-                <div className="text-sm font-medium leading-5 text-foreground">{item.claim}</div>
-                {!hideSourceLabels && !!item.sources?.length && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {item.sources.map((source) => (
-                      <Badge key={`${item.claim}-${source}`} variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
-                        {source}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-                {!!item.evidence?.length && (
-                  <div className="mt-3 grid gap-2">
-                    {item.evidence.map((evidence, evidenceIdx) => (
-                      <div key={`${item.claim}-${evidence.source_name || "evidence"}-${evidenceIdx}`} className="border-l-2 border-border/70 pl-3 text-sm leading-6 text-muted-foreground">
-                        {!hideSourceLabels && evidence.source_name ? (
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">{evidence.source_name}</div>
-                        ) : null}
-                        <div className={!hideSourceLabels && evidence.source_name ? "mt-1" : ""}>{evidence.excerpt}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
+      <article className="rounded-[1.75rem] border border-border/70 bg-background px-5 py-6 shadow-sm md:px-8 md:py-8">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            h1: ({ children }) => <h1 className="mb-5 text-2xl font-semibold leading-tight tracking-[-0.02em] text-foreground">{children}</h1>,
+            h2: ({ children }) => <h2 className="mb-3 mt-7 text-lg font-semibold leading-7 text-foreground first:mt-0">{children}</h2>,
+            h3: ({ children }) => <h3 className="mb-2 mt-5 text-base font-semibold leading-6 text-foreground">{children}</h3>,
+            p: ({ children }) => <p className="my-3 text-[15px] leading-7 text-foreground/90">{children}</p>,
+            ul: ({ children }) => <ul className="my-3 ml-5 list-disc space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ul>,
+            ol: ({ children }) => <ol className="my-3 ml-5 list-decimal space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ol>,
+            li: ({ children }) => <li className="pl-1">{children}</li>,
+            blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4 text-[15px] leading-7 text-muted-foreground">{children}</blockquote>,
+            strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+            table: ({ children }) => <div className="my-5 overflow-x-auto rounded-2xl border border-border/70"><table className="w-full min-w-[560px] border-collapse text-sm">{children}</table></div>,
+            th: ({ children }) => <th className="border-b border-border/70 bg-muted/30 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</th>,
+            td: ({ children }) => <td className="border-t border-border/70 px-3 py-2 align-top text-sm leading-6 text-foreground/90">{children}</td>,
+            code: ({ children, className }) => (
+              <code className={cn("rounded-md bg-muted px-1.5 py-0.5 text-[0.9em]", className)}>{children}</code>
+            ),
+            pre: ({ children }) => <pre className="my-4 overflow-x-auto rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{children}</pre>,
+          }}
+        >
+          {markdown}
+        </ReactMarkdown>
+      </article>
 
-      {!!suggestedActions.length && selection && sourceRun && onWorkflowAction && (
-        <Section title="Next workflow">
-          <div className="grid gap-3 lg:grid-cols-2">
-            {suggestedActions.map((action) => (
-              <Button
-                key={`${action.workflow_id}-${action.label}`}
-                variant="outline"
-                className="h-auto min-h-[104px] w-full items-start justify-start whitespace-normal rounded-2xl px-4 py-4 text-left"
-                onClick={() => onWorkflowAction(action, selection, sourceRun)}
-              >
-                <div className="min-w-0 space-y-2">
-                  <div className="text-base font-medium leading-6 break-words text-foreground">{action.label}</div>
-                  {action.description ? (
-                    <div className="text-sm leading-6 break-words text-muted-foreground">{action.description}</div>
-                  ) : null}
-                </div>
-              </Button>
-            ))}
+      {onRefine ? (
+        <form onSubmit={submitRefinement} className="rounded-2xl border border-border/70 bg-background px-4 py-4 shadow-sm">
+          <label htmlFor="workflow-refine-prompt" className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
+            Refine output
+          </label>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
+            <Textarea
+              id="workflow-refine-prompt"
+              value={refinePrompt}
+              onChange={(event) => setRefinePrompt(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              placeholder="Ask for a revision, for example: make it shorter, change the tone, add risks, or turn it into an email."
+              className="min-h-[88px] flex-1 rounded-2xl resize-none"
+              disabled={refineBusy}
+            />
+            <Button type="submit" className="h-10 rounded-full px-4" disabled={refineBusy || !refinePrompt.trim()}>
+              <SendHorizontal className="mr-2 h-4 w-4" />
+              {refineBusy ? "Refining" : "Refine"}
+            </Button>
           </div>
-        </Section>
-      )}
+        </form>
+      ) : null}
 
       {!!visibleSourceFiles.length && (
         <Section title="Sources used" icon={Files}>
@@ -318,62 +266,27 @@ export function WorkflowResultDetails({ result, selection, sourceRun, artifact, 
         </Section>
       )}
 
-      {!!fields.length && (
-        <Section title="Structured output">
-          <div className="grid gap-0 overflow-hidden rounded-2xl border border-border/70 sm:grid-cols-2 sm:divide-x sm:divide-border/70">
-            {fields.map((field, idx) => (
-              <div key={`${field.field || "field"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0 sm:[&:nth-child(-n+2)]:border-t-0">
-                <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{field.field || "Field"}</div>
-                <div className="mt-1 text-sm leading-5 text-foreground">{field.value || "—"}</div>
-                {field.confidence ? (
-                  <div className="mt-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">{field.confidence} confidence</div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {!!differences.length && (
-        <Section title="Difference summary">
-          <div className="overflow-hidden rounded-2xl border border-border/70">
-            {differences.map((difference, idx) => (
-              <div key={`${difference.topic || "difference"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0">
-                <div className="text-sm font-medium leading-5 text-foreground">{difference.topic || "Difference"}</div>
-                <div className="mt-2 grid gap-3 md:grid-cols-2">
-                  <div>
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">File A</div>
-                    <div className="mt-1 text-sm leading-5">{difference.file_a || "—"}</div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">File B</div>
-                    <div className="mt-1 text-sm leading-5">{difference.file_b || "—"}</div>
-                  </div>
+      {!!suggestedActions.length && selection && sourceRun && onWorkflowAction && (
+        <Section title="Continue from this output">
+          <div className="grid gap-3 lg:grid-cols-2">
+            {suggestedActions.map((action) => (
+              <Button
+                key={`${action.workflow_id}-${action.label}`}
+                variant="outline"
+                className="h-auto min-h-[92px] w-full items-start justify-start whitespace-normal rounded-2xl px-4 py-4 text-left"
+                onClick={() => onWorkflowAction(action, selection, sourceRun)}
+              >
+                <div className="min-w-0 space-y-2">
+                  <div className="text-base font-medium leading-6 break-words text-foreground">{action.label}</div>
+                  {action.description ? (
+                    <div className="text-sm leading-6 break-words text-muted-foreground">{action.description}</div>
+                  ) : null}
                 </div>
-                {difference.impact ? <div className="mt-2 text-sm leading-5 text-muted-foreground">{difference.impact}</div> : null}
-              </div>
+              </Button>
             ))}
           </div>
         </Section>
       )}
-
-      {!!planItems.length && (
-        <Section title="Execution plan">
-          <div className="overflow-hidden rounded-2xl border border-border/70">
-            {planItems.map((item, idx) => (
-              <div key={`${item.action || "plan-item"}-${idx}`} className="border-t border-border/70 px-3 py-3 first:border-t-0">
-                <div className="text-sm font-medium leading-5 text-foreground">{item.action || "Action item"}</div>
-                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-                  {item.priority ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">{item.priority}</Badge> : null}
-                  {item.owner ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">Owner: {item.owner}</Badge> : null}
-                  {item.timeline ? <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">{item.timeline}</Badge> : null}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Section>
-      )}
-
     </div>
   );
 }

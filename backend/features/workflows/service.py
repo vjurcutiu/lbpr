@@ -35,11 +35,12 @@ from .models import (
     WorkflowRun,
     WorkflowRunCreate,
     WorkflowRunList,
+    WorkflowRunRefineRequest,
     WorkflowRunTitleUpdate,
     WorkflowSelectionIn,
     WorkflowSourceFile,
 )
-from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX, generate_workflow_run_title
+from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX, generate_workflow_run_title, refine_workflow_result
 from .exporting import ExportedArtifact, export_artifact, sanitize_export_markdown
 
 log = logging.getLogger("workflows.service")
@@ -570,6 +571,79 @@ def rename_run(uid: str, run_id: str, payload: WorkflowRunTitleUpdate) -> Workfl
         except Exception:
             log.warning("workflow_artifact_title_sync_failed", uid=uid, run_id=run.id, exc_info=True)
 
+    _persist_run(uid, run)
+    return run
+
+
+
+def refine_run(uid: str, run_id: str, payload: WorkflowRunRefineRequest) -> WorkflowRun:
+    run = get_run(uid, run_id)
+    prompt = str(payload.prompt or "").strip()
+    if run.status != "completed" or run.result is None:
+        raise HTTPException(status_code=400, detail="Only completed workflow runs can be refined.")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="A refinement prompt is required.")
+
+    try:
+        asyncio.run(sync_caps_and_plan(uid))
+        snap = asyncio.run(usage_snapshot(uid))
+        if _remaining_file_processing_tokens(snap) <= 0:
+            raise HTTPException(status_code=402, detail="File processing usage limit reached for this billing period.")
+    except HTTPException:
+        raise
+    except Exception:
+        log.debug("workflow_refine_limits_prefetch_failed", uid=uid, run_id=run.id, exc_info=True)
+
+    source_documents, source_stats = _load_source_documents(
+        uid,
+        run.selection,
+        workflow_id=run.workflow_id,
+        inputs={**run.inputs, "focus": prompt},
+    )
+    existing_markdown = _build_artifact_content(run)
+    try:
+        refined = refine_workflow_result(
+            run,
+            source_documents,
+            existing_markdown=existing_markdown,
+            instruction=prompt,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    previous_metadata = dict(run.result.metadata or {})
+    run.mark_completed(refined)
+    _augment_result_metadata(run, source_documents, source_stats)
+    metadata = dict(run.result.metadata or {}) if run.result else {}
+    previous_actions = previous_metadata.get("suggested_actions")
+    if isinstance(previous_actions, list) and previous_actions and not metadata.get("suggested_actions"):
+        metadata["suggested_actions"] = previous_actions
+    metadata["refined_at"] = _to_iso_utc(datetime.now(UTC))
+    if run.result is not None:
+        run.result.metadata = metadata
+
+    billed_total, breakdown, usage_details = _workflow_usage_breakdown(run, source_stats)
+    if billed_total > 0:
+        ok, used, cap = asyncio.run(
+            add_file_processing_tokens(
+                uid,
+                billed_total,
+                category="workflow_refinement",
+                breakdown=breakdown,
+            )
+        )
+        if not ok:
+            raise HTTPException(status_code=402, detail="File processing usage limit reached for this billing period.")
+        _attach_usage_details(run, usage_details=usage_details, used=used, cap=cap)
+    else:
+        _attach_usage_details(run, usage_details=usage_details)
+
+    try:
+        _upsert_artifact_for_run(uid, run)
+    except Exception:
+        log.warning("workflow_refine_artifact_save_failed", uid=uid, run_id=run.id, exc_info=True)
     _persist_run(uid, run)
     return run
 

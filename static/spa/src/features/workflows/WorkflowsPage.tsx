@@ -27,7 +27,7 @@ import { useMediaQuery } from "@/features/files/hooks/useMediaQuery";
 import { parseErr } from "@/features/files/utils/formatters";
 import { cn } from "@/lib/utils";
 
-import { createWorkflowRun, deleteWorkflowRun, downloadWorkflowArtifact, listWorkflowRuns, listWorkflows, renameWorkflowRun, saveWorkflowArtifact } from "./api";
+import { createWorkflowRun, deleteWorkflowRun, downloadWorkflowArtifact, listWorkflowRuns, listWorkflows, refineWorkflowRun, renameWorkflowRun, saveWorkflowArtifact } from "./api";
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
@@ -43,48 +43,6 @@ import type {
   WorkflowStatus,
 } from "./types";
 import { summarizeWorkflowSelection } from "./utils/selection";
-
-function asObjectArray<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
-}
-
-function sourceFileKeysFromMetadata(metadata: Record<string, unknown> | undefined | null) {
-  const sourceFiles = asObjectArray<{ file_id?: string; name?: string }>(metadata?.source_files);
-  return Array.from(
-    new Set(
-      sourceFiles
-        .map((source) => String(source.file_id || source.name || "").trim())
-        .filter(Boolean),
-    ),
-  );
-}
-
-function isSingleSourceWorkflow(run: WorkflowRun) {
-  if (run.result?.metadata?.single_source_workflow === true) return true;
-  const explicitCount = Number(run.result?.metadata?.source_file_count || 0);
-  if (explicitCount === 1) return true;
-  return sourceFileKeysFromMetadata(run.result?.metadata).length === 1;
-}
-
-function evidenceBackedTakeaways(run: WorkflowRun) {
-  const evidence = asObjectArray<{ claim?: string; sources?: string[] }>(run.result?.metadata?.evidence_highlights);
-  const hideSources = isSingleSourceWorkflow(run);
-  const items = evidence
-    .map((item) => {
-      const claim = String(item.claim || "").trim();
-      if (!claim) return null;
-      const sources = hideSources
-        ? []
-        : asObjectArray<string>(item.sources)
-            .map((source) => String(source || "").trim())
-            .filter(Boolean);
-      return sources.length ? `${claim} (${sources.join(", ")})` : claim;
-    })
-    .filter((item): item is string => Boolean(item));
-  return items.length ? items : (run.result?.bullets || []);
-}
-
-
 
 function compactCopy(text: string, max = 320) {
   const normalized = String(text || "").replace(/\s+/g, " ").trim();
@@ -229,7 +187,7 @@ function formatSelection(run: WorkflowRun) {
 
 function renderStatusCopy(run: WorkflowRun) {
   if (run.status === "completed") {
-    return run.result?.summary || "This result is ready to review.";
+    return "The output is ready to review.";
   }
   if (run.status === "failed") {
     return run.error || "This workflow did not complete. Check the message below or try again with a different selection.";
@@ -482,6 +440,7 @@ export default function WorkflowsPage() {
   const [launcherFilesLoading, setLauncherFilesLoading] = useState(false);
   const [workflowSubmitting, setWorkflowSubmitting] = useState(false);
   const [artifactBusyRunId, setArtifactBusyRunId] = useState<string | null>(null);
+  const [refiningRunId, setRefiningRunId] = useState<string | null>(null);
   const [renamingRunId, setRenamingRunId] = useState<string | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [renameSaving, setRenameSaving] = useState(false);
@@ -628,6 +587,22 @@ export default function WorkflowsPage() {
       toast.error("Failed to download output", { description: parseErr(err) });
     } finally {
       setArtifactBusyRunId((current) => (current === run.id ? null : current));
+    }
+  }, []);
+
+  const handleRefineRun = useCallback(async (run: WorkflowRun, prompt: string) => {
+    if (!run.result || run.status !== "completed") return;
+    setRefiningRunId(run.id);
+    try {
+      const refined = await refineWorkflowRun(run.id, prompt);
+      setRuns((prev) => prev.map((item) => (item.id === refined.id ? refined : item)));
+      setSelectedRunId(refined.id);
+      toast.success("Output refined", { description: "The revised version is ready to review." });
+    } catch (err) {
+      console.error("[workflows] refine error", err);
+      toast.error("Failed to refine output", { description: parseErr(err) });
+    } finally {
+      setRefiningRunId((current) => (current === run.id ? null : current));
     }
   }, []);
 
@@ -1027,37 +1002,6 @@ export default function WorkflowsPage() {
                       </div>
                     </div>
 
-                    {(selectedRun.result?.bullets?.length || selectedRun.result?.next_actions?.length) ? (
-                      <div className="mt-6 grid gap-4 border-t border-border/70 pt-6 lg:grid-cols-2 lg:gap-6">
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Takeaways</div>
-                          <div className="mt-3 space-y-3">
-                            {evidenceBackedTakeaways(selectedRun).slice(0, 3).map((item, index) => (
-                              <div key={`${item}-${index}`} className="text-[15px] leading-7 text-foreground">
-                                {item}
-                              </div>
-                            ))}
-                            {!evidenceBackedTakeaways(selectedRun).length ? (
-                              <div className="text-[15px] leading-7 text-muted-foreground">No takeaways yet.</div>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Next steps</div>
-                          <div className="mt-3 space-y-3">
-                            {(selectedRun.result?.next_actions || []).slice(0, 3).map((item, index) => (
-                              <div key={`${item}-${index}`} className="text-[15px] leading-7 text-foreground">
-                                {item}
-                              </div>
-                            ))}
-                            {!selectedRun.result?.next_actions?.length ? (
-                              <div className="text-[15px] leading-7 text-muted-foreground">No recommended next steps yet.</div>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
 
                   <div className="rounded-2xl border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-7">
@@ -1068,8 +1012,10 @@ export default function WorkflowsPage() {
                         sourceRun={selectedRun}
                         artifact={selectedRun.artifact || null}
                         artifactBusy={artifactBusyRunId === selectedRun.id}
+                        refineBusy={refiningRunId === selectedRun.id}
                         onSaveArtifact={() => { void handleSaveArtifact(selectedRun); }}
                         onDownloadArtifact={(format) => { void handleDownloadArtifact(selectedRun, format); }}
+                        onRefine={(prompt) => { void handleRefineRun(selectedRun, prompt); }}
                         onWorkflowAction={handleWorkflowAction}
                       />
                     ) : selectedRun.status === "failed" ? (

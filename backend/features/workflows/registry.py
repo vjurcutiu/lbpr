@@ -725,7 +725,7 @@ def _llm_result(
             - summary: short paragraph
             - bullets: array of concise strings
             - next_actions: array of concise strings
-            - preview_markdown: markdown suited for a result card
+            - preview_markdown: complete markdown document content for the user-facing output
             - metadata: object with only workflow-relevant structured data
             """
         ).strip()
@@ -779,45 +779,52 @@ def summarize_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Wo
     def fallback() -> WorkflowResult:
         evidence_highlights = _summary_evidence_from_sources(sources)
         bullets = [
-            f"{item['claim']} ({', '.join(item['sources'])})" if item.get("sources") else str(item["claim"])
-            for item in evidence_highlights[:4]
+            _strip_single_source_text(str(item.get("claim") or ""), sources)
+            for item in evidence_highlights[:5]
+            if str(item.get("claim") or "").strip()
         ]
         if not bullets:
-            bullets = _first_insight_lines(sources, limit=4) or ["The selected material does not contain enough readable text to pull strong takeaways."]
+            bullets = _first_insight_lines(sources, limit=5) or ["There was not enough readable text to produce a detailed summary."]
 
-        first_takeaway = _strip_single_source_text(bullets[0], sources) if bullets else "The selected material needs a closer review."
-        source_count = _source_file_count(sources)
+        first_takeaway = bullets[0] if bullets else "the selected material needs a closer review"
         summary = (
             f"The main takeaway is that {first_takeaway[0].lower() + first_takeaway[1:] if first_takeaway else 'the selected material needs a closer review'}"
-            if source_count == 1
-            else f"Across {source_count} selected files, the clearest takeaway is that {first_takeaway[0].lower() + first_takeaway[1:] if first_takeaway else 'the material needs a closer review'}"
-        )
-        next_actions = [item["label"] for item in _summary_actions(focus)]
-        result = _result(
+        ).rstrip(".") + "."
+        next_actions = [item["label"] for item in _summary_actions(focus)[:2]]
+        preview = textwrap.dedent(
+            f"""
+            # {run.title}
+
+            {summary}
+
+            ## Summary
+            {chr(10).join(f"- {item}" for item in bullets[:5])}
+
+            ## Next steps
+            {chr(10).join(f"- {item}" for item in next_actions)}
+            """
+        ).strip()
+        return _result(
             run,
-            summary=summary.rstrip(".") + ".",
+            summary=summary,
             bullets=bullets,
             next_actions=next_actions,
             sources=sources,
+            preview_markdown=preview,
             metadata={
                 "focus": focus,
-                "summary_profile": {"focus": focus, "default_layer": "standard"},
-                "summary_layers": _summary_layers_from_result(
-                    WorkflowResult(summary=summary, bullets=bullets, next_actions=next_actions),
-                    sources,
-                ),
-                "evidence_highlights": evidence_highlights,
+                "summary_profile": {"focus": focus},
+                "evidence_highlights": _without_single_source_evidence_labels(evidence_highlights, sources),
                 "suggested_actions": _summary_actions(focus),
             },
         )
-        return _normalize_summary_result(run, result, sources)
 
     result = _llm_result(
         run,
         sources,
         task_brief=(
-            f"Write a useful, source-grounded briefing focused on {focus}. "
-            "Prioritize what changed, what matters, the practical implications, unresolved questions, and any risks or decisions. "
+            f"Write a useful, source-grounded summary focused on {focus}. "
+            "Prioritize what changed, what matters, practical implications, unresolved questions, risks, and decisions. "
             "Use natural business language. Avoid generic workflow language, filler, and phrases like 'this document discusses' or 'generated a summary'."
         ),
         output_requirements=(
@@ -826,23 +833,30 @@ def summarize_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Wo
                 if _is_single_source_output(sources)
                 else "For multi-file summaries, mention source names only where they help verify a specific claim. "
             )
-            + "Return a polished result, not a template. The summary should be a short, specific lead paragraph. "
-            "Bullets should be 3-6 concrete takeaways written as complete thoughts, with no generic headings inside the bullet text. "
-            "Next actions should be practical and specific to the content. "
-            "In metadata, include: summary_profile with focus and default_layer only; "
-            "summary_layers as an array with snapshot, standard, and deep_dive items using labels Quick read, Key takeaways, and Details; "
-            "evidence_highlights as an array of objects with claim, importance, sources, and evidence where evidence is an array of {source_name, excerpt}; "
-            "and suggested_actions as workflow actions with label, workflow_id, focus, and description. "
-            + (
-                "The markdown should include concise briefing sections and next steps. Do not include source names inline; the final Sources used section is added automatically."
-                if _is_single_source_output(sources)
-                else "The markdown should include concise briefing sections, supporting evidence, next steps, and sources used."
-            )
+            + "Make preview_markdown the full user-facing artifact. It should read like a clean summary document, not a dashboard card. "
+            "Use headings and bullet points when they improve readability, but do not force sections like key takeaways unless they fit the content. "
+            "Keep summary as a short lead paragraph, bullets as 3-6 concrete supporting points, and next_actions as practical revision or follow-up options. "
+            "In metadata, include summary_profile with focus only, evidence_highlights if useful, and suggested_actions with label, workflow_id, focus, and description. "
+            "Do not include source sections in preview_markdown; the application adds Sources used separately."
         ),
         fallback_factory=fallback,
     )
-    return _normalize_summary_result(run, result, sources)
-
+    metadata = dict(result.metadata or {})
+    profile = metadata.get("summary_profile") if isinstance(metadata.get("summary_profile"), dict) else {}
+    metadata["summary_profile"] = {"focus": str(profile.get("focus") or focus).strip() or focus}
+    metadata["focus"] = metadata["summary_profile"]["focus"]
+    metadata.pop("audience", None)
+    metadata.pop("depth", None)
+    metadata.pop("summary_layers", None)
+    if not isinstance(metadata.get("suggested_actions"), list) or not metadata.get("suggested_actions"):
+        metadata["suggested_actions"] = _summary_actions(metadata["focus"])
+    if isinstance(metadata.get("evidence_highlights"), list):
+        metadata["evidence_highlights"] = _without_single_source_evidence_labels(
+            _normalize_evidence_highlights(metadata.get("evidence_highlights"), fallback=[]),
+            sources,
+        )
+    result.metadata = metadata
+    return result
 
 def compare_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> WorkflowResult:
     focus = _focus_text(run, "important differences and missing content")
@@ -1087,6 +1101,93 @@ def plan_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Workflo
             "The markdown should include sections for priorities and next steps."
         ),
         fallback_factory=fallback,
+    )
+
+
+
+def refine_workflow_result(
+    run: WorkflowRun,
+    sources: list[WorkflowSourceFile],
+    *,
+    existing_markdown: str,
+    instruction: str,
+) -> WorkflowResult:
+    prompt = str(instruction or "").strip()
+    current = str(existing_markdown or "").strip()
+    if not prompt:
+        raise ValueError("A refinement prompt is required")
+    if not current:
+        raise ValueError("This workflow output does not have document content to refine")
+    if OpenAIChat is None:
+        raise RuntimeError("Workflow refinement is not available because the chat model is not configured")
+
+    model = OpenAIChat()
+    source_blocks = []
+    for idx, source in enumerate(sources, start=1):
+        source_blocks.append(
+            textwrap.dedent(
+                f"""
+                [{idx}] {_source_label(source)}
+                Folder: {source.folder_path or 'Root'}
+                Content type: {source.content_type or 'unknown'}
+                Excerpt:
+                {source.excerpt}
+                """
+            ).strip()
+        )
+
+    source_instruction = (
+        "There is one underlying source file. Do not mention the file name or use inline source labels in customer-facing text."
+        if _is_single_source_output(sources)
+        else "Mention source names only when they help verify a multi-file claim."
+    )
+    system = textwrap.dedent(
+        f"""
+        Revise an existing workflow artifact for a document workspace.
+        Use the current artifact, the user revision request, and the provided source excerpts.
+        Preserve accurate source grounding. Do not invent facts.
+        {source_instruction}
+        Return valid JSON only with exactly these keys:
+        summary, bullets, next_actions, preview_markdown, metadata.
+        - preview_markdown must be the full revised markdown artifact.
+        - Do not add a Sources used section; the application adds it separately.
+        - Do not describe the revision process unless the user explicitly asks for that in the artifact.
+        """
+    ).strip()
+    user = textwrap.dedent(
+        f"""
+        Workflow: {run.title} ({run.workflow_id})
+        User revision request:
+        {prompt}
+
+        Current artifact markdown:
+        {current}
+
+        Source excerpts:
+        {chr(10).join(source_blocks)}
+        """
+    ).strip()
+
+    response = model.generate_with_usage(system=system, user=user)
+    payload = _extract_json_payload(response.text)
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    metadata = dict(metadata)
+    metadata["refinement"] = {"prompt": prompt}
+    metadata["llm_usage"] = {
+        "prompt_tokens": int(response.usage.prompt_tokens or 0),
+        "completion_tokens": int(response.usage.completion_tokens or 0),
+        "total_tokens": int(response.usage.total_tokens or 0),
+        "operation": str(response.operation or "responses.create"),
+        "approximate": bool(response.usage.approximate),
+    }
+    return _result(
+        run,
+        str(payload.get("summary") or "").strip(),
+        _coerce_list(payload.get("bullets")),
+        _coerce_list(payload.get("next_actions")),
+        sources=sources,
+        preview_markdown=str(payload.get("preview_markdown") or "").strip(),
+        metadata=metadata,
     )
 
 

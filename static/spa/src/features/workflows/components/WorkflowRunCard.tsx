@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleAlert, CornerDownRight, Files, Sparkles } from "lucide-react";
+import { CircleAlert, Files, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -54,7 +54,7 @@ function formatRelativeTime(iso: string) {
 
 function renderStatusCopy(run: WorkflowRun) {
   if (run.status === "completed") {
-    return run.result?.summary || "This run finished and is ready to review.";
+    return "This run finished and is ready to review.";
   }
   if (run.status === "failed") {
     return run.error || "This run did not complete. Review the selection or launch it again.";
@@ -71,9 +71,6 @@ type Props = {
 
 export function WorkflowRunCard({ run }: Props) {
   const Icon = getWorkflowIcon(run.workflow_id);
-  const keyTakeaways = run.result?.bullets?.filter(Boolean) ?? [];
-  const nextActions = run.result?.next_actions?.filter(Boolean) ?? [];
-
   return (
     <Card className="overflow-hidden rounded-3xl border bg-gradient-to-b from-background via-background to-muted/20 shadow-sm">
       <CardContent className="space-y-5 p-5">
@@ -115,38 +112,6 @@ export function WorkflowRunCard({ run }: Props) {
           </div>
           <p className="mt-2 text-sm leading-6">{renderStatusCopy(run)}</p>
         </div>
-
-        {!!keyTakeaways.length && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Key takeaways
-            </div>
-            <div className="grid gap-2">
-              {keyTakeaways.slice(0, 4).map((item, index) => (
-                <div key={`${item}-${index}`} className="rounded-2xl border bg-muted/20 px-3 py-2 text-sm leading-6">
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {!!nextActions.length && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              <CornerDownRight className="h-3.5 w-3.5" />
-              Recommended next steps
-            </div>
-            <div className="grid gap-2">
-              {nextActions.slice(0, 3).map((item, index) => (
-                <div key={`${item}-${index}`} className="rounded-2xl border bg-background px-3 py-2 text-sm leading-6">
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         {run.result ? (
           <>

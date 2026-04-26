@@ -232,9 +232,9 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
     assert 'audience' not in run['result']['metadata']['summary_profile']
     assert run['artifact']['id'].startswith('wf_art_')
     assert run['artifact']['file_name'].endswith('.md')
-    assert run['result']['metadata']['summary_profile']['default_layer'] == 'standard'
+    assert 'default_layer' not in run['result']['metadata']['summary_profile']
     assert 'depth' not in run['result']['metadata']['summary_profile']
-    assert run['result']['metadata']['summary_layers'][0]['key'] == 'snapshot'
+    assert 'summary_layers' not in run['result']['metadata']
     assert run['result']['metadata']['evidence_highlights'][0]['claim']
     assert run['result']['metadata']['suggested_actions'][0]['workflow_id'] == 'generate_report'
 
@@ -459,7 +459,7 @@ def test_workflow_artifact_routes(auth_client, inline_workflow_jobs, stub_workfl
     assert txt_download.status_code == 200, txt_download.text
     assert txt_download.headers['content-type'].startswith('text/plain')
     assert 'filename="summary-q1-plan.txt"' in txt_download.headers['content-disposition']
-    assert b'Key points' in txt_download.content or b'Quick brief' in txt_download.content
+    assert b'Summary' in txt_download.content or b'Next steps' in txt_download.content
 
     docx_download = auth_client.get(f'/v1/workflows/artifacts/{artifact_id}/download?format=docx')
     assert docx_download.status_code == 200, docx_download.text
