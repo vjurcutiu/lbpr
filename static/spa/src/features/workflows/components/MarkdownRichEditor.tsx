@@ -1,7 +1,13 @@
 import { useEffect, useRef } from "react";
-import { Bold, Heading1, Heading2, Heading3, Highlighter, Italic } from "lucide-react";
+import { Bold, ChevronDown, Heading1, Highlighter, Italic, List, ListOrdered } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 type MarkdownRichEditorProps = {
@@ -157,7 +163,7 @@ export function markdownToEditableHtml(markdown: string) {
       continue;
     }
 
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
       flushAll();
       blocks.push(`<h${heading[1].length}>${applyInlineMarkdown(heading[2].trim())}</h${heading[1].length}>`);
@@ -240,6 +246,11 @@ function tableMarkdown(table: HTMLTableElement) {
   return [header, divider, ...body].map((row) => `| ${row.join(" | ")} |`).join("\n");
 }
 
+
+function hasBlockChild(element: HTMLElement) {
+  return Array.from(element.children).some((child) => /^(blockquote|div|h[1-6]|ol|p|pre|table|ul)$/i.test(child.tagName));
+}
+
 function blockMarkdown(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) {
     return normalizeInlineText(node.textContent || "").trim();
@@ -250,9 +261,8 @@ function blockMarkdown(node: Node): string {
   const element = node as HTMLElement;
   const tag = element.tagName.toLowerCase();
 
-  if (tag === "h1") return `# ${inlineMarkdown(element).trim()}`;
-  if (tag === "h2") return `## ${inlineMarkdown(element).trim()}`;
-  if (tag === "h3") return `### ${inlineMarkdown(element).trim()}`;
+  const headingMatch = tag.match(/^h([1-6])$/);
+  if (headingMatch) return `${"#".repeat(Number(headingMatch[1]))} ${inlineMarkdown(element).trim()}`;
   if (tag === "ul") {
     return Array.from(element.children)
       .filter((child) => child.tagName.toLowerCase() === "li")
@@ -277,7 +287,16 @@ function blockMarkdown(node: Node): string {
     return `\`\`\`\n${element.innerText.replace(/\n$/, "")}\n\`\`\``;
   }
   if (tag === "table") return tableMarkdown(element as HTMLTableElement);
-  if (tag === "div" || tag === "p") return inlineMarkdown(element).trim();
+  if (tag === "div" || tag === "p") {
+    if (hasBlockChild(element)) {
+      return Array.from(element.childNodes)
+        .map(blockMarkdown)
+        .map((block) => block.trim())
+        .filter(Boolean)
+        .join("\n\n");
+    }
+    return inlineMarkdown(element).trim();
+  }
 
   return inlineMarkdown(element).trim();
 }
@@ -292,6 +311,18 @@ export function editableHtmlToMarkdown(root: HTMLElement) {
     .trim();
 }
 
+type HeadingBlock = "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+type ListBlock = "bulleted" | "numbered";
+
+const HEADING_BLOCKS: Array<{ value: HeadingBlock; label: string; helper: string }> = [
+  { value: "h1", label: "H1", helper: "Page title" },
+  { value: "h2", label: "H2", helper: "Section" },
+  { value: "h3", label: "H3", helper: "Subsection" },
+  { value: "h4", label: "H4", helper: "Detail heading" },
+  { value: "h5", label: "H5", helper: "Small heading" },
+  { value: "h6", label: "H6", helper: "Label heading" },
+];
+
 function runEditorCommand(command: string, value?: string) {
   document.execCommand(command, false, value);
 }
@@ -300,12 +331,61 @@ function selectionIsInside(element: HTMLElement) {
   const selection = window.getSelection();
   if (!selection?.rangeCount) return false;
   const anchor = selection.anchorNode;
-  return !!anchor && element.contains(anchor);
+  const focus = selection.focusNode;
+  return !!anchor && !!focus && element.contains(anchor) && element.contains(focus);
 }
 
-function insertHighlightedSelection(editor: HTMLElement) {
+function unwrapElement(element: HTMLElement) {
+  const parent = element.parentNode;
+  if (!parent) return;
+
+  while (element.firstChild) {
+    parent.insertBefore(element.firstChild, element);
+  }
+
+  parent.removeChild(element);
+  parent.normalize();
+}
+
+function closestHighlight(node: Node | null, editor: HTMLElement) {
+  let current: Node | null = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentNode ?? null;
+
+  while (current && current !== editor) {
+    if (current.nodeType === Node.ELEMENT_NODE && (current as HTMLElement).tagName.toLowerCase() === "mark") {
+      return current as HTMLElement;
+    }
+    current = current.parentNode;
+  }
+
+  return null;
+}
+
+function selectedHighlights(editor: HTMLElement, range: Range) {
+  if (range.collapsed) {
+    const mark = closestHighlight(range.startContainer, editor);
+    return mark ? [mark] : [];
+  }
+
+  return Array.from(editor.querySelectorAll("mark")).filter((mark) => {
+    try {
+      return range.intersectsNode(mark);
+    } catch {
+      return false;
+    }
+  });
+}
+
+function toggleHighlightedSelection(editor: HTMLElement) {
   const selection = window.getSelection();
   if (!selection?.rangeCount || !selectionIsInside(editor)) return;
+
+  const range = selection.getRangeAt(0);
+  const highlightedNodes = selectedHighlights(editor, range);
+
+  if (highlightedNodes.length) {
+    highlightedNodes.forEach(unwrapElement);
+    return;
+  }
 
   const selectedText = selection.toString();
   if (!selectedText) return;
@@ -315,7 +395,27 @@ function insertHighlightedSelection(editor: HTMLElement) {
 
 export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabel = "Edit markdown output" }: MarkdownRichEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const savedRangeRef = useRef<Range | null>(null);
   const lastEmittedMarkdownRef = useRef(value);
+
+  const saveSelection = () => {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection?.rangeCount || !selectionIsInside(editor)) return;
+    savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+  };
+
+  const restoreSelection = () => {
+    const editor = editorRef.current;
+    const range = savedRangeRef.current;
+    if (!editor || !range || !editor.contains(range.commonAncestorContainer)) return;
+
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    selection.removeAllRanges();
+    selection.addRange(range);
+  };
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -325,6 +425,7 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
       return;
     }
 
+    savedRangeRef.current = null;
     editor.innerHTML = markdownToEditableHtml(value);
     lastEmittedMarkdownRef.current = value;
   }, [value]);
@@ -335,15 +436,17 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
     const nextValue = editableHtmlToMarkdown(editor);
     lastEmittedMarkdownRef.current = nextValue;
     onChange(nextValue);
+    saveSelection();
   };
 
   const focusEditor = () => {
     const editor = editorRef.current;
     if (!editor || disabled) return;
     editor.focus();
+    restoreSelection();
   };
 
-  const applyBlock = (block: "h1" | "h2" | "h3") => {
+  const applyBlock = (block: HeadingBlock) => {
     focusEditor();
     runEditorCommand("formatBlock", block);
     emitChange();
@@ -355,27 +458,35 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
     emitChange();
   };
 
+  const applyList = (list: ListBlock) => {
+    focusEditor();
+    runEditorCommand(list === "bulleted" ? "insertUnorderedList" : "insertOrderedList");
+    emitChange();
+  };
+
   const applyHighlight = () => {
     const editor = editorRef.current;
     if (!editor || disabled) return;
     focusEditor();
-    insertHighlightedSelection(editor);
+    toggleHighlightedSelection(editor);
     emitChange();
   };
 
-  const toolbarItems = [
+  const inlineToolbarItems = [
     { key: "bold", label: "Bold", icon: Bold, action: () => applyInline("bold") },
     { key: "italic", label: "Italic", icon: Italic, action: () => applyInline("italic") },
-    { key: "h1", label: "H1", icon: Heading1, action: () => applyBlock("h1") },
-    { key: "h2", label: "H2", icon: Heading2, action: () => applyBlock("h2") },
-    { key: "h3", label: "H3", icon: Heading3, action: () => applyBlock("h3") },
+  ];
+
+  const utilityToolbarItems = [
     { key: "highlight", label: "Highlight", icon: Highlighter, action: applyHighlight },
+    { key: "bulleted-list", label: "Bullets", icon: List, action: () => applyList("bulleted") },
+    { key: "numbered-list", label: "Numbered", icon: ListOrdered, action: () => applyList("numbered") },
   ];
 
   return (
     <div className="border-t border-border/70">
       <div className="flex flex-wrap items-center gap-1 border-b border-border/70 bg-muted/10 px-4 py-2 md:px-6">
-        {toolbarItems.map((item) => {
+        {inlineToolbarItems.map((item) => {
           const Icon = item.icon;
           return (
             <Button
@@ -391,7 +502,66 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
               title={item.label}
             >
               <Icon className="h-4 w-4" />
-              <span className={cn("ml-1", item.key === "bold" || item.key === "italic" ? "hidden sm:inline" : "")}>{item.label}</span>
+              <span className="ml-1 hidden sm:inline">{item.label}</span>
+            </Button>
+          );
+        })}
+        <DropdownMenu onOpenChange={(open) => {
+          if (open) saveSelection();
+        }}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-full px-2.5 text-xs"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                saveSelection();
+              }}
+              onPointerDownCapture={saveSelection}
+              disabled={disabled}
+              aria-label="Heading"
+              title="Heading"
+            >
+              <Heading1 className="h-4 w-4" />
+              <span className="ml-1">Heading</span>
+              <ChevronDown className="ml-1 h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48 rounded-2xl">
+            {HEADING_BLOCKS.map((item) => (
+              <DropdownMenuItem
+                key={item.value}
+                className="items-start rounded-xl px-2 py-2"
+                disabled={disabled}
+                onSelect={() => applyBlock(item.value)}
+              >
+                <div className="flex min-w-0 flex-col">
+                  <span className="text-xs font-medium leading-5 text-foreground">{item.label}</span>
+                  <span className="text-[11px] leading-4 text-muted-foreground">{item.helper}</span>
+                </div>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {utilityToolbarItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Button
+              key={item.key}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-full px-2.5 text-xs"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={item.action}
+              disabled={disabled}
+              aria-label={item.label}
+              title={item.label}
+            >
+              <Icon className="h-4 w-4" />
+              <span className={cn("ml-1", item.key === "highlight" ? "hidden sm:inline" : "")}>{item.label}</span>
             </Button>
           );
         })}
@@ -405,6 +575,8 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
         suppressContentEditableWarning
         spellCheck
         onInput={emitChange}
+        onKeyUp={saveSelection}
+        onMouseUp={saveSelection}
         onBlur={emitChange}
         className={cn(
           "min-h-[520px] px-5 py-6 text-[15px] leading-7 outline-none md:px-8 md:py-8",
@@ -413,6 +585,9 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
           "[&_h1]:mb-5 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:leading-tight [&_h1]:tracking-[-0.02em]",
           "[&_h2]:mb-3 [&_h2]:mt-7 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:leading-7",
           "[&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:leading-6",
+          "[&_h4]:mb-2 [&_h4]:mt-5 [&_h4]:text-[15px] [&_h4]:font-semibold [&_h4]:leading-6",
+          "[&_h5]:mb-2 [&_h5]:mt-4 [&_h5]:text-sm [&_h5]:font-semibold [&_h5]:leading-6",
+          "[&_h6]:mb-2 [&_h6]:mt-4 [&_h6]:text-xs [&_h6]:font-semibold [&_h6]:uppercase [&_h6]:tracking-[0.12em] [&_h6]:text-muted-foreground",
           "[&_li]:pl-1 [&_ol]:my-3 [&_ol]:ml-5 [&_ol]:list-decimal [&_ol]:space-y-2 [&_p]:my-3",
           "[&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-2xl [&_pre]:bg-muted [&_pre]:px-4 [&_pre]:py-3 [&_pre]:text-sm [&_pre]:leading-6",
           "[&_strong]:font-semibold [&_table]:my-5 [&_table]:w-full [&_table]:min-w-[560px] [&_table]:border-collapse [&_table]:text-sm",
