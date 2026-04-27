@@ -55,9 +55,11 @@ import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel } fr
 import { getWorkflowIcon } from "./registry";
 import type {
   WorkflowAiPartialEditRequest,
+  WorkflowAiPartialEditResponse,
   WorkflowCapability,
   WorkflowArtifactFormat,
   WorkflowEditSaveMode,
+  WorkflowEditSaveOptions,
   WorkflowManifest,
   WorkflowRun,
   WorkflowRunVersion,
@@ -657,7 +659,7 @@ export default function WorkflowsPage() {
     }
   }, []);
 
-  const handleSaveEditedOutput = useCallback(async (run: WorkflowRun, content: string, mode: WorkflowEditSaveMode) => {
+  const handleSaveEditedOutput = useCallback(async (run: WorkflowRun, content: string, mode: WorkflowEditSaveMode, options: WorkflowEditSaveOptions = {}) => {
     if (!run.result || run.status !== "completed") return;
     const baseVersionId = run.active_version_id || run.versions?.[run.versions.length - 1]?.id || "";
     if (!baseVersionId) {
@@ -669,7 +671,7 @@ export default function WorkflowsPage() {
     setArtifactBusyRunId(run.id);
     setVersionBusyId(baseVersionId);
     try {
-      const updated = await saveWorkflowVersionEdit(run.id, baseVersionId, content, mode);
+      const updated = await saveWorkflowVersionEdit(run.id, baseVersionId, content, mode, options);
       setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
       selectRun(updated.id);
       toast.success("Changes saved", {
@@ -687,8 +689,10 @@ export default function WorkflowsPage() {
     }
   }, [selectRun]);
 
-  const handleAiPartialEdit = useCallback(async (run: WorkflowRun, payload: WorkflowAiPartialEditRequest) => {
-    if (!run.result || run.status !== "completed") return;
+  const handleAiPartialEdit = useCallback(async (run: WorkflowRun, payload: WorkflowAiPartialEditRequest): Promise<WorkflowAiPartialEditResponse> => {
+    if (!run.result || run.status !== "completed") {
+      throw new Error("Only completed workflow outputs can be edited.");
+    }
     const baseVersionId = run.active_version_id || run.versions?.[run.versions.length - 1]?.id || "";
     if (!baseVersionId) {
       const error = new Error("Could not find a version to edit.");
@@ -699,13 +703,12 @@ export default function WorkflowsPage() {
     setArtifactBusyRunId(run.id);
     setVersionBusyId(baseVersionId);
     toast.message("Editing selected text", {
-      description: "A new version will be created when the edit is ready.",
+      description: "The edited draft will open for review before you save it.",
     });
     try {
-      const updated = await saveWorkflowVersionPartialEdit(run.id, baseVersionId, payload);
-      setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
-      selectRun(updated.id);
-      toast.success("Version created", { description: "The selected section was updated." });
+      const preview = await saveWorkflowVersionPartialEdit(run.id, baseVersionId, payload);
+      toast.success("AI edit ready", { description: "Review the draft, then overwrite or save it as a new version." });
+      return preview;
     } catch (err) {
       console.error("[workflows] ai partial edit error", err);
       toast.error("Failed to edit selected text", { description: parseErr(err) });
@@ -714,7 +717,7 @@ export default function WorkflowsPage() {
       setArtifactBusyRunId((current) => (current === run.id ? null : current));
       setVersionBusyId((current) => (current === baseVersionId ? null : current));
     }
-  }, [selectRun]);
+  }, []);
 
   const handleSelectVersion = useCallback(async (run: WorkflowRun, version: WorkflowRunVersion) => {
     if (run.active_version_id === version.id) return;
@@ -1312,7 +1315,7 @@ export default function WorkflowsPage() {
                         activeVersionId={selectedRun.active_version_id || null}
                         versionBusyId={versionBusyId}
                         onSaveArtifact={() => { void handleSaveArtifact(selectedRun); }}
-                        onSaveEditedOutput={(content, mode) => handleSaveEditedOutput(selectedRun, content, mode)}
+                        onSaveEditedOutput={(content, mode, options) => handleSaveEditedOutput(selectedRun, content, mode, options)}
                         onAiEditSelectedOutput={(payload) => handleAiPartialEdit(selectedRun, payload)}
                         onDownloadArtifact={(format) => { void handleDownloadArtifact(selectedRun, format); }}
                         onSelectVersion={(version) => { void handleSelectVersion(selectedRun, version); }}

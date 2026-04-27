@@ -90,6 +90,8 @@ class WorkflowRunVersionLabelUpdate(BaseModel):
 class WorkflowRunVersionEditRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=300_000)
     mode: Literal["new_version", "overwrite"] = "new_version"
+    edit_source: Literal["manual", "ai_section"] = "manual"
+    edit_prompt: str | None = Field(default=None, max_length=2000)
 
 
 class WorkflowRunVersionPartialEditRequest(BaseModel):
@@ -97,6 +99,13 @@ class WorkflowRunVersionPartialEditRequest(BaseModel):
     content_before: str = Field(default="", max_length=300_000)
     selected_content: str = Field(..., min_length=1, max_length=120_000)
     content_after: str = Field(default="", max_length=300_000)
+
+
+class WorkflowRunVersionPartialEditResponse(BaseModel):
+    content: str
+    replacement: str
+    summary: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkflowRunVersionLayoutUpdate(BaseModel):

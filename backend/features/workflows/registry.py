@@ -1118,16 +1118,25 @@ def edit_workflow_section(
     if OpenAIChat is None:
         raise RuntimeError("Workflow AI editing is not available because the chat model is not configured")
 
+    full_artifact_markdown = (
+        f"{str(content_before or '')}"
+        "\n\n<!-- SELECTED_SECTION_START -->\n"
+        f"{str(selected_content or '')}"
+        "\n<!-- SELECTED_SECTION_END -->\n\n"
+        f"{str(content_after or '')}"
+    ).strip()
+
     model = OpenAIChat()
     system = textwrap.dedent(
         """
         Edit one selected section from an existing workflow artifact.
         Return valid JSON only with exactly these keys: edited_markdown, summary, bullets, next_actions, metadata.
-        - edited_markdown must contain only the replacement markdown for the selected section.
+        - edited_markdown must contain only the replacement markdown for the selected section between SELECTED_SECTION_START and SELECTED_SECTION_END.
         - Do not return the full artifact.
-        - Follow the user's edit request while preserving the meaning, tone, and markdown structure unless the request asks to change them.
-        - Use the surrounding context only to keep continuity. Do not change or refer to surrounding text.
+        - Read the full artifact for context before editing, but only change the selected section.
+        - Follow the user's edit request while preserving accurate facts, tone, continuity, and markdown structure unless the request asks to change them.
         - Do not add a Sources used section.
+        - Do not mention the selection markers in the edited markdown.
         """
     ).strip()
     user = textwrap.dedent(
@@ -1137,14 +1146,8 @@ def edit_workflow_section(
         User edit request:
         {prompt}
 
-        Context before the selection:
-        {_context_excerpt(content_before, tail=True)}
-
-        Selected markdown to edit:
-        {selected_content}
-
-        Context after the selection:
-        {_context_excerpt(content_after)}
+        Full artifact markdown with the selected section marked:
+        {full_artifact_markdown}
         """
     ).strip()
 
@@ -1160,6 +1163,7 @@ def edit_workflow_section(
         "prompt": prompt,
         "selected_chars": len(str(selected_content or "")),
         "replacement_chars": len(edited_markdown),
+        "full_context_chars": len(full_artifact_markdown),
     }
     metadata["llm_usage"] = {
         "prompt_tokens": int(response.usage.prompt_tokens or 0),
@@ -1172,8 +1176,6 @@ def edit_workflow_section(
     metadata["bullets"] = _coerce_list(payload.get("bullets"))
     metadata["next_actions"] = _coerce_list(payload.get("next_actions"))
     return edited_markdown, metadata
-
-
 def refine_workflow_result(
     run: WorkflowRun,
     sources: list[WorkflowSourceFile],

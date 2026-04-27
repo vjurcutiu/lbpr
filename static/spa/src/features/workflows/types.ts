@@ -18,6 +18,18 @@ export type WorkflowAiPartialEditRequest = {
   content_after: string;
 };
 
+export type WorkflowAiPartialEditResponse = {
+  content: string;
+  replacement: string;
+  summary: string;
+  metadata: Record<string, unknown>;
+};
+
+export type WorkflowEditSaveOptions = {
+  edit_source?: "manual" | "ai_section";
+  edit_prompt?: string;
+};
+
 export type WorkflowSelectionRequirements = {
   min_total_items: number;
   max_total_items?: number | null;

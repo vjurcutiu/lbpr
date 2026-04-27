@@ -42,6 +42,7 @@ from .models import (
     WorkflowRunVersionLabelUpdate,
     WorkflowRunVersionEditRequest,
     WorkflowRunVersionPartialEditRequest,
+    WorkflowRunVersionPartialEditResponse,
     WorkflowRunVersionLayoutUpdate,
     WorkflowRunVersion,
     WorkflowRunVersionList,
@@ -910,6 +911,10 @@ def save_edited_version(uid: str, run_id: str, version_id: str, payload: Workflo
 
     markdown = _clean_edited_markdown(payload.content)
     mode = payload.mode or "new_version"
+    edit_source = payload.edit_source or "manual"
+    edit_prompt = str(payload.edit_prompt or "").strip()
+    version_prompt = f"AI edit: {edit_prompt}" if edit_source == "ai_section" and edit_prompt else "Manual edit"
+
 
     if mode == "overwrite":
         edited_result = _build_result_from_edited_markdown(
@@ -919,6 +924,9 @@ def save_edited_version(uid: str, run_id: str, version_id: str, payload: Workflo
         )
         metadata = dict(edited_result.metadata or {})
         metadata["edit_mode"] = "overwrite"
+        metadata["edit_source"] = edit_source
+        if edit_prompt:
+            metadata["edit_prompt"] = edit_prompt
         metadata["overwritten_version_id"] = base_version.id
         if not base_version.parent_version_id:
             metadata.pop("parent_version_id", None)
@@ -927,7 +935,7 @@ def save_edited_version(uid: str, run_id: str, version_id: str, payload: Workflo
         now = datetime.now(UTC)
         updated_version = base_version.model_copy(deep=True)
         updated_version.kind = "edit"
-        updated_version.prompt = "Manual edit"
+        updated_version.prompt = version_prompt
         updated_version.result = edited_result
         updated_version.updated_at = now
         run.active_version_id = updated_version.id
@@ -940,13 +948,18 @@ def save_edited_version(uid: str, run_id: str, version_id: str, payload: Workflo
             markdown,
             parent_version_id=base_version.id,
         )
+        metadata = dict(edited_result.metadata or {})
+        metadata["edit_source"] = edit_source
+        if edit_prompt:
+            metadata["edit_prompt"] = edit_prompt
+        edited_result.metadata = metadata
 
         run.mark_completed(edited_result)
         _record_new_active_version(
             run,
             result=edited_result,
             parent_version_id=base_version.id,
-            prompt="Manual edit",
+            prompt=version_prompt,
             kind="edit",
         )
 
@@ -963,7 +976,7 @@ def save_edited_version(uid: str, run_id: str, version_id: str, payload: Workflo
     return run
 
 
-def save_ai_partial_edit(uid: str, run_id: str, version_id: str, payload: WorkflowRunVersionPartialEditRequest) -> WorkflowRun:
+def preview_ai_partial_edit(uid: str, run_id: str, version_id: str, payload: WorkflowRunVersionPartialEditRequest) -> WorkflowRunVersionPartialEditResponse:
     run = get_run(uid, run_id)
     base_version = _find_version(run, version_id)
     if run.status != "completed" or run.result is None:
@@ -976,7 +989,9 @@ def save_ai_partial_edit(uid: str, run_id: str, version_id: str, payload: Workfl
     if not selected_content.strip():
         raise HTTPException(status_code=400, detail="Select output text before using AI edit.")
 
-    combined_len = len(str(payload.content_before or "")) + len(selected_content) + len(str(payload.content_after or ""))
+    content_before = str(payload.content_before or "")
+    content_after = str(payload.content_after or "")
+    combined_len = len(content_before) + len(selected_content) + len(content_after)
     if combined_len > 300_000:
         raise HTTPException(status_code=400, detail="This output is too large to edit in one request.")
 
@@ -993,9 +1008,9 @@ def save_ai_partial_edit(uid: str, run_id: str, version_id: str, payload: Workfl
     try:
         replacement_markdown, ai_metadata = edit_workflow_section(
             run,
-            content_before=payload.content_before,
+            content_before=content_before,
             selected_content=selected_content,
-            content_after=payload.content_after,
+            content_after=content_after,
             instruction=prompt,
         )
     except RuntimeError as exc:
@@ -1003,16 +1018,14 @@ def save_ai_partial_edit(uid: str, run_id: str, version_id: str, payload: Workfl
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    markdown = _clean_edited_markdown(
-        f"{str(payload.content_before or '')}{replacement_markdown}{str(payload.content_after or '')}"
-    )
-    edited_result = _build_result_from_edited_markdown(
+    markdown = _clean_edited_markdown(f"{content_before}{replacement_markdown}{content_after}")
+    preview_result = _build_result_from_edited_markdown(
         base_version.result,
         markdown,
         parent_version_id=base_version.id,
     )
 
-    metadata = dict(edited_result.metadata or {})
+    metadata = dict(preview_result.metadata or {})
     metadata.update({key: value for key, value in dict(ai_metadata or {}).items() if key not in {"summary", "bullets", "next_actions"}})
     metadata["edit_mode"] = "ai_section"
     metadata["parent_version_id"] = base_version.id
@@ -1021,18 +1034,11 @@ def save_ai_partial_edit(uid: str, run_id: str, version_id: str, payload: Workfl
     previous_actions = (base_version.result.metadata or {}).get("suggested_actions")
     if isinstance(previous_actions, list) and previous_actions and not metadata.get("suggested_actions"):
         metadata["suggested_actions"] = previous_actions
-    edited_result.metadata = metadata
+    preview_result.metadata = metadata
 
-    run.mark_completed(edited_result)
-    new_version = _record_new_active_version(
-        run,
-        result=edited_result,
-        parent_version_id=base_version.id,
-        prompt=f"AI edit: {prompt}",
-        kind="edit",
-    )
-
-    billed_total, breakdown, usage_details = _workflow_usage_breakdown(run, {"source_strategy": "ai_section_edit"})
+    billing_run = run.model_copy(deep=True)
+    billing_run.result = preview_result
+    billed_total, breakdown, usage_details = _workflow_usage_breakdown(billing_run, {"source_strategy": "ai_section_edit"})
     if billed_total > 0:
         ok, used, cap = asyncio.run(
             add_workflow_tokens(
@@ -1044,26 +1050,17 @@ def save_ai_partial_edit(uid: str, run_id: str, version_id: str, payload: Workfl
         )
         if not ok:
             raise HTTPException(status_code=402, detail="Workflow usage limit reached for this billing period.")
-        _attach_usage_details(run, usage_details=usage_details, used=used, cap=cap)
-        new_version.result = _copy_result(run.result) if run.result else new_version.result
-        _replace_or_append_version(run, new_version)
-    else:
-        _attach_usage_details(run, usage_details=usage_details)
+        usage_details["period_used_tokens"] = int(used)
+        usage_details["period_cap_tokens"] = int(cap)
+        usage_details["period_remaining_tokens"] = max(0, int(cap) - int(used or 0))
+    metadata["usage_accounting"] = usage_details
 
-    try:
-        artifact = _upsert_artifact_for_run(uid, run)
-        if run.active_version_id:
-            active_version = _find_version(run, run.active_version_id)
-            active_version.artifact = _artifact_summary(artifact)
-            active_version.updated_at = datetime.now(UTC)
-            _replace_or_append_version(run, active_version)
-            run.result = _copy_result(active_version.result)
-            run.artifact = _copy_artifact_summary(active_version.artifact)
-    except Exception:
-        log.warning("workflow_partial_edit_artifact_save_failed", uid=uid, run_id=run.id, exc_info=True)
-
-    _persist_run(uid, run)
-    return run
+    return WorkflowRunVersionPartialEditResponse(
+        content=markdown,
+        replacement=replacement_markdown,
+        summary=str(ai_metadata.get("summary") or "").strip() if isinstance(ai_metadata, dict) else "",
+        metadata=metadata,
+    )
 
 def rename_run(uid: str, run_id: str, payload: WorkflowRunTitleUpdate) -> WorkflowRun:
     run = get_run(uid, run_id)
@@ -1312,13 +1309,15 @@ def _workflow_usage_breakdown(run: WorkflowRun, source_stats: dict[str, object])
     metadata = dict((run.result.metadata if run.result else {}) or {})
     llm_usage = metadata.get("llm_usage") if isinstance(metadata.get("llm_usage"), dict) else {}
     title_llm_usage = metadata.get("title_llm_usage") if isinstance(metadata.get("title_llm_usage"), dict) else {}
+    source_strategy = str(source_stats.get("source_strategy") or "coverage")
+    if source_strategy == "ai_section_edit":
+        title_llm_usage = {}
     prompt_tokens = max(0, int(llm_usage.get("prompt_tokens") or 0)) + max(0, int(title_llm_usage.get("prompt_tokens") or 0))
     completion_tokens = max(0, int(llm_usage.get("completion_tokens") or 0)) + max(0, int(title_llm_usage.get("completion_tokens") or 0))
     total_tokens = max(0, int(llm_usage.get("total_tokens") or 0)) + max(0, int(title_llm_usage.get("total_tokens") or 0))
     if total_tokens <= 0:
         total_tokens = prompt_tokens + completion_tokens
 
-    source_strategy = str(source_stats.get("source_strategy") or "coverage")
     rag_overhead_tokens = _WORKFLOW_TARGETED_RAG_OVERHEAD_TOKENS if "targeted_rag" in source_strategy else 0
 
     billed_total = total_tokens + rag_overhead_tokens

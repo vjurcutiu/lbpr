@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 import { MarkdownRichEditor, type MarkdownEditorSelection } from "./MarkdownRichEditor";
 
-import type { WorkflowAiPartialEditRequest, WorkflowArtifactFormat, WorkflowEditSaveMode, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowRunVersion, WorkflowSelection, WorkflowSuggestedAction } from "../types";
+import type { WorkflowAiPartialEditRequest, WorkflowAiPartialEditResponse, WorkflowArtifactFormat, WorkflowEditSaveMode, WorkflowEditSaveOptions, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowRunVersion, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
 type SourceFileMeta = {
   file_id?: string;
@@ -132,8 +132,8 @@ type Props = {
   activeVersionId?: string | null;
   versionBusyId?: string | null;
   onSaveArtifact?: () => void;
-  onSaveEditedOutput?: (content: string, mode: WorkflowEditSaveMode) => void | Promise<void>;
-  onAiEditSelectedOutput?: (payload: WorkflowAiPartialEditRequest) => void | Promise<void>;
+  onSaveEditedOutput?: (content: string, mode: WorkflowEditSaveMode, options?: WorkflowEditSaveOptions) => void | Promise<void>;
+  onAiEditSelectedOutput?: (payload: WorkflowAiPartialEditRequest) => WorkflowAiPartialEditResponse | Promise<WorkflowAiPartialEditResponse>;
   onDownloadArtifact?: (format: WorkflowArtifactFormat) => void;
   onSelectVersion?: (version: WorkflowRunVersion) => void;
   onRenameVersion?: (version: WorkflowRunVersion, label: string) => void | Promise<void>;
@@ -856,6 +856,7 @@ export function WorkflowResultDetails({
   const [refinePrompt, setRefinePrompt] = useState("");
   const [aiEditSelection, setAiEditSelection] = useState<MarkdownEditorSelection | null>(null);
   const [aiEditPrompt, setAiEditPrompt] = useState("");
+  const [aiEditDraftPrompt, setAiEditDraftPrompt] = useState("");
   const [aiEditSubmitting, setAiEditSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -864,6 +865,7 @@ export function WorkflowResultDetails({
     setEditingOutput(false);
     setAiEditSelection(null);
     setAiEditPrompt("");
+    setAiEditDraftPrompt("");
     setCopied(false);
   }, [activeVersionId, markdown]);
 
@@ -901,17 +903,23 @@ export function WorkflowResultDetails({
 
   const cancelOutputEdit = () => {
     setDraftMarkdown(markdown);
+    setAiEditDraftPrompt("");
     setEditingOutput(false);
   };
 
   const beginOutputEdit = () => {
     setDraftMarkdown(markdown);
+    setAiEditDraftPrompt("");
     setEditingOutput(true);
   };
 
   const saveEditedOutput = async (mode: WorkflowEditSaveMode) => {
     if (!canSaveEditedOutput) return;
-    await onSaveEditedOutput?.(draftMarkdown, mode);
+    const options: WorkflowEditSaveOptions = aiEditDraftPrompt
+      ? { edit_source: "ai_section", edit_prompt: aiEditDraftPrompt }
+      : {};
+    await onSaveEditedOutput?.(draftMarkdown, mode, options);
+    setAiEditDraftPrompt("");
     setEditingOutput(false);
   };
 
@@ -933,15 +941,17 @@ export function WorkflowResultDetails({
 
     setAiEditSubmitting(true);
     try {
-      await onAiEditSelectedOutput({
+      const preview = await onAiEditSelectedOutput({
         prompt,
         content_before: aiEditSelection.contentBefore,
         selected_content: aiEditSelection.selectedContent,
         content_after: aiEditSelection.contentAfter,
       });
+      setDraftMarkdown(preview.content);
+      setAiEditDraftPrompt(prompt);
+      setEditingOutput(true);
       setAiEditSelection(null);
       setAiEditPrompt("");
-      setEditingOutput(false);
     } finally {
       setAiEditSubmitting(false);
     }
@@ -1132,7 +1142,7 @@ export function WorkflowResultDetails({
                 <Sparkles className="h-4 w-4" />
                 Edit selected text with AI
               </DialogTitle>
-              <DialogDescription>Describe the change. A new version will be created from this output.</DialogDescription>
+              <DialogDescription>Describe the change. You can review the edited output before saving it.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 px-6 py-4">
               {aiEditSelectedPreview ? (
@@ -1159,7 +1169,7 @@ export function WorkflowResultDetails({
             <DialogFooter className="px-6 pb-6">
               <Button type="button" variant="outline" onClick={closeAiEditModal} disabled={aiEditIsBusy}>Cancel</Button>
               <Button type="submit" disabled={aiEditIsBusy || !aiEditPrompt.trim()}>
-                {aiEditIsBusy ? "Creating" : "Create version"}
+                {aiEditIsBusy ? "Editing" : "Preview edit"}
               </Button>
             </DialogFooter>
           </form>
