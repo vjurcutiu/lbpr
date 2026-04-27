@@ -13,7 +13,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 
 import { MarkdownRichEditor } from "./MarkdownRichEditor";
-import { remarkHighlight } from "../utils/markdownHighlight";
 
 import type { WorkflowArtifactFormat, WorkflowEditSaveMode, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowRunVersion, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
@@ -999,7 +998,7 @@ export function WorkflowResultDetails({
         ) : (
           <article className="px-5 py-6 md:px-8 md:py-8">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkHighlight]}
+              remarkPlugins={[remarkGfm]}
               components={{
                 h1: ({ children }) => <h1 className="mb-5 text-2xl font-semibold leading-tight tracking-[-0.02em] text-foreground">{children}</h1>,
                 h2: ({ children }) => <h2 className="mb-3 mt-7 text-lg font-semibold leading-7 text-foreground first:mt-0">{children}</h2>,
@@ -1013,7 +1012,6 @@ export function WorkflowResultDetails({
                 li: ({ children }) => <li className="pl-1">{children}</li>,
                 blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4 text-[15px] leading-7 text-muted-foreground">{children}</blockquote>,
                 strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-                mark: ({ children }) => <mark className="rounded-md bg-yellow-200/70 px-1 py-0.5 text-foreground dark:bg-yellow-500/30">{children}</mark>,
                 table: ({ children }) => <div className="my-5 overflow-x-auto rounded-2xl border border-border/70"><table className="w-full min-w-[560px] border-collapse text-sm">{children}</table></div>,
                 th: ({ children }) => <th className="border-b border-border/70 bg-muted/30 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</th>,
                 td: ({ children }) => <td className="border-t border-border/70 px-3 py-2 align-top text-sm leading-6 text-foreground/90">{children}</td>,

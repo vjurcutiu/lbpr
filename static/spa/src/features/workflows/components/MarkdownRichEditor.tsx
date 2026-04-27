@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Bold, ChevronDown, Heading1, Highlighter, Italic, List, ListOrdered } from "lucide-react";
+import { Bold, ChevronDown, Heading1, Italic, List, ListOrdered } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -43,7 +43,6 @@ function applyInlineMarkdown(value: string) {
   html = html.replace(/`([^`]+)`/g, (_match, code: string) => stash(`<code>${code}</code>`));
   html = html.replace(/\*\*([^*]+)\*\*/g, (_match, text: string) => stash(`<strong>${text}</strong>`));
   html = html.replace(/__([^_]+)__/g, (_match, text: string) => stash(`<strong>${text}</strong>`));
-  html = html.replace(/==([^=\n]+)==/g, (_match, text: string) => stash(`<mark>${text}</mark>`));
   html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, (_match, prefix: string, text: string) => `${prefix}${stash(`<em>${text}</em>`)}`);
   html = html.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, (_match, prefix: string, text: string) => `${prefix}${stash(`<em>${text}</em>`)}`);
 
@@ -227,7 +226,6 @@ function inlineMarkdown(node: Node): string {
   if (tag === "br") return "\n";
   if (tag === "strong" || tag === "b") return children ? `**${children}**` : "";
   if (tag === "em" || tag === "i") return children ? `*${children}*` : "";
-  if (tag === "mark" || element.style.backgroundColor || element.style.background) return children ? `==${children}==` : "";
   if (tag === "code") return children ? `\`${children.replace(/`/g, "'")}\`` : "";
 
   return children;
@@ -335,64 +333,6 @@ function selectionIsInside(element: HTMLElement) {
   return !!anchor && !!focus && element.contains(anchor) && element.contains(focus);
 }
 
-function unwrapElement(element: HTMLElement) {
-  const parent = element.parentNode;
-  if (!parent) return;
-
-  while (element.firstChild) {
-    parent.insertBefore(element.firstChild, element);
-  }
-
-  parent.removeChild(element);
-  parent.normalize();
-}
-
-function closestHighlight(node: Node | null, editor: HTMLElement) {
-  let current: Node | null = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentNode ?? null;
-
-  while (current && current !== editor) {
-    if (current.nodeType === Node.ELEMENT_NODE && (current as HTMLElement).tagName.toLowerCase() === "mark") {
-      return current as HTMLElement;
-    }
-    current = current.parentNode;
-  }
-
-  return null;
-}
-
-function selectedHighlights(editor: HTMLElement, range: Range) {
-  if (range.collapsed) {
-    const mark = closestHighlight(range.startContainer, editor);
-    return mark ? [mark] : [];
-  }
-
-  return Array.from(editor.querySelectorAll("mark")).filter((mark) => {
-    try {
-      return range.intersectsNode(mark);
-    } catch {
-      return false;
-    }
-  });
-}
-
-function toggleHighlightedSelection(editor: HTMLElement) {
-  const selection = window.getSelection();
-  if (!selection?.rangeCount || !selectionIsInside(editor)) return;
-
-  const range = selection.getRangeAt(0);
-  const highlightedNodes = selectedHighlights(editor, range);
-
-  if (highlightedNodes.length) {
-    highlightedNodes.forEach(unwrapElement);
-    return;
-  }
-
-  const selectedText = selection.toString();
-  if (!selectedText) return;
-
-  runEditorCommand("insertHTML", `<mark>${escapeHtml(selectedText)}</mark>`);
-}
-
 export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabel = "Edit markdown output" }: MarkdownRichEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
@@ -464,21 +404,13 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
     emitChange();
   };
 
-  const applyHighlight = () => {
-    const editor = editorRef.current;
-    if (!editor || disabled) return;
-    focusEditor();
-    toggleHighlightedSelection(editor);
-    emitChange();
-  };
 
   const inlineToolbarItems = [
     { key: "bold", label: "Bold", icon: Bold, action: () => applyInline("bold") },
     { key: "italic", label: "Italic", icon: Italic, action: () => applyInline("italic") },
   ];
 
-  const utilityToolbarItems = [
-    { key: "highlight", label: "Highlight", icon: Highlighter, action: applyHighlight },
+  const listToolbarItems = [
     { key: "bulleted-list", label: "Bullets", icon: List, action: () => applyList("bulleted") },
     { key: "numbered-list", label: "Numbered", icon: ListOrdered, action: () => applyList("numbered") },
   ];
@@ -545,7 +477,7 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
-        {utilityToolbarItems.map((item) => {
+        {listToolbarItems.map((item) => {
           const Icon = item.icon;
           return (
             <Button
@@ -561,7 +493,7 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
               title={item.label}
             >
               <Icon className="h-4 w-4" />
-              <span className={cn("ml-1", item.key === "highlight" ? "hidden sm:inline" : "")}>{item.label}</span>
+              <span className="ml-1 hidden sm:inline">{item.label}</span>
             </Button>
           );
         })}
@@ -594,7 +526,6 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
           "[&_td]:border-t [&_td]:border-border/70 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top [&_td]:text-sm [&_td]:leading-6",
           "[&_th]:border-b [&_th]:border-border/70 [&_th]:bg-muted/30 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-[0.12em] [&_th]:text-muted-foreground",
           "[&_ul]:my-3 [&_ul]:ml-5 [&_ul]:list-disc [&_ul]:space-y-2",
-          "[&_mark]:rounded-md [&_mark]:bg-yellow-200/70 [&_mark]:px-1 [&_mark]:py-0.5 [&_mark]:text-foreground dark:[&_mark]:bg-yellow-500/30",
           disabled && "cursor-not-allowed opacity-70"
         )}
       />
