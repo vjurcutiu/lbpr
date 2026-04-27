@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, RefreshCw, Save, SendHorizontal } from "lucide-react";
+import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, PencilLine, RefreshCw, RotateCcw, Save, SendHorizontal } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -46,6 +46,7 @@ function uniqueSourceFiles(sources: SourceFileMeta[]) {
 function versionKindLabel(version: WorkflowRunVersion) {
   if (version.kind === "original") return "Original";
   if (version.kind === "branch") return "Branch";
+  if (version.kind === "edit") return "Edited";
   return "Refined";
 }
 
@@ -122,6 +123,7 @@ type Props = {
   activeVersionId?: string | null;
   versionBusyId?: string | null;
   onSaveArtifact?: () => void;
+  onSaveEditedOutput?: (content: string) => void | Promise<void>;
   onDownloadArtifact?: (format: WorkflowArtifactFormat) => void;
   onSelectVersion?: (version: WorkflowRunVersion) => void;
   onRenameVersion?: (version: WorkflowRunVersion, label: string) => void | Promise<void>;
@@ -825,6 +827,7 @@ export function WorkflowResultDetails({
   activeVersionId,
   versionBusyId = null,
   onSaveArtifact,
+  onSaveEditedOutput,
   onDownloadArtifact,
   onSelectVersion,
   onRenameVersion,
@@ -836,8 +839,20 @@ export function WorkflowResultDetails({
   const rawSourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
   const visibleSourceFiles = useMemo(() => uniqueSourceFiles(rawSourceFiles), [rawSourceFiles]);
   const markdown = useMemo(() => documentMarkdown(result), [result]);
+  const [editingOutput, setEditingOutput] = useState(false);
+  const [draftMarkdown, setDraftMarkdown] = useState(markdown);
   const [refinePrompt, setRefinePrompt] = useState("");
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    setDraftMarkdown(markdown);
+    setEditingOutput(false);
+    setCopied(false);
+  }, [activeVersionId, markdown]);
+
+  const outputMarkdown = editingOutput ? draftMarkdown : markdown;
+  const hasEditedOutput = draftMarkdown !== markdown;
+  const canSaveEditedOutput = !!onSaveEditedOutput && hasEditedOutput && !!draftMarkdown.trim() && !artifactBusy;
 
   const suggestedActions = useMemo(() => {
     return asArray<WorkflowSuggestedAction>(result.metadata?.suggested_actions)
@@ -860,9 +875,20 @@ export function WorkflowResultDetails({
   };
 
   const copyOutput = async () => {
-    await navigator.clipboard.writeText(markdown);
+    await navigator.clipboard.writeText(outputMarkdown);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
+  };
+
+  const cancelOutputEdit = () => {
+    setDraftMarkdown(markdown);
+    setEditingOutput(false);
+  };
+
+  const saveEditedOutput = async () => {
+    if (!canSaveEditedOutput) return;
+    await onSaveEditedOutput?.(draftMarkdown);
+    setEditingOutput(false);
   };
 
   return (
@@ -881,17 +907,35 @@ export function WorkflowResultDetails({
         <div className="min-w-0">
           <div className="text-sm font-medium leading-5 text-foreground">Output</div>
           <div className="mt-1 text-xs leading-5 text-muted-foreground">
-            {artifact
-              ? `${artifact.file_name} • ${Math.max(1, Math.round((artifact.byte_size || 0) / 1024))} KB`
-              : "Save, copy, or download this output when it is ready."}
+            {editingOutput
+              ? "Edit the output directly. Saving creates a new version."
+              : artifact
+                ? `${artifact.file_name} • ${Math.max(1, Math.round((artifact.byte_size || 0) / 1024))} KB`
+                : "Save, copy, or download this output when it is ready."}
           </div>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+          {editingOutput ? (
+            <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={cancelOutputEdit} disabled={artifactBusy}>
+              <RotateCcw className="mr-1 h-4 w-4" />
+              Cancel
+            </Button>
+          ) : onSaveEditedOutput ? (
+            <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={() => setEditingOutput(true)} disabled={artifactBusy}>
+              <PencilLine className="mr-1 h-4 w-4" />
+              Edit
+            </Button>
+          ) : null}
           <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={() => { void copyOutput(); }}>
             <Copy className="mr-1 h-4 w-4" />
             {copied ? "Copied" : "Copy"}
           </Button>
-          {!artifact && onSaveArtifact ? (
+          {editingOutput && onSaveEditedOutput ? (
+            <Button size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={() => { void saveEditedOutput(); }} disabled={!canSaveEditedOutput}>
+              <Save className="mr-1 h-4 w-4" />
+              {artifactBusy ? "Saving" : "Save changes"}
+            </Button>
+          ) : !artifact && onSaveArtifact ? (
             <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={onSaveArtifact} disabled={artifactBusy}>
               <Save className="mr-1 h-4 w-4" />
               Save
@@ -900,7 +944,7 @@ export function WorkflowResultDetails({
           {onDownloadArtifact ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" disabled={artifactBusy}>
+                <Button size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" disabled={artifactBusy || (editingOutput && hasEditedOutput)}>
                   <Download className="mr-1 h-4 w-4" />
                   {artifact ? "Download" : "Save and download"}
                   <ChevronDown className="ml-1 h-4 w-4" />
@@ -927,7 +971,17 @@ export function WorkflowResultDetails({
         </div>
       </div>
 
-      <article className="rounded-[1.75rem] border border-border/70 bg-background px-5 py-6 shadow-sm md:px-8 md:py-8">
+      {editingOutput ? (
+        <Textarea
+          value={draftMarkdown}
+          onChange={(event) => setDraftMarkdown(event.target.value)}
+          className="min-h-[520px] rounded-[1.75rem] border-border/70 bg-background px-5 py-5 font-mono text-sm leading-7 shadow-sm md:px-8 md:py-7"
+          disabled={artifactBusy}
+          spellCheck
+          aria-label="Edit workflow output"
+        />
+      ) : (
+        <article className="rounded-[1.75rem] border border-border/70 bg-background px-5 py-6 shadow-sm md:px-8 md:py-8">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -951,7 +1005,8 @@ export function WorkflowResultDetails({
         >
           {markdown}
         </ReactMarkdown>
-      </article>
+        </article>
+      )}
 
       {onRefine ? (
         <form onSubmit={submitRefinement} className="rounded-2xl border border-border/70 bg-background px-4 py-4 shadow-sm">

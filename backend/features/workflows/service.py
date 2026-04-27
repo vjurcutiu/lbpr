@@ -40,6 +40,7 @@ from .models import (
     WorkflowRunRefineRequest,
     WorkflowRunTitleUpdate,
     WorkflowRunVersionLabelUpdate,
+    WorkflowRunVersionEditRequest,
     WorkflowRunVersionLayoutUpdate,
     WorkflowRunVersion,
     WorkflowRunVersionList,
@@ -224,6 +225,46 @@ def _build_artifact_content_from_result(title: str, result: WorkflowResult | Non
 
 def _build_artifact_content(run: WorkflowRun) -> str:
     return _build_artifact_content_from_result(run.title, run.result)
+
+
+def _clean_edited_markdown(content: str) -> str:
+    markdown = sanitize_export_markdown(str(content or "").strip())
+    if not markdown:
+        raise HTTPException(status_code=400, detail="Add output text before saving changes.")
+    return markdown
+
+
+def _summary_from_markdown(markdown: str) -> str:
+    text = re.sub(r"```[\s\S]*?```", " ", markdown)
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", text)
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", text)
+    text = re.sub(r"(?m)^\s{0,3}[-*+]\s+", "", text)
+    text = re.sub(r"(?m)^\s{0,3}\d+[.)]\s+", "", text)
+    text = re.sub(r"[>#*_~|]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return "Manual edit saved."
+    return text[:280].rsplit(" ", 1)[0].strip() or text[:280].strip()
+
+
+def _build_result_from_edited_markdown(base_result: WorkflowResult, markdown: str, *, parent_version_id: str | None) -> WorkflowResult:
+    metadata = dict(base_result.metadata or {})
+    metadata.update({
+        "manual_edit": True,
+        "edited_at": _to_iso_utc(datetime.now(UTC)),
+    })
+    if parent_version_id:
+        metadata["parent_version_id"] = parent_version_id
+    metadata.pop("generated_title", None)
+    return WorkflowResult(
+        summary=_summary_from_markdown(markdown),
+        bullets=[],
+        next_actions=list(base_result.next_actions or []),
+        preview_markdown=markdown,
+        metadata=metadata,
+    )
 
 
 def _build_artifact_from_result(
@@ -858,6 +899,41 @@ def save_artifact_for_version(uid: str, run_id: str, version_id: str) -> Workflo
 
     _persist_run(uid, run)
     return artifact
+
+
+def save_edited_version(uid: str, run_id: str, version_id: str, payload: WorkflowRunVersionEditRequest) -> WorkflowRun:
+    run = get_run(uid, run_id)
+    base_version = _find_version(run, version_id)
+    if run.status != "completed" or run.result is None:
+        raise HTTPException(status_code=400, detail="Only completed workflow outputs can be edited.")
+
+    markdown = _clean_edited_markdown(payload.content)
+    edited_result = _build_result_from_edited_markdown(
+        base_version.result,
+        markdown,
+        parent_version_id=base_version.id,
+    )
+
+    run.mark_completed(edited_result)
+    _record_new_active_version(
+        run,
+        result=edited_result,
+        parent_version_id=base_version.id,
+        prompt="Manual edit",
+        kind="edit",
+    )
+
+    artifact = _upsert_artifact_for_run(uid, run)
+    if run.active_version_id:
+        active_version = _find_version(run, run.active_version_id)
+        active_version.artifact = _artifact_summary(artifact)
+        active_version.updated_at = datetime.now(UTC)
+        _replace_or_append_version(run, active_version)
+        run.result = _copy_result(active_version.result)
+        run.artifact = _copy_artifact_summary(active_version.artifact)
+
+    _persist_run(uid, run)
+    return run
 
 
 def rename_run(uid: str, run_id: str, payload: WorkflowRunTitleUpdate) -> WorkflowRun:

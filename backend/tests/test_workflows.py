@@ -335,6 +335,49 @@ def test_workflow_run_rename_updates_run_and_artifact(auth_client, inline_workfl
     assert artifact_payload['content'].startswith('# Client Brief: Launch Plan')
 
 
+def test_workflow_manual_edit_creates_new_saved_version(auth_client, inline_workflow_jobs, stub_workflow_sources, fake_workflow_firestore):
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'summarize_documents',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': ''},
+            'inputs': {'focus': 'key risks and decisions'},
+        },
+    )
+    assert create.status_code == 202, create.text
+    run = create.json()
+    base_version_id = run['active_version_id']
+
+    edited_markdown = '# Edited client brief\n\nThis is the rewritten output.\n\n- Keep this point.'
+    edit = auth_client.post(
+        f"/v1/workflows/runs/{run['id']}/versions/{base_version_id}/edit",
+        json={'content': edited_markdown},
+    )
+    assert edit.status_code == 200, edit.text
+    edited = edit.json()
+
+    assert edited['active_version_id'] != base_version_id
+    assert edited['result']['preview_markdown'] == edited_markdown
+    assert edited['result']['metadata']['manual_edit'] is True
+    assert edited['result']['metadata']['parent_version_id'] == base_version_id
+    assert len(edited['versions']) == 2
+    active_version = next(item for item in edited['versions'] if item['id'] == edited['active_version_id'])
+    assert active_version['kind'] == 'edit'
+    assert active_version['parent_version_id'] == base_version_id
+    assert active_version['artifact']['id'] == edited['artifact']['id']
+
+    artifact = auth_client.get(f"/v1/workflows/artifacts/{edited['artifact']['id']}")
+    assert artifact.status_code == 200, artifact.text
+    artifact_payload = artifact.json()
+    assert artifact_payload['content'] == edited_markdown
+    assert artifact_payload['metadata']['version_id'] == edited['active_version_id']
+
+    download = auth_client.get(f"/v1/workflows/artifacts/{edited['artifact']['id']}/download?format=txt")
+    assert download.status_code == 200, download.text
+    assert b'Edited client brief' in download.content
+    assert b'rewritten output' in download.content
+
+
 def test_compare_requires_exactly_two_files(auth_client):
     resp = auth_client.post(
         '/v1/workflows/runs',

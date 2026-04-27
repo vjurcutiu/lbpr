@@ -85,6 +85,13 @@ export async function saveWorkflowVersionArtifact(runId: string, versionId: stri
   );
 }
 
+export async function saveWorkflowVersionEdit(runId: string, versionId: string, content: string): Promise<WorkflowRun> {
+  return postJSON<WorkflowRun>(
+    `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/edit`,
+    { content }
+  );
+}
+
 export async function saveWorkflowArtifact(runId: string): Promise<WorkflowArtifact> {
   return postJSON<WorkflowArtifact>(`/v1/workflows/runs/${encodeURIComponent(runId)}/artifact`, {});
 }

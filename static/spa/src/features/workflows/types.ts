@@ -93,7 +93,7 @@ export type WorkflowRunVersion = {
   label?: string | null;
   layout_x?: number | null;
   layout_y?: number | null;
-  kind: "original" | "refinement" | "branch";
+  kind: "original" | "refinement" | "branch" | "edit";
   prompt?: string | null;
   result: WorkflowResult;
   artifact?: WorkflowArtifactSummary | null;

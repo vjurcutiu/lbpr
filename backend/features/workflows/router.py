@@ -17,6 +17,7 @@ from .models import (
     WorkflowRunRefineRequest,
     WorkflowRunTitleUpdate,
     WorkflowRunVersionLabelUpdate,
+    WorkflowRunVersionEditRequest,
     WorkflowRunVersionLayoutUpdate,
     WorkflowRunVersionList,
 )
@@ -113,6 +114,16 @@ def save_workflow_version_artifact(
     user: SessionOut = Depends(get_current_user),
 ) -> WorkflowArtifact:
     return service.save_artifact_for_version(user.uid, run_id, version_id)
+
+
+@router.post("/runs/{run_id}/versions/{version_id}/edit", response_model=WorkflowRun)
+def save_workflow_version_edit(
+    run_id: str,
+    version_id: str,
+    payload: WorkflowRunVersionEditRequest,
+    user: SessionOut = Depends(get_current_user),
+) -> WorkflowRun:
+    return service.save_edited_version(user.uid, run_id, version_id, payload)
 
 
 @router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
