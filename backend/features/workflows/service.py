@@ -46,7 +46,7 @@ from .models import (
     WorkflowSelectionIn,
     WorkflowSourceFile,
 )
-from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX, generate_workflow_run_title, refine_workflow_result
+from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX, refine_workflow_result
 from .exporting import ExportedArtifact, export_artifact, sanitize_export_markdown
 
 log = logging.getLogger("workflows.service")
@@ -174,17 +174,29 @@ def _retitle_markdown(markdown: str, title: str) -> str:
     return f"{heading}\n\n{content}".strip()
 
 
-def _attach_title_metadata(run: WorkflowRun, title_metadata: dict[str, object] | None) -> None:
-    if run.result is None or not title_metadata:
-        return
-    metadata = dict(run.result.metadata or {})
-    source = str(title_metadata.get("source") or "").strip()
-    if source:
-        metadata["workflow_title_source"] = source
-    usage = title_metadata.get("title_llm_usage")
-    if isinstance(usage, dict):
-        metadata["title_llm_usage"] = usage
-    run.result.metadata = metadata
+def _extract_generated_result_title(result: WorkflowResult | None) -> str:
+    if result is None:
+        return ""
+    metadata = result.metadata if isinstance(result.metadata, dict) else {}
+    return str(metadata.get("generated_title") or "").strip()
+
+
+def _apply_generated_result_title(run: WorkflowRun) -> bool:
+    if run.result is None:
+        return False
+    candidate = _extract_generated_result_title(run.result)
+    if not candidate:
+        return False
+    try:
+        cleaned_title = _clean_run_title(candidate)
+    except HTTPException:
+        return False
+    if not cleaned_title or cleaned_title == run.title:
+        return False
+    run.title = cleaned_title
+    run.result.preview_markdown = _retitle_markdown(run.result.preview_markdown, cleaned_title)
+    run.updated_at = datetime.now(UTC)
+    return True
 
 def _build_artifact_content_from_result(title: str, result: WorkflowResult | None) -> str:
     if result is None:
@@ -1355,21 +1367,10 @@ def _execute_run(uid: str, run_id: str) -> None:
         if manifest.selection.exact_file_count is not None and len(source_documents) < manifest.selection.exact_file_count:
             raise HTTPException(status_code=400, detail="Could not extract usable text from every selected file for this workflow")
 
-        title_metadata: dict[str, object] = {}
-        try:
-            generated_title, title_metadata = generate_workflow_run_title(run, source_documents)
-            cleaned_title = _clean_run_title(generated_title)
-            if cleaned_title and cleaned_title != run.title:
-                run.title = cleaned_title
-                run.updated_at = datetime.now(UTC)
-                _persist_run(uid, run)
-        except Exception:
-            log.debug("workflow_run_title_update_failed", uid=uid, run_id=run.id, exc_info=True)
-
         result = handler(run, source_documents)
         run.mark_completed(result)
+        _apply_generated_result_title(run)
         _augment_result_metadata(run, source_documents, source_stats)
-        _attach_title_metadata(run, title_metadata)
         billed_total, breakdown, usage_details = _workflow_usage_breakdown(run, source_stats)
         if billed_total > 0:
             ok, used, cap = asyncio.run(

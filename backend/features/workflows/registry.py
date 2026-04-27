@@ -364,57 +364,42 @@ def _sanitize_generated_title(candidate: str, run: WorkflowRun) -> str:
     return text or f"{prefix}: selected files"
 
 
-def generate_workflow_run_title(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> tuple[str, dict[str, Any]]:
+
+def _title_metadata_from_candidate(
+    run: WorkflowRun,
+    sources: list[WorkflowSourceFile],
+    candidate: Any,
+    *,
+    source: str = "ai",
+) -> dict[str, Any]:
     fallback = _fallback_workflow_title(run, sources)
-    if OpenAIChat is None:
-        return fallback, {"source": "fallback"}
+    raw_title = str(candidate or "").strip()
+    title = _sanitize_generated_title(raw_title, run) if raw_title else ""
+    metadata: dict[str, Any] = {}
+    if title:
+        metadata["generated_title"] = title
+        metadata["workflow_title_source"] = source
+    else:
+        metadata["generated_title"] = fallback
+        metadata["workflow_title_source"] = "fallback"
+        if candidate is not None:
+            metadata["rejected_generated_title"] = True
+    return metadata
 
-    try:
-        visible_sources = _customer_visible_sources(sources)[:5]
-        file_lines = [f"- {_display_source_label(source)}" for source in visible_sources]
-        snippets = []
-        for source in visible_sources[:3]:
-            excerpt = re.sub(r"\s+", " ", source.excerpt or "").strip()
-            if excerpt:
-                snippets.append(f"{_display_source_label(source)}: {excerpt[:360]}")
-        model = OpenAIChat()
-        prefix = _workflow_title_prefix(run)
-        system = textwrap.dedent(
-            f"""
-            Create short, human-readable titles for document workflow runs.
-            Return one plain title only. Do not return JSON, markdown, quotes, or explanations.
-            The title must start with "{prefix}:" and then describe the source topic.
-            Keep it under 10 words when possible.
-            """
-        ).strip()
-        user = textwrap.dedent(
-            f"""
-            Workflow type: {prefix}
-            User focus: {_focus_text(run, 'the selected material')}
-            Files:
-            {chr(10).join(file_lines) or '- selected files'}
 
-            Source signals:
-            {chr(10).join(snippets) or 'No readable source snippet available.'}
-            """
-        ).strip()
-        response = model.generate_with_usage(system=system, user=user)
-        title = _sanitize_generated_title(response.text, run)
-        if not title:
-            return fallback, {"source": "fallback", "rejected_ai_title": True}
-        return title, {
-            "source": "ai",
-            "title_llm_usage": {
-                "prompt_tokens": int(response.usage.prompt_tokens or 0),
-                "completion_tokens": int(response.usage.completion_tokens or 0),
-                "total_tokens": int(response.usage.total_tokens or 0),
-                "operation": str(response.operation or "responses.create"),
-                "approximate": bool(response.usage.approximate),
-            },
-        }
-    except Exception:
-        log.debug("workflow_title_generation_failed", extra={"workflow_id": run.workflow_id}, exc_info=True)
-        return fallback, {"source": "fallback", "title_generation_failed": True}
+def _ensure_result_title_metadata(
+    result: WorkflowResult,
+    run: WorkflowRun,
+    sources: list[WorkflowSourceFile],
+    *,
+    candidate: Any = None,
+    source: str = "fallback",
+) -> WorkflowResult:
+    metadata = dict(result.metadata or {})
+    if not str(metadata.get("generated_title") or "").strip():
+        metadata.update(_title_metadata_from_candidate(run, sources, candidate, source=source))
+    result.metadata = metadata
+    return result
 
 def _first_insight_lines(sources: list[WorkflowSourceFile], *, limit: int = 4) -> list[str]:
     lines: list[str] = []
@@ -687,7 +672,7 @@ def _llm_result(
     fallback_factory: Callable[[], WorkflowResult],
 ) -> WorkflowResult:
     if OpenAIChat is None:
-        return fallback_factory()
+        return _ensure_result_title_metadata(fallback_factory(), run, sources)
 
     try:
         model = OpenAIChat()
@@ -721,7 +706,8 @@ def _llm_result(
             {single_source_instruction}
             Return valid JSON only.
             The JSON must have exactly these top-level keys:
-            summary, bullets, next_actions, preview_markdown, metadata.
+            title, summary, bullets, next_actions, preview_markdown, metadata.
+            - title: short human-readable workflow title. It must start with "{_workflow_title_prefix(run)}:" and describe the source topic
             - summary: short paragraph
             - bullets: array of concise strings
             - next_actions: array of concise strings
@@ -733,7 +719,9 @@ def _llm_result(
         source_excerpt_text = "\n\n".join(source_blocks)
         user = textwrap.dedent(
             f"""
-            Workflow: {run.title} ({run.workflow_id})
+            Workflow type: {_workflow_title_prefix(run)} ({run.workflow_id})
+            Current placeholder title: {run.title}
+            Generate a better title from the source content and return it in the title field.
             Selection: {_selection_phrase(run)}
             Focus: {_focus_text(run, 'the selected material')}
 
@@ -752,6 +740,7 @@ def _llm_result(
         payload = _extract_json_payload(response.text)
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         metadata = dict(metadata)
+        metadata.update(_title_metadata_from_candidate(run, sources, payload.get("title"), source="ai"))
         metadata["llm_usage"] = {
             "prompt_tokens": int(response.usage.prompt_tokens or 0),
             "completion_tokens": int(response.usage.completion_tokens or 0),
@@ -770,7 +759,7 @@ def _llm_result(
         )
     except Exception:
         log.exception("workflow_llm_failed", extra={"workflow_id": run.workflow_id})
-        return fallback_factory()
+        return _ensure_result_title_metadata(fallback_factory(), run, sources)
 
 
 def summarize_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> WorkflowResult:
