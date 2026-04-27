@@ -1094,6 +1094,86 @@ def plan_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Workflo
 
 
 
+def _context_excerpt(value: str, *, tail: bool = False, limit: int = 5000) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return ("...[earlier content omitted]\n" + text[-limit:]) if tail else (text[:limit] + "\n...[later content omitted]")
+
+
+def edit_workflow_section(
+    run: WorkflowRun,
+    *,
+    content_before: str,
+    selected_content: str,
+    content_after: str,
+    instruction: str,
+) -> tuple[str, dict[str, Any]]:
+    prompt = str(instruction or "").strip()
+    selected = str(selected_content or "").strip()
+    if not prompt:
+        raise ValueError("An edit prompt is required")
+    if not selected:
+        raise ValueError("Select text before using AI edit")
+    if OpenAIChat is None:
+        raise RuntimeError("Workflow AI editing is not available because the chat model is not configured")
+
+    model = OpenAIChat()
+    system = textwrap.dedent(
+        """
+        Edit one selected section from an existing workflow artifact.
+        Return valid JSON only with exactly these keys: edited_markdown, summary, bullets, next_actions, metadata.
+        - edited_markdown must contain only the replacement markdown for the selected section.
+        - Do not return the full artifact.
+        - Follow the user's edit request while preserving the meaning, tone, and markdown structure unless the request asks to change them.
+        - Use the surrounding context only to keep continuity. Do not change or refer to surrounding text.
+        - Do not add a Sources used section.
+        """
+    ).strip()
+    user = textwrap.dedent(
+        f"""
+        Workflow: {run.title} ({run.workflow_id})
+
+        User edit request:
+        {prompt}
+
+        Context before the selection:
+        {_context_excerpt(content_before, tail=True)}
+
+        Selected markdown to edit:
+        {selected_content}
+
+        Context after the selection:
+        {_context_excerpt(content_after)}
+        """
+    ).strip()
+
+    response = model.generate_with_usage(system=system, user=user)
+    payload = _extract_json_payload(response.text)
+    edited_markdown = str(payload.get("edited_markdown") or "").strip()
+    if not edited_markdown:
+        raise ValueError("The AI edit did not return replacement text")
+
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    metadata = dict(metadata)
+    metadata["ai_section_edit"] = {
+        "prompt": prompt,
+        "selected_chars": len(str(selected_content or "")),
+        "replacement_chars": len(edited_markdown),
+    }
+    metadata["llm_usage"] = {
+        "prompt_tokens": int(response.usage.prompt_tokens or 0),
+        "completion_tokens": int(response.usage.completion_tokens or 0),
+        "total_tokens": int(response.usage.total_tokens or 0),
+        "operation": str(response.operation or "responses.create"),
+        "approximate": bool(response.usage.approximate),
+    }
+    metadata["summary"] = str(payload.get("summary") or "").strip()
+    metadata["bullets"] = _coerce_list(payload.get("bullets"))
+    metadata["next_actions"] = _coerce_list(payload.get("next_actions"))
+    return edited_markdown, metadata
+
+
 def refine_workflow_result(
     run: WorkflowRun,
     sources: list[WorkflowSourceFile],

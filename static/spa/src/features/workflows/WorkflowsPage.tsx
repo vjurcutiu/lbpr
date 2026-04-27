@@ -44,6 +44,7 @@ import {
   saveWorkflowArtifact,
   saveWorkflowVersionArtifact,
   saveWorkflowVersionEdit,
+  saveWorkflowVersionPartialEdit,
   selectWorkflowRunVersion,
   updateWorkflowRunVersionLayout,
 } from "./api";
@@ -53,6 +54,7 @@ import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
 import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel } from "./components/WorkflowStatusIcon";
 import { getWorkflowIcon } from "./registry";
 import type {
+  WorkflowAiPartialEditRequest,
   WorkflowCapability,
   WorkflowArtifactFormat,
   WorkflowEditSaveMode,
@@ -685,6 +687,35 @@ export default function WorkflowsPage() {
     }
   }, [selectRun]);
 
+  const handleAiPartialEdit = useCallback(async (run: WorkflowRun, payload: WorkflowAiPartialEditRequest) => {
+    if (!run.result || run.status !== "completed") return;
+    const baseVersionId = run.active_version_id || run.versions?.[run.versions.length - 1]?.id || "";
+    if (!baseVersionId) {
+      const error = new Error("Could not find a version to edit.");
+      toast.error(error.message);
+      throw error;
+    }
+
+    setArtifactBusyRunId(run.id);
+    setVersionBusyId(baseVersionId);
+    toast.message("Editing selected text", {
+      description: "A new version will be created when the edit is ready.",
+    });
+    try {
+      const updated = await saveWorkflowVersionPartialEdit(run.id, baseVersionId, payload);
+      setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      selectRun(updated.id);
+      toast.success("Version created", { description: "The selected section was updated." });
+    } catch (err) {
+      console.error("[workflows] ai partial edit error", err);
+      toast.error("Failed to edit selected text", { description: parseErr(err) });
+      throw err;
+    } finally {
+      setArtifactBusyRunId((current) => (current === run.id ? null : current));
+      setVersionBusyId((current) => (current === baseVersionId ? null : current));
+    }
+  }, [selectRun]);
+
   const handleSelectVersion = useCallback(async (run: WorkflowRun, version: WorkflowRunVersion) => {
     if (run.active_version_id === version.id) return;
     setVersionBusyId(version.id);
@@ -1276,11 +1307,13 @@ export default function WorkflowsPage() {
                         artifact={selectedRun.artifact || null}
                         artifactBusy={artifactBusyRunId === selectedRun.id}
                         refineBusy={refiningRunId === selectedRun.id || branchSaving}
+                        aiEditBusy={artifactBusyRunId === selectedRun.id}
                         versions={selectedRun.versions || []}
                         activeVersionId={selectedRun.active_version_id || null}
                         versionBusyId={versionBusyId}
                         onSaveArtifact={() => { void handleSaveArtifact(selectedRun); }}
                         onSaveEditedOutput={(content, mode) => handleSaveEditedOutput(selectedRun, content, mode)}
+                        onAiEditSelectedOutput={(payload) => handleAiPartialEdit(selectedRun, payload)}
                         onDownloadArtifact={(format) => { void handleDownloadArtifact(selectedRun, format); }}
                         onSelectVersion={(version) => { void handleSelectVersion(selectedRun, version); }}
                         onRenameVersion={(version, label) => handleRenameVersion(selectedRun, version, label)}

@@ -18,6 +18,7 @@ from .models import (
     WorkflowRunTitleUpdate,
     WorkflowRunVersionLabelUpdate,
     WorkflowRunVersionEditRequest,
+    WorkflowRunVersionPartialEditRequest,
     WorkflowRunVersionLayoutUpdate,
     WorkflowRunVersionList,
 )
@@ -124,6 +125,17 @@ def save_workflow_version_edit(
     user: SessionOut = Depends(get_current_user),
 ) -> WorkflowRun:
     return service.save_edited_version(user.uid, run_id, version_id, payload)
+
+
+
+@router.post("/runs/{run_id}/versions/{version_id}/partial-edit", response_model=WorkflowRun)
+def save_workflow_version_partial_edit(
+    run_id: str,
+    version_id: str,
+    payload: WorkflowRunVersionPartialEditRequest,
+    user: SessionOut = Depends(get_current_user),
+) -> WorkflowRun:
+    return service.save_ai_partial_edit(user.uid, run_id, version_id, payload)
 
 
 @router.delete("/runs/{run_id}", status_code=status.HTTP_204_NO_CONTENT)

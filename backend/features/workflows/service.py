@@ -41,13 +41,14 @@ from .models import (
     WorkflowRunTitleUpdate,
     WorkflowRunVersionLabelUpdate,
     WorkflowRunVersionEditRequest,
+    WorkflowRunVersionPartialEditRequest,
     WorkflowRunVersionLayoutUpdate,
     WorkflowRunVersion,
     WorkflowRunVersionList,
     WorkflowSelectionIn,
     WorkflowSourceFile,
 )
-from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX, refine_workflow_result
+from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX, edit_workflow_section, refine_workflow_result
 from .exporting import ExportedArtifact, export_artifact, sanitize_export_markdown
 
 log = logging.getLogger("workflows.service")
@@ -957,6 +958,109 @@ def save_edited_version(uid: str, run_id: str, version_id: str, payload: Workflo
         _replace_or_append_version(run, active_version)
         run.result = _copy_result(active_version.result)
         run.artifact = _copy_artifact_summary(active_version.artifact)
+
+    _persist_run(uid, run)
+    return run
+
+
+def save_ai_partial_edit(uid: str, run_id: str, version_id: str, payload: WorkflowRunVersionPartialEditRequest) -> WorkflowRun:
+    run = get_run(uid, run_id)
+    base_version = _find_version(run, version_id)
+    if run.status != "completed" or run.result is None:
+        raise HTTPException(status_code=400, detail="Only completed workflow outputs can be edited.")
+
+    prompt = str(payload.prompt or "").strip()
+    selected_content = str(payload.selected_content or "")
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Add an edit prompt before using AI edit.")
+    if not selected_content.strip():
+        raise HTTPException(status_code=400, detail="Select output text before using AI edit.")
+
+    combined_len = len(str(payload.content_before or "")) + len(selected_content) + len(str(payload.content_after or ""))
+    if combined_len > 300_000:
+        raise HTTPException(status_code=400, detail="This output is too large to edit in one request.")
+
+    try:
+        asyncio.run(sync_caps_and_plan(uid))
+        snap = asyncio.run(usage_snapshot(uid))
+        if _remaining_workflow_tokens(snap) <= 0:
+            raise HTTPException(status_code=402, detail="Workflow usage limit reached for this billing period.")
+    except HTTPException:
+        raise
+    except Exception:
+        log.debug("workflow_partial_edit_limits_prefetch_failed", uid=uid, run_id=run.id, exc_info=True)
+
+    try:
+        replacement_markdown, ai_metadata = edit_workflow_section(
+            run,
+            content_before=payload.content_before,
+            selected_content=selected_content,
+            content_after=payload.content_after,
+            instruction=prompt,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    markdown = _clean_edited_markdown(
+        f"{str(payload.content_before or '')}{replacement_markdown}{str(payload.content_after or '')}"
+    )
+    edited_result = _build_result_from_edited_markdown(
+        base_version.result,
+        markdown,
+        parent_version_id=base_version.id,
+    )
+
+    metadata = dict(edited_result.metadata or {})
+    metadata.update({key: value for key, value in dict(ai_metadata or {}).items() if key not in {"summary", "bullets", "next_actions"}})
+    metadata["edit_mode"] = "ai_section"
+    metadata["parent_version_id"] = base_version.id
+    metadata["selected_section_chars"] = len(selected_content)
+    metadata["replacement_section_chars"] = len(replacement_markdown)
+    previous_actions = (base_version.result.metadata or {}).get("suggested_actions")
+    if isinstance(previous_actions, list) and previous_actions and not metadata.get("suggested_actions"):
+        metadata["suggested_actions"] = previous_actions
+    edited_result.metadata = metadata
+
+    run.mark_completed(edited_result)
+    new_version = _record_new_active_version(
+        run,
+        result=edited_result,
+        parent_version_id=base_version.id,
+        prompt=f"AI edit: {prompt}",
+        kind="edit",
+    )
+
+    billed_total, breakdown, usage_details = _workflow_usage_breakdown(run, {"source_strategy": "ai_section_edit"})
+    if billed_total > 0:
+        ok, used, cap = asyncio.run(
+            add_workflow_tokens(
+                uid,
+                billed_total,
+                category="workflow_ai_section_edit",
+                breakdown=breakdown,
+            )
+        )
+        if not ok:
+            raise HTTPException(status_code=402, detail="Workflow usage limit reached for this billing period.")
+        _attach_usage_details(run, usage_details=usage_details, used=used, cap=cap)
+        new_version.result = _copy_result(run.result) if run.result else new_version.result
+        _replace_or_append_version(run, new_version)
+    else:
+        _attach_usage_details(run, usage_details=usage_details)
+
+    try:
+        artifact = _upsert_artifact_for_run(uid, run)
+        if run.active_version_id:
+            active_version = _find_version(run, run.active_version_id)
+            active_version.artifact = _artifact_summary(artifact)
+            active_version.updated_at = datetime.now(UTC)
+            _replace_or_append_version(run, active_version)
+            run.result = _copy_result(active_version.result)
+            run.artifact = _copy_artifact_summary(active_version.artifact)
+    except Exception:
+        log.warning("workflow_partial_edit_artifact_save_failed", uid=uid, run_id=run.id, exc_info=True)
 
     _persist_run(uid, run)
     return run

@@ -11,6 +11,13 @@ export type WorkflowStatus = "queued" | "running" | "completed" | "failed";
 export type WorkflowArtifactFormat = "markdown" | "txt" | "docx" | "pdf";
 export type WorkflowEditSaveMode = "new_version" | "overwrite";
 
+export type WorkflowAiPartialEditRequest = {
+  prompt: string;
+  content_before: string;
+  selected_content: string;
+  content_after: string;
+};
+
 export type WorkflowSelectionRequirements = {
   min_total_items: number;
   max_total_items?: number | null;

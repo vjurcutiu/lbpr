@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Bold, ChevronDown, Heading1, Italic, List, ListOrdered } from "lucide-react";
+import { Bold, ChevronDown, Heading1, Italic, List, ListOrdered, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,11 +10,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
+export type MarkdownEditorSelection = {
+  contentBefore: string;
+  selectedContent: string;
+  contentAfter: string;
+  selectedText: string;
+};
+
 type MarkdownRichEditorProps = {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
   ariaLabel?: string;
+  onAiEditSelection?: (selection: MarkdownEditorSelection) => void;
+  aiEditDisabled?: boolean;
+  aiEditBusy?: boolean;
 };
 
 function escapeHtml(value: string) {
@@ -333,7 +343,65 @@ function selectionIsInside(element: HTMLElement) {
   return !!anchor && !!focus && element.contains(anchor) && element.contains(focus);
 }
 
-export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabel = "Edit markdown output" }: MarkdownRichEditorProps) {
+function makeSelectionMarker(token: string) {
+  const marker = document.createElement("span");
+  marker.setAttribute("data-lbp-selection-marker", "true");
+  marker.textContent = token;
+  return marker;
+}
+
+function removeNode(node: Node | null) {
+  if (node?.parentNode) {
+    node.parentNode.removeChild(node);
+  }
+}
+
+function rangeIsInside(element: HTMLElement, range: Range | null) {
+  if (!range) return false;
+  return element.contains(range.startContainer) && element.contains(range.endContainer);
+}
+
+function selectedMarkdownFromRange(editor: HTMLElement, range: Range): MarkdownEditorSelection | null {
+  if (range.collapsed || !range.toString().trim()) return null;
+
+  const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const startToken = `%%LBP_SELECTION_START_${id}%%`;
+  const endToken = `%%LBP_SELECTION_END_${id}%%`;
+  const startMarker = makeSelectionMarker(startToken);
+  const endMarker = makeSelectionMarker(endToken);
+  const selectedText = range.toString();
+
+  try {
+    const endRange = range.cloneRange();
+    endRange.collapse(false);
+    endRange.insertNode(endMarker);
+
+    const startRange = range.cloneRange();
+    startRange.collapse(true);
+    startRange.insertNode(startMarker);
+
+    const markedMarkdown = editableHtmlToMarkdown(editor);
+    const startIndex = markedMarkdown.indexOf(startToken);
+    const endIndex = markedMarkdown.indexOf(endToken);
+    if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) return null;
+
+    const selectedStart = startIndex + startToken.length;
+    const selectedContent = markedMarkdown.slice(selectedStart, endIndex);
+    if (!selectedContent.trim()) return null;
+
+    return {
+      contentBefore: markedMarkdown.slice(0, startIndex),
+      selectedContent,
+      contentAfter: markedMarkdown.slice(endIndex + endToken.length),
+      selectedText,
+    };
+  } finally {
+    removeNode(startMarker);
+    removeNode(endMarker);
+  }
+}
+
+export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabel = "Edit markdown output", onAiEditSelection, aiEditDisabled = false, aiEditBusy = false }: MarkdownRichEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
   const lastEmittedMarkdownRef = useRef(value);
@@ -404,6 +472,30 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
     emitChange();
   };
 
+  const captureAiEditSelection = () => {
+    const editor = editorRef.current;
+    if (!editor || disabled || !onAiEditSelection) return;
+
+    const currentSelection = window.getSelection();
+    const currentRange = currentSelection?.rangeCount && selectionIsInside(editor)
+      ? currentSelection.getRangeAt(0).cloneRange()
+      : null;
+    const range = rangeIsInside(editor, currentRange) && !currentRange?.collapsed
+      ? currentRange
+      : rangeIsInside(editor, savedRangeRef.current)
+        ? savedRangeRef.current?.cloneRange() || null
+        : null;
+    if (!range || range.collapsed) return;
+
+    const selection = selectedMarkdownFromRange(editor, range);
+    if (!selection) return;
+
+    const nextValue = editableHtmlToMarkdown(editor);
+    lastEmittedMarkdownRef.current = nextValue;
+    onChange(nextValue);
+    onAiEditSelection(selection);
+  };
+
 
   const inlineToolbarItems = [
     { key: "bold", label: "Bold", icon: Bold, action: () => applyInline("bold") },
@@ -438,6 +530,26 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
             </Button>
           );
         })}
+        {onAiEditSelection ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 rounded-full px-2.5 text-xs"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              saveSelection();
+            }}
+            onPointerDownCapture={saveSelection}
+            onClick={captureAiEditSelection}
+            disabled={disabled || aiEditDisabled || aiEditBusy}
+            aria-label="Edit selected text with AI"
+            title="Select text, then edit it with AI"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span className="ml-1 hidden sm:inline">{aiEditBusy ? "Editing" : "Edit with AI"}</span>
+          </Button>
+        ) : null}
         <DropdownMenu onOpenChange={(open) => {
           if (open) saveSelection();
         }}>

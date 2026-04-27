@@ -1,6 +1,7 @@
 import { API_BASE, deleteJSON, getJSON, patchJSON, postJSON } from "@/shared/api";
 import type {
   CreateWorkflowRunRequest,
+  WorkflowAiPartialEditRequest,
   WorkflowArtifact,
   WorkflowArtifactFormat,
   WorkflowEditSaveMode,
@@ -95,6 +96,17 @@ export async function saveWorkflowVersionEdit(
   return postJSON<WorkflowRun>(
     `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/edit`,
     { content, mode }
+  );
+}
+
+export async function saveWorkflowVersionPartialEdit(
+  runId: string,
+  versionId: string,
+  payload: WorkflowAiPartialEditRequest
+): Promise<WorkflowRun> {
+  return postJSON<WorkflowRun>(
+    `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/partial-edit`,
+    payload
   );
 }
 

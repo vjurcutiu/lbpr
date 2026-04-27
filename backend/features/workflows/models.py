@@ -92,6 +92,13 @@ class WorkflowRunVersionEditRequest(BaseModel):
     mode: Literal["new_version", "overwrite"] = "new_version"
 
 
+class WorkflowRunVersionPartialEditRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=2000)
+    content_before: str = Field(default="", max_length=300_000)
+    selected_content: str = Field(..., min_length=1, max_length=120_000)
+    content_after: str = Field(default="", max_length=300_000)
+
+
 class WorkflowRunVersionLayoutUpdate(BaseModel):
     x: float = Field(..., ge=-100_000, le=100_000)
     y: float = Field(..., ge=-100_000, le=100_000)

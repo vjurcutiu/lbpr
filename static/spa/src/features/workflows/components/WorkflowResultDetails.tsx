@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, PencilLine, RefreshCw, RotateCcw, Save, SendHorizontal } from "lucide-react";
+import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, PencilLine, RefreshCw, RotateCcw, Save, SendHorizontal, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -7,14 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { MarkdownRichEditor } from "./MarkdownRichEditor";
+import { MarkdownRichEditor, type MarkdownEditorSelection } from "./MarkdownRichEditor";
 
-import type { WorkflowArtifactFormat, WorkflowEditSaveMode, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowRunVersion, WorkflowSelection, WorkflowSuggestedAction } from "../types";
+import type { WorkflowAiPartialEditRequest, WorkflowArtifactFormat, WorkflowEditSaveMode, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowRunVersion, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
 type SourceFileMeta = {
   file_id?: string;
@@ -29,6 +29,12 @@ function asArray<T>(value: unknown): T[] {
 function formatSourceLabel(source: SourceFileMeta) {
   const base = String(source.name || source.file_id || "Source file").replace(" — retrieved evidence", "").trim();
   return source.folder_path ? `${base} · ${source.folder_path}` : base;
+}
+
+function compactSelectionPreview(value: string, max = 900) {
+  const text = String(value || "").replace(/\n{3,}/g, "\n\n").trim();
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
 }
 
 function sourceIdentity(source: SourceFileMeta) {
@@ -121,11 +127,13 @@ type Props = {
   artifact?: WorkflowArtifactSummary | null;
   artifactBusy?: boolean;
   refineBusy?: boolean;
+  aiEditBusy?: boolean;
   versions?: WorkflowRunVersion[];
   activeVersionId?: string | null;
   versionBusyId?: string | null;
   onSaveArtifact?: () => void;
   onSaveEditedOutput?: (content: string, mode: WorkflowEditSaveMode) => void | Promise<void>;
+  onAiEditSelectedOutput?: (payload: WorkflowAiPartialEditRequest) => void | Promise<void>;
   onDownloadArtifact?: (format: WorkflowArtifactFormat) => void;
   onSelectVersion?: (version: WorkflowRunVersion) => void;
   onRenameVersion?: (version: WorkflowRunVersion, label: string) => void | Promise<void>;
@@ -825,11 +833,13 @@ export function WorkflowResultDetails({
   artifact,
   artifactBusy = false,
   refineBusy = false,
+  aiEditBusy = false,
   versions = [],
   activeVersionId,
   versionBusyId = null,
   onSaveArtifact,
   onSaveEditedOutput,
+  onAiEditSelectedOutput,
   onDownloadArtifact,
   onSelectVersion,
   onRenameVersion,
@@ -844,17 +854,24 @@ export function WorkflowResultDetails({
   const [editingOutput, setEditingOutput] = useState(false);
   const [draftMarkdown, setDraftMarkdown] = useState(markdown);
   const [refinePrompt, setRefinePrompt] = useState("");
+  const [aiEditSelection, setAiEditSelection] = useState<MarkdownEditorSelection | null>(null);
+  const [aiEditPrompt, setAiEditPrompt] = useState("");
+  const [aiEditSubmitting, setAiEditSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setDraftMarkdown(markdown);
     setEditingOutput(false);
+    setAiEditSelection(null);
+    setAiEditPrompt("");
     setCopied(false);
   }, [activeVersionId, markdown]);
 
   const outputMarkdown = editingOutput ? draftMarkdown : markdown;
   const hasEditedOutput = draftMarkdown !== markdown;
   const canSaveEditedOutput = !!onSaveEditedOutput && hasEditedOutput && !!draftMarkdown.trim() && !artifactBusy;
+  const aiEditIsBusy = artifactBusy || refineBusy || aiEditBusy || aiEditSubmitting;
+  const aiEditSelectedPreview = useMemo(() => compactSelectionPreview(aiEditSelection?.selectedText || aiEditSelection?.selectedContent || ""), [aiEditSelection]);
 
   const suggestedActions = useMemo(() => {
     return asArray<WorkflowSuggestedAction>(result.metadata?.suggested_actions)
@@ -896,6 +913,38 @@ export function WorkflowResultDetails({
     if (!canSaveEditedOutput) return;
     await onSaveEditedOutput?.(draftMarkdown, mode);
     setEditingOutput(false);
+  };
+
+  const openAiEditModal = (selection: MarkdownEditorSelection) => {
+    setAiEditSelection(selection);
+    setAiEditPrompt("");
+  };
+
+  const closeAiEditModal = () => {
+    if (aiEditIsBusy) return;
+    setAiEditSelection(null);
+    setAiEditPrompt("");
+  };
+
+  const submitAiEdit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const prompt = aiEditPrompt.trim();
+    if (!aiEditSelection || !prompt || !onAiEditSelectedOutput || aiEditIsBusy) return;
+
+    setAiEditSubmitting(true);
+    try {
+      await onAiEditSelectedOutput({
+        prompt,
+        content_before: aiEditSelection.contentBefore,
+        selected_content: aiEditSelection.selectedContent,
+        content_after: aiEditSelection.contentAfter,
+      });
+      setAiEditSelection(null);
+      setAiEditPrompt("");
+      setEditingOutput(false);
+    } finally {
+      setAiEditSubmitting(false);
+    }
   };
 
   return (
@@ -994,6 +1043,9 @@ export function WorkflowResultDetails({
             onChange={setDraftMarkdown}
             disabled={artifactBusy}
             ariaLabel="Edit workflow output"
+            onAiEditSelection={onAiEditSelectedOutput ? openAiEditModal : undefined}
+            aiEditDisabled={!onAiEditSelectedOutput || aiEditIsBusy}
+            aiEditBusy={aiEditIsBusy}
           />
         ) : (
           <article className="px-5 py-6 md:px-8 md:py-8">
@@ -1069,6 +1121,50 @@ export function WorkflowResultDetails({
           </div>
         </Section>
       )}
+
+      <Dialog open={!!aiEditSelection} onOpenChange={(open) => {
+        if (!open) closeAiEditModal();
+      }}>
+        <DialogContent className="max-w-lg rounded-3xl border-border p-0 shadow-[0_32px_80px_rgba(15,23,42,0.18)]">
+          <form onSubmit={submitAiEdit}>
+            <DialogHeader className="px-6 pt-6">
+              <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+                <Sparkles className="h-4 w-4" />
+                Edit selected text with AI
+              </DialogTitle>
+              <DialogDescription>Describe the change. A new version will be created from this output.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 px-6 py-4">
+              {aiEditSelectedPreview ? (
+                <div className="rounded-2xl border border-border/70 bg-muted/20 px-3 py-3 text-xs leading-5 text-muted-foreground">
+                  <div className="mb-1 font-medium text-foreground">Selected text</div>
+                  <div className="max-h-28 overflow-y-auto whitespace-pre-wrap">{aiEditSelectedPreview}</div>
+                </div>
+              ) : null}
+              <Textarea
+                autoFocus
+                value={aiEditPrompt}
+                onChange={(event) => setAiEditPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                placeholder="Rewrite this section, make it shorter, change the tone, add missing details…"
+                className="min-h-[120px] resize-none rounded-2xl"
+                disabled={aiEditIsBusy}
+                maxLength={2000}
+              />
+            </div>
+            <DialogFooter className="px-6 pb-6">
+              <Button type="button" variant="outline" onClick={closeAiEditModal} disabled={aiEditIsBusy}>Cancel</Button>
+              <Button type="submit" disabled={aiEditIsBusy || !aiEditPrompt.trim()}>
+                {aiEditIsBusy ? "Creating" : "Create version"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {!!suggestedActions.length && selection && sourceRun && onWorkflowAction && (
         <Section title="Continue from this output">
