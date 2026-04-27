@@ -9,6 +9,7 @@ export type WorkflowCapability =
 export type WorkflowStatus = "queued" | "running" | "completed" | "failed";
 
 export type WorkflowArtifactFormat = "markdown" | "txt" | "docx" | "pdf";
+export type WorkflowEditSaveMode = "new_version" | "overwrite";
 
 export type WorkflowSelectionRequirements = {
   min_total_items: number;

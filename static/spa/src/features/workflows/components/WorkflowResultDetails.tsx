@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import type { WorkflowArtifactFormat, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowRunVersion, WorkflowSelection, WorkflowSuggestedAction } from "../types";
+import type { WorkflowArtifactFormat, WorkflowEditSaveMode, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowRunVersion, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
 type SourceFileMeta = {
   file_id?: string;
@@ -123,7 +123,7 @@ type Props = {
   activeVersionId?: string | null;
   versionBusyId?: string | null;
   onSaveArtifact?: () => void;
-  onSaveEditedOutput?: (content: string) => void | Promise<void>;
+  onSaveEditedOutput?: (content: string, mode: WorkflowEditSaveMode) => void | Promise<void>;
   onDownloadArtifact?: (format: WorkflowArtifactFormat) => void;
   onSelectVersion?: (version: WorkflowRunVersion) => void;
   onRenameVersion?: (version: WorkflowRunVersion, label: string) => void | Promise<void>;
@@ -885,9 +885,14 @@ export function WorkflowResultDetails({
     setEditingOutput(false);
   };
 
-  const saveEditedOutput = async () => {
+  const beginOutputEdit = () => {
+    setDraftMarkdown(markdown);
+    setEditingOutput(true);
+  };
+
+  const saveEditedOutput = async (mode: WorkflowEditSaveMode) => {
     if (!canSaveEditedOutput) return;
-    await onSaveEditedOutput?.(draftMarkdown);
+    await onSaveEditedOutput?.(draftMarkdown, mode);
     setEditingOutput(false);
   };
 
@@ -903,110 +908,122 @@ export function WorkflowResultDetails({
         onResetVersionLayout={onResetVersionLayout}
       />
 
-      <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <div className="text-sm font-medium leading-5 text-foreground">Output</div>
-          <div className="mt-1 text-xs leading-5 text-muted-foreground">
-            {editingOutput
-              ? "Edit the output directly. Saving creates a new version."
-              : artifact
-                ? `${artifact.file_name} • ${Math.max(1, Math.round((artifact.byte_size || 0) / 1024))} KB`
-                : "Save, copy, or download this output when it is ready."}
+      <div className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-background shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-border/70 bg-muted/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-end md:px-5">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            {editingOutput ? (
+              <>
+                <Button variant="ghost" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={cancelOutputEdit} disabled={artifactBusy}>
+                  <RotateCcw className="mr-1 h-4 w-4" />
+                  Cancel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-full rounded-full px-3 text-xs sm:w-auto"
+                  onClick={() => { void saveEditedOutput("overwrite"); }}
+                  disabled={!canSaveEditedOutput}
+                >
+                  <Save className="mr-1 h-4 w-4" />
+                  {artifactBusy ? "Saving" : "Overwrite"}
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-8 w-full rounded-full px-3 text-xs sm:w-auto"
+                  onClick={() => { void saveEditedOutput("new_version"); }}
+                  disabled={!canSaveEditedOutput}
+                >
+                  <GitBranch className="mr-1 h-4 w-4" />
+                  {artifactBusy ? "Saving" : "Save as new version"}
+                </Button>
+              </>
+            ) : (
+              <>
+                {onSaveEditedOutput ? (
+                  <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={beginOutputEdit} disabled={artifactBusy}>
+                    <PencilLine className="mr-1 h-4 w-4" />
+                    Edit
+                  </Button>
+                ) : null}
+                <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={() => { void copyOutput(); }}>
+                  <Copy className="mr-1 h-4 w-4" />
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+                {!artifact && onSaveArtifact ? (
+                  <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={onSaveArtifact} disabled={artifactBusy}>
+                    <Save className="mr-1 h-4 w-4" />
+                    Save
+                  </Button>
+                ) : null}
+                {onDownloadArtifact ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" disabled={artifactBusy}>
+                        <Download className="mr-1 h-4 w-4" />
+                        {artifact ? "Download" : "Save and download"}
+                        <ChevronDown className="ml-1 h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64 rounded-2xl">
+                      <DropdownMenuLabel className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Download format</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {DOWNLOAD_FORMATS.map((item) => (
+                        <DropdownMenuItem
+                          key={item.value}
+                          className="items-start rounded-xl px-2 py-2"
+                          onSelect={() => onDownloadArtifact(item.value)}
+                        >
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium leading-5 text-foreground">{item.label}</div>
+                            <div className="text-[11px] leading-4 text-muted-foreground">{item.helper}</div>
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-          {editingOutput ? (
-            <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={cancelOutputEdit} disabled={artifactBusy}>
-              <RotateCcw className="mr-1 h-4 w-4" />
-              Cancel
-            </Button>
-          ) : onSaveEditedOutput ? (
-            <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={() => setEditingOutput(true)} disabled={artifactBusy}>
-              <PencilLine className="mr-1 h-4 w-4" />
-              Edit
-            </Button>
-          ) : null}
-          <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={() => { void copyOutput(); }}>
-            <Copy className="mr-1 h-4 w-4" />
-            {copied ? "Copied" : "Copy"}
-          </Button>
-          {editingOutput && onSaveEditedOutput ? (
-            <Button size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={() => { void saveEditedOutput(); }} disabled={!canSaveEditedOutput}>
-              <Save className="mr-1 h-4 w-4" />
-              {artifactBusy ? "Saving" : "Save changes"}
-            </Button>
-          ) : !artifact && onSaveArtifact ? (
-            <Button variant="outline" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={onSaveArtifact} disabled={artifactBusy}>
-              <Save className="mr-1 h-4 w-4" />
-              Save
-            </Button>
-          ) : null}
-          {onDownloadArtifact ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" disabled={artifactBusy || (editingOutput && hasEditedOutput)}>
-                  <Download className="mr-1 h-4 w-4" />
-                  {artifact ? "Download" : "Save and download"}
-                  <ChevronDown className="ml-1 h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64 rounded-2xl">
-                <DropdownMenuLabel className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Download format</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {DOWNLOAD_FORMATS.map((item) => (
-                  <DropdownMenuItem
-                    key={item.value}
-                    className="items-start rounded-xl px-2 py-2"
-                    onSelect={() => onDownloadArtifact(item.value)}
-                  >
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium leading-5 text-foreground">{item.label}</div>
-                      <div className="text-[11px] leading-4 text-muted-foreground">{item.helper}</div>
-                    </div>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-      </div>
 
-      {editingOutput ? (
-        <Textarea
-          value={draftMarkdown}
-          onChange={(event) => setDraftMarkdown(event.target.value)}
-          className="min-h-[520px] rounded-[1.75rem] border-border/70 bg-background px-5 py-5 font-mono text-sm leading-7 shadow-sm md:px-8 md:py-7"
-          disabled={artifactBusy}
-          spellCheck
-          aria-label="Edit workflow output"
-        />
-      ) : (
-        <article className="rounded-[1.75rem] border border-border/70 bg-background px-5 py-6 shadow-sm md:px-8 md:py-8">
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            h1: ({ children }) => <h1 className="mb-5 text-2xl font-semibold leading-tight tracking-[-0.02em] text-foreground">{children}</h1>,
-            h2: ({ children }) => <h2 className="mb-3 mt-7 text-lg font-semibold leading-7 text-foreground first:mt-0">{children}</h2>,
-            h3: ({ children }) => <h3 className="mb-2 mt-5 text-base font-semibold leading-6 text-foreground">{children}</h3>,
-            p: ({ children }) => <p className="my-3 text-[15px] leading-7 text-foreground/90">{children}</p>,
-            ul: ({ children }) => <ul className="my-3 ml-5 list-disc space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ul>,
-            ol: ({ children }) => <ol className="my-3 ml-5 list-decimal space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ol>,
-            li: ({ children }) => <li className="pl-1">{children}</li>,
-            blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4 text-[15px] leading-7 text-muted-foreground">{children}</blockquote>,
-            strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-            table: ({ children }) => <div className="my-5 overflow-x-auto rounded-2xl border border-border/70"><table className="w-full min-w-[560px] border-collapse text-sm">{children}</table></div>,
-            th: ({ children }) => <th className="border-b border-border/70 bg-muted/30 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</th>,
-            td: ({ children }) => <td className="border-t border-border/70 px-3 py-2 align-top text-sm leading-6 text-foreground/90">{children}</td>,
-            code: ({ children, className }) => (
-              <code className={cn("rounded-md bg-muted px-1.5 py-0.5 text-[0.9em]", className)}>{children}</code>
-            ),
-            pre: ({ children }) => <pre className="my-4 overflow-x-auto rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{children}</pre>,
-          }}
-        >
-          {markdown}
-        </ReactMarkdown>
-        </article>
-      )}
+        {editingOutput ? (
+          <Textarea
+            value={draftMarkdown}
+            onChange={(event) => setDraftMarkdown(event.target.value)}
+            className="min-h-[520px] rounded-none border-0 bg-transparent px-5 py-5 font-mono text-sm leading-7 shadow-none focus-visible:ring-0 md:px-8 md:py-7"
+            disabled={artifactBusy}
+            spellCheck
+            aria-label="Edit workflow output"
+          />
+        ) : (
+          <article className="px-5 py-6 md:px-8 md:py-8">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: ({ children }) => <h1 className="mb-5 text-2xl font-semibold leading-tight tracking-[-0.02em] text-foreground">{children}</h1>,
+                h2: ({ children }) => <h2 className="mb-3 mt-7 text-lg font-semibold leading-7 text-foreground first:mt-0">{children}</h2>,
+                h3: ({ children }) => <h3 className="mb-2 mt-5 text-base font-semibold leading-6 text-foreground">{children}</h3>,
+                p: ({ children }) => <p className="my-3 text-[15px] leading-7 text-foreground/90">{children}</p>,
+                ul: ({ children }) => <ul className="my-3 ml-5 list-disc space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ul>,
+                ol: ({ children }) => <ol className="my-3 ml-5 list-decimal space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ol>,
+                li: ({ children }) => <li className="pl-1">{children}</li>,
+                blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4 text-[15px] leading-7 text-muted-foreground">{children}</blockquote>,
+                strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                table: ({ children }) => <div className="my-5 overflow-x-auto rounded-2xl border border-border/70"><table className="w-full min-w-[560px] border-collapse text-sm">{children}</table></div>,
+                th: ({ children }) => <th className="border-b border-border/70 bg-muted/30 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</th>,
+                td: ({ children }) => <td className="border-t border-border/70 px-3 py-2 align-top text-sm leading-6 text-foreground/90">{children}</td>,
+                code: ({ children, className }) => (
+                  <code className={cn("rounded-md bg-muted px-1.5 py-0.5 text-[0.9em]", className)}>{children}</code>
+                ),
+                pre: ({ children }) => <pre className="my-4 overflow-x-auto rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{children}</pre>,
+              }}
+            >
+              {markdown}
+            </ReactMarkdown>
+          </article>
+        )}
+      </div>
 
       {onRefine ? (
         <form onSubmit={submitRefinement} className="rounded-2xl border border-border/70 bg-background px-4 py-4 shadow-sm">

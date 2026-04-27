@@ -89,6 +89,7 @@ class WorkflowRunVersionLabelUpdate(BaseModel):
 
 class WorkflowRunVersionEditRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=300_000)
+    mode: Literal["new_version", "overwrite"] = "new_version"
 
 
 class WorkflowRunVersionLayoutUpdate(BaseModel):

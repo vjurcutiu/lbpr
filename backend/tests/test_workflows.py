@@ -378,6 +378,45 @@ def test_workflow_manual_edit_creates_new_saved_version(auth_client, inline_work
     assert b'rewritten output' in download.content
 
 
+def test_workflow_manual_edit_can_overwrite_active_version(auth_client, inline_workflow_jobs, stub_workflow_sources, fake_workflow_firestore):
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'summarize_documents',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': ''},
+            'inputs': {'focus': 'key risks and decisions'},
+        },
+    )
+    assert create.status_code == 202, create.text
+    run = create.json()
+    base_version_id = run['active_version_id']
+    base_artifact_id = run['artifact']['id']
+
+    edited_markdown = '# Overwritten client brief\n\nThis replaces the current version.'
+    edit = auth_client.post(
+        f"/v1/workflows/runs/{run['id']}/versions/{base_version_id}/edit",
+        json={'content': edited_markdown, 'mode': 'overwrite'},
+    )
+    assert edit.status_code == 200, edit.text
+    edited = edit.json()
+
+    assert edited['active_version_id'] == base_version_id
+    assert edited['result']['preview_markdown'] == edited_markdown
+    assert len(edited['versions']) == 1
+    active_version = edited['versions'][0]
+    assert active_version['id'] == base_version_id
+    assert active_version['kind'] == 'edit'
+    assert active_version['parent_version_id'] is None
+    assert active_version['artifact']['id'] == base_artifact_id
+    assert edited['artifact']['id'] == base_artifact_id
+
+    artifact = auth_client.get(f"/v1/workflows/artifacts/{base_artifact_id}")
+    assert artifact.status_code == 200, artifact.text
+    artifact_payload = artifact.json()
+    assert artifact_payload['content'] == edited_markdown
+    assert artifact_payload['metadata']['version_id'] == base_version_id
+
+
 def test_compare_requires_exactly_two_files(auth_client):
     resp = auth_client.post(
         '/v1/workflows/runs',

@@ -3,6 +3,7 @@ import type {
   CreateWorkflowRunRequest,
   WorkflowArtifact,
   WorkflowArtifactFormat,
+  WorkflowEditSaveMode,
   WorkflowManifest,
   WorkflowRun,
   WorkflowRunList,
@@ -85,10 +86,15 @@ export async function saveWorkflowVersionArtifact(runId: string, versionId: stri
   );
 }
 
-export async function saveWorkflowVersionEdit(runId: string, versionId: string, content: string): Promise<WorkflowRun> {
+export async function saveWorkflowVersionEdit(
+  runId: string,
+  versionId: string,
+  content: string,
+  mode: WorkflowEditSaveMode = "new_version"
+): Promise<WorkflowRun> {
   return postJSON<WorkflowRun>(
     `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/edit`,
-    { content }
+    { content, mode }
   );
 }
 

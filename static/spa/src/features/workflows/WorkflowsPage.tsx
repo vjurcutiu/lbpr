@@ -55,6 +55,7 @@ import { getWorkflowIcon } from "./registry";
 import type {
   WorkflowCapability,
   WorkflowArtifactFormat,
+  WorkflowEditSaveMode,
   WorkflowManifest,
   WorkflowRun,
   WorkflowRunVersion,
@@ -654,7 +655,7 @@ export default function WorkflowsPage() {
     }
   }, []);
 
-  const handleSaveEditedOutput = useCallback(async (run: WorkflowRun, content: string) => {
+  const handleSaveEditedOutput = useCallback(async (run: WorkflowRun, content: string, mode: WorkflowEditSaveMode) => {
     if (!run.result || run.status !== "completed") return;
     const baseVersionId = run.active_version_id || run.versions?.[run.versions.length - 1]?.id || "";
     if (!baseVersionId) {
@@ -666,10 +667,14 @@ export default function WorkflowsPage() {
     setArtifactBusyRunId(run.id);
     setVersionBusyId(baseVersionId);
     try {
-      const updated = await saveWorkflowVersionEdit(run.id, baseVersionId, content);
+      const updated = await saveWorkflowVersionEdit(run.id, baseVersionId, content, mode);
       setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
       selectRun(updated.id);
-      toast.success("Changes saved", { description: "A new version was added to this workflow." });
+      toast.success("Changes saved", {
+        description: mode === "overwrite"
+          ? "This version was overwritten."
+          : "A new version was added to this workflow.",
+      });
     } catch (err) {
       console.error("[workflows] save edited output error", err);
       toast.error("Failed to save changes", { description: parseErr(err) });
@@ -1275,7 +1280,7 @@ export default function WorkflowsPage() {
                         activeVersionId={selectedRun.active_version_id || null}
                         versionBusyId={versionBusyId}
                         onSaveArtifact={() => { void handleSaveArtifact(selectedRun); }}
-                        onSaveEditedOutput={(content) => handleSaveEditedOutput(selectedRun, content)}
+                        onSaveEditedOutput={(content, mode) => handleSaveEditedOutput(selectedRun, content, mode)}
                         onDownloadArtifact={(format) => { void handleDownloadArtifact(selectedRun, format); }}
                         onSelectVersion={(version) => { void handleSelectVersion(selectedRun, version); }}
                         onRenameVersion={(version, label) => handleRenameVersion(selectedRun, version, label)}

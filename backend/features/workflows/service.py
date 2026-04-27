@@ -908,20 +908,46 @@ def save_edited_version(uid: str, run_id: str, version_id: str, payload: Workflo
         raise HTTPException(status_code=400, detail="Only completed workflow outputs can be edited.")
 
     markdown = _clean_edited_markdown(payload.content)
-    edited_result = _build_result_from_edited_markdown(
-        base_version.result,
-        markdown,
-        parent_version_id=base_version.id,
-    )
+    mode = payload.mode or "new_version"
 
-    run.mark_completed(edited_result)
-    _record_new_active_version(
-        run,
-        result=edited_result,
-        parent_version_id=base_version.id,
-        prompt="Manual edit",
-        kind="edit",
-    )
+    if mode == "overwrite":
+        edited_result = _build_result_from_edited_markdown(
+            base_version.result,
+            markdown,
+            parent_version_id=base_version.parent_version_id,
+        )
+        metadata = dict(edited_result.metadata or {})
+        metadata["edit_mode"] = "overwrite"
+        metadata["overwritten_version_id"] = base_version.id
+        if not base_version.parent_version_id:
+            metadata.pop("parent_version_id", None)
+        edited_result.metadata = metadata
+
+        now = datetime.now(UTC)
+        updated_version = base_version.model_copy(deep=True)
+        updated_version.kind = "edit"
+        updated_version.prompt = "Manual edit"
+        updated_version.result = edited_result
+        updated_version.updated_at = now
+        run.active_version_id = updated_version.id
+        run.mark_completed(edited_result)
+        run.artifact = _copy_artifact_summary(updated_version.artifact)
+        _replace_or_append_version(run, updated_version)
+    else:
+        edited_result = _build_result_from_edited_markdown(
+            base_version.result,
+            markdown,
+            parent_version_id=base_version.id,
+        )
+
+        run.mark_completed(edited_result)
+        _record_new_active_version(
+            run,
+            result=edited_result,
+            parent_version_id=base_version.id,
+            prompt="Manual edit",
+            kind="edit",
+        )
 
     artifact = _upsert_artifact_for_run(uid, run)
     if run.active_version_id:
@@ -934,7 +960,6 @@ def save_edited_version(uid: str, run_id: str, version_id: str, payload: Workflo
 
     _persist_run(uid, run)
     return run
-
 
 def rename_run(uid: str, run_id: str, payload: WorkflowRunTitleUpdate) -> WorkflowRun:
     run = get_run(uid, run_id)
