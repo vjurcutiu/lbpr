@@ -36,6 +36,7 @@ import { fileDownloadUrl, type FileItem } from "../api";
 import {
   fileDndId,
   folderDndId,
+  folderDragData,
   folderDropData,
   folderDropDndId,
   isExternalFilesDrag,
@@ -128,8 +129,8 @@ export function FolderRow({
     transform,
     isDragging,
   } = useDraggable({
-    id: folderDndId(node.path),
-    data: { type: "folder", folderPath: normalizeFolderPath(node.path) },
+    id: folderDndId("list-row", node.path),
+    data: folderDragData("list-row", node.path),
     disabled: pending,
   });
   const { setNodeRef: setDropRef, isOver } = useDroppable({

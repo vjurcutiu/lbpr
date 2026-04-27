@@ -2217,10 +2217,15 @@ const breadcrumb = useMemo(() => {
   sensors={sensors}
   collisionDetection={folderDropCollisionDetection}
   onDragStart={(evt: DragStartEvent) => {
-    const a = parseDndId(evt.active.id);
-    if (!a) return;
-    if (a.kind === "file") {
-      const fileId = a.value;
+    const parsed = parseDndId(evt.active.id);
+    const activeData = evt.active.data.current as
+      | { type?: "file"; fileId?: string }
+      | { type?: "folder"; folderPath?: string; source?: "tree" | "list-row" }
+      | undefined;
+
+    if (activeData?.type === "file" || parsed?.kind === "file") {
+      const fileId = activeData?.type === "file" && activeData.fileId ? activeData.fileId : parsed?.value;
+      if (!fileId) return;
       const alreadySelected = selectedFileSet.has(fileId);
       const ids = alreadySelected ? selectedFileIds : [fileId];
       if (!alreadySelected) {
@@ -2237,16 +2242,23 @@ const breadcrumb = useMemo(() => {
       });
       return;
     }
-    if (a.kind === "folder") {
-      const folderPath = normalizeFolderPath(a.value);
+
+    if (activeData?.type === "folder" || parsed?.kind === "folder") {
+      const folderPath = normalizeFolderPath(
+        activeData?.type === "folder" && typeof activeData.folderPath === "string" ? activeData.folderPath : parsed?.value
+      );
       if (!folderPath) return; // don't drag Root
-      const alreadySelected = selectedFolderRowSet.has(folderPath);
-      const paths = alreadySelected ? selectedFolderRowPaths : [folderPath];
-      if (!alreadySelected) {
+
+      const source = activeData?.type === "folder" ? activeData.source : parsed?.source;
+      const shouldUseListSelection = source === "list-row" && selectedFolderRowSet.has(folderPath);
+      const paths = shouldUseListSelection ? selectedFolderRowPaths : [folderPath];
+
+      if (source === "list-row" && !shouldUseListSelection) {
         setSelectedFolderRowPaths([folderPath]);
         setSelectedFileIds([]);
         selectionAnchorRef.current = `d:${folderPath}`;
       }
+
       setActiveInternalDragPayload({
         kind: "folder",
         ids: paths,

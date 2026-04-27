@@ -36,4 +36,24 @@ describe("files optimistic move helpers", () => {
     expect(result.files.find((file) => file.id === "f1")?.folder_path).toBe("shared/acme");
     expect(result.files.find((file) => file.id === "f2")?.folder_path).toBe("shared/acme/archive");
   });
+
+  it("remaps folders that are immediate children of root", () => {
+    const result = applyOptimisticFolderMoveState({
+      files: [
+        ...files,
+        { id: "f4", name: "plan.docx", original_name: "plan.docx", folder_path: "root-child", size: 40 },
+        { id: "f5", name: "deep.docx", original_name: "deep.docx", folder_path: "root-child/nested", size: 50 },
+      ],
+      folderPaths: ["archive", "root-child", "root-child/nested"],
+      movingFolderPaths: ["root-child"],
+      destination: "archive",
+    });
+
+    expect(result.mapPath("root-child")).toBe("archive/root-child");
+    expect(result.mapPath("root-child/nested")).toBe("archive/root-child/nested");
+    expect(result.folderPaths).toContain("archive/root-child");
+    expect(result.folderPaths).toContain("archive/root-child/nested");
+    expect(result.files.find((file) => file.id === "f4")?.folder_path).toBe("archive/root-child");
+    expect(result.files.find((file) => file.id === "f5")?.folder_path).toBe("archive/root-child/nested");
+  });
 });
