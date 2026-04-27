@@ -1,9 +1,11 @@
 import type { ComponentType } from "react";
-import { CheckCircle2, Clock3, Loader2, X } from "lucide-react";
+import { CheckCircle2, Clock3, Loader2, Pencil, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 import type { WorkflowRun } from "../types";
+
+export type WorkflowVisualStatus = WorkflowRun["status"] | "editing";
 
 type StatusIcon = ComponentType<{ className?: string }>;
 
@@ -15,7 +17,7 @@ type WorkflowStatusMeta = {
   iconClassName?: string;
 };
 
-const WORKFLOW_STATUS_META: Record<WorkflowRun["status"], WorkflowStatusMeta> = {
+const WORKFLOW_STATUS_META: Record<WorkflowVisualStatus, WorkflowStatusMeta> = {
   completed: {
     label: "Completed",
     Icon: CheckCircle2,
@@ -44,21 +46,28 @@ const WORKFLOW_STATUS_META: Record<WorkflowRun["status"], WorkflowStatusMeta> = 
     badgeClassName: "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300",
     iconClassName: "animate-spin",
   },
+  editing: {
+    label: "Editing",
+    Icon: Pencil,
+    accentClassName:
+      "border-blue-200 bg-blue-500/10 text-blue-700 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-300",
+    badgeClassName: "border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+  },
 };
 
-export function getWorkflowStatusMeta(status: WorkflowRun["status"]) {
+export function getWorkflowStatusMeta(status: WorkflowVisualStatus) {
   return WORKFLOW_STATUS_META[status];
 }
 
-export function workflowStatusLabel(status: WorkflowRun["status"]) {
+export function workflowStatusLabel(status: WorkflowVisualStatus) {
   return getWorkflowStatusMeta(status).label;
 }
 
-export function workflowStatusAccentClass(status: WorkflowRun["status"]) {
+export function workflowStatusAccentClass(status: WorkflowVisualStatus) {
   return getWorkflowStatusMeta(status).accentClassName;
 }
 
-export function workflowStatusBadgeClass(status: WorkflowRun["status"]) {
+export function workflowStatusBadgeClass(status: WorkflowVisualStatus) {
   return getWorkflowStatusMeta(status).badgeClassName;
 }
 
@@ -66,7 +75,7 @@ export function WorkflowStatusIcon({
   status,
   className,
 }: {
-  status: WorkflowRun["status"];
+  status: WorkflowVisualStatus;
   className?: string;
 }) {
   const meta = getWorkflowStatusMeta(status);

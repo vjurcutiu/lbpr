@@ -51,7 +51,7 @@ import {
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails, type WorkflowOutputEditState } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
-import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel } from "./components/WorkflowStatusIcon";
+import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel, type WorkflowVisualStatus } from "./components/WorkflowStatusIcon";
 import { getWorkflowIcon } from "./registry";
 import type {
   WorkflowAiPartialEditRequest,
@@ -294,6 +294,15 @@ function workflowDisplayStatus(run: WorkflowRun, refiningRunId: string | null): 
   return refiningRunId === run.id ? "running" : run.status;
 }
 
+function workflowVisualStatus(
+  status: WorkflowStatus,
+  editDraft?: { hasDraft?: boolean; busy?: boolean } | null
+): WorkflowVisualStatus {
+  if (editDraft?.busy) return "running";
+  if (editDraft?.hasDraft) return "editing";
+  return status;
+}
+
 function renderStatusCopy(run: WorkflowRun, status: WorkflowStatus = run.status) {
   if (status === "completed") {
     return "The output is ready to review.";
@@ -369,7 +378,8 @@ function RunListItem({
   onDelete: (run: WorkflowRun) => void;
 }) {
   const displayStatus = status || run.status;
-  const statusLabel = workflowStatusLabel(displayStatus);
+  const visualStatus = workflowVisualStatus(displayStatus, { hasDraft: hasEditDraft, busy: editDraftBusy });
+  const statusLabel = workflowStatusLabel(visualStatus);
 
   return (
     <div
@@ -389,12 +399,12 @@ function RunListItem({
             <div
               className={cn(
                 "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors",
-                workflowStatusAccentClass(displayStatus)
+                workflowStatusAccentClass(visualStatus)
               )}
               aria-label={`Workflow status: ${statusLabel}`}
               title={statusLabel}
             >
-              <WorkflowStatusIcon status={displayStatus} className="h-4 w-4" />
+              <WorkflowStatusIcon status={visualStatus} className="h-4 w-4" />
             </div>
 
             <div className="w-0 min-w-0 flex-1 overflow-hidden">
@@ -406,21 +416,6 @@ function RunListItem({
                   <span className="shrink-0 truncate">{formatRelativeTime(run.updated_at)}</span>
                 </div>
               </div>
-
-              {hasEditDraft ? (
-                <div className="mt-1.5 flex min-w-0">
-                  <span
-                    className={cn(
-                      "max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] leading-4",
-                      editDraftBusy
-                        ? "border-primary/30 bg-primary/10 text-primary"
-                        : "border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300"
-                    )}
-                  >
-                    {editDraftBusy ? "AI edit running" : "Unsaved edits"}
-                  </span>
-                </div>
-              ) : null}
 
               <div className="mt-1.5 flex w-full min-w-0 items-center gap-x-2 gap-y-1 overflow-hidden text-xs text-muted-foreground">
                 <span className="min-w-0 flex-1 basis-0 truncate">{formatSelection(run)}</span>
@@ -538,6 +533,7 @@ export default function WorkflowsPage() {
   const isResizableDesktop = useMediaQuery("(min-width: 1280px)");
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedRunId = searchParams.get("run")?.trim() || null;
+  const linkedRunIdRef = useRef<string | null>(linkedRunId);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("inbox");
   const workflowPanelsRef = useRef<HTMLDivElement>(null);
   const [runsPaneWidth, setRunsPaneWidth] = useState(310);
@@ -604,6 +600,10 @@ export default function WorkflowsPage() {
   }, [updateOutputEditDrafts]);
 
   useEffect(() => {
+    linkedRunIdRef.current = linkedRunId;
+  }, [linkedRunId]);
+
+  useEffect(() => {
     const onDraftStorageChange = (event: Event) => {
       const detail = (event as CustomEvent<Record<string, WorkflowOutputEditDraft>>).detail;
       const next = detail && typeof detail === "object" ? detail : loadWorkflowOutputEditDrafts();
@@ -639,8 +639,9 @@ export default function WorkflowsPage() {
       setCatalog(catalogRes || []);
       setRuns((prev) => {
         const incoming = runsRes.items || [];
-        if (!linkedRunId || incoming.some((run) => run.id === linkedRunId)) return incoming;
-        const linkedRun = prev.find((run) => run.id === linkedRunId);
+        const currentLinkedRunId = linkedRunIdRef.current;
+        if (!currentLinkedRunId || incoming.some((run) => run.id === currentLinkedRunId)) return incoming;
+        const linkedRun = prev.find((run) => run.id === currentLinkedRunId);
         return linkedRun ? [linkedRun, ...incoming.filter((run) => run.id !== linkedRun.id)].slice(0, 24) : incoming;
       });
     } catch (err) {
@@ -650,7 +651,7 @@ export default function WorkflowsPage() {
       if (silent) setRefreshing(false);
       else setLoading(false);
     }
-  }, [linkedRunId]);
+  }, []);
 
   const ensureLauncherFilesLoaded = useCallback(async () => {
     if (launcherFiles.length || launcherFilesLoading) return;
@@ -1331,6 +1332,12 @@ export default function WorkflowsPage() {
     }
     return byRun;
   }, [outputEditDrafts]);
+  const selectedRunVisualStatus = selectedRun && selectedRunDisplayStatus
+    ? workflowVisualStatus(selectedRunDisplayStatus, {
+      hasDraft: !!selectedRunEditDraft,
+      busy: !!selectedRunEditDraft?.aiEditBusy,
+    })
+    : null;
   const handleSelectRun = useCallback((runId: string) => {
     selectRun(runId);
   }, [selectRun]);
@@ -1527,8 +1534,8 @@ export default function WorkflowsPage() {
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-3">
-                          <div className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background", workflowStatusAccentClass(selectedRunDisplayStatus || selectedRun.status))}>
-                            <WorkflowStatusIcon status={selectedRunDisplayStatus || selectedRun.status} className="h-5 w-5" />
+                          <div className={cn("mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background", workflowStatusAccentClass(selectedRunVisualStatus || selectedRunDisplayStatus || selectedRun.status))}>
+                            <WorkflowStatusIcon status={selectedRunVisualStatus || selectedRunDisplayStatus || selectedRun.status} className="h-5 w-5" />
                           </div>
                           <div className="min-w-0 flex-1">
                             {selectedRunChainSource ? (
@@ -1570,11 +1577,6 @@ export default function WorkflowsPage() {
                               {selectedRun.artifact ? (
                                 <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
                                   Output saved
-                                </Badge>
-                              ) : null}
-                              {selectedRunEditDraft ? (
-                                <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">
-                                  {selectedRunEditDraft.aiEditBusy ? "AI edit running" : "Unsaved edits"}
                                 </Badge>
                               ) : null}
                               <span>{formatCapability(selectedRun.capability)}</span>
