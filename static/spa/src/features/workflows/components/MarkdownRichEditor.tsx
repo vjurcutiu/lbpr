@@ -1,7 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bold, ChevronDown, Heading1, Italic, List, ListOrdered, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -405,12 +406,21 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
   const editorRef = useRef<HTMLDivElement | null>(null);
   const savedRangeRef = useRef<Range | null>(null);
   const lastEmittedMarkdownRef = useRef(value);
+  const [hasSelectedText, setHasSelectedText] = useState(false);
+
+  const updateSavedSelection = (range: Range | null) => {
+    savedRangeRef.current = range ? range.cloneRange() : null;
+    setHasSelectedText(!!range && !range.collapsed && range.toString().trim().length > 0);
+  };
 
   const saveSelection = () => {
     const editor = editorRef.current;
     const selection = window.getSelection();
-    if (!editor || !selection?.rangeCount || !selectionIsInside(editor)) return;
-    savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+    if (!editor || !selection?.rangeCount || !selectionIsInside(editor)) {
+      updateSavedSelection(null);
+      return;
+    }
+    updateSavedSelection(selection.getRangeAt(0));
   };
 
   const restoreSelection = () => {
@@ -433,10 +443,22 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
       return;
     }
 
-    savedRangeRef.current = null;
+    updateSavedSelection(null);
     editor.innerHTML = markdownToEditableHtml(value);
     lastEmittedMarkdownRef.current = value;
   }, [value]);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const editor = editorRef.current;
+      const selection = window.getSelection();
+      if (!editor || !selection?.rangeCount || !selectionIsInside(editor)) return;
+      updateSavedSelection(selection.getRangeAt(0));
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, []);
 
   const emitChange = () => {
     const editor = editorRef.current;
@@ -530,26 +552,6 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
             </Button>
           );
         })}
-        {onAiEditSelection ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 rounded-full px-2.5 text-xs"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              saveSelection();
-            }}
-            onPointerDownCapture={saveSelection}
-            onClick={captureAiEditSelection}
-            disabled={disabled || aiEditDisabled || aiEditBusy}
-            aria-label="Edit selected text with AI"
-            title="Select text, then edit it with AI"
-          >
-            <Sparkles className="h-4 w-4" />
-            <span className="ml-1 hidden sm:inline">{aiEditBusy ? "Editing" : "Edit with AI"}</span>
-          </Button>
-        ) : null}
         <DropdownMenu onOpenChange={(open) => {
           if (open) saveSelection();
         }}>
@@ -609,6 +611,49 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
             </Button>
           );
         })}
+        {onAiEditSelection ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className={cn(
+                  "inline-flex rounded-full",
+                  (disabled || aiEditDisabled || aiEditBusy || !hasSelectedText) && "cursor-not-allowed"
+                )}
+                tabIndex={0}
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-8 rounded-full px-2.5 text-xs disabled:opacity-100",
+                    "hover:bg-primary/10 hover:text-primary",
+                    "disabled:text-muted-foreground disabled:hover:bg-transparent"
+                  )}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    saveSelection();
+                  }}
+                  onPointerDownCapture={saveSelection}
+                  onClick={captureAiEditSelection}
+                  disabled={disabled || aiEditDisabled || aiEditBusy || !hasSelectedText}
+                  aria-label="Edit selected text with AI"
+                >
+                  <Sparkles
+                    className={cn(
+                      "h-4 w-4 text-primary transition-opacity",
+                      (disabled || aiEditDisabled || aiEditBusy || !hasSelectedText) && "opacity-40"
+                    )}
+                  />
+                  <span className="ml-1 hidden sm:inline">{aiEditBusy ? "Editing" : "Edit with AI"}</span>
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={8} className="rounded-xl px-3 py-2 text-xs shadow-lg">
+              Select text and then edit it with AI
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
       <div
         ref={editorRef}
