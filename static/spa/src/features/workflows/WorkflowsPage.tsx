@@ -49,7 +49,7 @@ import {
   updateWorkflowRunVersionLayout,
 } from "./api";
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
-import { WorkflowResultDetails } from "./components/WorkflowResultDetails";
+import { WorkflowResultDetails, type WorkflowOutputEditState } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
 import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel } from "./components/WorkflowStatusIcon";
 import { getWorkflowIcon } from "./registry";
@@ -69,6 +69,7 @@ import type {
   WorkflowStatus,
 } from "./types";
 import { summarizeWorkflowSelection } from "./utils/selection";
+import { workflowDocumentMarkdown } from "./utils/workflowMarkdown";
 
 function compactCopy(text: string, max = 320) {
   const normalized = String(text || "").replace(/\s+/g, " ").trim();
@@ -166,6 +167,68 @@ type LauncherOptions = {
   initialInputs?: Record<string, unknown>;
   chainSource?: WorkflowChainSource | null;
 };
+
+type WorkflowOutputEditDraft = WorkflowOutputEditState & {
+  runId: string;
+  versionId: string;
+  updatedAt: string;
+};
+
+const WORKFLOW_OUTPUT_EDIT_DRAFTS_STORAGE_KEY = "lbp.workflow.outputEditDrafts.v1";
+const WORKFLOW_OUTPUT_EDIT_DRAFTS_EVENT = "lbp:workflow-output-edit-drafts";
+
+function activeWorkflowVersionId(run: WorkflowRun) {
+  return run.active_version_id || run.versions?.[run.versions.length - 1]?.id || "";
+}
+
+function workflowOutputEditKey(run: WorkflowRun) {
+  const versionId = activeWorkflowVersionId(run);
+  return versionId ? `${run.id}:${versionId}` : "";
+}
+
+function loadWorkflowOutputEditDrafts(): Record<string, WorkflowOutputEditDraft> {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const raw = window.sessionStorage.getItem(WORKFLOW_OUTPUT_EDIT_DRAFTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, WorkflowOutputEditDraft>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([, draft]) =>
+        !!draft &&
+        typeof draft === "object" &&
+        typeof draft.runId === "string" &&
+        typeof draft.versionId === "string" &&
+        typeof draft.draftMarkdown === "string" &&
+        typeof draft.baseMarkdown === "string"
+      )
+    );
+  } catch {
+    return {};
+  }
+}
+
+function persistWorkflowOutputEditDrafts(drafts: Record<string, WorkflowOutputEditDraft>) {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (Object.keys(drafts).length) {
+      window.sessionStorage.setItem(WORKFLOW_OUTPUT_EDIT_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+    } else {
+      window.sessionStorage.removeItem(WORKFLOW_OUTPUT_EDIT_DRAFTS_STORAGE_KEY);
+    }
+    window.dispatchEvent(new CustomEvent(WORKFLOW_OUTPUT_EDIT_DRAFTS_EVENT, { detail: drafts }));
+  } catch {
+    // Session storage can be unavailable in private or locked-down browsing contexts.
+  }
+}
+
+function isAbortError(error: unknown) {
+  return (error instanceof DOMException && error.name === "AbortError")
+    || (error instanceof Error && error.name === "AbortError");
+}
 
 function formatSelectionRequirements(workflow: WorkflowManifest) {
   const parts: string[] = [];
@@ -293,10 +356,14 @@ function RunListItem({
   onSelect,
   onRename,
   onDelete,
+  hasEditDraft = false,
+  editDraftBusy = false,
 }: {
   run: WorkflowRun;
   active: boolean;
   status?: WorkflowStatus;
+  hasEditDraft?: boolean;
+  editDraftBusy?: boolean;
   onSelect: (runId: string) => void;
   onRename: (run: WorkflowRun) => void;
   onDelete: (run: WorkflowRun) => void;
@@ -339,6 +406,21 @@ function RunListItem({
                   <span className="shrink-0 truncate">{formatRelativeTime(run.updated_at)}</span>
                 </div>
               </div>
+
+              {hasEditDraft ? (
+                <div className="mt-1.5 flex min-w-0">
+                  <span
+                    className={cn(
+                      "max-w-full truncate rounded-full border px-2 py-0.5 text-[10px] leading-4",
+                      editDraftBusy
+                        ? "border-primary/30 bg-primary/10 text-primary"
+                        : "border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300"
+                    )}
+                  >
+                    {editDraftBusy ? "AI edit running" : "Unsaved edits"}
+                  </span>
+                </div>
+              ) : null}
 
               <div className="mt-1.5 flex w-full min-w-0 items-center gap-x-2 gap-y-1 overflow-hidden text-xs text-muted-foreground">
                 <span className="min-w-0 flex-1 basis-0 truncate">{formatSelection(run)}</span>
@@ -484,6 +566,9 @@ export default function WorkflowsPage() {
   const [renameSaving, setRenameSaving] = useState(false);
   const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
+  const [outputEditDrafts, setOutputEditDrafts] = useState<Record<string, WorkflowOutputEditDraft>>(() => loadWorkflowOutputEditDrafts());
+  const outputEditDraftsRef = useRef<Record<string, WorkflowOutputEditDraft>>(outputEditDrafts);
+  const aiEditAbortControllersRef = useRef<Map<string, AbortController>>(new Map());
   const prevRunStatusRef = useRef<Map<string, WorkflowStatus>>(new Map());
   const hasHydratedRunStatusesRef = useRef(false);
   const linkedRunFetchesRef = useRef<Set<string>>(new Set());
@@ -495,6 +580,40 @@ export default function WorkflowsPage() {
   const [launcherSelection, setLauncherSelection] = useState(emptyLauncherSelection);
   const [launcherInitialInputs, setLauncherInitialInputs] = useState<Record<string, unknown>>({});
   const [launcherChainSource, setLauncherChainSource] = useState<WorkflowChainSource | null>(null);
+
+  const updateOutputEditDrafts = useCallback((
+    updater: (current: Record<string, WorkflowOutputEditDraft>) => Record<string, WorkflowOutputEditDraft>
+  ) => {
+    const next = updater(outputEditDraftsRef.current);
+    outputEditDraftsRef.current = next;
+    persistWorkflowOutputEditDrafts(next);
+    setOutputEditDrafts(next);
+  }, []);
+
+  const removeOutputEditDraft = useCallback((key: string) => {
+    if (!key) return;
+    const controller = aiEditAbortControllersRef.current.get(key);
+    controller?.abort(new DOMException("AI edit cancelled", "AbortError"));
+    aiEditAbortControllersRef.current.delete(key);
+    updateOutputEditDrafts((current) => {
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, [updateOutputEditDrafts]);
+
+  useEffect(() => {
+    const onDraftStorageChange = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, WorkflowOutputEditDraft>>).detail;
+      const next = detail && typeof detail === "object" ? detail : loadWorkflowOutputEditDrafts();
+      outputEditDraftsRef.current = next;
+      setOutputEditDrafts(next);
+    };
+
+    window.addEventListener(WORKFLOW_OUTPUT_EDIT_DRAFTS_EVENT, onDraftStorageChange);
+    return () => window.removeEventListener(WORKFLOW_OUTPUT_EDIT_DRAFTS_EVENT, onDraftStorageChange);
+  }, []);
 
   const selectRun = useCallback(
     (runId: string | null) => {
@@ -674,6 +793,7 @@ export default function WorkflowsPage() {
       const updated = await saveWorkflowVersionEdit(run.id, baseVersionId, content, mode, options);
       setRuns((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
       selectRun(updated.id);
+      removeOutputEditDraft(`${run.id}:${baseVersionId}`);
       toast.success("Changes saved", {
         description: mode === "overwrite"
           ? "This version was overwritten."
@@ -687,37 +807,114 @@ export default function WorkflowsPage() {
       setArtifactBusyRunId((current) => (current === run.id ? null : current));
       setVersionBusyId((current) => (current === baseVersionId ? null : current));
     }
-  }, [selectRun]);
+  }, [removeOutputEditDraft, selectRun]);
 
   const handleAiPartialEdit = useCallback(async (run: WorkflowRun, payload: WorkflowAiPartialEditRequest): Promise<WorkflowAiPartialEditResponse> => {
     if (!run.result || run.status !== "completed") {
       throw new Error("Only completed workflow outputs can be edited.");
     }
-    const baseVersionId = run.active_version_id || run.versions?.[run.versions.length - 1]?.id || "";
+    const baseVersionId = activeWorkflowVersionId(run);
     if (!baseVersionId) {
       const error = new Error("Could not find a version to edit.");
       toast.error(error.message);
       throw error;
     }
 
-    setArtifactBusyRunId(run.id);
+    const key = `${run.id}:${baseVersionId}`;
+    const baseMarkdown = workflowDocumentMarkdown(run.result);
+    const controller = new AbortController();
+    const requestId = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    aiEditAbortControllersRef.current.get(key)?.abort(new DOMException("AI edit replaced", "AbortError"));
+    aiEditAbortControllersRef.current.set(key, controller);
+    updateOutputEditDrafts((current) => ({
+      ...current,
+      [key]: {
+        runId: run.id,
+        versionId: baseVersionId,
+        baseMarkdown: current[key]?.baseMarkdown || baseMarkdown,
+        draftMarkdown: current[key]?.draftMarkdown || baseMarkdown,
+        aiEditDraftPrompt: current[key]?.aiEditDraftPrompt || "",
+        aiEditBusy: true,
+        aiEditPrompt: payload.prompt,
+        aiEditRequestId: requestId,
+        updatedAt: new Date().toISOString(),
+      },
+    }));
     setVersionBusyId(baseVersionId);
     toast.message("Editing selected text", {
-      description: "The edited draft will open for review before you save it.",
+      description: "The draft will update when the AI edit is ready.",
     });
+
     try {
-      const preview = await saveWorkflowVersionPartialEdit(run.id, baseVersionId, payload);
+      const preview = await saveWorkflowVersionPartialEdit(run.id, baseVersionId, payload, { signal: controller.signal });
+      const latestStoredDraft = loadWorkflowOutputEditDrafts()[key];
+      if (
+        controller.signal.aborted ||
+        aiEditAbortControllersRef.current.get(key) !== controller ||
+        latestStoredDraft?.aiEditRequestId !== requestId
+      ) {
+        return preview;
+      }
+
+      updateOutputEditDrafts((current) => ({
+        ...current,
+        [key]: {
+          runId: run.id,
+          versionId: baseVersionId,
+          baseMarkdown: current[key]?.baseMarkdown || baseMarkdown,
+          draftMarkdown: preview.content,
+          aiEditDraftPrompt: payload.prompt,
+          aiEditBusy: false,
+          aiEditPrompt: undefined,
+          aiEditRequestId: undefined,
+          updatedAt: new Date().toISOString(),
+        },
+      }));
       toast.success("AI edit ready", { description: "Review the draft, then overwrite or save it as a new version." });
       return preview;
     } catch (err) {
+      if (isAbortError(err) || controller.signal.aborted) {
+        updateOutputEditDrafts((current) => {
+          const draft = current[key];
+          if (!draft) return current;
+          return {
+            ...current,
+            [key]: {
+              ...draft,
+              aiEditBusy: false,
+              aiEditPrompt: undefined,
+              aiEditRequestId: undefined,
+              updatedAt: new Date().toISOString(),
+            },
+          };
+        });
+        throw err;
+      }
+
+      updateOutputEditDrafts((current) => {
+        const draft = current[key];
+        if (!draft) return current;
+        return {
+          ...current,
+          [key]: {
+            ...draft,
+            aiEditBusy: false,
+            aiEditPrompt: undefined,
+            aiEditRequestId: undefined,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+      });
       console.error("[workflows] ai partial edit error", err);
       toast.error("Failed to edit selected text", { description: parseErr(err) });
       throw err;
     } finally {
-      setArtifactBusyRunId((current) => (current === run.id ? null : current));
+      if (aiEditAbortControllersRef.current.get(key) === controller) {
+        aiEditAbortControllersRef.current.delete(key);
+      }
       setVersionBusyId((current) => (current === baseVersionId ? null : current));
     }
-  }, []);
+  }, [updateOutputEditDrafts]);
 
   const handleSelectVersion = useCallback(async (run: WorkflowRun, version: WorkflowRunVersion) => {
     if (run.active_version_id === version.id) return;
@@ -802,6 +999,86 @@ export default function WorkflowsPage() {
       setVersionBusyId((current) => (current === version.id ? null : current));
     }
   }, []);
+
+  const beginOutputEdit = useCallback((run: WorkflowRun, baseMarkdown: string) => {
+    const versionId = activeWorkflowVersionId(run);
+    const key = versionId ? `${run.id}:${versionId}` : "";
+    if (!key) {
+      toast.error("Could not find a version to edit.");
+      return;
+    }
+
+    updateOutputEditDrafts((current) => {
+      if (current[key]) return current;
+      return {
+        ...current,
+        [key]: {
+          runId: run.id,
+          versionId,
+          baseMarkdown,
+          draftMarkdown: baseMarkdown,
+          aiEditDraftPrompt: "",
+          aiEditBusy: false,
+          aiEditPrompt: undefined,
+          aiEditRequestId: undefined,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    });
+  }, [updateOutputEditDrafts]);
+
+  const updateOutputEditDraft = useCallback((run: WorkflowRun, content: string) => {
+    const versionId = activeWorkflowVersionId(run);
+    const key = versionId ? `${run.id}:${versionId}` : "";
+    const result = run.result;
+    if (!key || !result) return;
+
+    updateOutputEditDrafts((current) => {
+      const existing = current[key];
+      const baseMarkdown = existing?.baseMarkdown || workflowDocumentMarkdown(result);
+      return {
+        ...current,
+        [key]: {
+          runId: run.id,
+          versionId,
+          baseMarkdown,
+          draftMarkdown: content,
+          aiEditDraftPrompt: existing?.aiEditDraftPrompt || "",
+          aiEditBusy: existing?.aiEditBusy || false,
+          aiEditPrompt: existing?.aiEditPrompt,
+          aiEditRequestId: existing?.aiEditRequestId,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    });
+  }, [updateOutputEditDrafts]);
+
+  const cancelOutputEdit = useCallback((run: WorkflowRun) => {
+    const key = workflowOutputEditKey(run);
+    removeOutputEditDraft(key);
+  }, [removeOutputEditDraft]);
+
+  const cancelAiEdit = useCallback((run: WorkflowRun) => {
+    const key = workflowOutputEditKey(run);
+    if (!key) return;
+    aiEditAbortControllersRef.current.get(key)?.abort(new DOMException("AI edit cancelled", "AbortError"));
+    aiEditAbortControllersRef.current.delete(key);
+    updateOutputEditDrafts((current) => {
+      const draft = current[key];
+      if (!draft) return current;
+      return {
+        ...current,
+        [key]: {
+          ...draft,
+          aiEditBusy: false,
+          aiEditPrompt: undefined,
+          aiEditRequestId: undefined,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    });
+    toast.message("AI edit cancelled");
+  }, [updateOutputEditDrafts]);
 
   const openBranchDialog = useCallback((run: WorkflowRun, version: WorkflowRunVersion) => {
     setBranchingRunId(run.id);
@@ -1041,6 +1318,19 @@ export default function WorkflowsPage() {
   const renamingRun = useMemo(() => runs.find((run) => run.id === renamingRunId) || null, [renamingRunId, runs]);
   const deletingRun = useMemo(() => runs.find((run) => run.id === deletingRunId) || null, [deletingRunId, runs]);
   const selectedRunChainSource = useMemo(() => chainSourceFromRun(selectedRun, catalog), [catalog, selectedRun]);
+  const selectedRunEditKey = selectedRun ? workflowOutputEditKey(selectedRun) : "";
+  const selectedRunEditDraft = selectedRunEditKey ? outputEditDrafts[selectedRunEditKey] || null : null;
+  const draftRunState = useMemo(() => {
+    const byRun = new Map<string, { hasDraft: boolean; busy: boolean }>();
+    for (const draft of Object.values(outputEditDrafts)) {
+      const current = byRun.get(draft.runId);
+      byRun.set(draft.runId, {
+        hasDraft: true,
+        busy: !!draft.aiEditBusy || !!current?.busy,
+      });
+    }
+    return byRun;
+  }, [outputEditDrafts]);
   const handleSelectRun = useCallback((runId: string) => {
     selectRun(runId);
   }, [selectRun]);
@@ -1098,6 +1388,16 @@ export default function WorkflowsPage() {
     setDeleteSaving(true);
     try {
       await deleteWorkflowRun(deletingRun.id);
+      for (const [key, controller] of aiEditAbortControllersRef.current.entries()) {
+        if (key.startsWith(`${deletingRun.id}:`)) {
+          controller.abort(new DOMException("AI edit cancelled", "AbortError"));
+          aiEditAbortControllersRef.current.delete(key);
+        }
+      }
+      updateOutputEditDrafts((current) => {
+        const next = Object.fromEntries(Object.entries(current).filter(([, draft]) => draft.runId !== deletingRun.id));
+        return next as Record<string, WorkflowOutputEditDraft>;
+      });
       setRuns((prev) => prev.filter((item) => item.id !== deletingRun.id));
       if (selectedRunId === deletingRun.id) {
         selectRun(null);
@@ -1114,7 +1414,7 @@ export default function WorkflowsPage() {
     } finally {
       setDeleteSaving(false);
     }
-  }, [deletingRun, renamingRunId, selectedRunId, selectRun]);
+  }, [deletingRun, renamingRunId, selectedRunId, selectRun, updateOutputEditDrafts]);
 
 
   const showInbox = !isMobile || mobilePanel === "inbox";
@@ -1182,6 +1482,8 @@ export default function WorkflowsPage() {
                       run={run}
                       active={run.id === selectedRunId}
                       status={workflowDisplayStatus(run, refiningRunId)}
+                      hasEditDraft={!!draftRunState.get(run.id)?.hasDraft}
+                      editDraftBusy={!!draftRunState.get(run.id)?.busy}
                       onSelect={handleSelectRun}
                       onRename={startRenamingRun}
                       onDelete={startDeletingRun}
@@ -1270,6 +1572,11 @@ export default function WorkflowsPage() {
                                   Output saved
                                 </Badge>
                               ) : null}
+                              {selectedRunEditDraft ? (
+                                <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">
+                                  {selectedRunEditDraft.aiEditBusy ? "AI edit running" : "Unsaved edits"}
+                                </Badge>
+                              ) : null}
                               <span>{formatCapability(selectedRun.capability)}</span>
                               <span className="h-1 w-1 rounded-full bg-border" />
                               <span>{formatSelection(selectedRun)}</span>
@@ -1310,11 +1617,16 @@ export default function WorkflowsPage() {
                         artifact={selectedRun.artifact || null}
                         artifactBusy={artifactBusyRunId === selectedRun.id}
                         refineBusy={refiningRunId === selectedRun.id || branchSaving}
-                        aiEditBusy={artifactBusyRunId === selectedRun.id}
+                        aiEditBusy={!!selectedRunEditDraft?.aiEditBusy}
+                        editState={selectedRunEditDraft}
                         versions={selectedRun.versions || []}
                         activeVersionId={selectedRun.active_version_id || null}
                         versionBusyId={versionBusyId}
                         onSaveArtifact={() => { void handleSaveArtifact(selectedRun); }}
+                        onBeginOutputEdit={(baseMarkdown) => beginOutputEdit(selectedRun, baseMarkdown)}
+                        onDraftOutputChange={(content) => updateOutputEditDraft(selectedRun, content)}
+                        onCancelOutputEdit={() => cancelOutputEdit(selectedRun)}
+                        onCancelAiEdit={() => cancelAiEdit(selectedRun)}
                         onSaveEditedOutput={(content, mode, options) => handleSaveEditedOutput(selectedRun, content, mode, options)}
                         onAiEditSelectedOutput={(payload) => handleAiPartialEdit(selectedRun, payload)}
                         onDownloadArtifact={(format) => { void handleDownloadArtifact(selectedRun, format); }}

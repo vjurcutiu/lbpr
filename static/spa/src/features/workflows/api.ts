@@ -105,11 +105,13 @@ export async function saveWorkflowVersionEdit(
 export async function saveWorkflowVersionPartialEdit(
   runId: string,
   versionId: string,
-  payload: WorkflowAiPartialEditRequest
+  payload: WorkflowAiPartialEditRequest,
+  init?: RequestInit
 ): Promise<WorkflowAiPartialEditResponse> {
   return postJSON<WorkflowAiPartialEditResponse>(
     `/v1/workflows/runs/${encodeURIComponent(runId)}/versions/${encodeURIComponent(versionId)}/partial-edit`,
-    payload
+    payload,
+    init
   );
 }
 

@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 
 import { MarkdownRichEditor, type MarkdownEditorSelection } from "./MarkdownRichEditor";
+import { workflowDocumentMarkdown } from "../utils/workflowMarkdown";
 
 import type { WorkflowAiPartialEditRequest, WorkflowAiPartialEditResponse, WorkflowArtifactFormat, WorkflowEditSaveMode, WorkflowEditSaveOptions, WorkflowArtifactSummary, WorkflowResult, WorkflowRun, WorkflowRunVersion, WorkflowSelection, WorkflowSuggestedAction } from "../types";
 
@@ -79,35 +80,6 @@ function versionDepth(version: WorkflowRunVersion, versions: WorkflowRunVersion[
   return depth;
 }
 
-function stripSourcesUsedSection(markdown: string) {
-  return String(markdown || "")
-    .replace(/^\s*#{1,6}\s+(?:sources used|source used|sources|source material)\s*$[\s\S]*?(?=^\s*#{1,6}\s+|\s*$)/gim, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function fallbackMarkdown(result: WorkflowResult) {
-  const lines: string[] = [];
-  const summary = String(result.summary || "").trim();
-  if (summary) lines.push(summary);
-
-  const bullets = (result.bullets || []).map((item) => String(item || "").trim()).filter(Boolean);
-  if (bullets.length) {
-    lines.push("", "## Summary", ...bullets.map((item) => `- ${item}`));
-  }
-
-  const actions = (result.next_actions || []).map((item) => String(item || "").trim()).filter(Boolean);
-  if (actions.length) {
-    lines.push("", "## Next steps", ...actions.map((item) => `- ${item}`));
-  }
-
-  return lines.join("\n").trim() || "No workflow output is available yet.";
-}
-
-function documentMarkdown(result: WorkflowResult) {
-  return stripSourcesUsedSection(result.preview_markdown || fallbackMarkdown(result));
-}
-
 function Section({ title, icon: Icon, children }: { title: string; icon?: typeof Files; children: ReactNode }) {
   return (
     <section className="border-t border-border/70 pt-5 first:border-t-0 first:pt-0">
@@ -120,6 +92,15 @@ function Section({ title, icon: Icon, children }: { title: string; icon?: typeof
   );
 }
 
+export type WorkflowOutputEditState = {
+  draftMarkdown: string;
+  baseMarkdown: string;
+  aiEditDraftPrompt?: string;
+  aiEditBusy?: boolean;
+  aiEditPrompt?: string;
+  aiEditRequestId?: string;
+};
+
 type Props = {
   result: WorkflowResult;
   selection?: WorkflowSelection;
@@ -128,10 +109,15 @@ type Props = {
   artifactBusy?: boolean;
   refineBusy?: boolean;
   aiEditBusy?: boolean;
+  editState?: WorkflowOutputEditState | null;
   versions?: WorkflowRunVersion[];
   activeVersionId?: string | null;
   versionBusyId?: string | null;
   onSaveArtifact?: () => void;
+  onBeginOutputEdit?: (baseMarkdown: string) => void;
+  onDraftOutputChange?: (content: string) => void;
+  onCancelOutputEdit?: () => void;
+  onCancelAiEdit?: () => void;
   onSaveEditedOutput?: (content: string, mode: WorkflowEditSaveMode, options?: WorkflowEditSaveOptions) => void | Promise<void>;
   onAiEditSelectedOutput?: (payload: WorkflowAiPartialEditRequest) => WorkflowAiPartialEditResponse | Promise<WorkflowAiPartialEditResponse>;
   onDownloadArtifact?: (format: WorkflowArtifactFormat) => void;
@@ -834,10 +820,15 @@ export function WorkflowResultDetails({
   artifactBusy = false,
   refineBusy = false,
   aiEditBusy = false,
+  editState = null,
   versions = [],
   activeVersionId,
   versionBusyId = null,
   onSaveArtifact,
+  onBeginOutputEdit,
+  onDraftOutputChange,
+  onCancelOutputEdit,
+  onCancelAiEdit,
   onSaveEditedOutput,
   onAiEditSelectedOutput,
   onDownloadArtifact,
@@ -850,29 +841,28 @@ export function WorkflowResultDetails({
 }: Props) {
   const rawSourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
   const visibleSourceFiles = useMemo(() => uniqueSourceFiles(rawSourceFiles), [rawSourceFiles]);
-  const markdown = useMemo(() => documentMarkdown(result), [result]);
-  const [editingOutput, setEditingOutput] = useState(false);
-  const [draftMarkdown, setDraftMarkdown] = useState(markdown);
+  const markdown = useMemo(() => workflowDocumentMarkdown(result), [result]);
   const [refinePrompt, setRefinePrompt] = useState("");
   const [aiEditSelection, setAiEditSelection] = useState<MarkdownEditorSelection | null>(null);
   const [aiEditPrompt, setAiEditPrompt] = useState("");
-  const [aiEditDraftPrompt, setAiEditDraftPrompt] = useState("");
   const [aiEditSubmitting, setAiEditSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    setDraftMarkdown(markdown);
-    setEditingOutput(false);
     setAiEditSelection(null);
     setAiEditPrompt("");
-    setAiEditDraftPrompt("");
     setCopied(false);
   }, [activeVersionId, markdown]);
 
+  const editingOutput = !!editState;
+  const draftMarkdown = editState?.draftMarkdown ?? markdown;
+  const baseMarkdown = editState?.baseMarkdown ?? markdown;
+  const aiEditDraftPrompt = editState?.aiEditDraftPrompt || "";
+  const editLocked = !!editState?.aiEditBusy;
   const outputMarkdown = editingOutput ? draftMarkdown : markdown;
-  const hasEditedOutput = draftMarkdown !== markdown;
-  const canSaveEditedOutput = !!onSaveEditedOutput && hasEditedOutput && !!draftMarkdown.trim() && !artifactBusy;
-  const aiEditIsBusy = artifactBusy || refineBusy || aiEditBusy || aiEditSubmitting;
+  const hasEditedOutput = draftMarkdown !== baseMarkdown;
+  const canSaveEditedOutput = !!onSaveEditedOutput && hasEditedOutput && !!draftMarkdown.trim() && !artifactBusy && !editLocked;
+  const aiEditIsBusy = artifactBusy || refineBusy || aiEditBusy || aiEditSubmitting || editLocked;
   const aiEditSelectedPreview = useMemo(() => compactSelectionPreview(aiEditSelection?.selectedText || aiEditSelection?.selectedContent || ""), [aiEditSelection]);
 
   const suggestedActions = useMemo(() => {
@@ -902,15 +892,12 @@ export function WorkflowResultDetails({
   };
 
   const cancelOutputEdit = () => {
-    setDraftMarkdown(markdown);
-    setAiEditDraftPrompt("");
-    setEditingOutput(false);
+    if (editLocked) return;
+    onCancelOutputEdit?.();
   };
 
   const beginOutputEdit = () => {
-    setDraftMarkdown(markdown);
-    setAiEditDraftPrompt("");
-    setEditingOutput(true);
+    onBeginOutputEdit?.(markdown);
   };
 
   const saveEditedOutput = async (mode: WorkflowEditSaveMode) => {
@@ -919,8 +906,6 @@ export function WorkflowResultDetails({
       ? { edit_source: "ai_section", edit_prompt: aiEditDraftPrompt }
       : {};
     await onSaveEditedOutput?.(draftMarkdown, mode, options);
-    setAiEditDraftPrompt("");
-    setEditingOutput(false);
   };
 
   const openAiEditModal = (selection: MarkdownEditorSelection) => {
@@ -929,32 +914,28 @@ export function WorkflowResultDetails({
   };
 
   const closeAiEditModal = () => {
-    if (aiEditIsBusy) return;
     setAiEditSelection(null);
     setAiEditPrompt("");
   };
 
-  const submitAiEdit = async (event: FormEvent<HTMLFormElement>) => {
+  const submitAiEdit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const prompt = aiEditPrompt.trim();
     if (!aiEditSelection || !prompt || !onAiEditSelectedOutput || aiEditIsBusy) return;
 
+    const payload = {
+      prompt,
+      content_before: aiEditSelection.contentBefore,
+      selected_content: aiEditSelection.selectedContent,
+      content_after: aiEditSelection.contentAfter,
+    };
+
+    setAiEditSelection(null);
+    setAiEditPrompt("");
     setAiEditSubmitting(true);
-    try {
-      const preview = await onAiEditSelectedOutput({
-        prompt,
-        content_before: aiEditSelection.contentBefore,
-        selected_content: aiEditSelection.selectedContent,
-        content_after: aiEditSelection.contentAfter,
-      });
-      setDraftMarkdown(preview.content);
-      setAiEditDraftPrompt(prompt);
-      setEditingOutput(true);
-      setAiEditSelection(null);
-      setAiEditPrompt("");
-    } finally {
-      setAiEditSubmitting(false);
-    }
+    void Promise.resolve(onAiEditSelectedOutput(payload))
+      .catch(() => undefined)
+      .finally(() => setAiEditSubmitting(false));
   };
 
   return (
@@ -974,7 +955,7 @@ export function WorkflowResultDetails({
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
             {editingOutput ? (
               <>
-                <Button variant="ghost" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={cancelOutputEdit} disabled={artifactBusy}>
+                <Button variant="ghost" size="sm" className="h-8 w-full rounded-full px-3 text-xs sm:w-auto" onClick={cancelOutputEdit} disabled={artifactBusy || editLocked}>
                   <RotateCcw className="mr-1 h-4 w-4" />
                   Cancel
                 </Button>
@@ -1048,15 +1029,33 @@ export function WorkflowResultDetails({
           </div>
         </div>
         {editingOutput ? (
-          <MarkdownRichEditor
-            value={draftMarkdown}
-            onChange={setDraftMarkdown}
-            disabled={artifactBusy}
-            ariaLabel="Edit workflow output"
-            onAiEditSelection={onAiEditSelectedOutput ? openAiEditModal : undefined}
-            aiEditDisabled={!onAiEditSelectedOutput || aiEditIsBusy}
-            aiEditBusy={aiEditIsBusy}
-          />
+          <>
+            {editLocked ? (
+              <div className="flex flex-col gap-3 border-t border-border/70 bg-primary/5 px-4 py-3 text-sm leading-6 text-foreground sm:flex-row sm:items-center sm:justify-between md:px-6">
+                <div className="flex min-w-0 items-start gap-2">
+                  <Sparkles className="mt-1 h-4 w-4 shrink-0 animate-pulse text-primary" />
+                  <div>
+                    <div className="font-medium">AI edit is running.</div>
+                    <div className="text-xs leading-5 text-muted-foreground">The editor is locked until the draft is ready.</div>
+                  </div>
+                </div>
+                {onCancelAiEdit ? (
+                  <Button type="button" variant="outline" size="sm" className="h-8 rounded-full px-3 text-xs" onClick={onCancelAiEdit}>
+                    Cancel AI edit
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            <MarkdownRichEditor
+              value={draftMarkdown}
+              onChange={(value) => onDraftOutputChange?.(value)}
+              disabled={artifactBusy || editLocked}
+              ariaLabel="Edit workflow output"
+              onAiEditSelection={onAiEditSelectedOutput ? openAiEditModal : undefined}
+              aiEditDisabled={!onAiEditSelectedOutput || aiEditIsBusy}
+              aiEditBusy={aiEditIsBusy}
+            />
+          </>
         ) : (
           <article className="px-5 py-6 md:px-8 md:py-8">
             <ReactMarkdown
@@ -1167,9 +1166,9 @@ export function WorkflowResultDetails({
               />
             </div>
             <DialogFooter className="px-6 pb-6">
-              <Button type="button" variant="outline" onClick={closeAiEditModal} disabled={aiEditIsBusy}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={closeAiEditModal} disabled={aiEditSubmitting}>Cancel</Button>
               <Button type="submit" disabled={aiEditIsBusy || !aiEditPrompt.trim()}>
-                {aiEditIsBusy ? "Editing" : "Preview edit"}
+                {aiEditSubmitting ? "Starting" : "Preview edit"}
               </Button>
             </DialogFooter>
           </form>
