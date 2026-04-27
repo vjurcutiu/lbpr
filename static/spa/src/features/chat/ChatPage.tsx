@@ -390,7 +390,7 @@ export default function ChatPage() {
                         if (canSend) onSubmit();
                       }
                     }}
-                    placeholder="Ask anything…"
+                    placeholder="Ask about your files or workspace…"
                     className={`max-h-44 resize-y border-0 focus-visible:ring-0 focus-visible:border-0 px-4 py-2 ${composerTextClass}`}
                   />
                   <Button type="submit" disabled={!canSend} className="min-w-[88px]">
@@ -443,17 +443,17 @@ function LeftSidebar({
           onClick={onNew}
         >
           <PlusCircle className="h-4 w-4" />
-          New Search
+          New chat
         </Button>
       </div>
       <div className="flex-1 overflow-auto px-3 py-3">
         <div className="mb-3 px-2">
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Conversations</div>
-          <div className="mt-1 text-xs text-muted-foreground">Recent chats and saved threads</div>
+          <div className="mt-1 text-xs text-muted-foreground">Recent chats and saved work</div>
         </div>
         <ul className="space-y-1">
           {sessions.length === 0 && (
-            <li className="rounded-2xl border border-dashed border-border bg-card/70 px-3 py-4 text-xs text-muted-foreground">No conversations yet</li>
+            <li className="rounded-2xl border border-dashed border-border bg-card/70 px-3 py-4 text-xs text-muted-foreground">No chats yet</li>
           )}
           {sessions.map((s) => (
             <li key={s.id}>
@@ -868,7 +868,7 @@ function EmptyState({
     <div className="flex h-[60vh] items-center justify-center">
       <div className="text-center px-6 max-w-3xl w-full">
         <h1 className="mb-4 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-          Welcome to LexBot PRO
+          What would you like to work on?
         </h1>
 
         <div className="mx-auto max-w-2xl">
@@ -882,7 +882,7 @@ function EmptyState({
                   onHeroSubmit();
                 }
               }}
-              placeholder="Ask anything…"
+              placeholder="Ask about your files or workspace…"
               className={`max-h-40 resize-none border-0 focus-visible:ring-0 focus-visible:border-0 px-2 ${heroTextClass}`}
             />
             <Button onClick={onHeroSubmit} disabled={!heroValue.trim()}>
@@ -896,19 +896,19 @@ function EmptyState({
           <div className="flex items-start gap-2">
             <Info className="h-4 w-4 mt-1 shrink-0" />
             <p className="text-sm text-foreground/90">
-              <span className="font-medium">How it works:</span> your question is embedded and matched against your uploaded docs, then the assistant answers with citations.
+              <span className="font-medium">Ask your workspace:</span> get answers, summaries, and draft-ready notes from the files you upload.
             </p>
           </div>
           <div className="flex items-start gap-2">
             <Info className="h-4 w-4 mt-1 shrink-0" />
             <p className="text-sm text-foreground/90">
-              <span className="font-medium">Upload files:</span> drag & drop PDFs, docs, or text into the knowledge area (left menu) to make them searchable.
+              <span className="font-medium">Bring in context:</span> upload PDFs, docs, or text in Files, then ask about the details that matter.
             </p>
           </div>
           <div className="flex items-start gap-2">
             <Info className="h-4 w-4 mt-1 shrink-0" />
             <p className="text-sm text-foreground/90">
-              <span className="font-medium">Tips:</span> be specific; include file names or sections when possible; follow-ups refine the context.
+              <span className="font-medium">Get better results:</span> mention the document, folder, topic, or outcome you want, then refine with follow-ups.
             </p>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
