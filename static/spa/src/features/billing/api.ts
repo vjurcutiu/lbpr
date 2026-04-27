@@ -15,11 +15,15 @@ import {
   type DocumentData,
 } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions";
+import { getJSON, postJSON } from "@/shared/api";
 
 // Narrow import of Auth type to avoid coupling here
 import type { User } from "firebase/auth";
 
 const db = getFirestore(firebaseApp);
+
+export const STRIPE_PRO_PLAN_KEY = "pro";
+export const STRIPE_PRO_LOOKUP_KEY = "pro_monthly";
 
 // ---------- helper logging ----------
 const BILLING_TRACE = Math.random().toString(36).slice(2, 10);
@@ -33,6 +37,8 @@ function logBilling(level: "debug" | "info" | "warn" | "error", msg: string, ext
 
 /* ------------------------------ types ------------------------------ */
 
+export type StripeMetadata = Record<string, string | number | boolean | null | undefined>;
+
 export type Price = {
   id: string;
   unit_amount?: number;
@@ -42,12 +48,19 @@ export type Price = {
   product?: string;
   active?: boolean;
   type?: "recurring" | "one_time";
+  lookup_key?: string | null;
+  nickname?: string | null;
+  metadata?: StripeMetadata;
 };
 
 export type Product = {
   id: string;
   name?: string;
   description?: string;
+  active?: boolean;
+  default_price?: string | { id?: string } | null;
+  images?: string[];
+  metadata?: StripeMetadata;
   prices?: Price[];
 };
 
@@ -63,12 +76,18 @@ export type Subscription = {
 };
 
 export type CheckoutOptions = {
+  planKey?: string,
   mode?: "subscription" | "payment",
   successUrl?: string,
   cancelUrl?: string,
   quantity?: number,
   allowPromotionCodes?: boolean,
   trialFromPlan?: boolean,
+};
+
+export type PlanCatalogSelection = {
+  product: Product;
+  price: Price;
 };
 
 /** Wait for a signed-in user (with timeout) */
@@ -117,19 +136,133 @@ function explainFirestoreError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
 
+function normalizeKey(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function stripeMetadataValue(metadata: StripeMetadata | undefined, key: string): string {
+  return normalizeKey(metadata?.[key]);
+}
+
+function metadataPlanKey(product: Product): string {
+  return (
+    stripeMetadataValue(product.metadata, "app_plan_key") ||
+    stripeMetadataValue(product.metadata, "plan_key") ||
+    stripeMetadataValue(product.metadata, "code")
+  );
+}
+
+function productMatchesPlanKey(product: Product, planKey: string): boolean {
+  const metaKey = metadataPlanKey(product);
+  if (metaKey) return metaKey === planKey;
+
+  const normalizedName = normalizeKey(product.name);
+  if (!normalizedName) return false;
+  const words = normalizedName.split(/[^a-z0-9]+/).filter(Boolean);
+  return words.includes(planKey);
+}
+
+function extractStripeId(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return trimmed.includes("/") ? trimmed.split("/").filter(Boolean).at(-1) || null : trimmed;
+  }
+
+  const anyValue = value as any;
+  if (typeof anyValue.id === "string" && anyValue.id.trim()) return anyValue.id.trim();
+  if (typeof anyValue.path === "string" && anyValue.path.trim()) {
+    return anyValue.path.split("/").filter(Boolean).at(-1) || null;
+  }
+  return null;
+}
+
+function resolveDefaultPriceId(product: Product): string | null {
+  return extractStripeId(product.default_price);
+}
+
+function isRecurringPrice(price: Price): boolean {
+  return price.active !== false && price.type !== "one_time" && !!price.interval;
+}
+
+function coercePriceDoc(priceId: string, data: any, fallbackProductId: string): Price {
+  const recurring = data?.recurring || {};
+  return {
+    id: priceId,
+    unit_amount: data?.unit_amount,
+    currency: data?.currency,
+    interval: data?.interval || recurring.interval,
+    interval_count: data?.interval_count || recurring.interval_count,
+    product: extractStripeId(data?.product) || fallbackProductId,
+    active: data?.active,
+    type: data?.type,
+    lookup_key: data?.lookup_key || null,
+    nickname: data?.nickname || null,
+    metadata: data?.metadata || {},
+  };
+}
+
+function parseEmbeddedPrices(raw: unknown, fallbackProductId: string): Price[] {
+  const prices: Price[] = [];
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    for (const [priceId, value] of Object.entries(raw as Record<string, any>)) {
+      if (value && typeof value === "object") prices.push(coercePriceDoc(priceId, value, fallbackProductId));
+    }
+  } else if (Array.isArray(raw)) {
+    for (const value of raw) {
+      if (!value || typeof value !== "object") continue;
+      const priceId = String((value as any).id || "").trim();
+      if (priceId) prices.push(coercePriceDoc(priceId, value, fallbackProductId));
+    }
+  }
+  return prices;
+}
+
+export function selectPlanCatalogPrice(
+  products: Product[],
+  planKey: string = STRIPE_PRO_PLAN_KEY,
+  lookupKey: string = STRIPE_PRO_LOOKUP_KEY,
+): PlanCatalogSelection | undefined {
+  const normalizedPlanKey = normalizeKey(planKey);
+  const normalizedLookupKey = normalizeKey(lookupKey);
+  const candidates = products.filter((product) => product.active !== false && productMatchesPlanKey(product, normalizedPlanKey));
+
+  for (const product of candidates) {
+    const prices = (product.prices || []).filter(isRecurringPrice);
+    const defaultPriceId = resolveDefaultPriceId(product);
+    const defaultPrice = defaultPriceId ? prices.find((price) => price.id === defaultPriceId) : undefined;
+    if (defaultPrice) return { product, price: defaultPrice };
+
+    const lookupPrice = normalizedLookupKey
+      ? prices.find((price) => normalizeKey(price.lookup_key) === normalizedLookupKey)
+      : undefined;
+    if (lookupPrice) return { product, price: lookupPrice };
+
+    if (prices.length === 1) return { product, price: prices[0] };
+  }
+
+  return undefined;
+}
+
+export async function loadPlanCatalogSelection(planKey: string = STRIPE_PRO_PLAN_KEY): Promise<PlanCatalogSelection | undefined> {
+  try {
+    const data = await getJSON<PlanCatalogSelection>(`/billing/catalog?plan_key=${encodeURIComponent(planKey)}`, {
+      cache: "no-store",
+      timeoutMs: 10000,
+    });
+    if (data?.product?.id && data?.price?.id) return data;
+  } catch (e) {
+    logBilling("warn", "server billing catalog fallback failed", { err: (e as any)?.message || String(e) });
+  }
+  return undefined;
+}
+
 /** Load active products + nested prices mirrored by the extension */
 export async function loadActiveProducts(dbArg: Firestore = db): Promise<Product[]> {
   const productsCol = collection(dbArg, "products");
   const q = query(productsCol, where("active", "==", true));
   const snaps = await getDocs(q);
-
-  const allowlist: string[] = (import.meta as any).env?.VITE_STRIPE_PRICE_ALLOWLIST
-    ? String((import.meta as any).env.VITE_STRIPE_PRICE_ALLOWLIST)
-        .split(",")
-        .map((s: string) => s.trim())
-        .filter((s: string) => !!s)
-    : [];
-  const allowSet = new Set<string>(allowlist);
 
   const results: Product[] = [];
   for (const pDoc of snaps.docs) {
@@ -138,60 +271,148 @@ export async function loadActiveProducts(dbArg: Firestore = db): Promise<Product
       id: pDoc.id,
       name: data.name,
       description: data.description,
-      prices: [],
+      active: data.active,
+      default_price: data.default_price,
+      images: Array.isArray(data.images) ? data.images : [],
+      metadata: data.metadata || {},
+      prices: parseEmbeddedPrices(data.prices, pDoc.id),
     };
 
-    // Prices are mirrored by the extension in a subcollection
+    // Prices are mirrored by the extension in a subcollection.
     const pricesSnap = await getDocs(collection(dbArg, "products", pDoc.id, "prices"));
-    for (const pr of pricesSnap.docs) {
+    const subcollectionPrices = pricesSnap.docs.map((pr) => {
       const prData = pr.data() as DocumentData;
-      if (allowSet.size && !allowSet.has(pr.id)) continue;
-      product.prices!.push({
+      const recurring = prData.recurring || {};
+      return {
         id: pr.id,
         unit_amount: prData.unit_amount,
         currency: prData.currency,
-        interval: prData.interval,
-        interval_count: prData.interval_count,
-        product: prData.product,
+        interval: prData.interval || recurring.interval,
+        interval_count: prData.interval_count || recurring.interval_count,
+        product: extractStripeId(prData.product) || pDoc.id,
         active: prData.active,
         type: prData.type,
-      });
-    }
+        lookup_key: prData.lookup_key || null,
+        nickname: prData.nickname || null,
+        metadata: prData.metadata || {},
+      };
+    });
+    if (subcollectionPrices.length) product.prices = subcollectionPrices;
     results.push(product);
   }
   return results;
 }
 
-/** Start a Checkout Session via extension (subscription by default) */
-export async function startCheckout(priceId: string, opts?: CheckoutOptions): Promise<void> {
-  const user = await requireUser();
-  const customerSessions = collection(db, "customers", user.uid, "checkout_sessions");
-  const payload: Record<string, unknown> = {
-    price: priceId,
+/** Observe active Stripe products and nested prices mirrored by the extension.
+ *  The Billing page uses this instead of a one-time fetch so Stripe dashboard changes
+ *  appear after the Firebase extension syncs them to Firestore.
+ */
+export function observeActiveProducts(cb: (products: Product[]) => void, dbArg: Firestore = db): () => void {
+  const productsCol = collection(dbArg, "products");
+  const q = query(productsCol, where("active", "==", true));
+  const productsById = new Map<string, Product>();
+  const priceUnsubs = new Map<string, () => void>();
+  let closed = false;
+
+  const emit = () => {
+    if (closed) return;
+    cb(Array.from(productsById.values()));
+  };
+
+  const unsubProducts = onSnapshot(q, (snap) => {
+    const activeProductIds = new Set<string>();
+
+    for (const pDoc of snap.docs) {
+      activeProductIds.add(pDoc.id);
+      const data = pDoc.data() as DocumentData;
+      const embeddedPrices = parseEmbeddedPrices(data.prices, pDoc.id);
+      const existingPrices = productsById.get(pDoc.id)?.prices || embeddedPrices;
+      productsById.set(pDoc.id, {
+        id: pDoc.id,
+        name: data.name,
+        description: data.description,
+        active: data.active,
+        default_price: data.default_price,
+        images: Array.isArray(data.images) ? data.images : [],
+        metadata: data.metadata || {},
+        prices: existingPrices,
+      });
+
+      if (!priceUnsubs.has(pDoc.id)) {
+        const unsubPrices = onSnapshot(collection(dbArg, "products", pDoc.id, "prices"), (pricesSnap) => {
+          const product = productsById.get(pDoc.id);
+          if (!product) return;
+          const subcollectionPrices = pricesSnap.docs.map((pr) => {
+            const prData = pr.data() as DocumentData;
+            const recurring = prData.recurring || {};
+            return {
+              id: pr.id,
+              unit_amount: prData.unit_amount,
+              currency: prData.currency,
+              interval: prData.interval || recurring.interval,
+              interval_count: prData.interval_count || recurring.interval_count,
+              product: extractStripeId(prData.product) || pDoc.id,
+              active: prData.active,
+              type: prData.type,
+              lookup_key: prData.lookup_key || null,
+              nickname: prData.nickname || null,
+              metadata: prData.metadata || {},
+            };
+          });
+          product.prices = subcollectionPrices.length ? subcollectionPrices : (product.prices || []);
+          productsById.set(pDoc.id, { ...product });
+          emit();
+        }, (e) => {
+          logBilling("warn", "price catalog listener failed", { productId: pDoc.id, err: (e as any)?.message || String(e) });
+          emit();
+        });
+        priceUnsubs.set(pDoc.id, unsubPrices);
+      }
+    }
+
+    for (const productId of Array.from(productsById.keys())) {
+      if (!activeProductIds.has(productId)) {
+        productsById.delete(productId);
+        priceUnsubs.get(productId)?.();
+        priceUnsubs.delete(productId);
+      }
+    }
+
+    emit();
+  }, (e) => {
+    const err = explainFirestoreError(e);
+    logBilling("error", "product catalog listener failed", { err: err.message });
+    cb([]);
+  });
+
+  return () => {
+    closed = true;
+    unsubProducts();
+    for (const unsub of priceUnsubs.values()) unsub();
+    priceUnsubs.clear();
+  };
+}
+
+/** Start a Checkout Session via the backend, which resolves the active Stripe price server-side. */
+export async function startCheckout(opts?: CheckoutOptions): Promise<void> {
+  await requireUser();
+
+  const payload = {
+    plan_key: opts?.planKey || STRIPE_PRO_PLAN_KEY,
     mode: opts?.mode || "subscription",
-    success_url: opts?.successUrl || window.location.origin + "/billing",
-    cancel_url:  opts?.cancelUrl  || window.location.origin + "/billing",
+    success_url: opts?.successUrl,
+    cancel_url: opts?.cancelUrl,
     quantity: opts?.quantity ?? 1,
     allow_promotion_codes: !!opts?.allowPromotionCodes,
     trial_from_plan: !!opts?.trialFromPlan,
   };
-  const ref = await addDoc(customerSessions, payload);
-  await new Promise<void>((resolve, reject) => {
-    const unsub = onSnapshot(doc(customerSessions, ref.id), (snap) => {
-      const data = snap.data() as any;
-      if (!data) return;
-      if (data.error) {
-        unsub();
-        const msg = data.error?.message || "Checkout failed to start.";
-        reject(new Error(msg));
-      }
-      if (data.url) {
-        const url = data.url as string;
-        unsub();
-        try { window.location.assign(url); } finally { resolve(); }
-      }
-    }, (e) => reject(explainFirestoreError(e)));
-  });
+
+  const data = await postJSON<{ url?: string }>("/billing/checkout", payload, { timeoutMs: 20000 });
+  const url = data?.url;
+  if (typeof url !== "string" || !url.startsWith("http")) {
+    throw new Error("Checkout failed to start.");
+  }
+  window.location.assign(url);
 }
 
 /** Open the Billing Portal using the official callable function (preferred).

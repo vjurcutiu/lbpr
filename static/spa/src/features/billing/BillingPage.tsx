@@ -1,11 +1,15 @@
 // features/billing/BillingPage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  loadActiveProducts,
+  observeActiveProducts,
   startCheckout,
   openBillingPortal,
   observeSubscriptions,
   getBillingTraceId,
+  selectPlanCatalogPrice,
+  loadPlanCatalogSelection,
+  STRIPE_PRO_PLAN_KEY,
+  STRIPE_PRO_LOOKUP_KEY,
   type Product,
   type Subscription,
   type Price,
@@ -66,6 +70,14 @@ function formatMoney(amount?: number, currency?: string) {
   }
 }
 
+function formatInterval(price?: Price) {
+  const interval = price?.interval || "month";
+  const count = Number(price?.interval_count || 1);
+  if (!Number.isFinite(count) || count <= 1) return `per ${interval}`;
+  const plural = interval.endsWith("s") ? interval : `${interval}s`;
+  return `every ${count} ${plural}`;
+}
+
 /** Robust conversion of Stripe/Firestore timestamp-ish values → millis. */
 function toMillis(t: any): number | null {
   if (t == null) return null;
@@ -109,9 +121,10 @@ function fmtDate(d: Date | null): string {
 export default function BillingPage() {
   const { user, loading: authLoading } = useAuthContext();
   const [products, setProducts] = useState<Product[]>([]);
+  const [serverCatalog, setServerCatalog] = useState<{ product: Product; price: Price } | undefined>(undefined);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [limits, setLimits] = useState<LimitsResp | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   // NEW: show spinner on Pro card actions (subscribe/manage)
@@ -125,20 +138,62 @@ export default function BillingPage() {
     });
   }, []);
 
-  // Load products
+  // Observe Stripe product catalog mirrored by the Firebase Stripe extension.
+  // This lets price changes made in Stripe appear after the extension syncs Firestore.
   useEffect(() => {
-    let cancel = false;
-    (async () => {
-      try {
-        const prods = await loadActiveProducts();
-        if (!cancel) setProducts(prods);
-      } catch (e: any) {
-        console.error("[billing] loadActiveProducts failed", e);
-        if (!cancel) setErr(e.message || String(e));
-      }
-    })();
-    return () => { cancel = true; };
+    try {
+      const unsubscribe = observeActiveProducts((prods) => {
+        setProducts(prods);
+        console.debug(`[billing][${getBillingTraceId()}] diag:products`, {
+          count: prods.length,
+          products: prods.map((product) => ({
+            id: product.id,
+            name: product.name,
+            active: product.active,
+            default_price: typeof product.default_price === "string"
+              ? product.default_price
+              : ((product.default_price as any)?.id || (product.default_price as any)?.path || null),
+            metadata: product.metadata || {},
+            prices: (product.prices || []).map((price) => ({
+              id: price.id,
+              active: price.active,
+              amount: price.unit_amount,
+              currency: price.currency,
+              interval: price.interval,
+              lookup_key: price.lookup_key,
+            })),
+          })),
+        });
+      });
+      return unsubscribe;
+    } catch (e: any) {
+      console.error("[billing] observeActiveProducts failed", e);
+      setErr(e.message || String(e));
+    }
   }, []);
+
+  // Server catalog fallback: if Firestore has the product doc but its prices
+  // have not synced yet, ask FastAPI to resolve the live Stripe catalog.
+  useEffect(() => {
+    let cancelled = false;
+    const localSelection = selectPlanCatalogPrice(products, STRIPE_PRO_PLAN_KEY, STRIPE_PRO_LOOKUP_KEY);
+    if (localSelection) {
+      setServerCatalog(undefined);
+      return;
+    }
+
+    loadPlanCatalogSelection(STRIPE_PRO_PLAN_KEY)
+      .then((selection) => {
+        if (!cancelled) setServerCatalog(selection);
+      })
+      .catch(() => {
+        if (!cancelled) setServerCatalog(undefined);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [products]);
 
   // Load limits (and poll periodically while signed in)
   useEffect(() => {
@@ -220,23 +275,11 @@ export default function BillingPage() {
 
   const onPro = user ? (!!activeSub || limits?.plan === "PRO") : false;
 
-  const proPrice: Price | undefined = useMemo(() => {
-    const envId = (import.meta.env.VITE_STRIPE_PRO_PRICE_ID || "").trim();
-    if (envId) {
-      for (const p of products) {
-        const hit = p.prices?.find((pr) => pr.id === envId);
-        if (hit) return hit;
-      }
-    }
-    let all: Price[] = [];
-    for (const p of products) {
-      if (p.prices?.length) {
-        all = all.concat(p.prices.filter((pr) => pr.type !== "one_time" && pr.active !== false));
-      }
-    }
-    if (!all.length) return undefined;
-    return all.sort((a, b) => (a.unit_amount ?? 0) - (b.unit_amount ?? 0))[0];
+  const firestoreCatalog = useMemo(() => {
+    return selectPlanCatalogPrice(products, STRIPE_PRO_PLAN_KEY, STRIPE_PRO_LOOKUP_KEY);
   }, [products]);
+  const proCatalog = firestoreCatalog || serverCatalog;
+  const proPrice: Price | undefined = proCatalog?.price;
 
   const renewal = asDate(activeSub && (activeSub as any).current_period_end);
   const cancelsOn =
@@ -397,7 +440,7 @@ export default function BillingPage() {
             <div className="mt-1 text-3xl font-semibold">
               {formatMoney(proPrice?.unit_amount, proPrice?.currency)}
             </div>
-            <div className="text-sm text-muted-foreground">per month</div>
+            <div className="text-sm text-muted-foreground">{formatInterval(proPrice)}</div>
           </div>
           {/* features */}
           <ul className="text-sm space-y-2 mb-6 flex-1">
@@ -455,7 +498,7 @@ export default function BillingPage() {
                   setErr(null);
                   setBtnLoading("subscribe");
                   try {
-                    await startCheckout(proPrice.id);
+                    await startCheckout({ planKey: STRIPE_PRO_PLAN_KEY, mode: "subscription" });
                   } catch (e: any) {
                     setErr(e?.message || String(e));
                     setBtnLoading(null);

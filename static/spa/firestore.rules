@@ -27,31 +27,11 @@ service cloud.firestore {
       allow write: if false; // managed by the extension
 
       // --- Checkout Sessions ---
+      // Checkout sessions are created by the FastAPI backend so price selection
+      // stays server-side. Users can only read the extension-managed result URL/error.
       match /checkout_sessions/{sessionId} {
-        allow create: if request.auth != null
-                      && request.auth.uid == uid
-                      && request.resource.data.keys().hasOnly([
-                        // core
-                        "mode","success_url","cancel_url","client_reference_id","metadata",
-                        // pricing (either price+quantity or line_items[])
-                        "price","quantity","line_items",
-                        // promos/discounts
-                        "allow_promotion_codes","discounts","promotion_code",
-                        // address & tax
-                        "billing_address_collection","shipping_address_collection",
-                        "collect_shipping_address","shipping_options",
-                        "automatic_tax","tax_id_collection",
-                        // customer info
-                        "customer","customer_email","customer_update","phone_number_collection",
-                        // subscriptions
-                        "trial_from_plan","subscription_data","invoice_creation",
-                        // UI/locale
-                        "ui_mode","locale","consent_collection","custom_text",
-                        // payments
-                        "payment_method_types","payment_intent_data","automatic_payment_methods"
-                      ]);
+        allow create, update, delete: if false;
         allow read: if request.auth != null && request.auth.uid == uid;
-        allow update, delete: if false;
       }
 
       // --- Customer Portal Sessions ---

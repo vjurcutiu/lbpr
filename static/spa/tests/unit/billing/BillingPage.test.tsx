@@ -21,6 +21,14 @@ import {
 } from "@/features/billing/api";
 
 function arrangeProducts(): Product[] {
+  const legacyIntro: Price = {
+    id: "price_intro_month",
+    type: "recurring",
+    unit_amount: 100,
+    currency: "eur",
+    interval: "month",
+    active: true,
+  };
   const pro: Price = {
     id: "price_pro_month",
     type: "recurring",
@@ -28,16 +36,17 @@ function arrangeProducts(): Product[] {
     currency: "eur",
     interval: "month",
     active: true,
+    lookup_key: "pro_monthly",
   };
   return [{
     id: "prod_pro",
-    name: "Pro",
+    name: "LexBot Pro",
     description: "Pro plan",
     active: true,
     default_price: pro.id,
     images: [],
-    metadata: {},
-    prices: [pro],
+    metadata: { code: "pro" },
+    prices: [legacyIntro, pro],
   }];
 }
 
@@ -57,14 +66,14 @@ const getProCard = async () => {
   const card = heading.closest("div")!.parentElement as HTMLElement;
   expect(card).toBeTruthy();
   // Also ensure the money text landed to avoid early queries
-  await screen.findByText(/€?\s?12\.00/i);
+  await screen.findByText(/€\s?12|€12/i);
   return card;
 };
 
 const getProButton = async () => {
   const card = await getProCard();
   // Be robust: search by text inside the card and then climb to the button element
-  const textNode = await within(card).findByText(/get pro|you're on pro/i);
+  const textNode = await within(card).findByText(/upgrade to pro|you're on pro/i);
   const btn = textNode.closest("button") as HTMLButtonElement | null;
   if (!btn) throw new Error("Pro button not found");
   return btn;
@@ -81,7 +90,7 @@ beforeEach(() => {
 });
 
 describe("BillingPage — subscription upgrade", () => {
-  it("shows 'Get Pro' and calls startCheckout with the chosen price", async () => {
+  it("shows 'Upgrade to Pro' and asks the backend to start checkout", async () => {
     render(<BillingPage />);
 
     const btn = await getProButton();
@@ -90,9 +99,8 @@ describe("BillingPage — subscription upgrade", () => {
     fireEvent.click(btn);
     await waitFor(() => {
       expect(startCheckout).toHaveBeenCalledTimes(1);
-      const [priceId, opts] = (startCheckout as any).mock.calls[0];
-      expect(priceId).toBe("price_pro_month");
-      expect(opts).toMatchObject({ mode: "subscription" });
+      const [opts] = (startCheckout as any).mock.calls[0];
+      expect(opts).toMatchObject({ planKey: "pro", mode: "subscription" });
     });
   });
 
@@ -142,7 +150,7 @@ describe("BillingPage — subscription cancellation", () => {
 describe("BillingPage — access to Stripe's billing management", () => {
   it("calls openBillingPortal when 'Manage billing' is clicked", async () => {
     render(<BillingPage />);
-    const manage = await screen.findByRole("button", { name: /manage billing/i });
+    const manage = await screen.findByRole("button", { name: /manage subscription/i });
     fireEvent.click(manage);
     await waitFor(() => expect(openBillingPortal).toHaveBeenCalledTimes(1));
   });
