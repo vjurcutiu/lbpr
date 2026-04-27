@@ -336,6 +336,66 @@ function runEditorCommand(command: string, value?: string) {
   document.execCommand(command, false, value);
 }
 
+function closestEditableBlock(node: Node | null, editor: HTMLElement) {
+  let current: HTMLElement | null = node?.nodeType === Node.ELEMENT_NODE
+    ? (node as HTMLElement)
+    : node?.parentElement || null;
+
+  while (current && current !== editor) {
+    if (/^(h[1-6]|p|div|li)$/i.test(current.tagName)) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+
+  return null;
+}
+
+function selectedEditableBlocks(editor: HTMLElement, range: Range | null) {
+  if (!range || !rangeIsInside(editor, range)) return [];
+
+  const blocks = new Set<HTMLElement>();
+  const addBlock = (node: Node | null) => {
+    const block = closestEditableBlock(node, editor);
+    if (block) blocks.add(block);
+  };
+
+  addBlock(range.startContainer);
+  addBlock(range.endContainer);
+
+  const walker = document.createTreeWalker(
+    editor,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    {
+      acceptNode(node) {
+        try {
+          return range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        } catch {
+          return NodeFilter.FILTER_REJECT;
+        }
+      },
+    }
+  );
+
+  while (walker.nextNode()) {
+    addBlock(walker.currentNode);
+  }
+
+  return Array.from(blocks);
+}
+
+function uniformSelectedHeading(editor: HTMLElement, range: Range | null): HeadingBlock | null {
+  const blocks = selectedEditableBlocks(editor, range);
+  if (!blocks.length) return null;
+
+  const firstTag = blocks[0].tagName.toLowerCase();
+  if (!/^h[1-6]$/.test(firstTag)) return null;
+
+  return blocks.every((block) => block.tagName.toLowerCase() === firstTag)
+    ? (firstTag as HeadingBlock)
+    : null;
+}
+
 function selectionIsInside(element: HTMLElement) {
   const selection = window.getSelection();
   if (!selection?.rangeCount) return false;
@@ -478,7 +538,15 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
 
   const applyBlock = (block: HeadingBlock) => {
     focusEditor();
-    runEditorCommand("formatBlock", block);
+
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    const range = editor && selection?.rangeCount && selectionIsInside(editor)
+      ? selection.getRangeAt(0)
+      : null;
+    const nextBlock = editor && uniformSelectedHeading(editor, range) === block ? "p" : block;
+
+    runEditorCommand("formatBlock", nextBlock);
     emitChange();
   };
 
