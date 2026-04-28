@@ -271,31 +271,63 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
 def test_pro_workflow_catalog_and_fallback_run(auth_client, fake_business_metrics, inline_workflow_jobs, stub_workflow_sources):
     catalog = auth_client.get('/v1/workflows')
     assert catalog.status_code == 200, catalog.text
+    workflow_ids = {item['workflow_id'] for item in catalog.json()}
+    assert {
+        'legal_contract_review',
+        'legal_contract_risk_matrix',
+        'legal_nda_review',
+        'legal_msa_review',
+        'legal_negotiation_brief',
+        'legal_obligation_tracker',
+    }.issubset(workflow_ids)
+
     legal = next(item for item in catalog.json() if item['workflow_id'] == 'legal_contract_review')
     assert legal['tier'] == 'pro'
     assert legal['pack_id'] == 'legal'
     assert legal['pack_label'] == 'Legal'
     assert legal['title'] == 'Contract Review'
     assert legal['launcher']['submit_label'] == 'Review contract'
+    assert [field['key'] for field in legal['launcher']['fields']] == [
+        'document_type',
+        'review_mode',
+        'counterparty_position',
+        'risk_tolerance',
+    ]
 
     create = auth_client.post(
         '/v1/workflows/runs',
         json={
             'workflow_id': 'legal_contract_review',
             'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': 'contracts'},
-            'inputs': {'focus': 'approval risks and missing protections'},
+            'inputs': {
+                'focus': 'approval risks and missing protections',
+                'document_type': 'nda',
+                'review_mode': 'approval',
+                'counterparty_position': 'vendor',
+                'risk_tolerance': 'conservative',
+            },
         },
     )
     assert create.status_code == 202, create.text
     run = create.json()
+    metadata = run['result']['metadata']
     assert run['workflow_id'] == 'legal_contract_review'
     assert run['title'].startswith('Contract Review:')
     assert run['capability'] == 'report'
-    assert run['result']['metadata']['tier'] == 'pro'
-    assert run['result']['metadata']['pack_id'] == 'legal'
-    assert run['result']['metadata']['workflow_profile']['workflow_id'] == 'legal_contract_review'
-    assert 'approval risks and missing protections' in run['result']['metadata']['focus']
-    assert run['result']['preview_markdown']
+    assert metadata['tier'] == 'pro'
+    assert metadata['pack_id'] == 'legal'
+    assert metadata['workflow_profile']['workflow_id'] == 'legal_contract_review'
+    assert 'approval risks and missing protections' in metadata['focus']
+    assert metadata['legal_profile']['document_type'] == 'nda'
+    assert metadata['legal_profile']['review_mode'] == 'approval'
+    assert metadata['legal_profile']['counterparty_position'] == 'vendor'
+    assert metadata['legal_profile']['risk_tolerance'] == 'conservative'
+    assert metadata['risk_items']
+    assert metadata['clause_items']
+    assert metadata['obligation_items']
+    assert metadata['open_questions']
+    assert metadata['approval_notes']
+    assert 'Review profile' in run['result']['preview_markdown']
     assert run['artifact']['file_name'].endswith('.md')
 
     assert_call(
@@ -310,6 +342,33 @@ def test_pro_workflow_catalog_and_fallback_run(auth_client, fake_business_metric
         workflow_id='legal_contract_review',
         capability='report',
     )
+
+
+def test_legal_pack_new_workflows_have_structured_fallbacks(auth_client, inline_workflow_jobs, stub_workflow_sources):
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'legal_nda_review',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': 'contracts'},
+            'inputs': {
+                'focus': 'residual knowledge and confidentiality term',
+                'document_type': 'nda',
+                'review_mode': 'legal_risk',
+                'counterparty_position': 'partner',
+                'risk_tolerance': 'balanced',
+            },
+        },
+    )
+    assert create.status_code == 202, create.text
+    run = create.json()
+    metadata = run['result']['metadata']
+    assert run['workflow_id'] == 'legal_nda_review'
+    assert run['title'].startswith('NDA Review:')
+    assert metadata['legal_profile']['document_type'] == 'nda'
+    assert metadata['legal_profile']['review_mode'] == 'legal_risk'
+    assert metadata['risk_items'][0]['requires_human_review'] is True
+    assert metadata['approval_notes']
+    assert 'Risk matrix' in run['result']['preview_markdown']
 
 
 

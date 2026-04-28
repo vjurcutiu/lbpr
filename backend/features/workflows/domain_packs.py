@@ -25,6 +25,121 @@ class DomainWorkflowSpec:
     default_focus: str
     tags: tuple[str, ...] = field(default_factory=tuple)
     selection: dict[str, Any] = field(default_factory=dict)
+    launcher_fields: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+
+
+LEGAL_RISK_LEVELS: tuple[str, ...] = ("low", "medium", "high", "critical")
+
+LEGAL_REVIEW_MODES: tuple[dict[str, str], ...] = (
+    {"value": "business_risk", "label": "Business risk", "description": "Focus on practical exposure, approvals, obligations, and deal impact."},
+    {"value": "legal_risk", "label": "Legal risk", "description": "Focus on clause risk, enforceability concerns, ambiguity, and missing protections."},
+    {"value": "negotiation", "label": "Negotiation", "description": "Focus on must-have edits, fallback positions, and negotiation comments."},
+    {"value": "executive_summary", "label": "Executive summary", "description": "Focus on a concise decision-ready brief for non-lawyers."},
+    {"value": "approval", "label": "Approval", "description": "Focus on approval issues, exceptions, and escalation notes."},
+)
+
+LEGAL_DOCUMENT_TYPES: tuple[dict[str, str], ...] = (
+    {"value": "general_contract", "label": "General contract"},
+    {"value": "nda", "label": "NDA"},
+    {"value": "msa_services", "label": "MSA / services agreement"},
+    {"value": "vendor_agreement", "label": "Vendor agreement"},
+    {"value": "dpa", "label": "Data processing agreement"},
+    {"value": "employment", "label": "Employment document"},
+    {"value": "policy", "label": "Policy"},
+    {"value": "other", "label": "Other"},
+)
+
+LEGAL_COUNTERPARTY_POSITIONS: tuple[dict[str, str], ...] = (
+    {"value": "unknown", "label": "Not specified"},
+    {"value": "customer", "label": "Customer"},
+    {"value": "vendor", "label": "Vendor"},
+    {"value": "partner", "label": "Partner"},
+    {"value": "employer", "label": "Employer"},
+    {"value": "employee", "label": "Employee"},
+)
+
+LEGAL_RISK_TOLERANCE_OPTIONS: tuple[dict[str, str], ...] = (
+    {"value": "conservative", "label": "Conservative", "description": "Flag more issues and recommend stronger protections."},
+    {"value": "balanced", "label": "Balanced", "description": "Balance protection with practical deal progress."},
+    {"value": "commercial", "label": "Commercial", "description": "Prioritize issues that materially affect business outcomes."},
+    {"value": "aggressive", "label": "Aggressive", "description": "Accept more risk unless it creates major exposure."},
+)
+
+LEGAL_CLAUSE_FAMILIES: tuple[str, ...] = (
+    "confidentiality",
+    "indemnity",
+    "limitation_of_liability",
+    "termination",
+    "renewal",
+    "ip_ownership",
+    "data_protection",
+    "governing_law",
+    "payment",
+    "assignment",
+    "audit",
+    "insurance",
+    "non_solicit",
+    "exclusivity",
+    "warranties",
+    "dispute_resolution",
+    "change_control",
+    "notices",
+)
+
+LEGAL_REVIEW_METADATA_REQUIREMENTS = (
+    "For Legal workflows, metadata must include legal_profile, risk_items, clause_items, obligation_items, "
+    "open_questions, and approval_notes. risk_items should use issue, severity, clause_family, business_impact, "
+    "source_basis, recommended_change, fallback_position, and requires_human_review. clause_items should use "
+    "clause_family, current_position, source_basis, concern, and recommended_position. obligation_items should use "
+    "obligation, responsible_party, trigger_or_deadline, source_basis, and follow_up. open_questions and approval_notes "
+    "should be arrays of concise strings."
+)
+
+LEGAL_HOUSE_POSITION_SUMMARY = (
+    "Use these default house-position assumptions unless the user's prompt says otherwise: prefer mutual confidentiality "
+    "where appropriate; avoid unlimited liability except for narrow intentional misconduct, confidentiality, IP misuse, or payment carveouts; "
+    "prefer clear termination rights and renewal notice windows; prefer customer/client ownership of work product paid for by the business; "
+    "require clear data protection, security, audit, insurance, assignment, and notice terms when operationally relevant."
+)
+
+LEGAL_LAUNCHER_FIELDS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "document_type",
+        "label": "Document type",
+        "kind": "select",
+        "placeholder": "Select document type",
+        "default_value": "general_contract",
+        "options": list(LEGAL_DOCUMENT_TYPES),
+    },
+    {
+        "key": "review_mode",
+        "label": "Review mode",
+        "kind": "select",
+        "placeholder": "Select review mode",
+        "default_value": "business_risk",
+        "options": list(LEGAL_REVIEW_MODES),
+    },
+    {
+        "key": "counterparty_position",
+        "label": "Counterparty",
+        "kind": "select",
+        "placeholder": "Select counterparty position",
+        "default_value": "unknown",
+        "options": list(LEGAL_COUNTERPARTY_POSITIONS),
+    },
+    {
+        "key": "risk_tolerance",
+        "label": "Risk tolerance",
+        "kind": "select",
+        "placeholder": "Select risk tolerance",
+        "default_value": "balanced",
+        "options": list(LEGAL_RISK_TOLERANCE_OPTIONS),
+    },
+)
+
+
+def _legal_output_requirements(extra: str) -> str:
+    return f"{extra} {LEGAL_REVIEW_METADATA_REQUIREMENTS}"
 
 
 DOMAIN_WORKFLOW_SPECS: tuple[DomainWorkflowSpec, ...] = (
@@ -44,21 +159,96 @@ DOMAIN_WORKFLOW_SPECS: tuple[DomainWorkflowSpec, ...] = (
         suggested_prompts=("Business risks", "Missing protections", "Approval-ready summary"),
         task_brief=(
             "Review the selected legal material as a practical contract review. Identify obligations, risk points, "
-            "missing protections, unusual terms, negotiation issues, and business implications."
+            "missing protections, unusual terms, negotiation issues, and business implications. Apply the Legal pack schema and house-position assumptions."
         ),
-        output_requirements=(
-            "The markdown should include sections for executive summary, key terms, risk points, missing or unclear language, "
-            "recommended changes, and approval notes. In metadata, include risk_items as objects with issue, severity, source_basis, and recommendation."
+        output_requirements=_legal_output_requirements(
+            "The markdown should include Executive Summary, Deal / Document Context, Key Terms, Risk Matrix, Missing or Ambiguous Terms, "
+            "Negotiation Recommendations, Approval Notes, and Open Questions."
         ),
         default_focus="contract risks, obligations, missing protections, and approval issues",
         tags=("legal", "contract", "review", "pro"),
+        launcher_fields=LEGAL_LAUNCHER_FIELDS,
+    ),
+    DomainWorkflowSpec(
+        workflow_id="legal_contract_risk_matrix",
+        pack_id="legal",
+        pack_label="Legal",
+        pack_order=10,
+        workflow_order=15,
+        title="Risk Matrix",
+        description="Turn a contract review into a decision-ready matrix of risks, impact, recommendations, and approvals.",
+        capability="report",
+        prompt_label="Matrix focus",
+        prompt_placeholder="Commercial risk, approval exceptions, liability exposure, negotiation priorities…",
+        submit_label="Build risk matrix",
+        suggested_prompts=("Approval risks", "Negotiation priorities", "High-severity issues"),
+        task_brief=(
+            "Create a contract risk matrix from the selected legal material. Prioritize issues by severity, business impact, approval sensitivity, "
+            "and recommended fix. Include practical fallback positions where the source supports them."
+        ),
+        output_requirements=_legal_output_requirements(
+            "The markdown should center on a risk matrix with issue, severity, clause family, business impact, source basis, recommended fix, fallback, and approval owner. "
+            "Include a short executive summary and a short approval checklist."
+        ),
+        default_focus="risk severity, business impact, approval exceptions, and recommended fixes",
+        tags=("legal", "contract", "risk", "matrix", "pro"),
+        launcher_fields=LEGAL_LAUNCHER_FIELDS,
+    ),
+    DomainWorkflowSpec(
+        workflow_id="legal_nda_review",
+        pack_id="legal",
+        pack_label="Legal",
+        pack_order=10,
+        workflow_order=18,
+        title="NDA Review",
+        description="Review an NDA for confidentiality scope, exclusions, term, residuals, remedies, law, and mutuality.",
+        capability="report",
+        prompt_label="Review focus",
+        prompt_placeholder="Mutuality, residual knowledge, confidentiality term, exclusions, return/destruction…",
+        submit_label="Review NDA",
+        suggested_prompts=("Mutual NDA review", "Residual knowledge risk", "Business-friendly summary"),
+        task_brief=(
+            "Review the selected NDA or confidentiality material. Check confidentiality scope, exclusions, term, residual knowledge, non-solicit or non-compete-like language, "
+            "injunctive relief, return/destruction, governing law, assignment, and mutuality. Flag unusual or business-sensitive terms."
+        ),
+        output_requirements=_legal_output_requirements(
+            "The markdown should include NDA Snapshot, Key Terms, Red Flags, Missing Protections, Negotiation Recommendations, Approval Notes, and Open Questions. "
+            "Give special attention to confidentiality scope, exclusions, residuals, term, return/destruction, remedies, and mutuality."
+        ),
+        default_focus="NDA confidentiality scope, exclusions, term, residuals, remedies, and mutuality",
+        tags=("legal", "nda", "confidentiality", "review", "pro"),
+        launcher_fields=LEGAL_LAUNCHER_FIELDS,
+    ),
+    DomainWorkflowSpec(
+        workflow_id="legal_msa_review",
+        pack_id="legal",
+        pack_label="Legal",
+        pack_order=10,
+        workflow_order=22,
+        title="MSA Review",
+        description="Review an MSA or services agreement for scope, payment, liability, indemnity, IP, data, SLAs, and renewal risk.",
+        capability="report",
+        prompt_label="Review focus",
+        prompt_placeholder="Liability, indemnity, IP ownership, payment, SLAs, data protection, termination…",
+        submit_label="Review MSA",
+        suggested_prompts=("Services risk review", "Commercial terms", "Approval summary"),
+        task_brief=(
+            "Review the selected MSA or services agreement. Check scope, statements of work, payment, term, termination, SLAs, warranties, limitation of liability, "
+            "indemnity, IP ownership, data protection, audit rights, renewal mechanics, assignment, and change control."
+        ),
+        output_requirements=_legal_output_requirements(
+            "The markdown should include Agreement Snapshot, Commercial Terms, Legal Risk Matrix, Operational Obligations, Missing Protections, Negotiation Recommendations, and Approval Notes."
+        ),
+        default_focus="scope, payment, liability, indemnity, IP, data protection, SLAs, renewal, and termination",
+        tags=("legal", "msa", "services", "review", "pro"),
+        launcher_fields=LEGAL_LAUNCHER_FIELDS,
     ),
     DomainWorkflowSpec(
         workflow_id="legal_clause_extraction",
         pack_id="legal",
         pack_label="Legal",
         pack_order=10,
-        workflow_order=20,
+        workflow_order=30,
         title="Clause Extraction",
         description="Extract important clauses, obligations, dates, parties, and fallback positions from legal documents.",
         capability="extract",
@@ -67,22 +257,23 @@ DOMAIN_WORKFLOW_SPECS: tuple[DomainWorkflowSpec, ...] = (
         submit_label="Extract clauses",
         suggested_prompts=("Key legal clauses", "Dates and obligations", "Termination and renewal terms"),
         task_brief=(
-            "Extract legal clauses and contract details from the selected material. Focus on clauses, parties, dates, obligations, "
-            "payment terms, renewal or termination mechanics, governing law, and approval-sensitive language."
+            "Extract legal clauses and contract details from the selected material. Use the Legal pack clause families where possible. Focus on parties, dates, obligations, "
+            "payment terms, renewal or termination mechanics, governing law, fallback-relevant positions, and approval-sensitive language."
         ),
-        output_requirements=(
-            "The markdown should include a structured clause table. In metadata, include fields as objects with field, value, confidence, "
-            "and source_basis. Use conservative wording where evidence is unclear."
+        output_requirements=_legal_output_requirements(
+            "The markdown should include a structured clause table with clause family, current position, source basis, concern, recommended position, and confidence. "
+            "Also include obligation and deadline tables where useful."
         ),
-        default_focus="key clauses, parties, obligations, dates, and approval-sensitive terms",
+        default_focus="key clauses, parties, obligations, dates, fallback positions, and approval-sensitive terms",
         tags=("legal", "clauses", "extraction", "pro"),
+        launcher_fields=LEGAL_LAUNCHER_FIELDS,
     ),
     DomainWorkflowSpec(
         workflow_id="legal_fallback_language",
         pack_id="legal",
         pack_label="Legal",
         pack_order=10,
-        workflow_order=30,
+        workflow_order=40,
         title="Fallback Language",
         description="Draft negotiation fallback language and revision notes based on the selected contract material.",
         capability="draft",
@@ -91,22 +282,73 @@ DOMAIN_WORKFLOW_SPECS: tuple[DomainWorkflowSpec, ...] = (
         submit_label="Draft fallback",
         suggested_prompts=("Safer fallback clause", "Negotiation note", "Plain-English alternative"),
         task_brief=(
-            "Draft practical fallback language and negotiation notes grounded in the selected legal material. Where the source text is unclear, "
-            "explain assumptions and avoid overstating legal conclusions."
+            "Draft practical fallback language and negotiation notes grounded in the selected legal material. Use the Legal pack house-position assumptions, "
+            "explain assumptions, and avoid overstating legal conclusions where source text is unclear."
         ),
-        output_requirements=(
-            "The markdown should include proposed language, rationale, negotiation notes, and open questions. In metadata, include draft_type, assumptions, "
-            "and fallback_items with clause, proposed_language, rationale, and confidence."
+        output_requirements=_legal_output_requirements(
+            "The markdown should include Proposed Language, Rationale, Negotiation Note, Fallback Ladder, Assumptions, and Open Questions. "
+            "In metadata, include fallback_items with clause_family, proposed_language, rationale, source_basis, and confidence."
         ),
         default_focus="fallback clause language, rationale, assumptions, and negotiation notes",
         tags=("legal", "drafting", "fallback", "pro"),
+        launcher_fields=LEGAL_LAUNCHER_FIELDS,
+    ),
+    DomainWorkflowSpec(
+        workflow_id="legal_negotiation_brief",
+        pack_id="legal",
+        pack_label="Legal",
+        pack_order=10,
+        workflow_order=45,
+        title="Negotiation Brief",
+        description="Create a negotiation plan with must-have changes, fallback positions, comments, and escalation issues.",
+        capability="plan",
+        prompt_label="Negotiation goal",
+        prompt_placeholder="Must-have changes, acceptable fallbacks, executive issues, customer comments…",
+        submit_label="Create brief",
+        suggested_prompts=("Must-have changes", "Fallback positions", "Comment-ready notes"),
+        task_brief=(
+            "Create a legal negotiation brief from the selected material. Separate must-have changes from nice-to-have changes, suggest fallback positions, "
+            "draft comment-ready notes, and flag approval or escalation issues."
+        ),
+        output_requirements=_legal_output_requirements(
+            "The markdown should include Negotiation Objective, Must-Have Changes, Nice-to-Have Changes, Fallback Positions, Suggested Comments, Escalation Issues, and Open Questions. "
+            "In metadata, include plan_items with action, priority, owner, timeline, and related_clause_family."
+        ),
+        default_focus="must-have changes, fallback positions, suggested comments, and escalation issues",
+        tags=("legal", "negotiation", "brief", "plan", "pro"),
+        launcher_fields=LEGAL_LAUNCHER_FIELDS,
+    ),
+    DomainWorkflowSpec(
+        workflow_id="legal_obligation_tracker",
+        pack_id="legal",
+        pack_label="Legal",
+        pack_order=10,
+        workflow_order=48,
+        title="Obligation Tracker",
+        description="Extract post-signature obligations, deadlines, owners, renewal windows, notices, and follow-up tasks.",
+        capability="extract",
+        prompt_label="Tracking focus",
+        prompt_placeholder="Renewals, notice periods, reporting duties, payment obligations, audit rights…",
+        submit_label="Extract obligations",
+        suggested_prompts=("Post-signature duties", "Renewal and notice windows", "Operational obligations"),
+        task_brief=(
+            "Extract post-signature legal and operational obligations from the selected material. Focus on notices, renewals, reporting duties, payment terms, "
+            "audit obligations, insurance requirements, data protection duties, termination windows, and owner-ready follow-ups."
+        ),
+        output_requirements=_legal_output_requirements(
+            "The markdown should include Obligation Tracker, Deadline / Trigger Table, Owner Follow-ups, Risk Notes, and Open Questions. "
+            "Metadata obligation_items should be detailed enough to power a follow-up checklist."
+        ),
+        default_focus="post-signature obligations, deadlines, renewal windows, notices, owners, and follow-up tasks",
+        tags=("legal", "obligations", "tracking", "extraction", "pro"),
+        launcher_fields=LEGAL_LAUNCHER_FIELDS,
     ),
     DomainWorkflowSpec(
         workflow_id="legal_matter_handoff",
         pack_id="legal",
         pack_label="Legal",
         pack_order=10,
-        workflow_order=40,
+        workflow_order=50,
         title="Matter Handoff",
         description="Prepare a legal handoff summary with current status, decisions, risks, open items, and next steps.",
         capability="summarize",
@@ -116,13 +358,15 @@ DOMAIN_WORKFLOW_SPECS: tuple[DomainWorkflowSpec, ...] = (
         suggested_prompts=("Matter status", "Open issues", "Next reviewer brief"),
         task_brief=(
             "Prepare a legal matter handoff from the selected material. Summarize current state, relevant background, decisions, unresolved issues, "
-            "risk areas, deadlines, and next actions."
+            "risk areas, deadlines, owner-sensitive obligations, and next actions."
         ),
-        output_requirements=(
-            "The markdown should read like a handoff note for the next reviewer. Include status, context, open issues, risk flags, deadlines, and recommended next steps."
+        output_requirements=_legal_output_requirements(
+            "The markdown should read like a handoff note for the next reviewer. Include Matter Status, Context, Key Decisions, Open Issues, Risk Flags, Deadlines, "
+            "Approval Notes, and Recommended Next Steps."
         ),
-        default_focus="matter status, unresolved issues, risk flags, deadlines, and next reviewer actions",
+        default_focus="matter status, unresolved issues, risk flags, deadlines, approvals, and next reviewer actions",
         tags=("legal", "handoff", "summary", "pro"),
+        launcher_fields=LEGAL_LAUNCHER_FIELDS,
     ),
 
     # HR

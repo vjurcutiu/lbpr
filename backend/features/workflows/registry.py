@@ -7,7 +7,13 @@ import textwrap
 from collections import Counter
 from typing import Any, Callable
 
-from .domain_packs import DOMAIN_WORKFLOW_SPECS, get_domain_workflow_spec
+from .domain_packs import (
+    DOMAIN_WORKFLOW_SPECS,
+    LEGAL_CLAUSE_FAMILIES,
+    LEGAL_HOUSE_POSITION_SUMMARY,
+    LEGAL_RISK_LEVELS,
+    get_domain_workflow_spec,
+)
 from .models import WorkflowManifest, WorkflowResult, WorkflowRun, WorkflowSourceFile
 
 try:
@@ -1097,16 +1103,302 @@ def plan_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Workflo
     )
 
 
+def _clean_choice(value: Any, default: str) -> str:
+    text = str(value or "").strip()
+    return text or default
+
+
+def _humanize_choice(value: str) -> str:
+    text = str(value or "").replace("_", " ").replace("/", " / ").strip()
+    return re.sub(r"\s+", " ", text).capitalize() if text else "Not specified"
+
+
+def _legal_profile_from_run(run: WorkflowRun) -> dict[str, Any]:
+    document_type = _clean_choice(run.inputs.get("document_type"), "general_contract")
+    review_mode = _clean_choice(run.inputs.get("review_mode"), "business_risk")
+    counterparty_position = _clean_choice(run.inputs.get("counterparty_position"), "unknown")
+    risk_tolerance = _clean_choice(run.inputs.get("risk_tolerance"), "balanced")
+    return {
+        "document_type": document_type,
+        "document_type_label": _humanize_choice(document_type),
+        "review_mode": review_mode,
+        "review_mode_label": _humanize_choice(review_mode),
+        "counterparty_position": counterparty_position,
+        "counterparty_position_label": _humanize_choice(counterparty_position),
+        "risk_tolerance": risk_tolerance,
+        "risk_tolerance_label": _humanize_choice(risk_tolerance),
+        "clause_families": list(LEGAL_CLAUSE_FAMILIES),
+        "risk_levels": list(LEGAL_RISK_LEVELS),
+        "house_position_summary": LEGAL_HOUSE_POSITION_SUMMARY,
+    }
+
+
+def _legal_context_for_prompt(profile: dict[str, Any]) -> str:
+    return textwrap.dedent(
+        f"""
+        Legal pack profile:
+        - Document type: {profile.get('document_type_label')}
+        - Review mode: {profile.get('review_mode_label')}
+        - Counterparty: {profile.get('counterparty_position_label')}
+        - Risk tolerance: {profile.get('risk_tolerance_label')}
+        - Clause families: {', '.join(LEGAL_CLAUSE_FAMILIES)}
+        - Risk levels: {', '.join(LEGAL_RISK_LEVELS)}
+        - Default house positions: {LEGAL_HOUSE_POSITION_SUMMARY}
+        """
+    ).strip()
+
+
+def _dict_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _legal_next_actions(spec, *, capability: str) -> list[str]:
+    by_workflow = {
+        "legal_contract_risk_matrix": [
+            "Confirm which high-severity items need approval before negotiation.",
+            "Turn the top issues into comment-ready proposed edits.",
+        ],
+        "legal_nda_review": [
+            "Confirm confidentiality term, exclusions, and residual knowledge language before approval.",
+            "Draft comments for any red flags that exceed the selected risk tolerance.",
+        ],
+        "legal_msa_review": [
+            "Confirm liability, indemnity, IP ownership, data protection, and termination positions.",
+            "Escalate any approval exception before sending comments to the counterparty.",
+        ],
+        "legal_negotiation_brief": [
+            "Confirm the must-have changes and acceptable fallback positions.",
+            "Share only the comment-ready notes that match the negotiation posture.",
+        ],
+        "legal_obligation_tracker": [
+            "Assign owners to obligations, notices, renewals, and deadline-driven follow-ups.",
+            "Validate every deadline or trigger against the source agreement before operational use.",
+        ],
+    }
+    if spec.workflow_id in by_workflow:
+        return by_workflow[spec.workflow_id]
+    by_capability = {
+        "extract": [
+            "Validate extracted clauses, obligations, and dates against the source material.",
+            "Run a targeted review for any clause family with low confidence or missing source support.",
+        ],
+        "draft": [
+            "Review proposed language against the preferred position and fallback posture.",
+            "Refine the draft for the counterparty and negotiation tone before sharing.",
+        ],
+        "plan": [
+            "Confirm negotiation priorities, owners, and escalation points before acting.",
+            "Convert accepted fallback positions into comment-ready language.",
+        ],
+        "report": [
+            "Confirm high-severity risk items and approval exceptions before sharing.",
+            "Run a narrower follow-up for any clause family that needs deeper review.",
+        ],
+    }
+    return by_capability.get(
+        capability,
+        [
+            "Review the output against the source files before sharing.",
+            "Refine the workflow if you need a narrower audience, format, or action list.",
+        ],
+    )
+
+
+def _legal_fallback_payload(spec, run: WorkflowRun, sources: list[WorkflowSourceFile], *, focus: str, insights: list[str]) -> tuple[str, list[str], list[str], str, dict[str, Any]]:
+    profile = _legal_profile_from_run(run)
+    next_actions = _legal_next_actions(spec, capability=spec.capability)
+    first = insights[0] if insights else "The selected material needs a closer legal review before it is finalized."
+    second = insights[1] if len(insights) > 1 else "Confirm the clause positions, operational obligations, and approval path against the source material."
+    third = insights[2] if len(insights) > 2 else "Review any missing or ambiguous terms before relying on the agreement operationally."
+    severity = "high" if profile.get("risk_tolerance") == "conservative" else "medium"
+    risk_items = [
+        {
+            "issue": first,
+            "severity": severity,
+            "clause_family": "general_contract",
+            "business_impact": "Needs review before approval or external use.",
+            "source_basis": first,
+            "recommended_change": "Confirm the source language and revise the clause if it creates avoidable business exposure.",
+            "fallback_position": "Use the default house position unless the business accepts the exception.",
+            "requires_human_review": True,
+        }
+    ]
+    clause_items = [
+        {
+            "clause_family": "general_contract",
+            "current_position": second,
+            "source_basis": second,
+            "concern": "The position may need clarification before approval.",
+            "recommended_position": "Align the clause with the selected review mode and risk tolerance.",
+        }
+    ]
+    obligation_items = [
+        {
+            "obligation": third,
+            "responsible_party": "TBD",
+            "trigger_or_deadline": "TBD",
+            "source_basis": third,
+            "follow_up": "Confirm owner, timing, and operational handoff before signature or rollout.",
+        }
+    ]
+    open_questions = [
+        "Which issues require approval before the document can move forward?",
+        "Are there standard fallback positions for the clause families flagged above?",
+    ]
+    approval_notes = [
+        "Treat any uncapped liability, unclear IP ownership, broad indemnity, automatic renewal, or missing data protection term as approval-sensitive.",
+        f"Apply a {_humanize_choice(str(profile.get('risk_tolerance'))).lower()} review posture for unresolved items.",
+    ]
+    if spec.workflow_id == "legal_obligation_tracker":
+        bullets = [item["obligation"] for item in obligation_items] + insights[:3]
+    elif spec.workflow_id == "legal_negotiation_brief":
+        bullets = ["Separate must-have changes from acceptable fallback positions.", *insights[:4]]
+    else:
+        bullets = [item["issue"] for item in risk_items] + insights[:4]
+    summary = f"Prepared {spec.title.lower()} focused on {focus}."
+    preview = textwrap.dedent(
+        f"""
+        # {run.title}
+
+        {summary}
+
+        ## Review profile
+        - Document type: {profile.get('document_type_label')}
+        - Review mode: {profile.get('review_mode_label')}
+        - Counterparty: {profile.get('counterparty_position_label')}
+        - Risk tolerance: {profile.get('risk_tolerance_label')}
+
+        ## Risk matrix
+        | Issue | Severity | Business impact | Recommended change |
+        | --- | --- | --- | --- |
+        {chr(10).join(f"| {item['issue']} | {item['severity']} | {item['business_impact']} | {item['recommended_change']} |" for item in risk_items)}
+
+        ## Clause notes
+        {chr(10).join(f"- **{item['clause_family']}**: {item['concern']} Recommended position: {item['recommended_position']}" for item in clause_items)}
+
+        ## Obligations and follow-ups
+        {chr(10).join(f"- {item['obligation']} Follow-up: {item['follow_up']}" for item in obligation_items)}
+
+        ## Open questions
+        {chr(10).join(f"- {item}" for item in open_questions)}
+
+        ## Approval notes
+        {chr(10).join(f"- {item}" for item in approval_notes)}
+
+        ## Recommended next steps
+        {chr(10).join(f"- {item}" for item in next_actions)}
+        """
+    ).strip()
+    metadata: dict[str, Any] = {
+        "tier": "pro",
+        "pack_id": spec.pack_id,
+        "pack_label": spec.pack_label,
+        "focus": focus,
+        "legal_profile": profile,
+        "risk_items": risk_items,
+        "clause_items": clause_items,
+        "obligation_items": obligation_items,
+        "open_questions": open_questions,
+        "approval_notes": approval_notes,
+        "workflow_profile": {
+            "tier": "pro",
+            "pack_id": spec.pack_id,
+            "pack_label": spec.pack_label,
+            "workflow_id": spec.workflow_id,
+            "title": spec.title,
+        },
+    }
+    if spec.capability == "extract":
+        metadata["fields"] = [
+            {"field": "Clause or obligation", "value": item, "confidence": "low", "source_basis": item}
+            for item in insights[:5]
+        ]
+    elif spec.capability == "plan":
+        metadata["plan_items"] = [
+            {"action": action, "priority": "medium", "owner": "TBD", "timeline": "TBD", "related_clause_family": "general_contract"}
+            for action in next_actions
+        ]
+    elif spec.capability == "draft":
+        metadata["draft_type"] = spec.title
+        metadata["fallback_items"] = [
+            {
+                "clause_family": "general_contract",
+                "proposed_language": "Revise the clause to align with the selected fallback position.",
+                "rationale": "The source material indicates approval-sensitive language that should be narrowed or clarified.",
+                "source_basis": first,
+                "confidence": "low",
+            }
+        ]
+    return summary, bullets[:5], next_actions, preview, metadata
+
+
+def _ensure_legal_metadata(metadata: dict[str, Any], run: WorkflowRun, spec) -> dict[str, Any]:
+    profile = metadata.get("legal_profile") if isinstance(metadata.get("legal_profile"), dict) else {}
+    merged_profile = _legal_profile_from_run(run)
+    merged_profile.update({key: value for key, value in profile.items() if value not in (None, "")})
+    metadata["legal_profile"] = merged_profile
+
+    metadata["risk_items"] = _dict_list(metadata.get("risk_items"))
+    metadata["clause_items"] = _dict_list(metadata.get("clause_items"))
+    metadata["obligation_items"] = _dict_list(metadata.get("obligation_items"))
+    metadata["open_questions"] = _string_list(metadata.get("open_questions"))
+    metadata["approval_notes"] = _string_list(metadata.get("approval_notes"))
+
+    if not metadata["risk_items"]:
+        metadata["risk_items"] = [
+            {
+                "issue": "No specific legal risks were extracted from the model output.",
+                "severity": "review",
+                "clause_family": "general_contract",
+                "business_impact": "Review source material before relying on the output.",
+                "source_basis": "Not available",
+                "recommended_change": "Run a narrower follow-up review for the relevant clause family.",
+                "fallback_position": "Use the default house position where applicable.",
+                "requires_human_review": True,
+            }
+        ]
+    if not metadata["clause_items"]:
+        metadata["clause_items"] = []
+    if not metadata["obligation_items"]:
+        metadata["obligation_items"] = []
+    if not metadata["open_questions"]:
+        metadata["open_questions"] = ["What source language should be reviewed before final approval?"]
+    if not metadata["approval_notes"]:
+        metadata["approval_notes"] = ["Review high-impact risks, missing protections, and unresolved questions before approval."]
+    return metadata
+
+
 def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> WorkflowResult:
     spec = get_domain_workflow_spec(run.workflow_id)
     if spec is None:
         raise ValueError("Unknown Pro workflow")
     focus = _focus_text(run, spec.default_focus)
+    is_legal = spec.pack_id == "legal"
+    legal_profile = _legal_profile_from_run(run) if is_legal else None
 
     def fallback() -> WorkflowResult:
         insights = _first_insight_lines(sources, limit=6)
         if not insights:
             insights = ["There was not enough readable source text to produce a detailed output."]
+        if is_legal:
+            summary, bullets, next_actions, preview, metadata = _legal_fallback_payload(spec, run, sources, focus=focus, insights=insights)
+            return _result(
+                run,
+                summary=summary,
+                bullets=bullets,
+                next_actions=next_actions,
+                sources=sources,
+                preview_markdown=preview,
+                metadata=metadata,
+            )
         actions_by_capability = {
             "extract": [
                 "Validate extracted details against the source files before using them operationally.",
@@ -1189,11 +1481,13 @@ def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile])
             metadata=metadata,
         )
 
+    legal_context = _legal_context_for_prompt(legal_profile) if legal_profile else ""
     result = _llm_result(
         run,
         sources,
         task_brief=(
             f"{spec.task_brief} Focus the output on {focus}. "
+            f"{legal_context + ' ' if legal_context else ''}"
             "Use practical business language and stay grounded in the selected source excerpts."
         ),
         output_requirements=(
@@ -1218,6 +1512,8 @@ def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile])
         "title": spec.title,
         **{key: value for key, value in profile.items() if key not in {"tier", "pack_id", "pack_label", "workflow_id", "title"}},
     }
+    if is_legal:
+        metadata = _ensure_legal_metadata(metadata, run, spec)
     result.metadata = metadata
     return result
 
@@ -1504,7 +1800,7 @@ def _domain_workflow_manifest(spec) -> WorkflowManifest:
             "prompt_placeholder": spec.prompt_placeholder,
             "submit_label": spec.submit_label,
             "suggested_prompts": list(spec.suggested_prompts),
-            "fields": [],
+            "fields": list(spec.launcher_fields),
         },
         tags=list(dict.fromkeys([*spec.tags, "pro"])),
     )
