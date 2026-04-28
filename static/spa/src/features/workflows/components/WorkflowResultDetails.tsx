@@ -939,7 +939,7 @@ export function WorkflowResultDetails({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="min-w-0 space-y-5">
       <VersionHistoryPanel
         versions={versions}
         activeVersionId={activeVersionId}
@@ -1057,7 +1057,7 @@ export function WorkflowResultDetails({
             />
           </>
         ) : (
-          <article className="px-5 py-6 md:px-8 md:py-8">
+          <article className="min-w-0 px-5 py-6 md:px-8 md:py-8">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -1067,10 +1067,10 @@ export function WorkflowResultDetails({
                 h4: ({ children }) => <h4 className="mb-2 mt-5 text-[15px] font-semibold leading-6 text-foreground">{children}</h4>,
                 h5: ({ children }) => <h5 className="mb-2 mt-4 text-sm font-semibold leading-6 text-foreground">{children}</h5>,
                 h6: ({ children }) => <h6 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</h6>,
-                p: ({ children }) => <p className="my-3 text-[15px] leading-7 text-foreground/90">{children}</p>,
+                p: ({ children }) => <p className="my-3 break-words text-[15px] leading-7 text-foreground/90">{children}</p>,
                 ul: ({ children }) => <ul className="my-3 ml-5 list-disc space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ul>,
                 ol: ({ children }) => <ol className="my-3 ml-5 list-decimal space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ol>,
-                li: ({ children }) => <li className="pl-1">{children}</li>,
+                li: ({ children }) => <li className="break-words pl-1">{children}</li>,
                 blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4 text-[15px] leading-7 text-muted-foreground">{children}</blockquote>,
                 strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
                 table: ({ children }) => <div className="my-5 overflow-x-auto rounded-2xl border border-border/70"><table className="w-full min-w-[560px] border-collapse text-sm">{children}</table></div>,

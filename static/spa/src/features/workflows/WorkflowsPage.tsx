@@ -585,8 +585,22 @@ function ProPackAccordion({
 type MobilePanel = "inbox" | "details" | "flows";
 type WorkflowLibraryView = "core" | "pro";
 
+const WORKFLOW_SIDE_PANE_MIN_WIDTH = 240;
+const WORKFLOW_SIDE_PANE_MAX_WIDTH = 560;
+const WORKFLOW_DETAIL_MIN_WIDTH = 420;
+const WORKFLOW_RESIZE_HANDLE_ALLOWANCE = 8;
+
+function clampWorkflowSidePaneWidth(value: number, maxAvailable: number) {
+  const maxPane = Math.min(
+    WORKFLOW_SIDE_PANE_MAX_WIDTH,
+    Math.max(WORKFLOW_SIDE_PANE_MIN_WIDTH, maxAvailable)
+  );
+  return Math.min(maxPane, Math.max(WORKFLOW_SIDE_PANE_MIN_WIDTH, value));
+}
+
 export default function WorkflowsPage() {
   const isMobile = useMediaQuery("(max-width: 767px)");
+  const isCompactDesktop = useMediaQuery("(min-width: 768px) and (max-width: 1279px)");
   const isResizableDesktop = useMediaQuery("(min-width: 1280px)");
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedRunId = searchParams.get("run")?.trim() || null;
@@ -1273,6 +1287,33 @@ export default function WorkflowsPage() {
   }, [isResizableDesktop]);
 
   useEffect(() => {
+    if (!isResizableDesktop) return;
+
+    const panels = workflowPanelsRef.current;
+    if (!panels || typeof ResizeObserver === "undefined") return;
+
+    const clampCurrentWidths = () => {
+      const rect = panels.getBoundingClientRect();
+      const availableForSidePanes = rect.width - WORKFLOW_DETAIL_MIN_WIDTH - WORKFLOW_RESIZE_HANDLE_ALLOWANCE;
+      const sidePaneBudget = Math.max(WORKFLOW_SIDE_PANE_MIN_WIDTH * 2, availableForSidePanes);
+
+      setRunsPaneWidth((currentRunsWidth) => {
+        const maxAvailable = sidePaneBudget - flowsPaneWidth;
+        return clampWorkflowSidePaneWidth(currentRunsWidth, maxAvailable);
+      });
+      setFlowsPaneWidth((currentFlowsWidth) => {
+        const maxAvailable = sidePaneBudget - runsPaneWidth;
+        return clampWorkflowSidePaneWidth(currentFlowsWidth, maxAvailable);
+      });
+    };
+
+    clampCurrentWidths();
+    const observer = new ResizeObserver(clampCurrentWidths);
+    observer.observe(panels);
+    return () => observer.disconnect();
+  }, [flowsPaneWidth, isResizableDesktop, runsPaneWidth]);
+
+  useEffect(() => {
     if (!isResizableDesktop || !resizingPane) return;
 
     const previousCursor = document.body.style.cursor;
@@ -1280,26 +1321,18 @@ export default function WorkflowsPage() {
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
 
-    const clampPaneWidth = (value: number, maxAvailable: number) => {
-      const minPane = 240;
-      const maxPane = Math.min(560, Math.max(minPane, maxAvailable));
-      return Math.min(maxPane, Math.max(minPane, value));
-    };
-
     const onMove = (event: MouseEvent) => {
       const rect = workflowPanelsRef.current?.getBoundingClientRect();
       if (!rect) return;
 
-      const minCenter = 420;
-      const handleAllowance = 8;
       if (resizingPane === "runs") {
-        const maxAvailable = rect.width - flowsPaneWidth - minCenter - handleAllowance;
-        setRunsPaneWidth(clampPaneWidth(event.clientX - rect.left, maxAvailable));
+        const maxAvailable = rect.width - flowsPaneWidth - WORKFLOW_DETAIL_MIN_WIDTH - WORKFLOW_RESIZE_HANDLE_ALLOWANCE;
+        setRunsPaneWidth(clampWorkflowSidePaneWidth(event.clientX - rect.left, maxAvailable));
         return;
       }
 
-      const maxAvailable = rect.width - runsPaneWidth - minCenter - handleAllowance;
-      setFlowsPaneWidth(clampPaneWidth(rect.right - event.clientX, maxAvailable));
+      const maxAvailable = rect.width - runsPaneWidth - WORKFLOW_DETAIL_MIN_WIDTH - WORKFLOW_RESIZE_HANDLE_ALLOWANCE;
+      setFlowsPaneWidth(clampWorkflowSidePaneWidth(rect.right - event.clientX, maxAvailable));
     };
 
     const onUp = () => setResizingPane(null);
@@ -1528,11 +1561,21 @@ export default function WorkflowsPage() {
           ref={workflowPanelsRef}
           className={cn(
             "border border-border/70 bg-background shadow-sm",
-            isMobile ? "border-t-0" : "flex h-full min-h-0 flex-col xl:flex-row"
+            isMobile
+              ? "border-t-0"
+              : isCompactDesktop
+                ? "grid h-full min-h-0 grid-cols-[minmax(260px,32vw)_minmax(0,1fr)] grid-rows-[minmax(180px,42%)_minmax(180px,58%)] overflow-hidden"
+                : "flex h-full min-h-0 flex-row overflow-hidden"
           )}
         >
         <section
-          className={cn("flex min-h-[220px] min-w-0 flex-col overflow-hidden border-b border-border/70 xl:min-h-0 xl:border-b-0", !showInbox && "hidden")}
+          className={cn(
+            "flex min-h-[220px] min-w-0 flex-col overflow-hidden border-border/70",
+            isMobile && "border-b",
+            isCompactDesktop && "min-h-0 border-r border-b [grid-column:1] [grid-row:1]",
+            !isMobile && !isCompactDesktop && "min-h-0",
+            !showInbox && "hidden"
+          )}
           style={isResizableDesktop ? { flex: `0 0 ${runsPaneWidth}px`, width: runsPaneWidth } : undefined}
         >
           <div className="shrink-0 border-b border-border/70 px-3 py-3">
@@ -1591,15 +1634,21 @@ export default function WorkflowsPage() {
         />
 
         <section
-          className={cn("flex min-h-[320px] min-w-0 flex-col border-b border-border/70 xl:min-h-0 xl:border-b-0", !showDetails && "hidden")}
+          className={cn(
+            "flex min-h-[320px] min-w-0 flex-col border-border/70",
+            isMobile && "border-b",
+            isCompactDesktop && "min-h-0 [grid-column:2] [grid-row:1_/_span_2]",
+            !isMobile && !isCompactDesktop && "min-h-0",
+            !showDetails && "hidden"
+          )}
           style={isResizableDesktop ? { flex: "1 1 0", minWidth: 0 } : undefined}
         >
 
           {selectedRun ? (
             <div className={cn("min-h-0 flex-1 bg-muted/15", !isMobile && "overflow-hidden")}>
               <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
-                <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-3 py-4 sm:px-4 md:px-8 lg:px-10 xl:px-12">
-                  <div className="rounded-2xl border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-7">
+                <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 px-3 py-4 sm:px-4 md:px-6 lg:px-8 xl:px-12">
+                  <div className="min-w-0 rounded-2xl border border-border/70 bg-background px-4 py-5 shadow-sm sm:px-5 md:px-6 md:py-7 xl:px-8">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-3">
@@ -1629,8 +1678,8 @@ export default function WorkflowsPage() {
                                 </button>
                               </div>
                             ) : null}
-                            <div className="flex max-w-3xl items-start gap-2">
-                              <div className="min-w-0 flex-1 text-lg font-semibold leading-7 text-foreground md:text-[1.35rem]">{selectedRun.title}</div>
+                            <div className="flex max-w-3xl min-w-0 items-start gap-2">
+                              <div className="min-w-0 flex-1 break-words text-lg font-semibold leading-7 text-foreground md:text-[1.35rem]">{selectedRun.title}</div>
                               <button
                                 type="button"
                                 className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground transition-colors hover:text-foreground"
@@ -1641,7 +1690,7 @@ export default function WorkflowsPage() {
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
                             </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground [&>span]:min-w-0 [&>span]:break-words">
                               <WorkflowStatusBadge status={selectedRunDisplayStatus || selectedRun.status} className="px-1.5 py-0 text-[10px]" />
                               {selectedRun.artifact ? (
                                 <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">
@@ -1679,7 +1728,7 @@ export default function WorkflowsPage() {
 
                   </div>
 
-                  <div className="rounded-2xl border border-border/70 bg-background px-5 py-5 shadow-sm md:px-8 md:py-7">
+                  <div className="min-w-0 rounded-2xl border border-border/70 bg-background px-4 py-5 shadow-sm sm:px-5 md:px-6 md:py-7 xl:px-8">
                     {selectedRun.result ? (
                       <WorkflowResultDetails
                         result={selectedRun.result}
@@ -1748,7 +1797,12 @@ export default function WorkflowsPage() {
         />
 
         <section
-          className={cn("flex min-h-[220px] min-w-0 flex-col xl:min-h-0", !showFlows && "hidden")}
+          className={cn(
+            "flex min-h-[220px] min-w-0 flex-col",
+            isCompactDesktop && "min-h-0 border-r border-border/70 [grid-column:1] [grid-row:2]",
+            !isMobile && !isCompactDesktop && "min-h-0",
+            !showFlows && "hidden"
+          )}
           style={isResizableDesktop ? { flex: `0 0 ${flowsPaneWidth}px`, width: flowsPaneWidth } : undefined}
         >
           <div className="min-h-0 flex-1 overflow-hidden">

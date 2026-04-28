@@ -736,7 +736,7 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
         onMouseUp={saveSelection}
         onBlur={emitChange}
         className={cn(
-          "min-h-[520px] px-5 py-6 text-[15px] leading-7 outline-none md:px-8 md:py-8",
+          "min-h-[520px] overflow-x-auto px-5 py-6 text-[15px] leading-7 outline-none md:px-8 md:py-8",
           "[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground",
           "[&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[0.9em]",
           "[&_h1]:mb-5 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:leading-tight [&_h1]:tracking-[-0.02em]",
