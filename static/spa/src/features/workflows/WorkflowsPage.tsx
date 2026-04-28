@@ -54,7 +54,7 @@ import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails, type WorkflowOutputEditState } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
 import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel, type WorkflowVisualStatus } from "./components/WorkflowStatusIcon";
-import { buildProPackInputs, PRO_PACK_GROUPS, type ProPackGroup, type ProPackItem } from "./proPacks";
+import { buildProPackInputs, getVisibleProPackGroups, PRO_PACK_LIBRARY_VIEW, type ProPackGroup, type ProPackItem } from "./proPacks";
 import type {
   WorkflowAiPartialEditRequest,
   WorkflowAiPartialEditResponse,
@@ -82,7 +82,7 @@ function isLegalWorkflow(workflow: WorkflowManifest | null | undefined) {
   return !!workflow && (workflow.pack_id === "legal" || workflow.workflow_id.startsWith("legal_"));
 }
 
-function availableProPackCount(catalog: WorkflowManifest[], groups = PRO_PACK_GROUPS) {
+function availableProPackCount(catalog: WorkflowManifest[], groups: ProPackGroup[]) {
   const workflowIds = new Set(catalog.map((workflow) => workflow.workflow_id));
   return groups.reduce(
     (total, group) => total + group.packs.filter((pack) => workflowIds.has(pack.workflow_id)).length,
@@ -509,50 +509,61 @@ function WorkflowCatalogItem({
 
 function ProPackAccordion({
   catalog,
+  groups,
   activePackId,
   disabled = false,
   onLaunch,
 }: {
   catalog: WorkflowManifest[];
+  groups: ProPackGroup[];
   activePackId: string | null;
   disabled?: boolean;
   onLaunch: (group: ProPackGroup, pack: ProPackItem, workflow: WorkflowManifest) => void;
 }) {
   const workflowById = useMemo(() => new Map(catalog.map((workflow) => [workflow.workflow_id, workflow])), [catalog]);
 
+  const renderPackButton = (group: ProPackGroup, pack: ProPackItem) => {
+    const workflow = workflowById.get(pack.workflow_id);
+    const isActive = activePackId === pack.id;
+
+    return (
+      <button
+        key={pack.id}
+        type="button"
+        disabled={disabled || !workflow}
+        onClick={() => workflow && onLaunch(group, pack, workflow)}
+        className={cn(
+          "flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
+          isActive ? "bg-primary/10" : ""
+        )}
+      >
+        <span className="min-w-0">
+          <span className={cn("block truncate text-sm font-medium", isActive ? "text-primary" : "text-foreground")}>{pack.title}</span>
+          <span className="mt-1 block text-xs leading-5 text-muted-foreground">{pack.description}</span>
+        </span>
+        <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+      </button>
+    );
+  };
+
+  if (!PRO_PACK_LIBRARY_VIEW.showGroupLabels && groups.length === 1) {
+    const [group] = groups;
+    return (
+      <div className="border-t border-border/70 px-3 py-3">
+        <div className="space-y-1.5">{group.packs.map((pack) => renderPackButton(group, pack))}</div>
+      </div>
+    );
+  }
+
   return (
-    <Accordion type="multiple" defaultValue={["legal"]} className="divide-y divide-border/70 border-t border-border/70">
-      {PRO_PACK_GROUPS.map((group) => (
+    <Accordion type="multiple" defaultValue={groups.map((group) => group.id)} className="divide-y divide-border/70 border-t border-border/70">
+      {groups.map((group) => (
         <AccordionItem key={group.id} value={group.id} className="border-0">
           <AccordionTrigger className="px-3 py-3 text-sm font-medium text-foreground hover:no-underline">
             {group.title}
           </AccordionTrigger>
           <AccordionContent className="px-3 pb-3">
-            <div className="space-y-1.5">
-              {group.packs.map((pack) => {
-                const workflow = workflowById.get(pack.workflow_id);
-                const isActive = activePackId === pack.id;
-
-                return (
-                  <button
-                    key={pack.id}
-                    type="button"
-                    disabled={disabled || !workflow}
-                    onClick={() => workflow && onLaunch(group, pack, workflow)}
-                    className={cn(
-                      "flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
-                      isActive ? "bg-primary/10" : ""
-                    )}
-                  >
-                    <span className="min-w-0">
-                      <span className={cn("block truncate text-sm font-medium", isActive ? "text-primary" : "text-foreground")}>{pack.title}</span>
-                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">{pack.description}</span>
-                    </span>
-                    <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                  </button>
-                );
-              })}
-            </div>
+            <div className="space-y-1.5">{group.packs.map((pack) => renderPackButton(group, pack))}</div>
           </AccordionContent>
         </AccordionItem>
       ))}
@@ -1363,7 +1374,8 @@ export default function WorkflowsPage() {
   }, [runs, search]);
 
   const coreCatalog = useMemo(() => catalog.filter(isCoreWorkflow), [catalog]);
-  const proPackCount = useMemo(() => availableProPackCount(catalog), [catalog]);
+  const visibleProPackGroups = useMemo(() => getVisibleProPackGroups(), []);
+  const proPackCount = useMemo(() => availableProPackCount(catalog, visibleProPackGroups), [catalog, visibleProPackGroups]);
   const launcherIsLegal = isLegalWorkflow(activeWorkflow);
 
   useEffect(() => {
@@ -1828,6 +1840,7 @@ export default function WorkflowsPage() {
                   ) : (
                     <ProPackAccordion
                       catalog={catalog}
+                      groups={visibleProPackGroups}
                       activePackId={activeProPackId}
                       disabled={workflowSubmitting}
                       onLaunch={handleProPackLaunch}

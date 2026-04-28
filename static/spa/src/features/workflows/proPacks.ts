@@ -246,6 +246,16 @@ export const PRO_PACK_GROUPS: ProPackGroup[] = [
   },
 ];
 
+export const PRO_PACK_LIBRARY_VIEW = {
+  visibleGroupIds: ["legal"],
+  showGroupLabels: false,
+} as const;
+
+export function getVisibleProPackGroups(groups: ProPackGroup[] = PRO_PACK_GROUPS): ProPackGroup[] {
+  const visibleGroupIds = new Set<string>(PRO_PACK_LIBRARY_VIEW.visibleGroupIds);
+  return groups.filter((group) => visibleGroupIds.has(group.id));
+}
+
 export function buildProPackInputs(group: ProPackGroup, pack: ProPackItem): Record<string, unknown> {
   return {
     pro_pack: {
