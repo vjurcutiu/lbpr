@@ -562,12 +562,15 @@ function ProPackAccordion({
                     disabled={disabled || !workflow}
                     onClick={() => workflow && onLaunch(group, pack, workflow)}
                     className={cn(
-                      "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
-                      isActive ? "bg-primary/10 text-primary" : "text-foreground"
+                      "flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
+                      isActive ? "bg-primary/10" : ""
                     )}
                   >
-                    <span className="min-w-0 truncate">{pack.title}</span>
-                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0">
+                      <span className={cn("block truncate text-sm font-medium", isActive ? "text-primary" : "text-foreground")}>{pack.title}</span>
+                      <span className="mt-1 block text-xs leading-5 text-muted-foreground">{pack.description}</span>
+                    </span>
+                    <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                   </button>
                 );
               })}
