@@ -14,6 +14,7 @@ from features.rag.chunker import simple_word_chunker
 from features.rag.orchestrator import query_request
 from features.rag.schemas import QueryRequest
 
+from .domain_packs import get_domain_workflow_spec
 from .models import WorkflowSourceFile
 
 log = logging.getLogger("workflows.toolkit")
@@ -282,6 +283,9 @@ def _default_query(workflow_id: str, focus: str) -> str:
     clean_focus = str(focus or "").strip()
     if clean_focus:
         return clean_focus
+    spec = get_domain_workflow_spec(workflow_id)
+    if spec is not None:
+        return spec.default_focus
     return _DEFAULT_QUERIES.get(workflow_id, "key facts decisions risks next steps")
 
 
@@ -426,7 +430,7 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
 
     retrieved_sources: list[WorkflowSourceFile] = []
     if coverage_sources:
-        should_retrieve = not _looks_broad_focus(focus) or workflow_id in {"create_action_plan", "extract_information", "compare_documents"}
+        should_retrieve = get_domain_workflow_spec(workflow_id) is not None or not _looks_broad_focus(focus) or workflow_id in {"create_action_plan", "extract_information", "compare_documents"}
         if should_retrieve:
             retrieved_sources = _retrieve_focus_chunks(uid, files, workflow_id=workflow_id, focus=focus)
 

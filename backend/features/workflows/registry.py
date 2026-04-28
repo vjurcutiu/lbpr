@@ -7,6 +7,7 @@ import textwrap
 from collections import Counter
 from typing import Any, Callable
 
+from .domain_packs import DOMAIN_WORKFLOW_SPECS, get_domain_workflow_spec
 from .models import WorkflowManifest, WorkflowResult, WorkflowRun, WorkflowSourceFile
 
 try:
@@ -292,6 +293,9 @@ def _top_terms(text: str, *, limit: int = 5) -> list[str]:
 
 
 def _workflow_title_prefix(run: WorkflowRun) -> str:
+    domain_spec = get_domain_workflow_spec(run.workflow_id)
+    if domain_spec is not None:
+        return domain_spec.title
     labels = {
         "summarize": "Summary",
         "compare": "Compare",
@@ -1093,6 +1097,131 @@ def plan_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> Workflo
     )
 
 
+def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> WorkflowResult:
+    spec = get_domain_workflow_spec(run.workflow_id)
+    if spec is None:
+        raise ValueError("Unknown Pro workflow")
+    focus = _focus_text(run, spec.default_focus)
+
+    def fallback() -> WorkflowResult:
+        insights = _first_insight_lines(sources, limit=6)
+        if not insights:
+            insights = ["There was not enough readable source text to produce a detailed output."]
+        actions_by_capability = {
+            "extract": [
+                "Validate extracted details against the source files before using them operationally.",
+                "Run a follow-up review if any field is low confidence or unsupported.",
+            ],
+            "draft": [
+                "Review the draft for tone, audience, and source-sensitive details before sharing.",
+                "Use Edit with AI to refine any section that needs a narrower audience or stronger wording.",
+            ],
+            "plan": [
+                "Confirm owners and timelines before treating the plan as final.",
+                "Assign follow-up work for any item that still depends on missing source context.",
+            ],
+            "report": [
+                "Review the flagged issues and confirm any high-impact recommendation before sharing.",
+                "Run a targeted follow-up if you need a narrower brief for a specific stakeholder.",
+            ],
+        }
+        next_actions = actions_by_capability.get(
+            spec.capability,
+            [
+                "Review the output against the source files before sharing.",
+                "Refine the workflow if you need a narrower audience, format, or action list.",
+            ],
+        )
+        summary = f"Prepared {spec.title.lower()} output focused on {focus}."
+        preview = textwrap.dedent(
+            f"""
+            # {run.title}
+
+            {summary}
+
+            ## Focus
+            {focus}
+
+            ## Findings
+            {chr(10).join(f"- {item}" for item in insights[:5])}
+
+            ## Recommended next steps
+            {chr(10).join(f"- {item}" for item in next_actions)}
+            """
+        ).strip()
+        metadata: dict[str, Any] = {
+            "tier": "pro",
+            "pack_id": spec.pack_id,
+            "pack_label": spec.pack_label,
+            "focus": focus,
+            "workflow_profile": {
+                "tier": "pro",
+                "pack_id": spec.pack_id,
+                "pack_label": spec.pack_label,
+                "workflow_id": spec.workflow_id,
+                "title": spec.title,
+            },
+        }
+        if spec.capability == "extract":
+            metadata["fields"] = [
+                {"field": "Extracted detail", "value": item, "confidence": "low"}
+                for item in insights[:5]
+            ]
+        elif spec.capability == "plan":
+            metadata["plan_items"] = [
+                {"action": action, "priority": "medium", "owner": "TBD", "timeline": "TBD"}
+                for action in next_actions
+            ]
+        elif spec.capability == "report":
+            metadata["risk_items"] = [
+                {"issue": item, "severity": "review", "source_basis": item, "recommendation": "Review and confirm."}
+                for item in insights[:3]
+            ]
+        elif spec.capability == "draft":
+            metadata["draft_type"] = spec.title
+        return _result(
+            run,
+            summary=summary,
+            bullets=insights[:5],
+            next_actions=next_actions,
+            sources=sources,
+            preview_markdown=preview,
+            metadata=metadata,
+        )
+
+    result = _llm_result(
+        run,
+        sources,
+        task_brief=(
+            f"{spec.task_brief} Focus the output on {focus}. "
+            "Use practical business language and stay grounded in the selected source excerpts."
+        ),
+        output_requirements=(
+            f"{spec.output_requirements} Keep the output usable as a finished workflow artifact. "
+            "Avoid legal, HR, accounting, compliance, or procurement disclaimers unless the user explicitly asks for them. "
+            "Do not include a Sources used section; the application adds it separately. "
+            "Include metadata.workflow_profile with tier, pack_id, pack_label, workflow_id, and title."
+        ),
+        fallback_factory=fallback,
+    )
+    metadata = dict(result.metadata or {})
+    metadata["tier"] = "pro"
+    metadata["pack_id"] = spec.pack_id
+    metadata["pack_label"] = spec.pack_label
+    metadata["focus"] = str(metadata.get("focus") or focus).strip() or focus
+    profile = metadata.get("workflow_profile") if isinstance(metadata.get("workflow_profile"), dict) else {}
+    metadata["workflow_profile"] = {
+        "tier": "pro",
+        "pack_id": spec.pack_id,
+        "pack_label": spec.pack_label,
+        "workflow_id": spec.workflow_id,
+        "title": spec.title,
+        **{key: value for key, value in profile.items() if key not in {"tier", "pack_id", "pack_label", "workflow_id", "title"}},
+    }
+    result.metadata = metadata
+    return result
+
+
 
 def _context_excerpt(value: str, *, tail: bool = False, limit: int = 5000) -> str:
     text = str(value or "")
@@ -1262,12 +1391,14 @@ def refine_workflow_result(
     )
 
 
-WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
+CORE_WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
     WorkflowManifest(
         workflow_id="summarize_documents",
         title="Summarize",
         description="Create a clear brief from selected files or folders, with key takeaways, risks, and follow-up questions.",
         capability="summarize",
+        tier="core",
+        workflow_order=10,
         launcher={
             "prompt_label": "Summary focus",
             "prompt_placeholder": "Key risks, important decisions, open questions, next steps…",
@@ -1275,13 +1406,15 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
             "suggested_prompts": ["Key takeaways", "Risks and open questions", "Decisions and next steps"],
             "fields": [],
         },
-        tags=["briefing", "multi-file", "cited"],
+        tags=["briefing", "multi-file", "cited", "core"],
     ),
     WorkflowManifest(
         workflow_id="compare_documents",
         title="Compare",
         description="Surface the most important differences between two files, including missing content and likely impact.",
         capability="compare",
+        tier="core",
+        workflow_order=20,
         selection={"min_total_items": 2, "max_total_items": 2, "exact_file_count": 2, "allow_folders": False},
         launcher={
             "prompt_label": "Comparison focus",
@@ -1289,60 +1422,102 @@ WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
             "submit_label": "Compare files",
             "suggested_prompts": ["Changes only", "Important differences", "Missing content"],
         },
-        tags=["review", "side-by-side"],
+        tags=["review", "side-by-side", "core"],
     ),
     WorkflowManifest(
         workflow_id="extract_information",
         title="Extract Info",
         description="Pull structured details from the selected material so they can be reused faster.",
         capability="extract",
+        tier="core",
+        workflow_order=30,
         launcher={
             "prompt_label": "Fields to extract",
             "prompt_placeholder": "Dates, names, totals, obligations, deadlines…",
             "submit_label": "Extract",
             "suggested_prompts": ["Key dates and deadlines", "Contacts and companies", "Totals and obligations"],
         },
-        tags=["structured output", "fields"],
+        tags=["structured output", "fields", "core"],
     ),
     WorkflowManifest(
         workflow_id="draft_from_sources",
         title="Draft",
         description="Generate a first-pass email, memo, SOP, or write-up grounded in the selected files.",
         capability="draft",
+        tier="core",
+        workflow_order=40,
         launcher={
             "prompt_label": "What are you drafting?",
             "prompt_placeholder": "Email, memo, SOP, proposal intro…",
             "submit_label": "Create draft",
             "suggested_prompts": ["Internal memo", "Customer email", "SOP draft"],
         },
-        tags=["first draft", "source-grounded"],
+        tags=["first draft", "source-grounded", "core"],
     ),
     WorkflowManifest(
         workflow_id="generate_report",
         title="Generate Report",
         description="Turn selected material into a shareable report or stakeholder-ready brief.",
         capability="report",
+        tier="core",
+        workflow_order=50,
         launcher={
             "prompt_label": "Report audience",
             "prompt_placeholder": "Leadership update, internal brief, customer summary…",
             "submit_label": "Generate report",
             "suggested_prompts": ["Leadership brief", "Internal status report", "Customer-ready summary"],
         },
-        tags=["shareable", "stakeholder-ready"],
+        tags=["shareable", "stakeholder-ready", "core"],
     ),
     WorkflowManifest(
         workflow_id="create_action_plan",
         title="Action Plan",
         description="Convert the selected material into prioritized next steps, owners, and timelines.",
         capability="plan",
+        tier="core",
+        workflow_order=60,
         launcher={
             "prompt_label": "Planning goal",
             "prompt_placeholder": "What outcome should the action plan optimize for?",
             "submit_label": "Build plan",
             "suggested_prompts": ["Immediate next steps", "Owner-ready checklist", "Priority roadmap"],
         },
-        tags=["priorities", "next steps"],
+        tags=["priorities", "next steps", "core"],
     ),
+]
+
+
+def _domain_workflow_manifest(spec) -> WorkflowManifest:
+    return WorkflowManifest(
+        workflow_id=spec.workflow_id,
+        title=spec.title,
+        description=spec.description,
+        capability=spec.capability,
+        tier="pro",
+        pack_id=spec.pack_id,
+        pack_label=spec.pack_label,
+        pack_order=spec.pack_order,
+        workflow_order=spec.workflow_order,
+        selection=spec.selection or {},
+        launcher={
+            "prompt_label": spec.prompt_label,
+            "prompt_placeholder": spec.prompt_placeholder,
+            "submit_label": spec.submit_label,
+            "suggested_prompts": list(spec.suggested_prompts),
+            "fields": [],
+        },
+        tags=list(dict.fromkeys([*spec.tags, "pro"])),
+    )
+
+
+DOMAIN_WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
+    _domain_workflow_manifest(spec) for spec in DOMAIN_WORKFLOW_SPECS
+]
+
+
+WORKFLOW_MANIFESTS: list[WorkflowManifest] = [
+    *CORE_WORKFLOW_MANIFESTS,
+    *DOMAIN_WORKFLOW_MANIFESTS,
 ]
 
 
@@ -1353,6 +1528,7 @@ WORKFLOW_HANDLERS: dict[str, WorkflowHandler] = {
     "draft_from_sources": draft_handler,
     "generate_report": report_handler,
     "create_action_plan": plan_handler,
+    **{spec.workflow_id: domain_workflow_handler for spec in DOMAIN_WORKFLOW_SPECS},
 }
 
 

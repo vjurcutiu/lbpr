@@ -268,6 +268,51 @@ def test_workflow_catalog_and_run_lifecycle(auth_client, fake_business_metrics, 
 
 
 
+def test_pro_workflow_catalog_and_fallback_run(auth_client, fake_business_metrics, inline_workflow_jobs, stub_workflow_sources):
+    catalog = auth_client.get('/v1/workflows')
+    assert catalog.status_code == 200, catalog.text
+    legal = next(item for item in catalog.json() if item['workflow_id'] == 'legal_contract_review')
+    assert legal['tier'] == 'pro'
+    assert legal['pack_id'] == 'legal'
+    assert legal['pack_label'] == 'Legal'
+    assert legal['title'] == 'Contract Review'
+    assert legal['launcher']['submit_label'] == 'Review contract'
+
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'legal_contract_review',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': 'contracts'},
+            'inputs': {'focus': 'approval risks and missing protections'},
+        },
+    )
+    assert create.status_code == 202, create.text
+    run = create.json()
+    assert run['workflow_id'] == 'legal_contract_review'
+    assert run['title'].startswith('Contract Review:')
+    assert run['capability'] == 'report'
+    assert run['result']['metadata']['tier'] == 'pro'
+    assert run['result']['metadata']['pack_id'] == 'legal'
+    assert run['result']['metadata']['workflow_profile']['workflow_id'] == 'legal_contract_review'
+    assert 'approval risks and missing protections' in run['result']['metadata']['focus']
+    assert run['result']['preview_markdown']
+    assert run['artifact']['file_name'].endswith('.md')
+
+    assert_call(
+        fake_business_metrics.workflow_started_total.calls,
+        amount=1,
+        workflow_id='legal_contract_review',
+        capability='report',
+    )
+    assert_call(
+        fake_business_metrics.workflow_completed_total.calls,
+        amount=1,
+        workflow_id='legal_contract_review',
+        capability='report',
+    )
+
+
+
 def test_workflow_runs_persist_in_firestore(auth_client, inline_workflow_jobs, stub_workflow_sources, fake_workflow_firestore):
     create = auth_client.post(
         '/v1/workflows/runs',

@@ -107,6 +107,8 @@ def _slugify_filename(value: str, fallback: str = "workflow-output") -> str:
 
 
 def _workflow_type_label(manifest: WorkflowManifest | None = None, *, capability: str | None = None) -> str:
+    if manifest is not None and getattr(manifest, "tier", "core") == "pro":
+        return manifest.title or "Workflow"
     cap = capability or (manifest.capability if manifest else "")
     labels = {
         "summarize": "Summary",

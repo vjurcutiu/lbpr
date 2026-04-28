@@ -59,6 +59,11 @@ class WorkflowManifest(BaseModel):
     title: str
     description: str
     capability: WorkflowCapability
+    tier: Literal["core", "pro"] = "core"
+    pack_id: str | None = None
+    pack_label: str | None = None
+    pack_order: int = 0
+    workflow_order: int = 0
     selection: WorkflowSelectionRequirements = Field(default_factory=WorkflowSelectionRequirements)
     launcher: WorkflowLauncherSchema = Field(default_factory=WorkflowLauncherSchema)
     tags: list[str] = Field(default_factory=list)
