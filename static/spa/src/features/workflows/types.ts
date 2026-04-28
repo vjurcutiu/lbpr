@@ -6,6 +6,8 @@ export type WorkflowCapability =
   | "report"
   | "plan";
 
+export type WorkflowTier = "core" | "pro";
+
 export type WorkflowStatus = "queued" | "running" | "completed" | "failed";
 
 export type WorkflowArtifactFormat = "markdown" | "txt" | "docx" | "pdf";
@@ -65,6 +67,11 @@ export type WorkflowManifest = {
   title: string;
   description: string;
   capability: WorkflowCapability;
+  tier?: WorkflowTier;
+  pack_id?: string | null;
+  pack_label?: string | null;
+  pack_order?: number;
+  workflow_order?: number;
   selection: WorkflowSelectionRequirements;
   launcher: WorkflowLauncherSchema;
   tags: string[];

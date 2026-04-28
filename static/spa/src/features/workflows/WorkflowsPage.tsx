@@ -49,11 +49,12 @@ import {
   selectWorkflowRunVersion,
   updateWorkflowRunVersionLayout,
 } from "./api";
+import { LegalWorkflowLauncher } from "./components/LegalWorkflowLauncher";
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails, type WorkflowOutputEditState } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
 import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel, type WorkflowVisualStatus } from "./components/WorkflowStatusIcon";
-import { buildProPackInputs, getProPackCount, PRO_PACK_GROUPS, type ProPackGroup, type ProPackItem } from "./proPacks";
+import { buildProPackInputs, PRO_PACK_GROUPS, type ProPackGroup, type ProPackItem } from "./proPacks";
 import type {
   WorkflowAiPartialEditRequest,
   WorkflowAiPartialEditResponse,
@@ -71,6 +72,23 @@ import type {
 } from "./types";
 import { summarizeWorkflowSelection } from "./utils/selection";
 import { workflowDocumentMarkdown } from "./utils/workflowMarkdown";
+
+
+function isCoreWorkflow(workflow: WorkflowManifest) {
+  return (workflow.tier || "core") === "core";
+}
+
+function isLegalWorkflow(workflow: WorkflowManifest | null | undefined) {
+  return !!workflow && (workflow.pack_id === "legal" || workflow.workflow_id.startsWith("legal_"));
+}
+
+function availableProPackCount(catalog: WorkflowManifest[], groups = PRO_PACK_GROUPS) {
+  const workflowIds = new Set(catalog.map((workflow) => workflow.workflow_id));
+  return groups.reduce(
+    (total, group) => total + group.packs.filter((pack) => workflowIds.has(pack.workflow_id)).length,
+    0
+  );
+}
 
 function compactCopy(text: string, max = 320) {
   const normalized = String(text || "").replace(/\s+/g, " ").trim();
@@ -1344,6 +1362,10 @@ export default function WorkflowsPage() {
     return runs.filter((run) => matchesSearch(run, search));
   }, [runs, search]);
 
+  const coreCatalog = useMemo(() => catalog.filter(isCoreWorkflow), [catalog]);
+  const proPackCount = useMemo(() => availableProPackCount(catalog), [catalog]);
+  const launcherIsLegal = isLegalWorkflow(activeWorkflow);
+
   useEffect(() => {
     if (!linkedRunId || runs.some((run) => run.id === linkedRunId)) return;
     if (linkedRunFetchesRef.current.has(linkedRunId)) return;
@@ -1520,7 +1542,7 @@ export default function WorkflowsPage() {
               <TabsList className="grid h-auto w-full grid-cols-3 rounded-full bg-muted/40 p-1">
                 <TabsTrigger value="inbox" className="h-8 rounded-full px-2 text-xs">Runs {runs.length}</TabsTrigger>
                 <TabsTrigger value="details" className="h-8 rounded-full px-2 text-xs">Details</TabsTrigger>
-                <TabsTrigger value="flows" className="h-8 rounded-full px-2 text-xs">Workflows {catalog.length + getProPackCount()}</TabsTrigger>
+                <TabsTrigger value="flows" className="h-8 rounded-full px-2 text-xs">Workflows {coreCatalog.length + proPackCount}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -1792,7 +1814,7 @@ export default function WorkflowsPage() {
                   {workflowLibraryView === "core" ? (
                     <div className="border-t border-border/70 px-3 py-3">
                       <div className="space-y-1.5">
-                        {catalog.map((workflow) => (
+                        {coreCatalog.map((workflow) => (
                           <WorkflowCatalogItem
                             key={workflow.workflow_id}
                             workflow={workflow}
@@ -1936,27 +1958,51 @@ export default function WorkflowsPage() {
         </DialogContent>
       </Dialog>
 
-      <WorkflowLauncher
-        open={workflowLauncherOpen}
-        workflow={activeWorkflow}
-        selection={launcherSelection}
-        selectionMode="picker"
-        availableFiles={launcherFiles}
-        filesLoading={launcherFilesLoading}
-        submitting={workflowSubmitting}
-        initialInputs={launcherInitialInputs}
-        chainSource={launcherChainSource}
-        onOpenChange={(open) => {
-          setWorkflowLauncherOpen(open);
-          if (!open) {
-            setActiveWorkflow(null);
-            setLauncherSelection(emptyLauncherSelection);
-            setLauncherInitialInputs({});
-            setLauncherChainSource(null);
-          }
-        }}
-        onRun={handleRunWorkflow}
-      />
+      {launcherIsLegal ? (
+        <LegalWorkflowLauncher
+          open={workflowLauncherOpen}
+          workflow={activeWorkflow}
+          selection={launcherSelection}
+          selectionMode="picker"
+          availableFiles={launcherFiles}
+          filesLoading={launcherFilesLoading}
+          submitting={workflowSubmitting}
+          initialInputs={launcherInitialInputs}
+          chainSource={launcherChainSource}
+          onOpenChange={(open) => {
+            setWorkflowLauncherOpen(open);
+            if (!open) {
+              setActiveWorkflow(null);
+              setLauncherSelection(emptyLauncherSelection);
+              setLauncherInitialInputs({});
+              setLauncherChainSource(null);
+            }
+          }}
+          onRun={handleRunWorkflow}
+        />
+      ) : (
+        <WorkflowLauncher
+          open={workflowLauncherOpen}
+          workflow={activeWorkflow}
+          selection={launcherSelection}
+          selectionMode="picker"
+          availableFiles={launcherFiles}
+          filesLoading={launcherFilesLoading}
+          submitting={workflowSubmitting}
+          initialInputs={launcherInitialInputs}
+          chainSource={launcherChainSource}
+          onOpenChange={(open) => {
+            setWorkflowLauncherOpen(open);
+            if (!open) {
+              setActiveWorkflow(null);
+              setLauncherSelection(emptyLauncherSelection);
+              setLauncherInitialInputs({});
+              setLauncherChainSource(null);
+            }
+          }}
+          onRun={handleRunWorkflow}
+        />
+      )}
     </div>
   );
 }

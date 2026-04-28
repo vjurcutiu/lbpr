@@ -18,7 +18,8 @@ type Props = {
 };
 
 export function WorkflowActionBar({ workflows, selection, loading = false, onLaunch }: Props) {
-  if (!workflows.length) return null;
+  const coreWorkflows = workflows.filter((workflow) => (workflow.tier || "core") === "core");
+  if (!coreWorkflows.length) return null;
 
   return (
     <div className="border-b bg-gradient-to-r from-background via-background to-muted/20 px-3 py-4">
@@ -39,7 +40,7 @@ export function WorkflowActionBar({ workflows, selection, loading = false, onLau
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {workflows.map((workflow) => {
+          {coreWorkflows.map((workflow) => {
             const Icon = getWorkflowIcon(workflow.workflow_id);
             const runnable = isWorkflowSelectionValid(workflow, selection);
             return (
