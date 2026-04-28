@@ -248,7 +248,6 @@ export const PRO_PACK_GROUPS: ProPackGroup[] = [
 
 export function buildProPackInputs(group: ProPackGroup, pack: ProPackItem): Record<string, unknown> {
   return {
-    focus: pack.focus,
     pro_pack: {
       group_id: group.id,
       group_title: group.title,
