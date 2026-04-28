@@ -54,7 +54,6 @@ import { WorkflowResultDetails, type WorkflowOutputEditState } from "./component
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
 import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel, type WorkflowVisualStatus } from "./components/WorkflowStatusIcon";
 import { buildProPackInputs, getProPackCount, PRO_PACK_GROUPS, type ProPackGroup, type ProPackItem } from "./proPacks";
-import { getWorkflowIcon } from "./registry";
 import type {
   WorkflowAiPartialEditRequest,
   WorkflowAiPartialEditResponse,
@@ -230,23 +229,6 @@ function persistWorkflowOutputEditDrafts(drafts: Record<string, WorkflowOutputEd
 function isAbortError(error: unknown) {
   return (error instanceof DOMException && error.name === "AbortError")
     || (error instanceof Error && error.name === "AbortError");
-}
-
-function formatSelectionRequirements(workflow: WorkflowManifest) {
-  const parts: string[] = [];
-  const selection = workflow.selection;
-
-  if (selection.exact_file_count != null) {
-    parts.push(`Needs exactly ${selection.exact_file_count} file${selection.exact_file_count === 1 ? "" : "s"}`);
-  } else {
-    parts.push(`Needs ${selection.min_total_items}+ item${selection.min_total_items === 1 ? "" : "s"}`);
-    if (selection.max_total_items != null) {
-      parts.push(`Up to ${selection.max_total_items}`);
-    }
-  }
-
-  parts.push(selection.allow_folders ? "Files or folders" : "Files only");
-  return parts;
 }
 
 function formatCapability(capability: WorkflowCapability) {
@@ -478,52 +460,30 @@ function RunListItem({
 
 function WorkflowCatalogItem({
   workflow,
+  active = false,
   onLaunch,
   disabled = false,
 }: {
   workflow: WorkflowManifest;
+  active?: boolean;
   onLaunch: (workflow: WorkflowManifest) => void;
   disabled?: boolean;
 }) {
-  const Icon = getWorkflowIcon(workflow.workflow_id);
-
   return (
     <button
       type="button"
       onClick={() => onLaunch(workflow)}
       disabled={disabled}
-      className="w-full border-b border-border/70 px-3 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/30 disabled:cursor-not-allowed disabled:opacity-70"
+      className={cn(
+        "flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
+        active ? "bg-primary/10" : ""
+      )}
     >
-      <div className="flex items-start gap-2">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-primary/5 text-primary">
-          <Icon className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="text-sm font-medium leading-5 text-foreground">{workflow.title}</div>
-              <div className="mt-1 text-xs leading-5 text-muted-foreground">{workflow.description}</div>
-            </div>
-            <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">
-              {formatCapability(workflow.capability)}
-            </Badge>
-            {formatSelectionRequirements(workflow)
-              .slice(0, 2)
-              .map((item) => (
-                <Badge
-                  key={item}
-                  variant="secondary"
-                  className="rounded-full px-2 py-0 text-[10px] font-normal text-muted-foreground"
-                >
-                  {item}
-                </Badge>
-              ))}
-          </div>
-        </div>
-      </div>
+      <span className="min-w-0">
+        <span className={cn("block truncate text-sm font-medium", active ? "text-primary" : "text-foreground")}>{workflow.title}</span>
+        <span className="mt-1 block text-xs leading-5 text-muted-foreground">{workflow.description}</span>
+      </span>
+      <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
     </button>
   );
 }
@@ -619,6 +579,7 @@ export default function WorkflowsPage() {
   const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(null);
   const [workflowLibraryView, setWorkflowLibraryView] = useState<WorkflowLibraryView>("core");
+  const [activeCoreWorkflowId, setActiveCoreWorkflowId] = useState<string | null>(null);
   const [activeProPackId, setActiveProPackId] = useState<string | null>(null);
   const [launcherFiles, setLauncherFiles] = useState<FileItem[]>([]);
   const [launcherFilesLoading, setLauncherFilesLoading] = useState(false);
@@ -752,8 +713,18 @@ export default function WorkflowsPage() {
     [ensureLauncherFilesLoaded]
   );
 
+  const handleCoreWorkflowLaunch = useCallback(
+    (workflow: WorkflowManifest) => {
+      setActiveCoreWorkflowId(workflow.workflow_id);
+      setActiveProPackId(null);
+      openWorkflowLauncher(workflow);
+    },
+    [openWorkflowLauncher]
+  );
+
   const handleProPackLaunch = useCallback(
     (group: ProPackGroup, pack: ProPackItem, workflow: WorkflowManifest) => {
+      setActiveCoreWorkflowId(null);
       setActiveProPackId(pack.id);
       openWorkflowLauncher(workflow, {
         initialInputs: buildProPackInputs(group, pack),
@@ -1819,15 +1790,18 @@ export default function WorkflowsPage() {
                   </div>
 
                   {workflowLibraryView === "core" ? (
-                    <div>
-                      {catalog.map((workflow) => (
-                        <WorkflowCatalogItem
-                          key={workflow.workflow_id}
-                          workflow={workflow}
-                          onLaunch={openWorkflowLauncher}
-                          disabled={workflowSubmitting}
-                        />
-                      ))}
+                    <div className="border-t border-border/70 px-3 py-3">
+                      <div className="space-y-1.5">
+                        {catalog.map((workflow) => (
+                          <WorkflowCatalogItem
+                            key={workflow.workflow_id}
+                            workflow={workflow}
+                            active={activeCoreWorkflowId === workflow.workflow_id}
+                            onLaunch={handleCoreWorkflowLaunch}
+                            disabled={workflowSubmitting}
+                          />
+                        ))}
+                      </div>
                     </div>
                   ) : (
                     <ProPackAccordion
