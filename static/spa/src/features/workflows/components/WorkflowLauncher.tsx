@@ -59,6 +59,26 @@ function defaultFocus(initialInputs?: Record<string, unknown>) {
   return String(initialInputs?.focus || "").trim();
 }
 
+function passthroughInitialInputs(
+  initialInputs: Record<string, unknown> | undefined,
+  workflow: WorkflowManifest | null,
+): Record<string, unknown> {
+  const reservedKeys = new Set([
+    "focus",
+    "workflow_chain",
+    ...(workflow?.launcher.fields ?? []).map((field) => field.key),
+  ]);
+
+  return Object.fromEntries(
+    Object.entries(initialInputs || {}).filter(([key, value]) => {
+      if (reservedKeys.has(key)) return false;
+      if (value == null) return false;
+      if (typeof value === "string") return !!value.trim();
+      return true;
+    }),
+  );
+}
+
 function formatRelativeTime(iso?: string) {
   if (!iso) return "recently";
   const date = new Date(iso);
@@ -246,6 +266,7 @@ export function WorkflowLauncher({
               onRun(
                 workflow,
                 {
+                  ...passthroughInitialInputs(initialInputs, workflow),
                   ...(focus.trim() ? { focus: focus.trim() } : {}),
                   ...Object.fromEntries(Object.entries(fieldValues).filter(([, value]) => String(value || "").trim())),
                 },

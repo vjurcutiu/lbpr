@@ -3,6 +3,7 @@ import { ArrowRight, ChevronRight, CornerDownRight, GitBranch, MoreVertical, Pen
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +53,7 @@ import { WorkflowLauncher } from "./components/WorkflowLauncher";
 import { WorkflowResultDetails, type WorkflowOutputEditState } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
 import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel, type WorkflowVisualStatus } from "./components/WorkflowStatusIcon";
+import { buildProPackInputs, getProPackCount, PRO_PACK_GROUPS, type ProPackGroup, type ProPackItem } from "./proPacks";
 import { getWorkflowIcon } from "./registry";
 import type {
   WorkflowAiPartialEditRequest,
@@ -526,7 +528,59 @@ function WorkflowCatalogItem({
   );
 }
 
+
+function ProPackAccordion({
+  catalog,
+  activePackId,
+  disabled = false,
+  onLaunch,
+}: {
+  catalog: WorkflowManifest[];
+  activePackId: string | null;
+  disabled?: boolean;
+  onLaunch: (group: ProPackGroup, pack: ProPackItem, workflow: WorkflowManifest) => void;
+}) {
+  const workflowById = useMemo(() => new Map(catalog.map((workflow) => [workflow.workflow_id, workflow])), [catalog]);
+
+  return (
+    <Accordion type="multiple" defaultValue={["legal"]} className="divide-y divide-border/70 border-t border-border/70">
+      {PRO_PACK_GROUPS.map((group) => (
+        <AccordionItem key={group.id} value={group.id} className="border-0">
+          <AccordionTrigger className="px-3 py-3 text-sm font-medium text-foreground hover:no-underline">
+            {group.title}
+          </AccordionTrigger>
+          <AccordionContent className="px-3 pb-3">
+            <div className="space-y-1.5">
+              {group.packs.map((pack) => {
+                const workflow = workflowById.get(pack.workflow_id);
+                const isActive = activePackId === pack.id;
+
+                return (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    disabled={disabled || !workflow}
+                    onClick={() => workflow && onLaunch(group, pack, workflow)}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
+                      isActive ? "bg-primary/10 text-primary" : "text-foreground"
+                    )}
+                  >
+                    <span className="min-w-0 truncate">{pack.title}</span>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </button>
+                );
+              })}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
+  );
+}
+
 type MobilePanel = "inbox" | "details" | "flows";
+type WorkflowLibraryView = "core" | "pro";
 
 export default function WorkflowsPage() {
   const isMobile = useMediaQuery("(max-width: 767px)");
@@ -547,6 +601,8 @@ export default function WorkflowsPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(null);
+  const [workflowLibraryView, setWorkflowLibraryView] = useState<WorkflowLibraryView>("core");
+  const [activeProPackId, setActiveProPackId] = useState<string | null>(null);
   const [launcherFiles, setLauncherFiles] = useState<FileItem[]>([]);
   const [launcherFilesLoading, setLauncherFilesLoading] = useState(false);
   const [workflowSubmitting, setWorkflowSubmitting] = useState(false);
@@ -677,6 +733,16 @@ export default function WorkflowsPage() {
       void ensureLauncherFilesLoaded();
     },
     [ensureLauncherFilesLoaded]
+  );
+
+  const handleProPackLaunch = useCallback(
+    (group: ProPackGroup, pack: ProPackItem, workflow: WorkflowManifest) => {
+      setActiveProPackId(pack.id);
+      openWorkflowLauncher(workflow, {
+        initialInputs: buildProPackInputs(group, pack),
+      });
+    },
+    [openWorkflowLauncher]
   );
 
   const handleRunWorkflow = useCallback(
@@ -1447,7 +1513,7 @@ export default function WorkflowsPage() {
               <TabsList className="grid h-auto w-full grid-cols-3 rounded-full bg-muted/40 p-1">
                 <TabsTrigger value="inbox" className="h-8 rounded-full px-2 text-xs">Runs {runs.length}</TabsTrigger>
                 <TabsTrigger value="details" className="h-8 rounded-full px-2 text-xs">Details</TabsTrigger>
-                <TabsTrigger value="flows" className="h-8 rounded-full px-2 text-xs">Workflows {catalog.length}</TabsTrigger>
+                <TabsTrigger value="flows" className="h-8 rounded-full px-2 text-xs">Workflows {catalog.length + getProPackCount()}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -1682,18 +1748,38 @@ export default function WorkflowsPage() {
           className={cn("flex min-h-[220px] min-w-0 flex-col xl:min-h-0", !showFlows && "hidden")}
           style={isResizableDesktop ? { flex: `0 0 ${flowsPaneWidth}px`, width: flowsPaneWidth } : undefined}
         >
-          <div className="min-h-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-hidden">
             {catalog.length ? (
               <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
-                <div>
-                  {catalog.map((workflow) => (
-                    <WorkflowCatalogItem
-                      key={workflow.workflow_id}
-                      workflow={workflow}
-                      onLaunch={openWorkflowLauncher}
+                <div className="min-w-0">
+                  <div className="border-b border-border/70 px-3 py-3">
+                    <Tabs value={workflowLibraryView} onValueChange={(value) => setWorkflowLibraryView(value as WorkflowLibraryView)}>
+                      <TabsList className="grid h-auto w-full grid-cols-2 rounded-full bg-muted/40 p-1">
+                        <TabsTrigger value="core" className="h-8 rounded-full px-2 text-xs">Core</TabsTrigger>
+                        <TabsTrigger value="pro" className="h-8 rounded-full px-2 text-xs">Pro</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  </div>
+
+                  {workflowLibraryView === "core" ? (
+                    <div>
+                      {catalog.map((workflow) => (
+                        <WorkflowCatalogItem
+                          key={workflow.workflow_id}
+                          workflow={workflow}
+                          onLaunch={openWorkflowLauncher}
+                          disabled={workflowSubmitting}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <ProPackAccordion
+                      catalog={catalog}
+                      activePackId={activeProPackId}
                       disabled={workflowSubmitting}
+                      onLaunch={handleProPackLaunch}
                     />
-                  ))}
+                  )}
                 </div>
               </PaneScroller>
             ) : (
