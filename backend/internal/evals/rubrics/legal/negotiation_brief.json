@@ -1,0 +1,27 @@
+{
+  "rubric_id": "legal/negotiation_brief",
+  "workflow_id": "legal_negotiation_brief",
+  "description": "Manual quality rubric for legal negotiation brief evals.",
+  "min_source_count": 1,
+  "required_sections": ["Must", "Fallback", "Open questions"],
+  "criteria": [
+    {
+      "id": "separates_must_haves_and_fallbacks",
+      "label": "Separates must-have changes, acceptable fallbacks, and nice-to-have points",
+      "weight": 5,
+      "max_score": 5
+    },
+    {
+      "id": "deal_strategy_is_clear",
+      "label": "Gives a clear negotiation posture and deal strategy",
+      "weight": 4,
+      "max_score": 5
+    },
+    {
+      "id": "comments_are_usable",
+      "label": "Suggested comments or explanations are usable by the intended audience",
+      "weight": 3,
+      "max_score": 5
+    }
+  ]
+}

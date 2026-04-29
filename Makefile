@@ -19,7 +19,7 @@ NET  := $(PROJECT)_appnet
 -include .env.local
 export
 
-.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check synczip synczip-working telemetry-seed grafana-init grafana-plan grafana-apply git-hooks-install git-hooks-uninstall
+.PHONY: help dev dev-down dev-logs dev-logs-api dev-logs-spa dev-logs-nginx dev-magic-link up-dev staging up-staging prod up-prod down down-all logs reload-nginx cert-perms doppler-dev-env doppler-check synczip synczip-working telemetry-seed grafana-init grafana-plan grafana-apply workflow-eval workflow-eval-dev git-hooks-install git-hooks-uninstall
 
 help:
 	@echo "Targets:"
@@ -50,6 +50,10 @@ help:
 	@echo ""
 	@echo "Telemetry:"
 	@echo "  make telemetry-seed       - drive in-process seed flows and flush business metrics to Grafana"
+	@echo ""
+	@echo "Workflow evals:"
+	@echo "  make workflow-eval-dev EVAL_UID=<uid> [CASE=internal/evals/cases/legal_pack_smoke.example.json] [MODE=smoke] [MARKDOWN=1] [COMPARE_TO=path]"
+	@echo "  make workflow-eval     EVAL_UID=<uid> [CASE=internal/evals/cases/legal_pack_smoke.example.json] [MODE=smoke] [MARKDOWN=1] [COMPARE_TO=path]"
 	@echo "  make grafana-init         - terraform init for Grafana dashboards as code"
 	@echo "  make grafana-plan         - terraform plan for Grafana dashboards as code"
 	@echo "  make grafana-apply        - terraform apply for Grafana dashboards as code"
@@ -99,6 +103,23 @@ dev-magic-link:
 
 telemetry-seed:
 	$(DC) -p $(PROJECT)-dev $(DEV) exec api sh -lc 'PYTHONPATH=/app python scripts/seed_telemetry.py'
+
+# ----- Internal workflow evals -----
+
+WORKFLOW_EVAL_CASE ?= internal/evals/cases/legal_pack_smoke.example.json
+WORKFLOW_EVAL_OUT ?= internal/evals/results
+WORKFLOW_EVAL_MODE ?= smoke
+WORKFLOW_EVAL_MARKDOWN_FLAG = $(if $(filter 1 true yes,$(MARKDOWN)),--markdown,)
+WORKFLOW_EVAL_COMPARE_FLAG = $(if $(COMPARE_TO),--compare-to "$(COMPARE_TO)",)
+WORKFLOW_EVAL_MODE_FLAG = $(if $(MODE),--mode "$(MODE)",--mode "$(WORKFLOW_EVAL_MODE)")
+
+workflow-eval-dev:
+	@test -n "$(EVAL_UID)" || (echo "Usage: make workflow-eval-dev EVAL_UID=<eval-tenant-uid> [CASE=$(WORKFLOW_EVAL_CASE)] [MODE=smoke] [MARKDOWN=1] [COMPARE_TO=internal/evals/results/baseline.json]"; exit 1)
+	$(DC) -p $(PROJECT)-dev $(DEV) exec -T api sh -lc 'PYTHONPATH=/app python -m internal.evals.runner --uid "$(EVAL_UID)" --case "$(or $(CASE),$(WORKFLOW_EVAL_CASE))" --out "$(WORKFLOW_EVAL_OUT)" $(WORKFLOW_EVAL_MODE_FLAG) $(WORKFLOW_EVAL_MARKDOWN_FLAG) $(WORKFLOW_EVAL_COMPARE_FLAG)'
+
+workflow-eval:
+	@test -n "$(EVAL_UID)" || (echo "Usage: make workflow-eval EVAL_UID=<eval-tenant-uid> [CASE=$(WORKFLOW_EVAL_CASE)] [MODE=smoke] [MARKDOWN=1] [COMPARE_TO=internal/evals/results/baseline.json]"; exit 1)
+	$(DC) -p $(PROJECT) $(BASE) exec -T api sh -lc 'PYTHONPATH=/app python -m internal.evals.runner --uid "$(EVAL_UID)" --case "$(or $(CASE),$(WORKFLOW_EVAL_CASE))" --out "$(WORKFLOW_EVAL_OUT)" $(WORKFLOW_EVAL_MODE_FLAG) $(WORKFLOW_EVAL_MARKDOWN_FLAG) $(WORKFLOW_EVAL_COMPARE_FLAG)'
 
 # ----- Base / prod-style stack (docker-compose.yml) -----
 

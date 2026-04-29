@@ -62,6 +62,7 @@ services:
     networks: [appnet]
     volumes:
       - ./backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json:/run/secrets/firebase_sa.json:ro
+      - ./backend/internal/evals:/app/internal/evals
 
 networks:
   appnet:

@@ -1,0 +1,37 @@
+{
+  "rubric_id": "legal/contract_review",
+  "workflow_id": "legal_contract_review",
+  "description": "Manual quality rubric for legal contract review evals.",
+  "min_source_count": 1,
+  "required_metadata_keys": ["risk_items", "open_questions"],
+  "required_metadata_min_items": {
+    "risk_items": 1
+  },
+  "required_sections": ["Risks", "Open questions"],
+  "criteria": [
+    {
+      "id": "identifies_material_risks",
+      "label": "Identifies material legal and commercial risks from the source document",
+      "weight": 5,
+      "max_score": 5
+    },
+    {
+      "id": "source_grounded",
+      "label": "Grounds findings in the selected source material without inventing clauses",
+      "weight": 5,
+      "max_score": 5
+    },
+    {
+      "id": "actionable_recommendations",
+      "label": "Provides practical approval, negotiation, or escalation recommendations",
+      "weight": 4,
+      "max_score": 5
+    },
+    {
+      "id": "clear_open_questions",
+      "label": "Separates unresolved questions from known risks",
+      "weight": 3,
+      "max_score": 5
+    }
+  ]
+}

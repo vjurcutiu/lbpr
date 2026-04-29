@@ -1,0 +1,31 @@
+{
+  "rubric_id": "legal/risk_matrix",
+  "workflow_id": "legal_contract_risk_matrix",
+  "description": "Manual quality rubric for legal risk matrix evals.",
+  "min_source_count": 1,
+  "required_metadata_keys": ["risk_items"],
+  "required_metadata_min_items": {
+    "risk_items": 1
+  },
+  "required_sections": ["Risk", "Recommendation"],
+  "criteria": [
+    {
+      "id": "risk_rows_are_specific",
+      "label": "Risk rows are specific, non-duplicative, and tied to actual source terms",
+      "weight": 5,
+      "max_score": 5
+    },
+    {
+      "id": "severity_is_reasonable",
+      "label": "Severity levels are reasonable for the configured review posture",
+      "weight": 4,
+      "max_score": 5
+    },
+    {
+      "id": "recommendations_are_actionable",
+      "label": "Recommendations are concrete enough to support approval or negotiation decisions",
+      "weight": 4,
+      "max_score": 5
+    }
+  ]
+}
