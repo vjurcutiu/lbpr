@@ -400,8 +400,8 @@ export default function InternalEvalsPage() {
                 </div>
               </header>
 
-              <div className="grid min-h-0 grid-cols-[300px_minmax(0,1fr)]">
-                <ScrollArea className="border-r">
+              <div className="grid h-full min-h-0 grid-cols-[300px_minmax(0,1fr)] overflow-hidden">
+                <ScrollArea className="h-full min-h-0 border-r">
                   <div className="space-y-2 p-3">
                     {result.runs.map((run) => {
                       const key = run.run_key || run.workflow_id;
@@ -424,7 +424,7 @@ export default function InternalEvalsPage() {
                   </div>
                 </ScrollArea>
 
-                <ScrollArea>
+                <ScrollArea className="h-full min-h-0">
                   {activeRun ? (
                     <RunReviewPanel
                       run={activeRun}

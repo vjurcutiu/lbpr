@@ -176,6 +176,27 @@ The comparison output tracks:
 
 This is intentionally lightweight. It tells you where to inspect after prompt, retrieval, workflow, or model changes.
 
+## What should be committed
+
+Commit eval **inputs and standards**, not generated eval **outputs**.
+
+Commit:
+
+- eval case files in `backend/internal/evals/cases/`
+- rubric files in `backend/internal/evals/rubrics/`
+- runner, comparison, validation, and UI code
+- intentionally curated tiny fixture documents only if they are safe to keep in the repo
+
+Do not commit:
+
+- generated JSON exports in `backend/internal/evals/results/`
+- generated markdown bundles in `backend/internal/evals/results/`
+- generated job state in `backend/internal/evals/jobs/`
+- manual review state in `backend/internal/evals/reviews/`, unless you intentionally decide a specific review file is a baseline artifact
+- customer/private/source documents used for eval runs
+
+Generated eval artifacts can contain source snippets, model outputs, file IDs, user IDs, and reviewer notes. Keep them local, attach them to an issue/PR only when needed, or store promoted baselines in a dedicated private artifact store. The repo `.gitignore` ignores the runtime artifact directories while keeping `.gitkeep` placeholders. If generated artifacts are already tracked, remove them from the index with `git rm --cached -r backend/internal/evals/results backend/internal/evals/jobs backend/internal/evals/reviews` before committing.
+
 ## Recommended workflow
 
 1. Upload a stable set of eval documents to a dedicated internal/eval tenant.
