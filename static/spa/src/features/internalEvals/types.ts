@@ -1,0 +1,123 @@
+export type EvalCaseSummary = {
+  id: string;
+  path: string;
+  eval_id?: string | null;
+  description: string;
+  workflow_count: number;
+  mode?: string | null;
+  modified_at?: string | null;
+};
+
+export type EvalResultSummary = {
+  id: string;
+  path: string;
+  eval_id: string;
+  description: string;
+  mode: string;
+  created_at?: string | null;
+  modified_at?: string | null;
+  run_count: number;
+  completed_count: number;
+  failed_count: number;
+  skipped_count: number;
+  validation_error_count: number;
+  validation_warning_count: number;
+  has_review: boolean;
+};
+
+export type EvalRunRequest = {
+  case_path: string;
+  uid?: string | null;
+  mode?: string | null;
+  markdown?: boolean;
+  compare_to?: string | null;
+  prompt_version?: string | null;
+  workflow_version?: string | null;
+  notes?: string;
+};
+
+export type EvalJob = {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  requested_by_uid: string;
+  requested_by_email?: string | null;
+  request: EvalRunRequest;
+  result_id?: string | null;
+  export_path?: string | null;
+  markdown_path?: string | null;
+  comparison_path?: string | null;
+  comparison_markdown_path?: string | null;
+  error?: string | null;
+};
+
+export type EvalCriterionScore = {
+  criterion_id: string;
+  label: string;
+  weight: number;
+  max_score: number;
+  score?: number | null;
+  notes?: string;
+};
+
+export type EvalValidationIssue = {
+  severity: "info" | "warning" | "error";
+  code: string;
+  message: string;
+  path?: string | null;
+};
+
+export type EvalRunRecord = {
+  workflow_id: string;
+  run_key: string;
+  label?: string | null;
+  status: "completed" | "failed" | "skipped";
+  title?: string;
+  duration_ms?: number;
+  error?: string | null;
+  summary?: string;
+  output_markdown?: string;
+  sources?: Array<Record<string, unknown>>;
+  usage?: Record<string, unknown>;
+  prompt_version?: string | null;
+  workflow_version?: string | null;
+  rubric_id?: string | null;
+  criterion_scores?: EvalCriterionScore[];
+  validation?: { status: string; issues: EvalValidationIssue[] };
+  output_fingerprint?: string;
+  config_fingerprint?: string;
+};
+
+export type EvalResultDetail = {
+  eval_id: string;
+  description?: string;
+  mode: string;
+  created_at: string;
+  app_git_commit?: string | null;
+  uid: string;
+  case_fingerprint?: string;
+  document_set?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  runs: EvalRunRecord[];
+  _internal?: {
+    id: string;
+    path: string;
+    review?: EvalReviewRecord | null;
+  };
+};
+
+export type EvalReviewRecord = {
+  result_id: string;
+  updated_at: string;
+  updated_by_uid: string;
+  updated_by_email?: string | null;
+  reviewer_notes: string;
+  run_reviews: Record<string, { scores?: Record<string, number | null>; notes?: Record<string, string>; summary?: string }>;
+};
+
+export type EvalComparisonResponse = {
+  comparison: Record<string, unknown>;
+  path?: string | null;
+};

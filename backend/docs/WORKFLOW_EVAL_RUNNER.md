@@ -184,3 +184,35 @@ This is intentionally lightweight. It tells you where to inspect after prompt, r
 4. Run the eval command after prompt, workflow, retrieval, or model changes.
 5. Compare the exported JSON against a previous baseline.
 6. Review markdown bundles and fill criterion scores in the JSON if needed.
+
+
+## Internal eval UI
+
+The internal eval console is hidden and disabled by default. It is intended for local/admin workflow quality review, not customer-facing use.
+
+### Start in Docker Compose dev
+
+```bash
+make workflow-eval-ui-dev INTERNAL_EVAL_ADMIN_EMAILS=you@example.com
+```
+
+Then open:
+
+```text
+http://app.localhost/internal/evals
+```
+
+For local dev only, if `INTERNAL_EVAL_ADMIN_EMAILS` is empty and `ENV=dev`, any authenticated session can access the internal eval API after `ENABLE_INTERNAL_EVAL_UI=1` is set. In staging/prod, set `INTERNAL_EVAL_ADMIN_EMAILS`.
+
+### What the UI supports
+
+- List eval cases from `backend/internal/evals/cases`
+- Start a runner-backed eval job
+- Track queued/running/completed/failed status
+- Load result JSON exports
+- Review workflow outputs, sources, validation warnings/errors, and rubric criteria
+- Save manual review scores to `backend/internal/evals/reviews`
+- Compare a current result against a baseline result
+- Download the JSON export
+
+The UI calls the existing eval runner/service path. It does not create a separate workflow execution implementation.

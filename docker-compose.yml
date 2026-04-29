@@ -45,6 +45,8 @@ services:
       - ./backend/.env
     environment:
       - PYTHONUNBUFFERED=1
+      - ENABLE_INTERNAL_EVAL_UI=${ENABLE_INTERNAL_EVAL_UI:-0}
+      - INTERNAL_EVAL_ADMIN_EMAILS=${INTERNAL_EVAL_ADMIN_EMAILS:-}
       - FIREBASE_CREDENTIALS=/run/secrets/firebase_sa.json
       # Google client libraries (DLP/KMS/etc.) use Application Default Credentials (ADC).
       # Point ADC at the same service account JSON we already mount for Firebase Admin.

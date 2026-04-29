@@ -28,6 +28,7 @@ from features.transcription.router import router as transcription_router  # type
 from features.ocr.router import router as ocr_router  # type: ignore
 from features.workflows.router import router as workflows_router  # type: ignore
 from features.billing.router import router as billing_router  # type: ignore
+from features.internal_evals.router import router as internal_evals_router  # type: ignore
 
 log = logging.getLogger("app")
 
@@ -187,6 +188,7 @@ def create_app() -> FastAPI:
     app.include_router(ocr_router)
     app.include_router(workflows_router)
     app.include_router(billing_router)
+    app.include_router(internal_evals_router)
 
     # Versioned mirrors
     app.include_router(auth_routes.router, prefix="/v1")

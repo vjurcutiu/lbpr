@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # Background job execution
     BACKGROUND_JOB_WORKERS: int = 2
 
+    # Internal workflow eval UI/API (admin-gated; off by default)
+    ENABLE_INTERNAL_EVAL_UI: bool = False
+    INTERNAL_EVAL_ADMIN_EMAILS: str = ""
+
     # -------- Plans / Limits (monthly window, per-user) --------
     # Default "FREE" limits
     LIMITS_FREE_MESSAGES: int = 200              # number of chat messages per calendar month
