@@ -1650,6 +1650,83 @@ def _execute_run(uid: str, run_id: str) -> None:
 
 
 
+def execute_eval_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
+    """Run a workflow synchronously for internal eval exports.
+
+    This intentionally reuses the production workflow manifest validation, source
+    loading, handler registry, metadata augmentation, and usage accounting. It
+    does not persist the run and does not charge workflow tokens, so eval runs
+    cannot leak into customer workflow history or billing usage.
+    """
+    manifest = _validate_selection(payload)
+    run = WorkflowRun(
+        workflow_id=manifest.workflow_id,
+        title=_initial_run_title(manifest, payload.selection),
+        capability=manifest.capability,
+        selection=payload.selection,
+        inputs=payload.inputs,
+    )
+    handler = WORKFLOW_HANDLERS[run.workflow_id]
+    started_at = time.perf_counter()
+
+    try:
+        run.mark_running()
+        source_documents, source_stats = _load_source_documents(
+            uid,
+            run.selection,
+            workflow_id=manifest.workflow_id,
+            inputs=run.inputs,
+        )
+        if manifest.selection.exact_file_count is not None and len(source_documents) < manifest.selection.exact_file_count:
+            raise HTTPException(status_code=400, detail="Could not extract usable text from every selected file for this workflow")
+
+        result = handler(run, source_documents)
+        run.mark_completed(result)
+        _apply_generated_result_title(run)
+        _augment_result_metadata(run, source_documents, source_stats)
+
+        _billed_total, _breakdown, usage_details = _workflow_usage_breakdown(run, source_stats)
+        usage_details["billing_skipped"] = True
+        usage_details["billing_skip_reason"] = "internal_eval"
+        _attach_usage_details(run, usage_details=usage_details)
+
+        if run.result is not None and not run.versions:
+            _record_new_active_version(
+                run,
+                result=run.result,
+                parent_version_id=None,
+                prompt=None,
+                kind="original",
+            )
+
+        if run.result is not None:
+            artifact = _build_artifact_from_run(run)
+            run.artifact = _artifact_summary(artifact)
+            _sync_active_version_from_run(run)
+
+        if run.result is not None:
+            metadata = dict(run.result.metadata or {})
+            metadata["internal_eval"] = True
+            metadata["eval_duration_ms"] = round((time.perf_counter() - started_at) * 1000, 2)
+            run.result.metadata = metadata
+
+        return run
+    except HTTPException as exc:
+        detail = getattr(exc, "detail", None) or str(exc) or "Workflow failed"
+        run.mark_failed(str(detail))
+        return run
+    except Exception as exc:
+        run.mark_failed(str(exc) or "Workflow failed")
+        log.exception(
+            "workflow_eval_run_failed",
+            workflow_id=manifest.workflow_id,
+            capability=manifest.capability,
+            run_id=run.id,
+        )
+        return run
+
+
+
 def create_run(uid: str, payload: WorkflowRunCreate) -> WorkflowRun:
     manifest = _validate_selection(payload)
 
