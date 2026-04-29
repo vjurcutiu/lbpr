@@ -124,12 +124,16 @@ workflow-eval:
 	$(DC) -p $(PROJECT) $(BASE) exec -T api sh -lc 'PYTHONPATH=/app python -m internal.evals.runner --uid "$(EVAL_UID)" --case "$(or $(CASE),$(WORKFLOW_EVAL_CASE))" --out "$(WORKFLOW_EVAL_OUT)" $(WORKFLOW_EVAL_MODE_FLAG) $(WORKFLOW_EVAL_MARKDOWN_FLAG) $(WORKFLOW_EVAL_COMPARE_FLAG)'
 
 
+workflow-eval-ui-dev: export ENABLE_INTERNAL_EVAL_UI := 1
+workflow-eval-ui-dev: export VITE_ENABLE_INTERNAL_EVAL_UI := 1
 workflow-eval-ui-dev:
-	ENABLE_INTERNAL_EVAL_UI=1 VITE_ENABLE_INTERNAL_EVAL_UI=1 $(DC) -p $(PROJECT)-dev $(DEV) up -d --build
+	$(DC) -p $(PROJECT)-dev $(DEV) up -d --build
 	@echo "Internal eval UI: http://app.localhost/internal/evals"
 
+workflow-eval-ui: export ENABLE_INTERNAL_EVAL_UI := 1
+workflow-eval-ui: export VITE_ENABLE_INTERNAL_EVAL_UI := 1
 workflow-eval-ui:
-	ENABLE_INTERNAL_EVAL_UI=1 VITE_ENABLE_INTERNAL_EVAL_UI=1 $(DC) -p $(PROJECT) $(BASE) up -d --build
+	$(DC) -p $(PROJECT) $(BASE) up -d --build
 	@echo "Internal eval API enabled. Open the SPA route configured for this environment: /internal/evals"
 
 # ----- Base / prod-style stack (docker-compose.yml) -----

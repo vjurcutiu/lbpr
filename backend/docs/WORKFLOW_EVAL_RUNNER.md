@@ -196,6 +196,8 @@ The internal eval console is hidden and disabled by default. It is intended for 
 make workflow-eval-ui-dev INTERNAL_EVAL_ADMIN_EMAILS=you@example.com
 ```
 
+This target exports the internal eval flags through Make instead of prefixing the Docker Compose command with POSIX-style environment assignments, so the same command works from PowerShell/Windows make and Unix shells.
+
 Then open:
 
 ```text
