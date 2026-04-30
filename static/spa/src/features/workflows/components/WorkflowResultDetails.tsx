@@ -99,6 +99,11 @@ function metadataText(item: LegalMetadataItem, keys: string[], fallback = "") {
   for (const key of keys) {
     const value = item[key];
     if (value == null) continue;
+    if (Array.isArray(value)) {
+      const joined = value.map((entry) => String(entry || "").trim()).filter(Boolean).join(", ");
+      if (joined) return joined;
+      continue;
+    }
     const text = String(value).trim();
     if (text) return text;
   }
@@ -111,12 +116,40 @@ function humanizeMetadataValue(value: unknown) {
 }
 
 function topMetadataItems(value: unknown, max = 5): LegalMetadataItem[] {
-  return asArray<LegalMetadataItem>(value).filter((item) => item && typeof item === "object").slice(0, max);
+  return asArray<LegalMetadataItem>(value).filter((item) => item && typeof item === "object" && !Array.isArray(item)).slice(0, max);
+}
+
+function textList(value: unknown, max = 5) {
+  return asArray<unknown>(value)
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
+function hasMetadataItems(value: unknown) {
+  return topMetadataItems(value, 1).length > 0;
+}
+
+function workflowMetadata(metadata: Record<string, unknown>) {
+  return metadata.workflow_profile && typeof metadata.workflow_profile === "object" && !Array.isArray(metadata.workflow_profile)
+    ? metadata.workflow_profile as LegalMetadataItem
+    : {};
 }
 
 function isLegalResult(result: WorkflowResult) {
   const metadata = result.metadata || {};
-  return metadata.pack_id === "legal" || !!metadata.legal_profile || !!metadata.risk_items || !!metadata.clause_items || !!metadata.obligation_items;
+  const profile = workflowMetadata(metadata);
+  return (
+    metadata.pack_id === "legal" ||
+    profile.pack_id === "legal" ||
+    !!metadata.legal_profile ||
+    hasMetadataItems(metadata.risk_items) ||
+    hasMetadataItems(metadata.clause_items) ||
+    hasMetadataItems(metadata.obligation_items) ||
+    hasMetadataItems(metadata.fallback_items) ||
+    hasMetadataItems(metadata.plan_items) ||
+    hasMetadataItems(metadata.fields)
+  );
 }
 
 function LegalProfileCard({ profile }: { profile: LegalMetadataItem }) {
@@ -233,6 +266,108 @@ function ObligationItemsCard({ items }: { items: LegalMetadataItem[] }) {
   );
 }
 
+function FieldItemsCard({ items }: { items: LegalMetadataItem[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
+      <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Extracted details</div>
+      <div className="overflow-x-auto rounded-2xl border border-border/70">
+        <table className="w-full min-w-[640px] text-sm">
+          <thead className="bg-muted/30 text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-semibold">Field</th>
+              <th className="px-3 py-2 font-semibold">Value</th>
+              <th className="px-3 py-2 font-semibold">Source</th>
+              <th className="px-3 py-2 font-semibold">Confidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, index) => {
+              const field = metadataText(item, ["field", "name", "label"], "Extracted detail");
+              const value = metadataText(item, ["value", "current_position", "text", "summary"]);
+              const source = metadataText(item, ["source_basis", "source", "evidence"]);
+              const confidence = metadataText(item, ["confidence"], "review");
+              return (
+                <tr key={`${field}-${index}`} className="border-t border-border/70">
+                  <td className="px-3 py-2 align-top text-sm font-medium text-foreground">{humanizeMetadataValue(field)}</td>
+                  <td className="px-3 py-2 align-top text-sm leading-6 text-foreground/85">{value || "Confirm against source material."}</td>
+                  <td className="px-3 py-2 align-top text-sm leading-6 text-muted-foreground">{source || "Not available"}</td>
+                  <td className="px-3 py-2 align-top text-sm leading-6 text-muted-foreground">{humanizeMetadataValue(confidence)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function FallbackItemsCard({ items }: { items: LegalMetadataItem[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Fallback language</div>
+        <Badge variant="secondary" className="rounded-full text-[10px] font-normal">{items.length}</Badge>
+      </div>
+      <div className="space-y-3">
+        {items.map((item, index) => {
+          const clause = metadataText(item, ["clause_family", "clause", "category"], "Clause");
+          const proposedLanguage = metadataText(item, ["proposed_language", "language", "clause_language", "fallback_language", "draft", "text"]);
+          const rationale = metadataText(item, ["rationale", "reason", "explanation", "business_impact"]);
+          const source = metadataText(item, ["source_basis", "source", "evidence"]);
+          const confidence = metadataText(item, ["confidence"], "review");
+          return (
+            <div key={`${clause}-${index}`} className="rounded-2xl border border-border/60 bg-muted/10 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 text-sm font-medium leading-6 text-foreground">{humanizeMetadataValue(clause)}</div>
+                <Badge variant="outline" className="shrink-0 rounded-full text-[10px] font-normal">{humanizeMetadataValue(confidence)}</Badge>
+              </div>
+              {proposedLanguage ? (
+                <div className="mt-2 rounded-xl border border-border/60 bg-background px-3 py-2 text-sm leading-6 text-foreground/90">
+                  {proposedLanguage}
+                </div>
+              ) : null}
+              {rationale ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{rationale}</p> : null}
+              {source ? <p className="mt-2 text-[11px] leading-5 text-muted-foreground">Source: {source}</p> : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function PlanItemsCard({ items }: { items: LegalMetadataItem[] }) {
+  if (!items.length) return null;
+  return (
+    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
+      <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Action plan</div>
+      <div className="space-y-2">
+        {items.map((item, index) => {
+          const action = metadataText(item, ["action", "item", "change", "task"], "Confirm negotiation position");
+          const priority = metadataText(item, ["priority"], "medium");
+          const owner = metadataText(item, ["owner", "responsible_party"], "TBD");
+          const timeline = metadataText(item, ["timeline", "deadline"], "TBD");
+          const clause = metadataText(item, ["related_clause_family", "clause_family", "clause"]);
+          return (
+            <div key={`${action}-${index}`} className="rounded-2xl border border-border/60 bg-muted/10 p-3">
+              <div className="text-sm font-medium leading-6 text-foreground">{action}</div>
+              <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                <Badge variant="outline" className="rounded-full font-normal">Priority: {humanizeMetadataValue(priority)}</Badge>
+                <Badge variant="outline" className="rounded-full font-normal">Owner: {owner}</Badge>
+                <Badge variant="outline" className="rounded-full font-normal">Timeline: {timeline}</Badge>
+                {clause ? <Badge variant="outline" className="rounded-full font-normal">Clause: {humanizeMetadataValue(clause)}</Badge> : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function NotesListCard({ title, items }: { title: string; items: string[] }) {
   if (!items.length) return null;
   return (
@@ -253,14 +388,35 @@ function NotesListCard({ title, items }: { title: string; items: string[] }) {
 function LegalMetadataSummary({ result }: { result: WorkflowResult }) {
   if (!isLegalResult(result)) return null;
   const metadata = result.metadata || {};
-  const profile = metadata.legal_profile && typeof metadata.legal_profile === "object" ? metadata.legal_profile as LegalMetadataItem : {};
+  const workflow = workflowMetadata(metadata);
+  const workflowId = String(workflow.workflow_id || "").trim();
+  const rawProfile = metadata.legal_profile && typeof metadata.legal_profile === "object" && !Array.isArray(metadata.legal_profile)
+    ? metadata.legal_profile as LegalMetadataItem
+    : {};
+  const profile: LegalMetadataItem = { ...workflow, ...rawProfile };
   const riskItems = topMetadataItems(metadata.risk_items, 4);
   const clauseItems = topMetadataItems(metadata.clause_items, 5);
   const obligationItems = topMetadataItems(metadata.obligation_items, 5);
-  const openQuestions = asArray<string>(metadata.open_questions).map((item) => String(item).trim()).filter(Boolean);
-  const approvalNotes = asArray<string>(metadata.approval_notes).map((item) => String(item).trim()).filter(Boolean);
+  const fallbackItems = topMetadataItems(metadata.fallback_items, 4);
+  const planItems = topMetadataItems(metadata.plan_items, 5);
+  const fieldItems = topMetadataItems(metadata.fields, 6);
+  const showFieldItems = fieldItems.length > 0 && (
+    workflowId === "legal_clause_extraction" || (!clauseItems.length && !obligationItems.length && !fallbackItems.length && !planItems.length)
+  );
+  const openQuestions = textList(metadata.open_questions);
+  const approvalNotes = textList(metadata.approval_notes);
 
-  if (!Object.keys(profile).length && !riskItems.length && !clauseItems.length && !obligationItems.length && !openQuestions.length && !approvalNotes.length) {
+  if (
+    !Object.keys(profile).length &&
+    !riskItems.length &&
+    !clauseItems.length &&
+    !obligationItems.length &&
+    !fallbackItems.length &&
+    !planItems.length &&
+    !showFieldItems &&
+    !openQuestions.length &&
+    !approvalNotes.length
+  ) {
     return null;
   }
 
@@ -270,8 +426,11 @@ function LegalMetadataSummary({ result }: { result: WorkflowResult }) {
       <div className="grid gap-4 xl:grid-cols-2">
         <RiskItemsCard items={riskItems} />
         <ObligationItemsCard items={obligationItems} />
+        <FallbackItemsCard items={fallbackItems} />
+        <PlanItemsCard items={planItems} />
       </div>
       <ClauseItemsCard items={clauseItems} />
+      {showFieldItems ? <FieldItemsCard items={fieldItems} /> : null}
       <div className="grid gap-4 xl:grid-cols-2">
         <NotesListCard title="Open questions" items={openQuestions} />
         <NotesListCard title="Approval notes" items={approvalNotes} />
