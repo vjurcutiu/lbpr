@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
-import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, PencilLine, RefreshCw, RotateCcw, Save, SendHorizontal, Sparkles } from "lucide-react";
+import { CheckCircle2, ChevronDown, Circle, Copy, Crosshair, Download, Files, GitBranch, History, Maximize2, PencilLine, RefreshCw, RotateCcw, Save, SendHorizontal, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -440,6 +440,220 @@ function LegalMetadataSummary({ result }: { result: WorkflowResult }) {
     </div>
   );
 }
+
+type MarkdownContentBlock =
+  | { type: "markdown"; id: string; content: string }
+  | { type: "table"; id: string; title: string; headingLevel: number; tableMarkdown: string };
+
+const TABLE_SCROLL_CLASS = "max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-border/70 bg-background";
+const TABLE_CLASS = "w-max max-w-none border-collapse text-sm";
+const TABLE_CELL_WRAP_CLASS = "whitespace-normal [overflow-wrap:anywhere]";
+
+function isMarkdownTableSeparator(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return false;
+  return /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(trimmed);
+}
+
+function isMarkdownTableStart(lines: string[], index: number) {
+  const header = lines[index] || "";
+  const separator = lines[index + 1] || "";
+  return header.includes("|") && isMarkdownTableSeparator(separator);
+}
+
+function extractTableTitle(buffer: string[]) {
+  let endIndex = buffer.length - 1;
+  while (endIndex >= 0 && !buffer[endIndex].trim()) {
+    endIndex -= 1;
+  }
+
+  if (endIndex < 0) return { title: "Table", headingLevel: 3, contentLines: buffer };
+
+  const headingMatch = buffer[endIndex].match(/^\s*(#{1,6})\s+(.+?)\s*#*\s*$/);
+  if (!headingMatch) return { title: "Table", headingLevel: 3, contentLines: buffer };
+
+  const contentLines = buffer.slice(0, endIndex);
+  while (contentLines.length > 0 && !contentLines[contentLines.length - 1].trim()) {
+    contentLines.pop();
+  }
+
+  return {
+    title: headingMatch[2].trim() || "Table",
+    headingLevel: headingMatch[1].length,
+    contentLines,
+  };
+}
+
+function splitMarkdownTableBlocks(markdown: string): MarkdownContentBlock[] {
+  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const blocks: MarkdownContentBlock[] = [];
+  let buffer: string[] = [];
+  let tableIndex = 0;
+
+  const flushMarkdown = () => {
+    const content = buffer.join("\n").trim();
+    if (content) blocks.push({ type: "markdown", id: `markdown-${blocks.length}`, content });
+    buffer = [];
+  };
+
+  for (let index = 0; index < lines.length;) {
+    if (isMarkdownTableStart(lines, index)) {
+      const titleResult = extractTableTitle(buffer);
+      buffer = titleResult.contentLines;
+      flushMarkdown();
+
+      const tableLines = [lines[index], lines[index + 1]];
+      index += 2;
+      while (index < lines.length && lines[index].trim() && lines[index].includes("|")) {
+        tableLines.push(lines[index]);
+        index += 1;
+      }
+
+      blocks.push({
+        type: "table",
+        id: `table-${tableIndex}`,
+        title: titleResult.title,
+        headingLevel: titleResult.headingLevel,
+        tableMarkdown: tableLines.join("\n"),
+      });
+      tableIndex += 1;
+      continue;
+    }
+
+    buffer.push(lines[index]);
+    index += 1;
+  }
+
+  flushMarkdown();
+  return blocks;
+}
+
+function tableTitleClass(headingLevel: number) {
+  if (headingLevel <= 1) return "text-2xl font-semibold leading-tight tracking-[-0.02em]";
+  if (headingLevel === 2) return "text-lg font-semibold leading-7";
+  return "text-base font-semibold leading-6";
+}
+
+function MarkdownTableRenderer({ tableMarkdown, expanded = false }: { tableMarkdown: string; expanded?: boolean }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        table: ({ children }) => (
+          <div className={cn(TABLE_SCROLL_CLASS, expanded ? "m-0 h-full min-h-0 rounded-xl" : "my-5")}>
+            <table className={cn(TABLE_CLASS, expanded ? "min-w-[1600px]" : "min-w-[1280px]")}>{children}</table>
+          </div>
+        ),
+        th: ({ children }) => (
+          <th
+            className={cn(
+              "min-w-[160px] max-w-[300px] border-b border-border/70 bg-muted/30 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground",
+              expanded ? "sticky top-0 z-10 min-w-[220px] max-w-[380px] bg-muted" : "",
+              TABLE_CELL_WRAP_CLASS,
+            )}
+          >
+            {children}
+          </th>
+        ),
+        td: ({ children }) => (
+          <td
+            className={cn(
+              "min-w-[160px] max-w-[340px] border-t border-border/70 px-3 py-2 align-top text-sm leading-6 text-foreground/90",
+              expanded ? "min-w-[220px] max-w-[460px] px-4 py-3" : "",
+              TABLE_CELL_WRAP_CLASS,
+            )}
+          >
+            {children}
+          </td>
+        ),
+        p: ({ children }) => <>{children}</>,
+        code: ({ children, className }) => (
+          <code className={cn("break-words rounded-md bg-muted px-1.5 py-0.5 text-[0.9em] [overflow-wrap:anywhere]", className)}>{children}</code>
+        ),
+      }}
+    >
+      {tableMarkdown}
+    </ReactMarkdown>
+  );
+}
+
+function WorkflowMarkdownBlock({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => <h1 className="mb-5 break-words text-2xl font-semibold leading-tight tracking-[-0.02em] text-foreground [overflow-wrap:anywhere]">{children}</h1>,
+        h2: ({ children }) => <h2 className="mb-3 mt-7 break-words text-lg font-semibold leading-7 text-foreground first:mt-0 [overflow-wrap:anywhere]">{children}</h2>,
+        h3: ({ children }) => <h3 className="mb-2 mt-5 break-words text-base font-semibold leading-6 text-foreground [overflow-wrap:anywhere]">{children}</h3>,
+        h4: ({ children }) => <h4 className="mb-2 mt-5 text-[15px] font-semibold leading-6 text-foreground">{children}</h4>,
+        h5: ({ children }) => <h5 className="mb-2 mt-4 text-sm font-semibold leading-6 text-foreground">{children}</h5>,
+        h6: ({ children }) => <h6 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</h6>,
+        p: ({ children }) => <p className="my-3 min-w-0 break-words text-[15px] leading-7 text-foreground/90 [overflow-wrap:anywhere]">{children}</p>,
+        ul: ({ children }) => <ul className="my-3 ml-5 min-w-0 list-disc space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ul>,
+        ol: ({ children }) => <ol className="my-3 ml-5 min-w-0 list-decimal space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ol>,
+        li: ({ children }) => <li className="min-w-0 break-words pl-1 [overflow-wrap:anywhere]">{children}</li>,
+        blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4 text-[15px] leading-7 text-muted-foreground">{children}</blockquote>,
+        strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+        table: ({ children }) => <div className={cn(TABLE_SCROLL_CLASS, "my-5")}><table className={cn(TABLE_CLASS, "min-w-[1280px]")}>{children}</table></div>,
+        th: ({ children }) => <th className={cn("min-w-[160px] max-w-[280px] border-b border-border/70 bg-muted/30 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground", TABLE_CELL_WRAP_CLASS)}>{children}</th>,
+        td: ({ children }) => <td className={cn("min-w-[160px] max-w-[320px] border-t border-border/70 px-3 py-2 align-top text-sm leading-6 text-foreground/90", TABLE_CELL_WRAP_CLASS)}>{children}</td>,
+        code: ({ children, className }) => (
+          <code className={cn("break-words rounded-md bg-muted px-1.5 py-0.5 text-[0.9em] [overflow-wrap:anywhere]", className)}>{children}</code>
+        ),
+        pre: ({ children }) => <pre className="my-4 max-w-full overflow-x-auto rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{children}</pre>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
+
+function ExpandableMarkdownTable({ block, onExpand }: { block: Extract<MarkdownContentBlock, { type: "table" }>; onExpand: (block: Extract<MarkdownContentBlock, { type: "table" }>) => void }) {
+  return (
+    <section className="my-7 min-w-0">
+      <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+        <h2 className={cn("min-w-0 break-words text-foreground [overflow-wrap:anywhere]", tableTitleClass(block.headingLevel))}>{block.title}</h2>
+        <Button type="button" variant="outline" size="sm" className="h-8 shrink-0 rounded-full px-3 text-xs" onClick={() => onExpand(block)}>
+          <Maximize2 className="mr-1.5 h-3.5 w-3.5" />
+          Expand
+        </Button>
+      </div>
+      <MarkdownTableRenderer tableMarkdown={block.tableMarkdown} />
+    </section>
+  );
+}
+
+function WorkflowMarkdownContent({ markdown, onExpandTable }: { markdown: string; onExpandTable: (block: Extract<MarkdownContentBlock, { type: "table" }>) => void }) {
+  const blocks = useMemo(() => splitMarkdownTableBlocks(markdown), [markdown]);
+  return (
+    <>
+      {blocks.map((block) =>
+        block.type === "table" ? (
+          <ExpandableMarkdownTable key={block.id} block={block} onExpand={onExpandTable} />
+        ) : (
+          <WorkflowMarkdownBlock key={block.id} content={block.content} />
+        )
+      )}
+    </>
+  );
+}
+
+function ExpandedTableDialog({ table, onClose }: { table: Extract<MarkdownContentBlock, { type: "table" }> | null; onClose: () => void }) {
+  return (
+    <Dialog open={!!table} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100dvw-1rem)] max-w-[calc(100dvw-1rem)] gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[calc(100dvw-1rem)]">
+        <DialogHeader className="border-b border-border/70 px-5 py-4 pr-14 md:px-6">
+          <DialogTitle className="break-words pr-2 text-lg leading-7 [overflow-wrap:anywhere]">{table?.title || "Table"}</DialogTitle>
+          <DialogDescription>Full table view</DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 overflow-auto px-4 py-4 md:px-6 md:py-5">
+          {table ? <MarkdownTableRenderer tableMarkdown={table.tableMarkdown} expanded /> : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export type WorkflowOutputEditState = {
   draftMarkdown: string;
   baseMarkdown: string;
@@ -1195,11 +1409,13 @@ export function WorkflowResultDetails({
   const [aiEditPrompt, setAiEditPrompt] = useState("");
   const [aiEditSubmitting, setAiEditSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [expandedTable, setExpandedTable] = useState<Extract<MarkdownContentBlock, { type: "table" }> | null>(null);
 
   useEffect(() => {
     setAiEditSelection(null);
     setAiEditPrompt("");
     setCopied(false);
+    setExpandedTable(null);
   }, [activeVersionId, markdown]);
 
   const editingOutput = !!editState;
@@ -1407,35 +1623,12 @@ export function WorkflowResultDetails({
         ) : (
           <article className="mx-auto min-w-0 w-full max-w-[960px] overflow-hidden px-5 py-6 md:px-8 md:py-8">
             <LegalMetadataSummary result={result} />
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                h1: ({ children }) => <h1 className="mb-5 break-words text-2xl font-semibold leading-tight tracking-[-0.02em] text-foreground [overflow-wrap:anywhere]">{children}</h1>,
-                h2: ({ children }) => <h2 className="mb-3 mt-7 break-words text-lg font-semibold leading-7 text-foreground first:mt-0 [overflow-wrap:anywhere]">{children}</h2>,
-                h3: ({ children }) => <h3 className="mb-2 mt-5 break-words text-base font-semibold leading-6 text-foreground [overflow-wrap:anywhere]">{children}</h3>,
-                h4: ({ children }) => <h4 className="mb-2 mt-5 text-[15px] font-semibold leading-6 text-foreground">{children}</h4>,
-                h5: ({ children }) => <h5 className="mb-2 mt-4 text-sm font-semibold leading-6 text-foreground">{children}</h5>,
-                h6: ({ children }) => <h6 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</h6>,
-                p: ({ children }) => <p className="my-3 min-w-0 break-words text-[15px] leading-7 text-foreground/90 [overflow-wrap:anywhere]">{children}</p>,
-                ul: ({ children }) => <ul className="my-3 ml-5 min-w-0 list-disc space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ul>,
-                ol: ({ children }) => <ol className="my-3 ml-5 min-w-0 list-decimal space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ol>,
-                li: ({ children }) => <li className="min-w-0 break-words pl-1 [overflow-wrap:anywhere]">{children}</li>,
-                blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4 text-[15px] leading-7 text-muted-foreground">{children}</blockquote>,
-                strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-                table: ({ children }) => <div className="my-5 max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-border/70"><table className="w-max min-w-[1280px] max-w-none border-collapse text-sm">{children}</table></div>,
-                th: ({ children }) => <th className="min-w-[160px] max-w-[280px] whitespace-normal border-b border-border/70 bg-muted/30 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground [overflow-wrap:anywhere]">{children}</th>,
-                td: ({ children }) => <td className="min-w-[160px] max-w-[320px] whitespace-normal border-t border-border/70 px-3 py-2 align-top text-sm leading-6 text-foreground/90 [overflow-wrap:anywhere]">{children}</td>,
-                code: ({ children, className }) => (
-                  <code className={cn("break-words rounded-md bg-muted px-1.5 py-0.5 text-[0.9em] [overflow-wrap:anywhere]", className)}>{children}</code>
-                ),
-                pre: ({ children }) => <pre className="my-4 max-w-full overflow-x-auto rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{children}</pre>,
-              }}
-            >
-              {markdown}
-            </ReactMarkdown>
+            <WorkflowMarkdownContent markdown={markdown} onExpandTable={setExpandedTable} />
           </article>
         )}
       </div>
+
+      <ExpandedTableDialog table={expandedTable} onClose={() => setExpandedTable(null)} />
 
       {onRefine ? (
         <form onSubmit={submitRefinement} className="rounded-2xl border border-border/70 bg-background px-4 py-4 shadow-sm">
