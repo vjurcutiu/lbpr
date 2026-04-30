@@ -70,11 +70,11 @@ const LEGAL_FIELD_ORDER = ["document_type", "review_mode", "counterparty_positio
 const COMMON_CLAUSE_OPTIONS: WorkflowLauncherFieldOption[] = [
   { value: "confidentiality", label: "Confidentiality" },
   { value: "indemnity", label: "Indemnity" },
-  { value: "limitation_of_liability", label: "Liability cap" },
+  { value: "limitation_of_liability", label: "Limitation of Liability" },
   { value: "termination", label: "Termination" },
   { value: "renewal", label: "Renewal" },
-  { value: "ip_ownership", label: "IP ownership" },
-  { value: "data_protection", label: "Data protection" },
+  { value: "ip_ownership", label: "IP Ownership" },
+  { value: "data_protection", label: "Data Protection" },
   { value: "payment", label: "Payment" },
   { value: "assignment", label: "Assignment" },
   { value: "audit", label: "Audit" },
@@ -292,7 +292,7 @@ const LEGAL_WORKFLOW_UI: Record<string, LegalWorkflowUiConfig> = {
         key: "target_clause",
         label: "Target clause or issue",
         kind: "text",
-        placeholder: "Liability cap, residuals, IP ownership, renewal notice…",
+        placeholder: "Limitation of Liability, residuals, IP Ownership, renewal notice…",
       },
       {
         key: "fallback_output_type",
@@ -316,7 +316,7 @@ const LEGAL_WORKFLOW_UI: Record<string, LegalWorkflowUiConfig> = {
   },
   legal_negotiation_brief: {
     focusLabel: "Negotiation objective",
-    focusPlaceholder: "Close quickly, reduce liability, preserve IP ownership, protect data, escalate approval issues…",
+    focusPlaceholder: "Close quickly, reduce liability, preserve IP Ownership, protect data, escalate approval issues…",
     focusHelp: "Optional. Describe what the negotiation brief should help the team accomplish.",
     settingsTitle: "Negotiation settings",
     hiddenInputs: { review_mode: "negotiation" },

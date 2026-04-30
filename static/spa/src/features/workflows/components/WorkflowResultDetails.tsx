@@ -117,6 +117,57 @@ function humanizeMetadataValue(value: unknown) {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Not specified";
 }
 
+const LEGAL_CLAUSE_TYPE_LABELS: Record<string, string> = {
+  assignment: "Assignment",
+  audit: "Audit",
+  confidentiality: "Confidentiality",
+  data_protection: "Data Protection",
+  dispute_resolution: "Dispute Resolution",
+  exclusivity: "Exclusivity",
+  force_majeure: "Force Majeure",
+  governing_law: "Governing Law",
+  indemnity: "Indemnity",
+  insurance: "Insurance",
+  ip_ownership: "IP Ownership",
+  intellectual_property: "Intellectual Property",
+  limitation_of_liability: "Limitation of Liability",
+  non_compete: "Non-Compete",
+  non_solicit: "Non-Solicit",
+  notices: "Notices",
+  payment: "Payment",
+  renewal: "Renewal",
+  residuals: "Residuals",
+  service_levels: "Service Levels",
+  termination: "Termination",
+  warranties: "Warranties",
+};
+
+function normalizeClauseTypeKey(value: unknown) {
+  return String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function formatClauseTypeLabel(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Not specified";
+  return LEGAL_CLAUSE_TYPE_LABELS[normalizeClauseTypeKey(raw)] || humanizeMetadataValue(raw);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const LEGAL_CLAUSE_TOKEN_PATTERN = new RegExp(
+  `\\b(${Object.keys(LEGAL_CLAUSE_TYPE_LABELS).sort((a, b) => b.length - a.length).map(escapeRegExp).join("|")})\\b`,
+  "gi",
+);
+
+function formatLegalClauseTokensInText(text: string) {
+  return String(text || "").replace(LEGAL_CLAUSE_TOKEN_PATTERN, (match) => {
+    return LEGAL_CLAUSE_TYPE_LABELS[normalizeClauseTypeKey(match)] || match;
+  });
+}
+
+
 function topMetadataItems(value: unknown, max = 5): LegalMetadataItem[] {
   return asArray<LegalMetadataItem>(value).filter((item) => item && typeof item === "object" && !Array.isArray(item)).slice(0, max);
 }
@@ -257,7 +308,7 @@ function ClauseItemsProse({ items }: { items: LegalMetadataItem[] }) {
           const confidence = metadataText(item, ["confidence"]);
           return (
             <LegalProseItem key={`${clause}-${index}`}>
-              <LegalItemHeading>{humanizeMetadataValue(clause)}</LegalItemHeading>
+              <LegalItemHeading>{formatClauseTypeLabel(clause)}</LegalItemHeading>
               <LegalParagraph label="Concern" value={concern || "Review source language."} />
               <LegalParagraph label="Recommended position" value={recommendation || "Confirm preferred position."} />
               <LegalParagraph label="Confidence" value={confidence ? humanizeMetadataValue(confidence) : ""} />
@@ -332,7 +383,7 @@ function FallbackItemsProse({ items }: { items: LegalMetadataItem[] }) {
           const confidence = metadataText(item, ["confidence"], "review");
           return (
             <LegalProseItem key={`${clause}-${index}`}>
-              <LegalItemHeading>{humanizeMetadataValue(clause)}</LegalItemHeading>
+              <LegalItemHeading>{formatClauseTypeLabel(clause)}</LegalItemHeading>
               <LegalParagraph label="Proposed language" value={proposedLanguage} />
               <LegalParagraph label="Rationale" value={rationale} />
               <LegalParagraph label="Source" value={source} />
@@ -362,7 +413,7 @@ function PlanItemsProse({ items }: { items: LegalMetadataItem[] }) {
               <LegalParagraph label="Priority" value={humanizeMetadataValue(priority)} />
               <LegalParagraph label="Owner" value={owner} />
               <LegalParagraph label="Timeline" value={timeline} />
-              <LegalParagraph label="Clause" value={clause ? humanizeMetadataValue(clause) : ""} />
+              <LegalParagraph label="Clause" value={clause ? formatClauseTypeLabel(clause) : ""} />
             </li>
           );
         })}
@@ -1410,6 +1461,7 @@ export function WorkflowResultDetails({
   const rawSourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
   const visibleSourceFiles = useMemo(() => uniqueSourceFiles(rawSourceFiles), [rawSourceFiles]);
   const markdown = useMemo(() => workflowDocumentMarkdown(result), [result]);
+  const displayMarkdown = useMemo(() => formatLegalClauseTokensInText(markdown), [markdown]);
   const [refinePrompt, setRefinePrompt] = useState("");
   const [aiEditSelection, setAiEditSelection] = useState<MarkdownEditorSelection | null>(null);
   const [aiEditPrompt, setAiEditPrompt] = useState("");
@@ -1446,7 +1498,7 @@ export function WorkflowResultDetails({
   const baseMarkdown = editState?.baseMarkdown ?? markdown;
   const aiEditDraftPrompt = editState?.aiEditDraftPrompt || "";
   const editLocked = !!editState?.aiEditBusy;
-  const outputMarkdown = editingOutput ? draftMarkdown : markdown;
+  const outputMarkdown = editingOutput ? draftMarkdown : displayMarkdown;
   const hasEditedOutput = draftMarkdown !== baseMarkdown;
   const canSaveEditedOutput = !!onSaveEditedOutput && hasEditedOutput && !!draftMarkdown.trim() && !artifactBusy && !editLocked;
   const aiEditIsBusy = artifactBusy || refineBusy || aiEditBusy || aiEditSubmitting || editLocked;
@@ -1646,7 +1698,7 @@ export function WorkflowResultDetails({
         ) : (
           <article className="mx-auto min-w-0 w-full max-w-[960px] overflow-hidden px-5 py-6 md:px-8 md:py-8">
             <LegalMetadataSummary result={result} />
-            <WorkflowMarkdownContent markdown={markdown} onExpandTable={setExpandedTable} />
+            <WorkflowMarkdownContent markdown={displayMarkdown} onExpandTable={setExpandedTable} />
           </article>
         )}
       </div>

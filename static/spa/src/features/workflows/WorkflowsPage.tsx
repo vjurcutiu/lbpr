@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ChevronRight, CornerDownRight, GitBranch, Maximize2, Minimize2, MoreVertical, Pencil, Search, Trash2 } from "lucide-react";
+import { ArrowRight, ChevronRight, CornerDownRight, GitBranch, MoreVertical, Pencil, Search, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -608,7 +608,6 @@ export default function WorkflowsPage() {
   const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(null);
   const [workflowLibraryView, setWorkflowLibraryView] = useState<WorkflowLibraryView>("core");
-  const [workflowOutputFocus, setWorkflowOutputFocus] = useState(false);
   const [expandedWorkflowTable, setExpandedWorkflowTable] = useState<{ runId: string; table: WorkflowMarkdownTableBlock } | null>(null);
   const [activeCoreWorkflowId, setActiveCoreWorkflowId] = useState<string | null>(null);
   const [activeProPackId, setActiveProPackId] = useState<string | null>(null);
@@ -1285,10 +1284,6 @@ export default function WorkflowsPage() {
   }, [isMobile]);
 
   useEffect(() => {
-    if (isMobile) setWorkflowOutputFocus(false);
-  }, [isMobile]);
-
-  useEffect(() => {
     if (expandedWorkflowTable && expandedWorkflowTable.runId !== selectedRunId) {
       setExpandedWorkflowTable(null);
     }
@@ -1543,7 +1538,7 @@ export default function WorkflowsPage() {
   }, [deletingRun, renamingRunId, selectedRunId, selectRun, updateOutputEditDrafts]);
 
 
-  const outputFocusActive = workflowOutputFocus && !isMobile && !!selectedRun;
+  const outputFocusActive = false;
   const showInbox = (!isMobile && !outputFocusActive) || mobilePanel === "inbox";
   const showDetails = !isMobile || mobilePanel === "details";
   const showFlows = (!isMobile && !outputFocusActive) || mobilePanel === "flows";
@@ -1743,18 +1738,6 @@ export default function WorkflowsPage() {
                           </div>
                         </div>
                       </div>
-                      {!isMobile ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8 shrink-0 rounded-full px-3 text-xs"
-                          onClick={() => setWorkflowOutputFocus((current) => !current)}
-                        >
-                          {outputFocusActive ? <Minimize2 className="mr-1 h-3.5 w-3.5" /> : <Maximize2 className="mr-1 h-3.5 w-3.5" />}
-                          {outputFocusActive ? "Exit focus" : "Focus output"}
-                        </Button>
-                      ) : null}
                     </div>
 
                   </div>
