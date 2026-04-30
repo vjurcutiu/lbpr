@@ -1,0 +1,1096 @@
+{
+  "eval_id": "legal_pro_public_contracts_v1",
+  "description": "Targeted public-contract eval set for the Legal Pro workflows. Each workflow runs against three contract sources chosen for that workflow.",
+  "mode": "smoke",
+  "default_prompt_version": "legal-pack-public-contracts-v1",
+  "default_workflow_version": "workflow-engine-v1",
+  "document_set": {
+    "name": "public_contract_eval_seed",
+    "description": "Bundled public SEC/contract fixtures under backend/app/internal/evals/fixtures/public_contract_eval_seed. Workflow-level selections choose the target contract for each run.",
+    "selection": {
+      "file_ids": [],
+      "file_paths": [],
+      "folder_paths": [],
+      "current_folder": "public_contract_eval_seed/contracts"
+    }
+  },
+  "default_inputs": {
+    "matter_context": "Internal Legal Pro workflow regression eval using public contract fixtures. Treat this as a workflow-quality test, not legal advice."
+  },
+  "workflows": [
+    {
+      "workflow_id": "legal_nda_review",
+      "label": "NDA Review · Fusion-io / SanDisk NDA",
+      "notes": "Targeted public-contract eval for NDA Review using Fusion-io / SanDisk NDA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/nda/sec_fusionio_sandisk_nda.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/nda"
+      },
+      "inputs": {
+        "focus": "Review NDA-specific risks: confidentiality scope, permitted purpose, residual knowledge, term, return/destruction, remedies, assignment, governing law, and mutuality.",
+        "document_type": "nda",
+        "review_mode": "legal_risk",
+        "counterparty_position": "partner",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "fusionio_sandisk_nda",
+        "target_contract_title": "Fusion-io / SanDisk NDA",
+        "target_contract_path": "public_contract_eval_seed/contracts/nda/sec_fusionio_sandisk_nda.txt",
+        "target_contract_category": "nda",
+        "nda_direction": "mutual_or_transactional",
+        "confidentiality_term_preference": "clear survival period; avoid broad perpetual obligations unless trade secrets require it",
+        "residuals_position": "flag residual knowledge language aggressively",
+        "sensitive_data": "assume confidential business and transaction information may be involved"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "NDA",
+        "Red Flags",
+        "Open Questions"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_nda_review",
+      "label": "NDA Review · Sequans / Renesas Mutual NDA",
+      "notes": "Targeted public-contract eval for NDA Review using Sequans / Renesas Mutual NDA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/nda/sec_sequans_renesas_mutual_nda.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/nda"
+      },
+      "inputs": {
+        "focus": "Review NDA-specific risks: confidentiality scope, permitted purpose, residual knowledge, term, return/destruction, remedies, assignment, governing law, and mutuality.",
+        "document_type": "nda",
+        "review_mode": "legal_risk",
+        "counterparty_position": "partner",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "sequans_renesas_mutual_nda",
+        "target_contract_title": "Sequans / Renesas Mutual NDA",
+        "target_contract_path": "public_contract_eval_seed/contracts/nda/sec_sequans_renesas_mutual_nda.txt",
+        "target_contract_category": "nda",
+        "nda_direction": "mutual_or_transactional",
+        "confidentiality_term_preference": "clear survival period; avoid broad perpetual obligations unless trade secrets require it",
+        "residuals_position": "flag residual knowledge language aggressively",
+        "sensitive_data": "assume confidential business and transaction information may be involved"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "NDA",
+        "Red Flags",
+        "Open Questions"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_nda_review",
+      "label": "NDA Review · CSR / Qualcomm NDA",
+      "notes": "Targeted public-contract eval for NDA Review using CSR / Qualcomm NDA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/nda/sec_csr_qualcomm_nda.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/nda"
+      },
+      "inputs": {
+        "focus": "Review NDA-specific risks: confidentiality scope, permitted purpose, residual knowledge, term, return/destruction, remedies, assignment, governing law, and mutuality.",
+        "document_type": "nda",
+        "review_mode": "legal_risk",
+        "counterparty_position": "partner",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "csr_qualcomm_nda",
+        "target_contract_title": "CSR / Qualcomm NDA",
+        "target_contract_path": "public_contract_eval_seed/contracts/nda/sec_csr_qualcomm_nda.txt",
+        "target_contract_category": "nda",
+        "nda_direction": "mutual_or_transactional",
+        "confidentiality_term_preference": "clear survival period; avoid broad perpetual obligations unless trade secrets require it",
+        "residuals_position": "flag residual knowledge language aggressively",
+        "sensitive_data": "assume confidential business and transaction information may be involved"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "NDA",
+        "Red Flags",
+        "Open Questions"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_msa_review",
+      "label": "MSA Review · Indegene / Cingulate MSA",
+      "notes": "Targeted public-contract eval for MSA Review using Indegene / Cingulate MSA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_indegene_cingulate_msa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Review MSA/SaaS terms for scope, SOW mechanics, payment, service levels, warranties, liability, indemnity, IP ownership, data/security, renewals, and termination.",
+        "document_type": "msa_services",
+        "review_mode": "approval",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "indegene_cingulate_msa",
+        "target_contract_title": "Indegene / Cingulate MSA",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_indegene_cingulate_msa.txt",
+        "target_contract_category": "msa_saas",
+        "counterparty_side": "customer_or_client_reviewing_vendor_terms",
+        "sow_included": "check whether SOW mechanics are present and clear",
+        "priority_areas": "liability, indemnity, IP, payment, termination, SLAs, data protection, audit, assignment"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Agreement",
+        "Risk",
+        "Obligations"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_msa_review",
+      "label": "MSA Review · ProQuest / IBM MSA",
+      "notes": "Targeted public-contract eval for MSA Review using ProQuest / IBM MSA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_proquest_ibm_msa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Review MSA/SaaS terms for scope, SOW mechanics, payment, service levels, warranties, liability, indemnity, IP ownership, data/security, renewals, and termination.",
+        "document_type": "msa_services",
+        "review_mode": "approval",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "proquest_ibm_msa",
+        "target_contract_title": "ProQuest / IBM MSA",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_proquest_ibm_msa.txt",
+        "target_contract_category": "msa_saas",
+        "counterparty_side": "customer_or_client_reviewing_vendor_terms",
+        "sow_included": "check whether SOW mechanics are present and clear",
+        "priority_areas": "liability, indemnity, IP, payment, termination, SLAs, data protection, audit, assignment"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Agreement",
+        "Risk",
+        "Obligations"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_msa_review",
+      "label": "MSA Review · Anthem / Castlight SaaS Agreement",
+      "notes": "Targeted public-contract eval for MSA Review using Anthem / Castlight SaaS Agreement.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Review MSA/SaaS terms for scope, SOW mechanics, payment, service levels, warranties, liability, indemnity, IP ownership, data/security, renewals, and termination.",
+        "document_type": "msa_services",
+        "review_mode": "approval",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "anthem_castlight_saas",
+        "target_contract_title": "Anthem / Castlight SaaS Agreement",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt",
+        "target_contract_category": "msa_saas",
+        "counterparty_side": "customer_or_client_reviewing_vendor_terms",
+        "sow_included": "check whether SOW mechanics are present and clear",
+        "priority_areas": "liability, indemnity, IP, payment, termination, SLAs, data protection, audit, assignment"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Agreement",
+        "Risk",
+        "Obligations"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_contract_review",
+      "label": "Contract Review · Anthem / Castlight SaaS Agreement",
+      "notes": "Targeted public-contract eval for Contract Review using Anthem / Castlight SaaS Agreement.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Prepare an approval-ready contract review covering business risk, legal risk, operational obligations, missing protections, and open questions.",
+        "document_type": "msa_services",
+        "review_mode": "approval",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "anthem_castlight_saas",
+        "target_contract_title": "Anthem / Castlight SaaS Agreement",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt",
+        "target_contract_category": "msa_saas",
+        "audience": "business owner and legal reviewer",
+        "deal_stage": "approval review before signature"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Executive",
+        "Risk",
+        "Open Questions"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/contract_review"
+    },
+    {
+      "workflow_id": "legal_contract_review",
+      "label": "Contract Review · Relativity / KLDiscovery Master Terms + DPA",
+      "notes": "Targeted public-contract eval for Contract Review using Relativity / KLDiscovery Master Terms + DPA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/dpa"
+      },
+      "inputs": {
+        "focus": "Prepare an approval-ready contract review covering business risk, legal risk, operational obligations, missing protections, and open questions.",
+        "document_type": "dpa",
+        "review_mode": "approval",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "relativity_kldiscovery_master_terms_dpa",
+        "target_contract_title": "Relativity / KLDiscovery Master Terms + DPA",
+        "target_contract_path": "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt",
+        "target_contract_category": "dpa",
+        "audience": "business owner and legal reviewer",
+        "deal_stage": "approval review before signature"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Executive",
+        "Risk",
+        "Open Questions"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/contract_review"
+    },
+    {
+      "workflow_id": "legal_contract_review",
+      "label": "Contract Review · Indegene / Cingulate MSA",
+      "notes": "Targeted public-contract eval for Contract Review using Indegene / Cingulate MSA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_indegene_cingulate_msa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Prepare an approval-ready contract review covering business risk, legal risk, operational obligations, missing protections, and open questions.",
+        "document_type": "msa_services",
+        "review_mode": "approval",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "indegene_cingulate_msa",
+        "target_contract_title": "Indegene / Cingulate MSA",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_indegene_cingulate_msa.txt",
+        "target_contract_category": "msa_saas",
+        "audience": "business owner and legal reviewer",
+        "deal_stage": "approval review before signature"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Executive",
+        "Risk",
+        "Open Questions"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/contract_review"
+    },
+    {
+      "workflow_id": "legal_contract_risk_matrix",
+      "label": "Risk Matrix · Fusion-io / SanDisk NDA",
+      "notes": "Targeted public-contract eval for Risk Matrix using Fusion-io / SanDisk NDA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/nda/sec_fusionio_sandisk_nda.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/nda"
+      },
+      "inputs": {
+        "focus": "Build a decision-ready risk matrix with severity, business impact, source basis, recommended fix, fallback position, and approval sensitivity.",
+        "document_type": "nda",
+        "review_mode": "legal_risk",
+        "counterparty_position": "partner",
+        "risk_tolerance": "conservative",
+        "target_contract_id": "fusionio_sandisk_nda",
+        "target_contract_title": "Fusion-io / SanDisk NDA",
+        "target_contract_path": "public_contract_eval_seed/contracts/nda/sec_fusionio_sandisk_nda.txt",
+        "target_contract_category": "nda",
+        "matrix_purpose": "approval and negotiation triage",
+        "severity_style": "conservative",
+        "owner_mapping": "legal, finance, security, operations, business owner"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Risk",
+        "Recommendation"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/risk_matrix"
+    },
+    {
+      "workflow_id": "legal_contract_risk_matrix",
+      "label": "Risk Matrix · Anthem / Castlight SaaS Agreement",
+      "notes": "Targeted public-contract eval for Risk Matrix using Anthem / Castlight SaaS Agreement.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Build a decision-ready risk matrix with severity, business impact, source basis, recommended fix, fallback position, and approval sensitivity.",
+        "document_type": "msa_services",
+        "review_mode": "legal_risk",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "conservative",
+        "target_contract_id": "anthem_castlight_saas",
+        "target_contract_title": "Anthem / Castlight SaaS Agreement",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt",
+        "target_contract_category": "msa_saas",
+        "matrix_purpose": "approval and negotiation triage",
+        "severity_style": "conservative",
+        "owner_mapping": "legal, finance, security, operations, business owner"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Risk",
+        "Recommendation"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/risk_matrix"
+    },
+    {
+      "workflow_id": "legal_contract_risk_matrix",
+      "label": "Risk Matrix · Relativity / KLDiscovery Master Terms + DPA",
+      "notes": "Targeted public-contract eval for Risk Matrix using Relativity / KLDiscovery Master Terms + DPA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/dpa"
+      },
+      "inputs": {
+        "focus": "Build a decision-ready risk matrix with severity, business impact, source basis, recommended fix, fallback position, and approval sensitivity.",
+        "document_type": "dpa",
+        "review_mode": "legal_risk",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "conservative",
+        "target_contract_id": "relativity_kldiscovery_master_terms_dpa",
+        "target_contract_title": "Relativity / KLDiscovery Master Terms + DPA",
+        "target_contract_path": "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt",
+        "target_contract_category": "dpa",
+        "matrix_purpose": "approval and negotiation triage",
+        "severity_style": "conservative",
+        "owner_mapping": "legal, finance, security, operations, business owner"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Risk",
+        "Recommendation"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/risk_matrix"
+    },
+    {
+      "workflow_id": "legal_clause_extraction",
+      "label": "Clause Extraction · Fusion-io / SanDisk NDA",
+      "notes": "Targeted public-contract eval for Clause Extraction using Fusion-io / SanDisk NDA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/nda/sec_fusionio_sandisk_nda.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/nda"
+      },
+      "inputs": {
+        "focus": "Extract key clauses, parties, dates, obligations, deadlines, legal positions, fallback-relevant terms, and approval-sensitive language.",
+        "document_type": "nda",
+        "review_mode": "legal_risk",
+        "counterparty_position": "partner",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "fusionio_sandisk_nda",
+        "target_contract_title": "Fusion-io / SanDisk NDA",
+        "target_contract_path": "public_contract_eval_seed/contracts/nda/sec_fusionio_sandisk_nda.txt",
+        "target_contract_category": "nda",
+        "clause_families": "confidentiality, indemnity, limitation_of_liability, termination, renewal, ip_ownership, data_protection, governing_law, payment, assignment, audit, insurance, notices",
+        "output_format": "table",
+        "include_obligations": "yes",
+        "include_dates_deadlines": "yes"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Clause",
+        "Source",
+        "Obligation"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_clause_extraction",
+      "label": "Clause Extraction · ProQuest / IBM MSA",
+      "notes": "Targeted public-contract eval for Clause Extraction using ProQuest / IBM MSA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_proquest_ibm_msa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Extract key clauses, parties, dates, obligations, deadlines, legal positions, fallback-relevant terms, and approval-sensitive language.",
+        "document_type": "msa_services",
+        "review_mode": "legal_risk",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "proquest_ibm_msa",
+        "target_contract_title": "ProQuest / IBM MSA",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_proquest_ibm_msa.txt",
+        "target_contract_category": "msa_saas",
+        "clause_families": "confidentiality, indemnity, limitation_of_liability, termination, renewal, ip_ownership, data_protection, governing_law, payment, assignment, audit, insurance, notices",
+        "output_format": "table",
+        "include_obligations": "yes",
+        "include_dates_deadlines": "yes"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Clause",
+        "Source",
+        "Obligation"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_clause_extraction",
+      "label": "Clause Extraction · Relativity / KLDiscovery Master Terms + DPA",
+      "notes": "Targeted public-contract eval for Clause Extraction using Relativity / KLDiscovery Master Terms + DPA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/dpa"
+      },
+      "inputs": {
+        "focus": "Extract key clauses, parties, dates, obligations, deadlines, legal positions, fallback-relevant terms, and approval-sensitive language.",
+        "document_type": "dpa",
+        "review_mode": "legal_risk",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "relativity_kldiscovery_master_terms_dpa",
+        "target_contract_title": "Relativity / KLDiscovery Master Terms + DPA",
+        "target_contract_path": "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt",
+        "target_contract_category": "dpa",
+        "clause_families": "confidentiality, indemnity, limitation_of_liability, termination, renewal, ip_ownership, data_protection, governing_law, payment, assignment, audit, insurance, notices",
+        "output_format": "table",
+        "include_obligations": "yes",
+        "include_dates_deadlines": "yes"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Clause",
+        "Source",
+        "Obligation"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_fallback_language",
+      "label": "Fallback Language · Fusion-io / SanDisk NDA",
+      "notes": "Targeted public-contract eval for Fallback Language using Fusion-io / SanDisk NDA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/nda/sec_fusionio_sandisk_nda.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/nda"
+      },
+      "inputs": {
+        "focus": "Draft safer fallback language, fallback ladders, and comment-ready negotiation notes for approval-sensitive clauses in the selected contract.",
+        "document_type": "nda",
+        "review_mode": "negotiation",
+        "counterparty_position": "partner",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "fusionio_sandisk_nda",
+        "target_contract_title": "Fusion-io / SanDisk NDA",
+        "target_contract_path": "public_contract_eval_seed/contracts/nda/sec_fusionio_sandisk_nda.txt",
+        "target_contract_category": "nda",
+        "target_issue": "confidentiality term, residual knowledge, standstill, and return/destruction language",
+        "desired_position": "balanced mutual confidentiality with narrower residuals and clearer return/destruction mechanics",
+        "output_type": "fallback ladder plus comment-ready language"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Proposed Language",
+        "Fallback",
+        "Open Questions"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_fallback_language",
+      "label": "Fallback Language · Anthem / Castlight SaaS Agreement",
+      "notes": "Targeted public-contract eval for Fallback Language using Anthem / Castlight SaaS Agreement.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Draft safer fallback language, fallback ladders, and comment-ready negotiation notes for approval-sensitive clauses in the selected contract.",
+        "document_type": "msa_services",
+        "review_mode": "negotiation",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "anthem_castlight_saas",
+        "target_contract_title": "Anthem / Castlight SaaS Agreement",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt",
+        "target_contract_category": "msa_saas",
+        "target_issue": "limitation of liability, data/security obligations, service levels, and termination remedies",
+        "desired_position": "customer-protective but commercially usable fallback language",
+        "output_type": "clause language plus negotiation comments"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Proposed Language",
+        "Fallback",
+        "Open Questions"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_fallback_language",
+      "label": "Fallback Language · ProQuest / IBM MSA",
+      "notes": "Targeted public-contract eval for Fallback Language using ProQuest / IBM MSA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_proquest_ibm_msa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Draft safer fallback language, fallback ladders, and comment-ready negotiation notes for approval-sensitive clauses in the selected contract.",
+        "document_type": "msa_services",
+        "review_mode": "negotiation",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "proquest_ibm_msa",
+        "target_contract_title": "ProQuest / IBM MSA",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_proquest_ibm_msa.txt",
+        "target_contract_category": "msa_saas",
+        "target_issue": "liability, indemnity, service obligations, change control, and termination rights",
+        "desired_position": "enterprise customer fallback positions with practical escalation notes",
+        "output_type": "fallback ladder plus internal rationale"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Proposed Language",
+        "Fallback",
+        "Open Questions"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_negotiation_brief",
+      "label": "Negotiation Brief · Fusion-io / SanDisk NDA",
+      "notes": "Targeted public-contract eval for Negotiation Brief using Fusion-io / SanDisk NDA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/nda/sec_fusionio_sandisk_nda.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/nda"
+      },
+      "inputs": {
+        "focus": "Create a deal-strategy negotiation brief with must-have changes, nice-to-have changes, fallback positions, suggested comments, escalation issues, and open questions.",
+        "document_type": "nda",
+        "review_mode": "negotiation",
+        "counterparty_position": "partner",
+        "risk_tolerance": "commercial",
+        "target_contract_id": "fusionio_sandisk_nda",
+        "target_contract_title": "Fusion-io / SanDisk NDA",
+        "target_contract_path": "public_contract_eval_seed/contracts/nda/sec_fusionio_sandisk_nda.txt",
+        "target_contract_category": "nda",
+        "negotiation_posture": "balanced but protective",
+        "audience": "legal team and business owner",
+        "top_priority": "reduce liability and preserve operational leverage without blocking a reasonable deal",
+        "include_comment_ready_language": "yes"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Must-Have",
+        "Fallback",
+        "Open Questions"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/negotiation_brief"
+    },
+    {
+      "workflow_id": "legal_negotiation_brief",
+      "label": "Negotiation Brief · Anthem / Castlight SaaS Agreement",
+      "notes": "Targeted public-contract eval for Negotiation Brief using Anthem / Castlight SaaS Agreement.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Create a deal-strategy negotiation brief with must-have changes, nice-to-have changes, fallback positions, suggested comments, escalation issues, and open questions.",
+        "document_type": "msa_services",
+        "review_mode": "negotiation",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "commercial",
+        "target_contract_id": "anthem_castlight_saas",
+        "target_contract_title": "Anthem / Castlight SaaS Agreement",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt",
+        "target_contract_category": "msa_saas",
+        "negotiation_posture": "balanced but protective",
+        "audience": "legal team and business owner",
+        "top_priority": "reduce liability and preserve operational leverage without blocking a reasonable deal",
+        "include_comment_ready_language": "yes"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Must-Have",
+        "Fallback",
+        "Open Questions"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/negotiation_brief"
+    },
+    {
+      "workflow_id": "legal_negotiation_brief",
+      "label": "Negotiation Brief · Indegene / Cingulate MSA",
+      "notes": "Targeted public-contract eval for Negotiation Brief using Indegene / Cingulate MSA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_indegene_cingulate_msa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Create a deal-strategy negotiation brief with must-have changes, nice-to-have changes, fallback positions, suggested comments, escalation issues, and open questions.",
+        "document_type": "msa_services",
+        "review_mode": "negotiation",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "commercial",
+        "target_contract_id": "indegene_cingulate_msa",
+        "target_contract_title": "Indegene / Cingulate MSA",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_indegene_cingulate_msa.txt",
+        "target_contract_category": "msa_saas",
+        "negotiation_posture": "balanced but protective",
+        "audience": "legal team and business owner",
+        "top_priority": "reduce liability and preserve operational leverage without blocking a reasonable deal",
+        "include_comment_ready_language": "yes"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Must-Have",
+        "Fallback",
+        "Open Questions"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/negotiation_brief"
+    },
+    {
+      "workflow_id": "legal_obligation_tracker",
+      "label": "Obligation Tracker · Indegene / Cingulate MSA",
+      "notes": "Targeted public-contract eval for Obligation Tracker using Indegene / Cingulate MSA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_indegene_cingulate_msa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Extract post-signature obligations, responsible parties, triggers, deadlines, notices, renewal windows, payment/reporting obligations, data/security duties, and owner follow-ups.",
+        "document_type": "msa_services",
+        "review_mode": "business_risk",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "indegene_cingulate_msa",
+        "target_contract_title": "Indegene / Cingulate MSA",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_indegene_cingulate_msa.txt",
+        "target_contract_category": "msa_saas",
+        "tracking_scope": "post-signature obligations",
+        "include_renewal_notice_windows": "yes",
+        "include_payment_reporting_obligations": "yes",
+        "include_data_security_obligations": "yes"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Obligation",
+        "Deadline",
+        "Open Questions"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_obligation_tracker",
+      "label": "Obligation Tracker · Anthem / Castlight SaaS Agreement",
+      "notes": "Targeted public-contract eval for Obligation Tracker using Anthem / Castlight SaaS Agreement.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Extract post-signature obligations, responsible parties, triggers, deadlines, notices, renewal windows, payment/reporting obligations, data/security duties, and owner follow-ups.",
+        "document_type": "msa_services",
+        "review_mode": "business_risk",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "anthem_castlight_saas",
+        "target_contract_title": "Anthem / Castlight SaaS Agreement",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt",
+        "target_contract_category": "msa_saas",
+        "tracking_scope": "post-signature obligations",
+        "include_renewal_notice_windows": "yes",
+        "include_payment_reporting_obligations": "yes",
+        "include_data_security_obligations": "yes"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Obligation",
+        "Deadline",
+        "Open Questions"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_obligation_tracker",
+      "label": "Obligation Tracker · Relativity / KLDiscovery Master Terms + DPA",
+      "notes": "Targeted public-contract eval for Obligation Tracker using Relativity / KLDiscovery Master Terms + DPA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/dpa"
+      },
+      "inputs": {
+        "focus": "Extract post-signature obligations, responsible parties, triggers, deadlines, notices, renewal windows, payment/reporting obligations, data/security duties, and owner follow-ups.",
+        "document_type": "dpa",
+        "review_mode": "business_risk",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "relativity_kldiscovery_master_terms_dpa",
+        "target_contract_title": "Relativity / KLDiscovery Master Terms + DPA",
+        "target_contract_path": "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt",
+        "target_contract_category": "dpa",
+        "tracking_scope": "post-signature obligations",
+        "include_renewal_notice_windows": "yes",
+        "include_payment_reporting_obligations": "yes",
+        "include_data_security_obligations": "yes"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Obligation",
+        "Deadline",
+        "Open Questions"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_matter_handoff",
+      "label": "Matter Handoff · Anthem / Castlight SaaS Agreement",
+      "notes": "Targeted public-contract eval for Matter Handoff using Anthem / Castlight SaaS Agreement.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Prepare a handoff note for the next legal/business reviewer with matter status, key context, decisions, open issues, risks, deadlines, approvals, and next steps.",
+        "document_type": "msa_services",
+        "review_mode": "executive_summary",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "anthem_castlight_saas",
+        "target_contract_title": "Anthem / Castlight SaaS Agreement",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt",
+        "target_contract_category": "msa_saas",
+        "recipient": "next legal reviewer and business owner",
+        "matter_stage": "review and negotiation",
+        "emphasis": "open issues, deadlines, decisions, approvals, risks, and recommended next actions"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Matter Status",
+        "Open Issues",
+        "Recommended Next Steps"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_matter_handoff",
+      "label": "Matter Handoff · Relativity / KLDiscovery Master Terms + DPA",
+      "notes": "Targeted public-contract eval for Matter Handoff using Relativity / KLDiscovery Master Terms + DPA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/dpa"
+      },
+      "inputs": {
+        "focus": "Prepare a handoff note for the next legal/business reviewer with matter status, key context, decisions, open issues, risks, deadlines, approvals, and next steps.",
+        "document_type": "dpa",
+        "review_mode": "executive_summary",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "relativity_kldiscovery_master_terms_dpa",
+        "target_contract_title": "Relativity / KLDiscovery Master Terms + DPA",
+        "target_contract_path": "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt",
+        "target_contract_category": "dpa",
+        "recipient": "next legal reviewer and business owner",
+        "matter_stage": "review and negotiation",
+        "emphasis": "open issues, deadlines, decisions, approvals, risks, and recommended next actions"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Matter Status",
+        "Open Issues",
+        "Recommended Next Steps"
+      ],
+      "min_source_count": 1
+    },
+    {
+      "workflow_id": "legal_matter_handoff",
+      "label": "Matter Handoff · ProQuest / IBM MSA",
+      "notes": "Targeted public-contract eval for Matter Handoff using ProQuest / IBM MSA.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_proquest_ibm_msa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Prepare a handoff note for the next legal/business reviewer with matter status, key context, decisions, open issues, risks, deadlines, approvals, and next steps.",
+        "document_type": "msa_services",
+        "review_mode": "executive_summary",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "proquest_ibm_msa",
+        "target_contract_title": "ProQuest / IBM MSA",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_proquest_ibm_msa.txt",
+        "target_contract_category": "msa_saas",
+        "recipient": "next legal reviewer and business owner",
+        "matter_stage": "review and negotiation",
+        "emphasis": "open issues, deadlines, decisions, approvals, risks, and recommended next actions"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Matter Status",
+        "Open Issues",
+        "Recommended Next Steps"
+      ],
+      "min_source_count": 1
+    }
+  ],
+  "metadata": {
+    "owner": "internal",
+    "pack": "legal",
+    "fixture_set": "public_contract_eval_seed",
+    "run_shape": "3 targeted source contracts per Legal Pro workflow",
+    "workflow_count": 9,
+    "run_count": 27,
+    "review_instructions": "Run from the internal eval UI, download the JSON result, and send the export for qualitative analysis.",
+    "workflow_target_map": {
+      "legal_nda_review": [
+        "fusionio_sandisk_nda",
+        "sequans_renesas_mutual_nda",
+        "csr_qualcomm_nda"
+      ],
+      "legal_msa_review": [
+        "indegene_cingulate_msa",
+        "proquest_ibm_msa",
+        "anthem_castlight_saas"
+      ],
+      "legal_contract_review": [
+        "anthem_castlight_saas",
+        "relativity_kldiscovery_master_terms_dpa",
+        "indegene_cingulate_msa"
+      ],
+      "legal_contract_risk_matrix": [
+        "fusionio_sandisk_nda",
+        "anthem_castlight_saas",
+        "relativity_kldiscovery_master_terms_dpa"
+      ],
+      "legal_clause_extraction": [
+        "fusionio_sandisk_nda",
+        "proquest_ibm_msa",
+        "relativity_kldiscovery_master_terms_dpa"
+      ],
+      "legal_fallback_language": [
+        "fusionio_sandisk_nda",
+        "anthem_castlight_saas",
+        "proquest_ibm_msa"
+      ],
+      "legal_negotiation_brief": [
+        "fusionio_sandisk_nda",
+        "anthem_castlight_saas",
+        "indegene_cingulate_msa"
+      ],
+      "legal_obligation_tracker": [
+        "indegene_cingulate_msa",
+        "anthem_castlight_saas",
+        "relativity_kldiscovery_master_terms_dpa"
+      ],
+      "legal_matter_handoff": [
+        "anthem_castlight_saas",
+        "relativity_kldiscovery_master_terms_dpa",
+        "proquest_ibm_msa"
+      ]
+    },
+    "excluded_fixture_formats": [
+      ".odt",
+      ".pdf"
+    ]
+  }
+}

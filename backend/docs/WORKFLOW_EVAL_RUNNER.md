@@ -4,6 +4,25 @@ The workflow eval runner executes configured workflows against an existing uploa
 
 This is internal backend tooling only. It does not add product UI, does not create customer-facing workflow history, and skips workflow token billing while still recording usage estimates in the exported metadata.
 
+
+## Legal Pro public-contract manifest
+
+The main Legal Pro eval case is:
+
+```text
+backend/internal/evals/cases/legal_pro_public_contracts.example.json
+```
+
+It runs 27 workflow executions:
+
+```text
+9 Legal Pro workflows × 3 targeted public contract sources
+```
+
+The manifest intentionally uses only bundled `.txt` fixtures, not the `.odt` or `.pdf` fixtures. Each workflow entry has its own `selection.file_paths` value so NDA Review receives NDA sources, MSA Review receives MSA/SaaS sources, Obligation Tracker receives obligation-heavy sources, and Fallback Language receives contracts with negotiable clause issues.
+
+The internal eval UI can run this case directly. Leave the document manifest override blank unless you intentionally want to override the workflow-specific fixture selections.
+
 ## What it reuses
 
 The runner calls the same workflow service pieces used by production workflow runs:
@@ -22,7 +41,7 @@ For the dev stack:
 ```bash
 make workflow-eval-dev \
   EVAL_UID=<USER_OR_EVAL_TENANT_UID> \
-  CASE=internal/evals/cases/legal_pack_smoke.example.json \
+  CASE=internal/evals/cases/legal_pro_public_contracts.example.json \
   MODE=smoke \
   MARKDOWN=1
 ```
@@ -32,7 +51,7 @@ For the base Compose stack:
 ```bash
 make workflow-eval \
   EVAL_UID=<USER_OR_EVAL_TENANT_UID> \
-  CASE=internal/evals/cases/legal_pack_smoke.example.json \
+  CASE=internal/evals/cases/legal_pro_public_contracts.example.json \
   MODE=smoke \
   MARKDOWN=1
 ```
@@ -42,10 +61,10 @@ To compare against a previous run:
 ```bash
 make workflow-eval-dev \
   EVAL_UID=<USER_OR_EVAL_TENANT_UID> \
-  CASE=internal/evals/cases/legal_pack_smoke.example.json \
+  CASE=internal/evals/cases/legal_pro_public_contracts.example.json \
   MODE=smoke \
   MARKDOWN=1 \
-  COMPARE_TO=internal/evals/results/legal_pack_smoke_001__20260429T120000Z.json
+  COMPARE_TO=internal/evals/results/legal_pro_public_contracts_v1__20260429T120000Z.json
 ```
 
 The Make targets run the command in the `api` container with `PYTHONPATH=/app`.
@@ -57,7 +76,7 @@ From the `backend/` directory:
 ```bash
 python -m internal.evals.runner \
   --uid <USER_OR_EVAL_TENANT_UID> \
-  --case internal/evals/cases/legal_pack_smoke.example.json \
+  --case internal/evals/cases/legal_pro_public_contracts.example.json \
   --out internal/evals/results \
   --mode smoke \
   --markdown
@@ -66,13 +85,13 @@ python -m internal.evals.runner \
 The command writes a JSON file like:
 
 ```text
-backend/internal/evals/results/legal_pack_smoke_001__20260429T120000Z.json
+backend/internal/evals/results/legal_pro_public_contracts_v1__20260429T120000Z.json
 ```
 
 With `--markdown`, it also writes a readable bundle:
 
 ```text
-backend/internal/evals/results/legal_pack_smoke_001__20260429T120000Z/
+backend/internal/evals/results/legal_pro_public_contracts_v1__20260429T120000Z/
   summary.md
   01-legal_contract_review.md
   02-legal_contract_risk_matrix.md
@@ -84,7 +103,7 @@ With `--compare-to`, it writes comparison JSON and markdown files.
 
 ```json
 {
-  "eval_id": "legal_pack_smoke_001",
+  "eval_id": "legal_pro_public_contracts_v1",
   "description": "Smoke-test legal workflows.",
   "mode": "smoke",
   "default_prompt_version": "legal-pack-v1",

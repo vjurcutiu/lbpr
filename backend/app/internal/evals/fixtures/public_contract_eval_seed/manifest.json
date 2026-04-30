@@ -2,14 +2,15 @@
   "dataset_id": "public_contract_eval_seed_001",
   "created_for": "LBP/Lexbot legal workflow evals",
   "created_at": "2026-04-29",
-  "contents_note": "Two SEC contracts are included as plain text. The remaining entries are source-linked and can be fetched with scripts/fetch_public_contracts.py in a normal networked environment.",
+  "contents_note": "Public SEC/contract fixtures are included as plain-text files where possible. Binary ODT/PDF fixtures are retained as source references but are excluded from the default workflow eval case.",
   "recommended_eval_workflows": [
     "legal_nda_review",
     "legal_contract_review",
     "legal_msa_review",
-    "legal_risk_matrix",
+    "legal_contract_risk_matrix",
     "legal_clause_extraction",
     "legal_obligation_tracker",
+    "legal_fallback_language",
     "legal_negotiation_brief",
     "legal_matter_handoff"
   ],
@@ -25,8 +26,9 @@
       "download_status": "included_as_text",
       "suggested_workflows": [
         "legal_nda_review",
-        "legal_risk_matrix",
+        "legal_contract_risk_matrix",
         "legal_clause_extraction",
+        "legal_fallback_language",
         "legal_negotiation_brief"
       ],
       "notes": "M&A-style NDA; standstill, permitted purpose, residual knowledge, employee nonsolicit."
@@ -42,7 +44,7 @@
       "download_status": "included_as_text",
       "suggested_workflows": [
         "legal_contract_review",
-        "legal_risk_matrix",
+        "legal_contract_risk_matrix",
         "legal_clause_extraction"
       ],
       "notes": "Short confidentiality agreement; good smoke test."
@@ -58,7 +60,7 @@
       "download_status": "manifest_only_fetch_with_script",
       "suggested_workflows": [
         "legal_nda_review",
-        "legal_risk_matrix",
+        "legal_contract_risk_matrix",
         "legal_clause_extraction",
         "legal_negotiation_brief"
       ],
@@ -75,7 +77,7 @@
       "download_status": "manifest_only_fetch_with_script",
       "suggested_workflows": [
         "legal_nda_review",
-        "legal_risk_matrix",
+        "legal_contract_risk_matrix",
         "legal_clause_extraction",
         "legal_negotiation_brief"
       ],
@@ -92,7 +94,7 @@
       "download_status": "manifest_only_fetch_with_script",
       "suggested_workflows": [
         "legal_nda_review",
-        "legal_risk_matrix",
+        "legal_contract_risk_matrix",
         "legal_clause_extraction",
         "legal_negotiation_brief"
       ],
@@ -111,7 +113,7 @@
         "legal_msa_review",
         "legal_contract_review",
         "legal_obligation_tracker",
-        "legal_risk_matrix"
+        "legal_contract_risk_matrix"
       ],
       "notes": "Compact service agreement; good MSA smoke test."
     },
@@ -128,7 +130,7 @@
         "legal_msa_review",
         "legal_contract_review",
         "legal_obligation_tracker",
-        "legal_risk_matrix"
+        "legal_contract_risk_matrix"
       ],
       "notes": "Recent services agreement sample."
     },
@@ -145,7 +147,8 @@
         "legal_msa_review",
         "legal_contract_review",
         "legal_obligation_tracker",
-        "legal_risk_matrix"
+        "legal_contract_risk_matrix",
+        "legal_fallback_language"
       ],
       "notes": "Long enterprise MSA; good long-document stress test."
     },
@@ -162,7 +165,8 @@
         "legal_msa_review",
         "legal_contract_review",
         "legal_obligation_tracker",
-        "legal_risk_matrix"
+        "legal_contract_risk_matrix",
+        "legal_fallback_language"
       ],
       "notes": "Enterprise SaaS contract; data/security/service terms."
     },
@@ -179,7 +183,7 @@
         "legal_contract_review",
         "legal_clause_extraction",
         "legal_obligation_tracker",
-        "legal_risk_matrix"
+        "legal_contract_risk_matrix"
       ],
       "notes": "SaaS master terms with data/security and DPA coverage.",
       "alternate_url": "https://contracts.justia.com/companies/pivotal-acquisition-corp-6277/contract/1276886/"
@@ -195,7 +199,7 @@
       "download_status": "manifest_only_fetch_with_script",
       "suggested_workflows": [
         "legal_nda_review",
-        "legal_risk_matrix",
+        "legal_contract_risk_matrix",
         "legal_clause_extraction",
         "legal_negotiation_brief"
       ],
@@ -215,7 +219,7 @@
         "legal_msa_review",
         "legal_contract_review",
         "legal_obligation_tracker",
-        "legal_risk_matrix"
+        "legal_contract_risk_matrix"
       ],
       "notes": "Clean MSA baseline template.",
       "raw_url": "https://github.com/cure53/Contracts/raw/refs/heads/main/MSA-en.odt"
@@ -233,7 +237,7 @@
         "legal_contract_review",
         "legal_clause_extraction",
         "legal_obligation_tracker",
-        "legal_risk_matrix"
+        "legal_contract_risk_matrix"
       ],
       "notes": "Clean DPA baseline template.",
       "raw_url": "https://github.com/cure53/Contracts/raw/refs/heads/main/DPA-en.odt"
@@ -251,7 +255,7 @@
         "legal_contract_review",
         "legal_clause_extraction",
         "legal_obligation_tracker",
-        "legal_risk_matrix"
+        "legal_contract_risk_matrix"
       ],
       "notes": "Public DPA PDF reference."
     }

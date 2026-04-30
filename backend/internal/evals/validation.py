@@ -47,6 +47,15 @@ DEFAULT_WORKFLOW_VALIDATION: dict[str, dict[str, Any]] = {
         "required_metadata_keys": ["risk_items", "open_questions"],
         "min_source_count": 1,
     },
+    "legal_fallback_language": {
+        "required_metadata_keys": ["fallback_items", "open_questions"],
+        "required_metadata_min_items": {"fallback_items": 1},
+        "min_source_count": 1,
+    },
+    "legal_matter_handoff": {
+        "required_metadata_keys": ["risk_items", "obligation_items", "open_questions", "approval_notes"],
+        "min_source_count": 1,
+    },
 }
 
 

@@ -364,13 +364,17 @@ def _apply_request_overrides(case, request: InternalEvalRunRequest):
         if request.apply_selection_to_workflows:
             for workflow in case.workflows:
                 workflow.selection = selection
+        file_paths = list(getattr(selection, "file_paths", []) or [])
+        folder_paths = list(selection.folder_paths)
         metadata["selection_override"] = {
             "file_ids": list(selection.file_ids),
-            "file_paths": list(getattr(selection, "file_paths", []) or []),
-            "folder_paths": list(selection.folder_paths),
+            "file_paths": file_paths,
+            "folder_paths": folder_paths,
             "current_folder": selection.current_folder,
             "apply_selection_to_workflows": request.apply_selection_to_workflows,
             "folder_paths_are_recursive": True,
+            "file_count": len(selection.file_ids) + len(file_paths),
+            "folder_count": len(folder_paths),
         }
 
     case.metadata = metadata

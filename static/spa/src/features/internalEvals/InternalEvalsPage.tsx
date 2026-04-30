@@ -136,7 +136,7 @@ export default function InternalEvalsPage() {
   const filePickerRef = useRef<HTMLInputElement | null>(null);
   const folderPickerRef = useRef<HTMLInputElement | null>(null);
   const [launcher, setLauncher] = useState({
-    case_path: "internal/evals/cases/legal_pack_smoke.example.json",
+    case_path: "internal/evals/cases/legal_pro_public_contracts.example.json",
     uid: "",
     mode: "smoke",
     compare_to: "",

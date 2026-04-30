@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from features.workflows import registry as workflow_registry
 from features.workflows import service as workflow_service
@@ -208,3 +209,46 @@ def test_internal_eval_request_selection_override_can_leave_workflow_specific_se
     assert updated.workflows[0].selection.file_ids == ["workflow-file"]
     assert updated.workflows[1].selection is None
     assert updated.metadata["selection_override"]["apply_selection_to_workflows"] is False
+
+
+def test_legal_pro_public_contract_manifest_targets_each_workflow_three_times():
+    manifest_path = Path(__file__).resolve().parents[1] / "internal" / "evals" / "cases" / "legal_pro_public_contracts.example.json"
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    case = WorkflowEvalCase.model_validate(raw)
+
+    expected_workflows = {
+        "legal_contract_review",
+        "legal_contract_risk_matrix",
+        "legal_nda_review",
+        "legal_msa_review",
+        "legal_clause_extraction",
+        "legal_fallback_language",
+        "legal_negotiation_brief",
+        "legal_obligation_tracker",
+        "legal_matter_handoff",
+    }
+
+    counts = {workflow_id: 0 for workflow_id in expected_workflows}
+    for workflow in case.workflows:
+        assert workflow.workflow_id in expected_workflows
+        assert workflow.workflow_id != "legal_risk_matrix"
+        assert workflow.selection is not None
+        assert len(workflow.selection.file_paths) == 1
+        assert workflow.selection.file_paths[0].startswith("public_contract_eval_seed/contracts/")
+        assert workflow.selection.file_paths[0].endswith(".txt")
+        assert workflow.inputs.get("target_contract_id")
+        assert workflow.inputs.get("target_contract_path") == workflow.selection.file_paths[0]
+        counts[workflow.workflow_id] += 1
+
+    assert counts == {workflow_id: 3 for workflow_id in expected_workflows}
+    assert len(case.workflows) == 27
+
+
+def test_legal_pro_public_contract_manifest_fixture_paths_exist():
+    manifest_path = Path(__file__).resolve().parents[1] / "internal" / "evals" / "cases" / "legal_pro_public_contracts.example.json"
+    fixture_root = Path(__file__).resolve().parents[1] / "app" / "internal" / "evals" / "fixtures"
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    for workflow in raw["workflows"]:
+        for file_path in workflow["selection"]["file_paths"]:
+            assert (fixture_root / file_path).exists(), file_path
