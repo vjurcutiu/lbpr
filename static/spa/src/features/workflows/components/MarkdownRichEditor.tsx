@@ -736,21 +736,21 @@ export function MarkdownRichEditor({ value, onChange, disabled = false, ariaLabe
         onMouseUp={saveSelection}
         onBlur={emitChange}
         className={cn(
-          "min-h-[520px] overflow-x-auto px-5 py-6 text-[15px] leading-7 outline-none md:px-8 md:py-8",
-          "[&_blockquote]:my-4 [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground",
-          "[&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[0.9em]",
+          "min-h-[520px] min-w-0 max-w-full overflow-x-auto px-5 py-6 text-[15px] leading-7 outline-none break-words [overflow-wrap:anywhere] md:px-8 md:py-8",
+          "[&_blockquote]:my-4 [&_blockquote]:break-words [&_blockquote]:[overflow-wrap:anywhere] [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:text-muted-foreground",
+          "[&_code]:break-words [&_code]:[overflow-wrap:anywhere] [&_code]:rounded-md [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[0.9em]",
           "[&_h1]:mb-5 [&_h1]:text-2xl [&_h1]:font-semibold [&_h1]:leading-tight [&_h1]:tracking-[-0.02em]",
           "[&_h2]:mb-3 [&_h2]:mt-7 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:leading-7",
           "[&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:leading-6",
           "[&_h4]:mb-2 [&_h4]:mt-5 [&_h4]:text-[15px] [&_h4]:font-semibold [&_h4]:leading-6",
           "[&_h5]:mb-2 [&_h5]:mt-4 [&_h5]:text-sm [&_h5]:font-semibold [&_h5]:leading-6",
           "[&_h6]:mb-2 [&_h6]:mt-4 [&_h6]:text-xs [&_h6]:font-semibold [&_h6]:uppercase [&_h6]:tracking-[0.12em] [&_h6]:text-muted-foreground",
-          "[&_li]:pl-1 [&_ol]:my-3 [&_ol]:ml-5 [&_ol]:list-decimal [&_ol]:space-y-2 [&_p]:my-3",
-          "[&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-2xl [&_pre]:bg-muted [&_pre]:px-4 [&_pre]:py-3 [&_pre]:text-sm [&_pre]:leading-6",
-          "[&_strong]:font-semibold [&_table]:my-5 [&_table]:w-full [&_table]:min-w-[560px] [&_table]:border-collapse [&_table]:text-sm",
-          "[&_td]:border-t [&_td]:border-border/70 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top [&_td]:text-sm [&_td]:leading-6",
-          "[&_th]:border-b [&_th]:border-border/70 [&_th]:bg-muted/30 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-[0.12em] [&_th]:text-muted-foreground",
-          "[&_ul]:my-3 [&_ul]:ml-5 [&_ul]:list-disc [&_ul]:space-y-2",
+          "[&_li]:break-words [&_li]:[overflow-wrap:anywhere] [&_li]:pl-1 [&_ol]:my-3 [&_ol]:ml-5 [&_ol]:min-w-0 [&_ol]:list-decimal [&_ol]:space-y-2 [&_p]:my-3 [&_p]:break-words [&_p]:[overflow-wrap:anywhere]",
+          "[&_pre]:my-4 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:overscroll-x-contain [&_pre]:rounded-2xl [&_pre]:bg-muted [&_pre]:px-4 [&_pre]:py-3 [&_pre]:text-sm [&_pre]:leading-6 [&_pre_code]:whitespace-pre",
+          "[&_strong]:font-semibold [&_table]:my-5 [&_table]:w-full [&_table]:min-w-[560px] [&_table]:table-fixed [&_table]:border-collapse [&_table]:text-sm",
+          "[&_td]:break-words [&_td]:[overflow-wrap:anywhere] [&_td]:border-t [&_td]:border-border/70 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top [&_td]:text-sm [&_td]:leading-6",
+          "[&_th]:break-words [&_th]:[overflow-wrap:anywhere] [&_th]:border-b [&_th]:border-border/70 [&_th]:bg-muted/30 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:text-xs [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-[0.12em] [&_th]:text-muted-foreground",
+          "[&_ul]:my-3 [&_ul]:ml-5 [&_ul]:min-w-0 [&_ul]:list-disc [&_ul]:space-y-2",
           disabled && "cursor-not-allowed opacity-70"
         )}
       />

@@ -130,6 +130,14 @@ function hasMetadataItems(value: unknown) {
   return topMetadataItems(value, 1).length > 0;
 }
 
+const legalCardClass = "min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background p-4 shadow-sm";
+const legalMutedCardClass = "min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-muted/10 p-4";
+const overflowTextClass = "min-w-0 break-words [overflow-wrap:anywhere]";
+const overflowPreWrapTextClass = "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
+const safeBadgeClass = "min-w-0 w-auto max-w-full shrink basis-auto justify-start whitespace-normal text-left [overflow-wrap:anywhere]";
+const tableScrollClass = "max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-border/70";
+const metadataTableClass = "w-full min-w-[640px] table-fixed border-collapse text-sm";
+
 function workflowMetadata(metadata: Record<string, unknown>) {
   return metadata.workflow_profile && typeof metadata.workflow_profile === "object" && !Array.isArray(metadata.workflow_profile)
     ? metadata.workflow_profile as LegalMetadataItem
@@ -162,11 +170,11 @@ function LegalProfileCard({ profile }: { profile: LegalMetadataItem }) {
 
   if (!profileItems.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-muted/10 p-4">
+    <div className={legalMutedCardClass}>
       <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Review profile</div>
       <div className="flex flex-wrap gap-2">
         {profileItems.map((item) => (
-          <Badge key={item.label} variant="outline" className="rounded-full bg-background px-2 py-1 text-[11px] font-normal">
+          <Badge key={item.label} variant="outline" className={cn("rounded-full bg-background px-2 py-1 text-[11px] font-normal", safeBadgeClass)}>
             {item.label}: {humanizeMetadataValue(item.value)}
           </Badge>
         ))}
@@ -178,7 +186,7 @@ function LegalProfileCard({ profile }: { profile: LegalMetadataItem }) {
 function RiskItemsCard({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
+    <div className={legalCardClass}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Risk highlights</div>
         <Badge variant="secondary" className="rounded-full text-[10px] font-normal">{items.length}</Badge>
@@ -190,13 +198,13 @@ function RiskItemsCard({ items }: { items: LegalMetadataItem[] }) {
           const impact = metadataText(item, ["business_impact", "impact"]);
           const recommendation = metadataText(item, ["recommended_change", "recommendation", "recommended_fix"]);
           return (
-            <div key={`${issue}-${index}`} className="rounded-2xl border border-border/60 bg-muted/10 p-3">
+            <div key={`${issue}-${index}`} className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/60 bg-muted/10 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0 text-sm font-medium leading-6 text-foreground">{issue}</div>
-                <Badge variant="outline" className="shrink-0 rounded-full text-[10px] font-normal">{humanizeMetadataValue(severity)}</Badge>
+                <div className={cn("text-sm font-medium leading-6 text-foreground", overflowTextClass)}>{issue}</div>
+                <Badge variant="outline" className={cn("rounded-full text-[10px] font-normal", safeBadgeClass)}>{humanizeMetadataValue(severity)}</Badge>
               </div>
-              {impact ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{impact}</p> : null}
-              {recommendation ? <p className="mt-2 text-xs leading-5 text-foreground/80">{recommendation}</p> : null}
+              {impact ? <p className={cn("mt-1 text-xs leading-5 text-muted-foreground", overflowPreWrapTextClass)}>{impact}</p> : null}
+              {recommendation ? <p className={cn("mt-2 text-xs leading-5 text-foreground/80", overflowPreWrapTextClass)}>{recommendation}</p> : null}
             </div>
           );
         })}
@@ -208,10 +216,10 @@ function RiskItemsCard({ items }: { items: LegalMetadataItem[] }) {
 function ClauseItemsCard({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
+    <div className={legalCardClass}>
       <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Clause notes</div>
-      <div className="overflow-x-auto rounded-2xl border border-border/70">
-        <table className="w-full min-w-[640px] text-sm">
+      <div className={tableScrollClass}>
+        <table className={metadataTableClass}>
           <thead className="bg-muted/30 text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-semibold">Clause</th>
@@ -226,9 +234,9 @@ function ClauseItemsCard({ items }: { items: LegalMetadataItem[] }) {
               const recommendation = metadataText(item, ["recommended_position", "recommended_change", "value"]);
               return (
                 <tr key={`${clause}-${index}`} className="border-t border-border/70">
-                  <td className="px-3 py-2 align-top text-sm font-medium text-foreground">{humanizeMetadataValue(clause)}</td>
-                  <td className="px-3 py-2 align-top text-sm leading-6 text-muted-foreground">{concern || "Review source language."}</td>
-                  <td className="px-3 py-2 align-top text-sm leading-6 text-foreground/85">{recommendation || "Confirm preferred position."}</td>
+                  <td className={cn("px-3 py-2 align-top text-sm font-medium text-foreground", overflowTextClass)}>{humanizeMetadataValue(clause)}</td>
+                  <td className={cn("px-3 py-2 align-top text-sm leading-6 text-muted-foreground", overflowPreWrapTextClass)}>{concern || "Review source language."}</td>
+                  <td className={cn("px-3 py-2 align-top text-sm leading-6 text-foreground/85", overflowPreWrapTextClass)}>{recommendation || "Confirm preferred position."}</td>
                 </tr>
               );
             })}
@@ -242,7 +250,7 @@ function ClauseItemsCard({ items }: { items: LegalMetadataItem[] }) {
 function ObligationItemsCard({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
+    <div className={legalCardClass}>
       <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Obligations</div>
       <div className="space-y-2">
         {items.map((item, index) => {
@@ -251,13 +259,13 @@ function ObligationItemsCard({ items }: { items: LegalMetadataItem[] }) {
           const deadline = metadataText(item, ["trigger_or_deadline", "deadline", "timeline"], "TBD");
           const followUp = metadataText(item, ["follow_up", "recommendation", "value"]);
           return (
-            <div key={`${obligation}-${index}`} className="rounded-2xl border border-border/60 bg-muted/10 p-3">
-              <div className="text-sm font-medium leading-6 text-foreground">{obligation}</div>
+            <div key={`${obligation}-${index}`} className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/60 bg-muted/10 p-3">
+              <div className={cn("text-sm font-medium leading-6 text-foreground", overflowTextClass)}>{obligation}</div>
               <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                <Badge variant="outline" className="rounded-full font-normal">Owner: {party}</Badge>
-                <Badge variant="outline" className="rounded-full font-normal">Trigger: {deadline}</Badge>
+                <Badge variant="outline" className={cn("rounded-full font-normal", safeBadgeClass)}>Owner: {party}</Badge>
+                <Badge variant="outline" className={cn("rounded-full font-normal", safeBadgeClass)}>Trigger: {deadline}</Badge>
               </div>
-              {followUp ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{followUp}</p> : null}
+              {followUp ? <p className={cn("mt-2 text-xs leading-5 text-muted-foreground", overflowPreWrapTextClass)}>{followUp}</p> : null}
             </div>
           );
         })}
@@ -269,10 +277,10 @@ function ObligationItemsCard({ items }: { items: LegalMetadataItem[] }) {
 function FieldItemsCard({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
+    <div className={legalCardClass}>
       <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Extracted details</div>
-      <div className="overflow-x-auto rounded-2xl border border-border/70">
-        <table className="w-full min-w-[640px] text-sm">
+      <div className={tableScrollClass}>
+        <table className={metadataTableClass}>
           <thead className="bg-muted/30 text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-semibold">Field</th>
@@ -289,10 +297,10 @@ function FieldItemsCard({ items }: { items: LegalMetadataItem[] }) {
               const confidence = metadataText(item, ["confidence"], "review");
               return (
                 <tr key={`${field}-${index}`} className="border-t border-border/70">
-                  <td className="px-3 py-2 align-top text-sm font-medium text-foreground">{humanizeMetadataValue(field)}</td>
-                  <td className="px-3 py-2 align-top text-sm leading-6 text-foreground/85">{value || "Confirm against source material."}</td>
-                  <td className="px-3 py-2 align-top text-sm leading-6 text-muted-foreground">{source || "Not available"}</td>
-                  <td className="px-3 py-2 align-top text-sm leading-6 text-muted-foreground">{humanizeMetadataValue(confidence)}</td>
+                  <td className={cn("px-3 py-2 align-top text-sm font-medium text-foreground", overflowTextClass)}>{humanizeMetadataValue(field)}</td>
+                  <td className={cn("px-3 py-2 align-top text-sm leading-6 text-foreground/85", overflowPreWrapTextClass)}>{value || "Confirm against source material."}</td>
+                  <td className={cn("px-3 py-2 align-top text-sm leading-6 text-muted-foreground", overflowPreWrapTextClass)}>{source || "Not available"}</td>
+                  <td className={cn("px-3 py-2 align-top text-sm leading-6 text-muted-foreground", overflowPreWrapTextClass)}>{humanizeMetadataValue(confidence)}</td>
                 </tr>
               );
             })}
@@ -306,7 +314,7 @@ function FieldItemsCard({ items }: { items: LegalMetadataItem[] }) {
 function FallbackItemsCard({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
+    <div className={legalCardClass}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Fallback language</div>
         <Badge variant="secondary" className="rounded-full text-[10px] font-normal">{items.length}</Badge>
@@ -319,18 +327,18 @@ function FallbackItemsCard({ items }: { items: LegalMetadataItem[] }) {
           const source = metadataText(item, ["source_basis", "source", "evidence"]);
           const confidence = metadataText(item, ["confidence"], "review");
           return (
-            <div key={`${clause}-${index}`} className="rounded-2xl border border-border/60 bg-muted/10 p-3">
+            <div key={`${clause}-${index}`} className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/60 bg-muted/10 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0 text-sm font-medium leading-6 text-foreground">{humanizeMetadataValue(clause)}</div>
-                <Badge variant="outline" className="shrink-0 rounded-full text-[10px] font-normal">{humanizeMetadataValue(confidence)}</Badge>
+                <div className={cn("text-sm font-medium leading-6 text-foreground", overflowTextClass)}>{humanizeMetadataValue(clause)}</div>
+                <Badge variant="outline" className={cn("rounded-full text-[10px] font-normal", safeBadgeClass)}>{humanizeMetadataValue(confidence)}</Badge>
               </div>
               {proposedLanguage ? (
-                <div className="mt-2 rounded-xl border border-border/60 bg-background px-3 py-2 text-sm leading-6 text-foreground/90">
+                <div className={cn("mt-2 rounded-xl border border-border/60 bg-background px-3 py-2 text-sm leading-6 text-foreground/90", overflowPreWrapTextClass)}>
                   {proposedLanguage}
                 </div>
               ) : null}
-              {rationale ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{rationale}</p> : null}
-              {source ? <p className="mt-2 text-[11px] leading-5 text-muted-foreground">Source: {source}</p> : null}
+              {rationale ? <p className={cn("mt-2 text-xs leading-5 text-muted-foreground", overflowPreWrapTextClass)}>{rationale}</p> : null}
+              {source ? <p className={cn("mt-2 text-[11px] leading-5 text-muted-foreground", overflowPreWrapTextClass)}>Source: {source}</p> : null}
             </div>
           );
         })}
@@ -342,7 +350,7 @@ function FallbackItemsCard({ items }: { items: LegalMetadataItem[] }) {
 function PlanItemsCard({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
+    <div className={legalCardClass}>
       <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Action plan</div>
       <div className="space-y-2">
         {items.map((item, index) => {
@@ -352,13 +360,13 @@ function PlanItemsCard({ items }: { items: LegalMetadataItem[] }) {
           const timeline = metadataText(item, ["timeline", "deadline"], "TBD");
           const clause = metadataText(item, ["related_clause_family", "clause_family", "clause"]);
           return (
-            <div key={`${action}-${index}`} className="rounded-2xl border border-border/60 bg-muted/10 p-3">
-              <div className="text-sm font-medium leading-6 text-foreground">{action}</div>
+            <div key={`${action}-${index}`} className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/60 bg-muted/10 p-3">
+              <div className={cn("text-sm font-medium leading-6 text-foreground", overflowTextClass)}>{action}</div>
               <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                <Badge variant="outline" className="rounded-full font-normal">Priority: {humanizeMetadataValue(priority)}</Badge>
-                <Badge variant="outline" className="rounded-full font-normal">Owner: {owner}</Badge>
-                <Badge variant="outline" className="rounded-full font-normal">Timeline: {timeline}</Badge>
-                {clause ? <Badge variant="outline" className="rounded-full font-normal">Clause: {humanizeMetadataValue(clause)}</Badge> : null}
+                <Badge variant="outline" className={cn("rounded-full font-normal", safeBadgeClass)}>Priority: {humanizeMetadataValue(priority)}</Badge>
+                <Badge variant="outline" className={cn("rounded-full font-normal", safeBadgeClass)}>Owner: {owner}</Badge>
+                <Badge variant="outline" className={cn("rounded-full font-normal", safeBadgeClass)}>Timeline: {timeline}</Badge>
+                {clause ? <Badge variant="outline" className={cn("rounded-full font-normal", safeBadgeClass)}>Clause: {humanizeMetadataValue(clause)}</Badge> : null}
               </div>
             </div>
           );
@@ -371,13 +379,13 @@ function PlanItemsCard({ items }: { items: LegalMetadataItem[] }) {
 function NotesListCard({ title, items }: { title: string; items: string[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-muted/10 p-4">
+    <div className={legalMutedCardClass}>
       <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{title}</div>
       <ul className="space-y-2 text-sm leading-6 text-foreground/85">
         {items.slice(0, 5).map((item, index) => (
           <li key={`${title}-${index}`} className="flex gap-2">
             <Circle className="mt-2 h-1.5 w-1.5 shrink-0 fill-current text-muted-foreground" />
-            <span>{item}</span>
+            <span className={overflowPreWrapTextClass}>{item}</span>
           </li>
         ))}
       </ul>
@@ -421,9 +429,9 @@ function LegalMetadataSummary({ result }: { result: WorkflowResult }) {
   }
 
   return (
-    <div className="mb-8 space-y-4">
+    <div className="mb-8 min-w-0 max-w-full space-y-4 overflow-hidden">
       <LegalProfileCard profile={profile} />
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid min-w-0 max-w-full gap-4 overflow-hidden xl:grid-cols-2 [&>*]:min-w-0">
         <RiskItemsCard items={riskItems} />
         <ObligationItemsCard items={obligationItems} />
         <FallbackItemsCard items={fallbackItems} />
@@ -431,7 +439,7 @@ function LegalMetadataSummary({ result }: { result: WorkflowResult }) {
       </div>
       <ClauseItemsCard items={clauseItems} />
       {showFieldItems ? <FieldItemsCard items={fieldItems} /> : null}
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid min-w-0 max-w-full gap-4 overflow-hidden xl:grid-cols-2 [&>*]:min-w-0">
         <NotesListCard title="Open questions" items={openQuestions} />
         <NotesListCard title="Approval notes" items={approvalNotes} />
       </div>
@@ -1285,7 +1293,7 @@ export function WorkflowResultDetails({
   };
 
   return (
-    <div className="min-w-0 space-y-5">
+    <div className="min-w-0 max-w-full space-y-5 overflow-hidden">
       <VersionHistoryPanel
         versions={versions}
         activeVersionId={activeVersionId}
@@ -1296,7 +1304,7 @@ export function WorkflowResultDetails({
         onResetVersionLayout={onResetVersionLayout}
       />
 
-      <div className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-background shadow-sm">
+      <div className="min-w-0 max-w-full overflow-hidden rounded-[1.75rem] border border-border/70 bg-background shadow-sm">
         <div className="flex flex-col gap-3 border-b border-border/70 bg-muted/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-end md:px-5">
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
             {editingOutput ? (
@@ -1403,30 +1411,30 @@ export function WorkflowResultDetails({
             />
           </>
         ) : (
-          <article className="min-w-0 px-5 py-6 md:px-8 md:py-8">
+          <article className="min-w-0 max-w-full overflow-hidden px-5 py-6 md:px-8 md:py-8">
             <LegalMetadataSummary result={result} />
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
-                h1: ({ children }) => <h1 className="mb-5 text-2xl font-semibold leading-tight tracking-[-0.02em] text-foreground">{children}</h1>,
-                h2: ({ children }) => <h2 className="mb-3 mt-7 text-lg font-semibold leading-7 text-foreground first:mt-0">{children}</h2>,
-                h3: ({ children }) => <h3 className="mb-2 mt-5 text-base font-semibold leading-6 text-foreground">{children}</h3>,
-                h4: ({ children }) => <h4 className="mb-2 mt-5 text-[15px] font-semibold leading-6 text-foreground">{children}</h4>,
-                h5: ({ children }) => <h5 className="mb-2 mt-4 text-sm font-semibold leading-6 text-foreground">{children}</h5>,
-                h6: ({ children }) => <h6 className="mb-2 mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</h6>,
-                p: ({ children }) => <p className="my-3 break-words text-[15px] leading-7 text-foreground/90">{children}</p>,
-                ul: ({ children }) => <ul className="my-3 ml-5 list-disc space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ul>,
-                ol: ({ children }) => <ol className="my-3 ml-5 list-decimal space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ol>,
-                li: ({ children }) => <li className="break-words pl-1">{children}</li>,
-                blockquote: ({ children }) => <blockquote className="my-4 border-l-2 border-border pl-4 text-[15px] leading-7 text-muted-foreground">{children}</blockquote>,
+                h1: ({ children }) => <h1 className={cn("mb-5 text-2xl font-semibold leading-tight tracking-[-0.02em] text-foreground", overflowTextClass)}>{children}</h1>,
+                h2: ({ children }) => <h2 className={cn("mb-3 mt-7 text-lg font-semibold leading-7 text-foreground first:mt-0", overflowTextClass)}>{children}</h2>,
+                h3: ({ children }) => <h3 className={cn("mb-2 mt-5 text-base font-semibold leading-6 text-foreground", overflowTextClass)}>{children}</h3>,
+                h4: ({ children }) => <h4 className={cn("mb-2 mt-5 text-[15px] font-semibold leading-6 text-foreground", overflowTextClass)}>{children}</h4>,
+                h5: ({ children }) => <h5 className={cn("mb-2 mt-4 text-sm font-semibold leading-6 text-foreground", overflowTextClass)}>{children}</h5>,
+                h6: ({ children }) => <h6 className={cn("mb-2 mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground", overflowTextClass)}>{children}</h6>,
+                p: ({ children }) => <p className={cn("my-3 text-[15px] leading-7 text-foreground/90", overflowPreWrapTextClass)}>{children}</p>,
+                ul: ({ children }) => <ul className="my-3 ml-5 min-w-0 list-disc space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ul>,
+                ol: ({ children }) => <ol className="my-3 ml-5 min-w-0 list-decimal space-y-2 text-[15px] leading-7 text-foreground/90">{children}</ol>,
+                li: ({ children }) => <li className={cn("pl-1", overflowPreWrapTextClass)}>{children}</li>,
+                blockquote: ({ children }) => <blockquote className={cn("my-4 border-l-2 border-border pl-4 text-[15px] leading-7 text-muted-foreground", overflowPreWrapTextClass)}>{children}</blockquote>,
                 strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-                table: ({ children }) => <div className="my-5 overflow-x-auto rounded-2xl border border-border/70"><table className="w-full min-w-[560px] border-collapse text-sm">{children}</table></div>,
-                th: ({ children }) => <th className="border-b border-border/70 bg-muted/30 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">{children}</th>,
-                td: ({ children }) => <td className="border-t border-border/70 px-3 py-2 align-top text-sm leading-6 text-foreground/90">{children}</td>,
+                table: ({ children }) => <div className="my-5 max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-border/70"><table className="w-full min-w-[560px] table-fixed border-collapse text-sm">{children}</table></div>,
+                th: ({ children }) => <th className={cn("border-b border-border/70 bg-muted/30 px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground", overflowTextClass)}>{children}</th>,
+                td: ({ children }) => <td className={cn("border-t border-border/70 px-3 py-2 align-top text-sm leading-6 text-foreground/90", overflowPreWrapTextClass)}>{children}</td>,
                 code: ({ children, className }) => (
-                  <code className={cn("rounded-md bg-muted px-1.5 py-0.5 text-[0.9em]", className)}>{children}</code>
+                  <code className={cn("rounded-md bg-muted px-1.5 py-0.5 text-[0.9em] break-words [overflow-wrap:anywhere]", className)}>{children}</code>
                 ),
-                pre: ({ children }) => <pre className="my-4 overflow-x-auto rounded-2xl bg-muted px-4 py-3 text-sm leading-6">{children}</pre>,
+                pre: ({ children }) => <pre className="my-4 max-w-full overflow-x-auto overscroll-x-contain rounded-2xl bg-muted px-4 py-3 text-sm leading-6 [&_code]:whitespace-pre">{children}</pre>,
               }}
             >
               {markdown}
@@ -1436,7 +1444,7 @@ export function WorkflowResultDetails({
       </div>
 
       {onRefine ? (
-        <form onSubmit={submitRefinement} className="rounded-2xl border border-border/70 bg-background px-4 py-4 shadow-sm">
+        <form onSubmit={submitRefinement} className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background px-4 py-4 shadow-sm">
           <label htmlFor="workflow-refine-prompt" className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">
             Refine output
           </label>
@@ -1469,7 +1477,7 @@ export function WorkflowResultDetails({
               <Badge
                 key={`${source.file_id || source.name || "source"}-${idx}`}
                 variant="secondary"
-                className="max-w-full whitespace-normal rounded-full px-2 py-0.5 text-left text-[10px] font-normal"
+                className="min-w-0 w-auto max-w-full shrink whitespace-normal break-words rounded-full px-2 py-0.5 text-left text-[10px] font-normal [overflow-wrap:anywhere]"
               >
                 {formatSourceLabel(source)}
               </Badge>
@@ -1494,7 +1502,7 @@ export function WorkflowResultDetails({
               {aiEditSelectedPreview ? (
                 <div className="rounded-2xl border border-border/70 bg-muted/20 px-3 py-3 text-xs leading-5 text-muted-foreground">
                   <div className="mb-1 font-medium text-foreground">Selected text</div>
-                  <div className="max-h-28 overflow-y-auto whitespace-pre-wrap">{aiEditSelectedPreview}</div>
+                  <div className={cn("max-h-28 overflow-y-auto", overflowPreWrapTextClass)}>{aiEditSelectedPreview}</div>
                 </div>
               ) : null}
               <Textarea

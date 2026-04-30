@@ -493,7 +493,7 @@ function WorkflowCatalogItem({
       onClick={() => onLaunch(workflow)}
       disabled={disabled}
       className={cn(
-        "flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
+        "flex w-full min-w-0 max-w-full items-start justify-between gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
         active ? "bg-primary/10" : ""
       )}
     >
@@ -533,13 +533,13 @@ function ProPackAccordion({
         disabled={disabled || !workflow}
         onClick={() => workflow && onLaunch(group, pack, workflow)}
         className={cn(
-          "flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
+          "flex w-full min-w-0 max-w-full items-start justify-between gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
           isActive ? "bg-primary/10" : ""
         )}
       >
-        <span className="min-w-0">
+        <span className="min-w-0 flex-1 overflow-hidden">
           <span className={cn("block truncate text-sm font-medium", isActive ? "text-primary" : "text-foreground")}>{pack.title}</span>
-          <span className="mt-1 block text-xs leading-5 text-muted-foreground">{pack.description}</span>
+          <span className="mt-1 block break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">{pack.description}</span>
         </span>
         <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
       </button>
@@ -1652,8 +1652,8 @@ export default function WorkflowsPage() {
           {selectedRun ? (
             <div className={cn("min-h-0 flex-1 bg-muted/15", !isMobile && "overflow-hidden")}>
               <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
-                <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 px-3 py-4 sm:px-4 md:px-6 lg:px-8 xl:px-12">
-                  <div className="min-w-0 rounded-2xl border border-border/70 bg-background px-4 py-5 shadow-sm sm:px-5 md:px-6 md:py-7 xl:px-8">
+                <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 overflow-hidden px-3 py-4 sm:px-4 md:px-6 lg:px-8 xl:px-12">
+                  <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background px-4 py-5 shadow-sm sm:px-5 md:px-6 md:py-7 xl:px-8">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-3">
@@ -1714,7 +1714,7 @@ export default function WorkflowsPage() {
                             </div>
                             <p className="mt-4 max-w-3xl text-[15px] leading-7 text-foreground/90">{renderStatusCopy(selectedRun, selectedRunDisplayStatus || selectedRun.status)}</p>
                             {selectedRunChainSource ? (
-                              <div className="mt-4 max-w-3xl border border-border/70 bg-muted/15 px-3 py-3">
+                              <div className="mt-4 max-w-3xl overflow-hidden border border-border/70 bg-muted/15 px-3 py-3">
                                 <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Built from previous result</div>
                                 <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
                                   <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">{selectedRunChainSource.parent_title}</Badge>
@@ -1722,7 +1722,7 @@ export default function WorkflowsPage() {
                                   {selectedRunChainSource.action_label ? <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">{selectedRunChainSource.action_label}</Badge> : null}
                                 </div>
                                 {selectedRunChainSource.summary ? (
-                                  <p className="mt-2 text-sm leading-6 text-foreground/85">{selectedRunChainSource.summary}</p>
+                                  <p className="mt-2 break-words text-sm leading-6 text-foreground/85 [overflow-wrap:anywhere]">{selectedRunChainSource.summary}</p>
                                 ) : null}
                               </div>
                             ) : null}
@@ -1733,7 +1733,7 @@ export default function WorkflowsPage() {
 
                   </div>
 
-                  <div className="min-w-0 rounded-2xl border border-border/70 bg-background px-4 py-5 shadow-sm sm:px-5 md:px-6 md:py-7 xl:px-8">
+                  <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background px-4 py-5 shadow-sm sm:px-5 md:px-6 md:py-7 xl:px-8">
                     {selectedRun.result ? (
                       <WorkflowResultDetails
                         result={selectedRun.result}
