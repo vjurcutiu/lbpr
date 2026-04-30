@@ -1160,6 +1160,263 @@ def _string_list(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
+def _metadata_text(value: Any, fallback: str = "") -> str:
+    text = str(value or "").strip()
+    return text or fallback
+
+
+def _metadata_first_text(item: dict[str, Any], keys: tuple[str, ...], fallback: str = "") -> str:
+    for key in keys:
+        text = _metadata_text(item.get(key))
+        if text:
+            return text
+    return fallback
+
+
+def _legal_clause_family(value: Any, fallback: str = "general_contract") -> str:
+    text = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if text in LEGAL_CLAUSE_FAMILIES:
+        return text
+    aliases = {
+        "liability": "limitation_of_liability",
+        "lol": "limitation_of_liability",
+        "limitation": "limitation_of_liability",
+        "ip": "ip_ownership",
+        "intellectual_property": "ip_ownership",
+        "data_security": "data_protection",
+        "security": "data_protection",
+        "privacy": "data_protection",
+        "law": "governing_law",
+        "venue": "dispute_resolution",
+        "fees": "payment",
+        "service_levels": "warranties",
+        "sla": "warranties",
+    }
+    return aliases.get(text) or fallback
+
+
+def _legal_severity(value: Any, fallback: str = "medium") -> str:
+    text = str(value or "").strip().lower()
+    if text in LEGAL_RISK_LEVELS:
+        return text
+    aliases = {
+        "blocker": "critical",
+        "approval_blocker": "critical",
+        "material": "high",
+        "major": "high",
+        "moderate": "medium",
+        "review": "medium",
+        "minor": "low",
+    }
+    return aliases.get(text) or fallback
+
+
+def _metadata_confidence(value: Any, fallback: str = "low") -> str:
+    text = str(value or "").strip().lower()
+    return text if text in {"low", "medium", "high"} else fallback
+
+
+def _normalize_legal_risk_items(value: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in _dict_list(value):
+        issue = _metadata_first_text(item, ("issue", "risk", "title", "finding"), "Unspecified legal risk")
+        severity = _legal_severity(item.get("severity"))
+        clause_family = _legal_clause_family(item.get("clause_family") or item.get("category") or item.get("clause"))
+        recommended_change = _metadata_first_text(
+            item,
+            ("recommended_change", "recommended_fix", "recommendation", "recommended_position", "recommended_action"),
+            "Review and revise the source language if it creates avoidable exposure.",
+        )
+        fallback_position = _metadata_first_text(
+            item,
+            ("fallback_position", "fallback", "acceptable_fallback", "fallback_language"),
+            "Use the default house position unless the business accepts the exception.",
+        )
+        requires_human_review_raw = item.get("requires_human_review")
+        requires_human_review = (
+            requires_human_review_raw
+            if isinstance(requires_human_review_raw, bool)
+            else severity in {"high", "critical"}
+        )
+        normalized.append(
+            {
+                **item,
+                "issue": issue,
+                "severity": severity,
+                "clause_family": clause_family,
+                "business_impact": _metadata_first_text(
+                    item,
+                    ("business_impact", "impact", "commercial_impact"),
+                    "Could affect approval, negotiation posture, or operational execution.",
+                ),
+                "source_basis": _metadata_first_text(item, ("source_basis", "source", "evidence"), "Not available"),
+                "recommended_change": recommended_change,
+                "fallback_position": fallback_position,
+                "requires_human_review": requires_human_review,
+            }
+        )
+    return normalized
+
+
+def _normalize_legal_clause_items(value: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in _dict_list(value):
+        clause_family = _legal_clause_family(item.get("clause_family") or item.get("category") or item.get("clause"))
+        current_position = _metadata_first_text(
+            item,
+            ("current_position", "position", "clause_text", "value", "summary"),
+            "Current position should be confirmed against the source language.",
+        )
+        concern = _metadata_first_text(
+            item,
+            ("concern", "issue", "risk", "comment"),
+            "Confirm whether this clause position aligns with the desired risk posture.",
+        )
+        recommended_position = _metadata_first_text(
+            item,
+            ("recommended_position", "recommended_change", "recommendation", "fallback_position"),
+            "Align the clause with the applicable house position or approved fallback.",
+        )
+        normalized.append(
+            {
+                **item,
+                "clause_family": clause_family,
+                "current_position": current_position,
+                "source_basis": _metadata_first_text(item, ("source_basis", "source", "evidence"), current_position),
+                "concern": concern,
+                "recommended_position": recommended_position,
+            }
+        )
+    return normalized
+
+
+def _normalize_legal_obligation_items(value: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in _dict_list(value):
+        obligation = _metadata_first_text(item, ("obligation", "duty", "action", "requirement"), "Confirm obligation from source material")
+        normalized.append(
+            {
+                **item,
+                "obligation": obligation,
+                "responsible_party": _metadata_first_text(item, ("responsible_party", "party", "owner"), "TBD"),
+                "trigger_or_deadline": _metadata_first_text(item, ("trigger_or_deadline", "deadline", "trigger", "timing"), "TBD"),
+                "source_basis": _metadata_first_text(item, ("source_basis", "source", "evidence"), obligation),
+                "follow_up": _metadata_first_text(item, ("follow_up", "next_step", "recommended_action"), "Confirm owner, timing, and operational handoff."),
+            }
+        )
+    return normalized
+
+
+def _normalize_legal_fallback_items(value: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in _dict_list(value):
+        proposed_language = _metadata_first_text(
+            item,
+            ("proposed_language", "language", "clause_language", "fallback_language", "draft", "text"),
+            "Revise the clause to align with the selected fallback position.",
+        )
+        normalized.append(
+            {
+                **item,
+                "clause_family": _legal_clause_family(item.get("clause_family") or item.get("category") or item.get("clause")),
+                "proposed_language": proposed_language,
+                "rationale": _metadata_first_text(
+                    item,
+                    ("rationale", "reason", "explanation", "business_impact"),
+                    "This fallback narrows uncertainty while preserving a workable commercial position.",
+                ),
+                "source_basis": _metadata_first_text(item, ("source_basis", "source", "evidence"), "Not available"),
+                "confidence": _metadata_confidence(item.get("confidence")),
+            }
+        )
+    return normalized
+
+
+def _normalize_legal_plan_items(value: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in _dict_list(value):
+        action = _metadata_first_text(item, ("action", "item", "change", "task"), "Confirm negotiation position")
+        normalized.append(
+            {
+                **item,
+                "action": action,
+                "priority": _metadata_first_text(item, ("priority",), "medium"),
+                "owner": _metadata_first_text(item, ("owner", "responsible_party"), "TBD"),
+                "timeline": _metadata_first_text(item, ("timeline", "deadline"), "TBD"),
+                "related_clause_family": _legal_clause_family(item.get("related_clause_family") or item.get("clause_family")),
+            }
+        )
+    return normalized
+
+
+def _normalize_legal_fields(value: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for item in _dict_list(value):
+        field = _metadata_first_text(item, ("field", "name", "label", "clause_family"), "Extracted detail")
+        value_text = _metadata_first_text(item, ("value", "current_position", "text", "summary", "obligation"), "Confirm against source material")
+        normalized.append(
+            {
+                **item,
+                "field": field,
+                "value": value_text,
+                "confidence": _metadata_confidence(item.get("confidence")),
+                "source_basis": _metadata_first_text(item, ("source_basis", "source", "evidence"), value_text),
+            }
+        )
+    return normalized
+
+
+def _fallback_item_from_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    first_risk = metadata["risk_items"][0] if metadata.get("risk_items") else {}
+    first_clause = metadata["clause_items"][0] if metadata.get("clause_items") else {}
+    clause_family = _legal_clause_family(first_risk.get("clause_family") or first_clause.get("clause_family"))
+    proposed_language = _metadata_text(
+        first_risk.get("recommended_change")
+        or first_clause.get("recommended_position")
+        or first_risk.get("fallback_position"),
+        "Revise the clause to align with the selected fallback position.",
+    )
+    rationale = _metadata_text(
+        first_risk.get("business_impact") or first_clause.get("concern"),
+        "The source material indicates approval-sensitive language that should be narrowed or clarified.",
+    )
+    source_basis = _metadata_text(first_risk.get("source_basis") or first_clause.get("source_basis"), "Not available")
+    return {
+        "clause_family": clause_family,
+        "proposed_language": proposed_language,
+        "rationale": rationale,
+        "source_basis": source_basis,
+        "confidence": "low",
+    }
+
+
+def _field_items_from_legal_metadata(metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = []
+    for item in metadata.get("clause_items") or []:
+        if not isinstance(item, dict):
+            continue
+        fields.append(
+            {
+                "field": str(item.get("clause_family") or "Clause"),
+                "value": str(item.get("current_position") or item.get("concern") or "Confirm against source material"),
+                "confidence": "low",
+                "source_basis": str(item.get("source_basis") or "Not available"),
+            }
+        )
+    for item in metadata.get("obligation_items") or []:
+        if not isinstance(item, dict):
+            continue
+        fields.append(
+            {
+                "field": "Obligation",
+                "value": str(item.get("obligation") or "Confirm obligation from source material"),
+                "confidence": "low",
+                "source_basis": str(item.get("source_basis") or "Not available"),
+            }
+        )
+    return fields
+
+
 def _legal_next_actions(spec, *, capability: str) -> list[str]:
     by_workflow = {
         "legal_contract_risk_matrix": [
@@ -1343,36 +1600,93 @@ def _legal_fallback_payload(spec, run: WorkflowRun, sources: list[WorkflowSource
 def _ensure_legal_metadata(metadata: dict[str, Any], run: WorkflowRun, spec) -> dict[str, Any]:
     profile = metadata.get("legal_profile") if isinstance(metadata.get("legal_profile"), dict) else {}
     merged_profile = _legal_profile_from_run(run)
-    merged_profile.update({key: value for key, value in profile.items() if value not in (None, "")})
+    # Preserve canonical enum-style profile values from the run inputs. Model
+    # output can add extra profile context, but it should not replace values like
+    # document_type="msa_services" with display labels like "Msa services".
+    merged_profile.update(
+        {
+            key: value
+            for key, value in profile.items()
+            if key not in merged_profile and value not in (None, "")
+        }
+    )
     metadata["legal_profile"] = merged_profile
 
-    metadata["risk_items"] = _dict_list(metadata.get("risk_items"))
-    metadata["clause_items"] = _dict_list(metadata.get("clause_items"))
-    metadata["obligation_items"] = _dict_list(metadata.get("obligation_items"))
+    metadata["risk_items"] = _normalize_legal_risk_items(metadata.get("risk_items"))
+    metadata["clause_items"] = _normalize_legal_clause_items(metadata.get("clause_items"))
+    metadata["obligation_items"] = _normalize_legal_obligation_items(metadata.get("obligation_items"))
     metadata["open_questions"] = _string_list(metadata.get("open_questions"))
     metadata["approval_notes"] = _string_list(metadata.get("approval_notes"))
 
     if not metadata["risk_items"]:
         metadata["risk_items"] = [
             {
-                "issue": "No specific legal risks were extracted from the model output.",
-                "severity": "review",
+                "issue": "Manual legal review needed before relying on the output.",
+                "severity": "medium",
                 "clause_family": "general_contract",
-                "business_impact": "Review source material before relying on the output.",
+                "business_impact": "The output did not include a specific risk item, so approval risk cannot be treated as cleared.",
                 "source_basis": "Not available",
-                "recommended_change": "Run a narrower follow-up review for the relevant clause family.",
+                "recommended_change": "Run a narrower follow-up review for the relevant clause family or review the source language manually.",
                 "fallback_position": "Use the default house position where applicable.",
                 "requires_human_review": True,
             }
         ]
-    if not metadata["clause_items"]:
-        metadata["clause_items"] = []
-    if not metadata["obligation_items"]:
-        metadata["obligation_items"] = []
     if not metadata["open_questions"]:
         metadata["open_questions"] = ["What source language should be reviewed before final approval?"]
     if not metadata["approval_notes"]:
         metadata["approval_notes"] = ["Review high-impact risks, missing protections, and unresolved questions before approval."]
+
+    if spec.workflow_id == "legal_clause_extraction":
+        metadata["fields"] = _normalize_legal_fields(metadata.get("fields"))
+        if not metadata["clause_items"]:
+            metadata["clause_items"] = [
+                {
+                    "clause_family": "general_contract",
+                    "current_position": "No clause item was extracted from the model output.",
+                    "source_basis": "Not available",
+                    "concern": "The clause extraction output needs source-level confirmation before export or reuse.",
+                    "recommended_position": "Run a narrower extraction focused on the clause families needed.",
+                }
+            ]
+        if not metadata["fields"]:
+            metadata["fields"] = _field_items_from_legal_metadata(metadata)
+
+    if spec.workflow_id == "legal_obligation_tracker":
+        if not metadata["obligation_items"]:
+            first_risk = metadata["risk_items"][0] if metadata.get("risk_items") else {}
+            metadata["obligation_items"] = [
+                {
+                    "obligation": "Confirm operational obligations from the source material.",
+                    "responsible_party": "TBD",
+                    "trigger_or_deadline": "TBD",
+                    "source_basis": str(first_risk.get("source_basis") or "Not available"),
+                    "follow_up": "Run a narrower obligation extraction or manually validate duties, notices, renewals, and deadlines.",
+                }
+            ]
+        metadata["fields"] = _normalize_legal_fields(metadata.get("fields"))
+        if not metadata["fields"]:
+            metadata["fields"] = _field_items_from_legal_metadata(metadata)
+
+    if spec.workflow_id == "legal_fallback_language":
+        metadata["fallback_items"] = _normalize_legal_fallback_items(metadata.get("fallback_items"))
+        if not metadata["fallback_items"]:
+            metadata["fallback_items"] = [_fallback_item_from_metadata(metadata)]
+        metadata["draft_type"] = _metadata_text(metadata.get("draft_type"), spec.title)
+
+    if spec.workflow_id == "legal_negotiation_brief":
+        metadata["plan_items"] = _normalize_legal_plan_items(metadata.get("plan_items"))
+        if not metadata["plan_items"]:
+            metadata["plan_items"] = [
+                {
+                    "action": action,
+                    "priority": "medium",
+                    "owner": "TBD",
+                    "timeline": "TBD",
+                    "related_clause_family": "general_contract",
+                }
+                for action in _legal_next_actions(spec, capability=spec.capability)
+            ]
+
     return metadata
 
 

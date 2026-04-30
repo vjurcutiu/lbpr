@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from io import BytesIO
 from zipfile import ZipFile
@@ -369,6 +370,121 @@ def test_legal_pack_new_workflows_have_structured_fallbacks(auth_client, inline_
     assert metadata['risk_items'][0]['requires_human_review'] is True
     assert metadata['approval_notes']
     assert 'Risk matrix' in run['result']['preview_markdown']
+
+
+def test_legal_metadata_normalizes_llm_output_and_synthesizes_fallback_items(auth_client, inline_workflow_jobs, monkeypatch):
+    class _FakeUsage:
+        prompt_tokens = 100
+        completion_tokens = 50
+        total_tokens = 150
+        approximate = False
+
+    class _FakeResponse:
+        usage = _FakeUsage()
+        operation = 'responses.create'
+        text = json.dumps({
+            'title': 'Fallback Language: Liability Cap',
+            'summary': 'Drafted fallback language for a liability issue.',
+            'bullets': ['Liability needs a tighter fallback.'],
+            'next_actions': ['Review with legal before sending.'],
+            'preview_markdown': '# Fallback Language\n\n## Proposed Language\nAdd a commercially reasonable liability cap.',
+            'metadata': {
+                'legal_profile': {
+                    'document_type': 'Msa services',
+                    'review_mode': 'Legal risk',
+                    'risk_tolerance': 'Aggressive',
+                    'custom_profile_note': 'preserve this extra profile metadata',
+                },
+                'risk_items': [
+                    {
+                        'risk': 'Uncapped liability exposure',
+                        'severity': 'material',
+                        'category': 'liability',
+                        'impact': 'Could expand damages exposure beyond the intended deal value.',
+                        'source': 'Limitation of liability section',
+                        'recommendation': 'Add a liability cap tied to fees paid in the prior 12 months.',
+                    }
+                ],
+                'clause_items': [
+                    {
+                        'clause': 'liability',
+                        'position': 'No liability cap is visible.',
+                        'recommendation': 'Add a cap and narrow uncapped carveouts.',
+                    }
+                ],
+                'fallback_items': [],
+                'open_questions': [],
+                'approval_notes': [],
+            },
+        })
+
+    class _FakeModel:
+        def generate_with_usage(self, *, system: str, user: str, history=None):
+            return _FakeResponse()
+
+    def _fake_loader(uid, selection, **kwargs):
+        docs = [
+            WorkflowSourceFile(
+                file_id='file-1',
+                name='msa.txt',
+                folder_path='contracts',
+                content_type='text/plain',
+                excerpt='The limitation of liability section does not show a clear aggregate cap.',
+                full_text_chars=72,
+                excerpt_chars=72,
+                truncated=False,
+            )
+        ]
+        return docs, {
+            'selected_files': 1,
+            'used_source_files': 1,
+            'warnings': [],
+            'skipped_source_files': [],
+            'truncated_source_files': [],
+            'max_source_files': 8,
+        }
+
+    monkeypatch.setattr(workflow_registry, 'OpenAIChat', _FakeModel)
+    monkeypatch.setattr(workflow_service, '_load_source_documents', _fake_loader)
+
+    create = auth_client.post(
+        '/v1/workflows/runs',
+        json={
+            'workflow_id': 'legal_fallback_language',
+            'selection': {'file_ids': ['file-1'], 'folder_paths': [], 'current_folder': 'contracts'},
+            'inputs': {
+                'focus': 'liability cap fallback',
+                'document_type': 'msa_services',
+                'review_mode': 'legal_risk',
+                'counterparty_position': 'vendor',
+                'risk_tolerance': 'balanced',
+            },
+        },
+    )
+    assert create.status_code == 202, create.text
+    metadata = create.json()['result']['metadata']
+
+    assert metadata['legal_profile']['document_type'] == 'msa_services'
+    assert metadata['legal_profile']['review_mode'] == 'legal_risk'
+    assert metadata['legal_profile']['risk_tolerance'] == 'balanced'
+    assert metadata['legal_profile']['custom_profile_note'] == 'preserve this extra profile metadata'
+
+    risk = metadata['risk_items'][0]
+    assert risk['issue'] == 'Uncapped liability exposure'
+    assert risk['severity'] == 'high'
+    assert risk['clause_family'] == 'limitation_of_liability'
+    assert risk['business_impact'] == 'Could expand damages exposure beyond the intended deal value.'
+    assert risk['source_basis'] == 'Limitation of liability section'
+    assert risk['recommended_change'] == 'Add a liability cap tied to fees paid in the prior 12 months.'
+    assert risk['requires_human_review'] is True
+
+    fallback_item = metadata['fallback_items'][0]
+    assert fallback_item['clause_family'] == 'limitation_of_liability'
+    assert fallback_item['proposed_language'] == 'Add a liability cap tied to fees paid in the prior 12 months.'
+    assert fallback_item['source_basis'] == 'Limitation of liability section'
+    assert fallback_item['confidence'] == 'low'
+    assert metadata['open_questions']
+    assert metadata['approval_notes']
 
 
 
