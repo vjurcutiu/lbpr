@@ -95,26 +95,7 @@ function Section({ title, icon: Icon, children }: { title: string; icon?: typeof
 
 type LegalMetadataItem = Record<string, unknown>;
 
-const LEGAL_TABLE_WRAP_CLASS = "min-w-0 whitespace-normal break-words [overflow-wrap:anywhere]";
-const LEGAL_CARD_TEXT_CLASS = "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
-
-function MetadataLabelValue({ label, value }: { label: string; value?: string }) {
-  if (!value) return null;
-  return (
-    <div className="min-w-0 space-y-1">
-      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/80">{label}</div>
-      <div className={cn("text-sm leading-6 text-foreground/85", LEGAL_CARD_TEXT_CLASS)}>{value}</div>
-    </div>
-  );
-}
-
-function ResponsiveMetadataTable({ children, minWidth = "min-w-[1120px]" }: { children: ReactNode; minWidth?: string }) {
-  return (
-    <div className="hidden max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-border/70 min-[1800px]:block">
-      <table className={cn("w-max max-w-none border-collapse text-sm", minWidth)}>{children}</table>
-    </div>
-  );
-}
+const LEGAL_PROSE_TEXT_CLASS = "min-w-0 whitespace-pre-wrap break-words [overflow-wrap:break-word]";
 
 function metadataText(item: LegalMetadataItem, keys: string[], fallback = "") {
   for (const key of keys) {
@@ -173,50 +154,74 @@ function isLegalResult(result: WorkflowResult) {
   );
 }
 
-function LegalProfileCard({ profile }: { profile: LegalMetadataItem }) {
+function metadataSentence(items: Array<{ label: string; value?: string }>) {
+  const parts = items
+    .filter((item) => item.value)
+    .map((item) => `${item.label}: ${humanizeMetadataValue(item.value)}`);
+  return parts.join(" · ");
+}
+
+function LegalProseSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="min-w-0 border-t border-border/70 pt-6 first:border-t-0 first:pt-0">
+      <h2 className="mb-3 text-base font-semibold leading-7 text-foreground">{title}</h2>
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
+
+function LegalParagraph({ label, value }: { label: string; value?: string }) {
+  if (!value) return null;
+  return (
+    <p className={cn("my-1 text-[15px] leading-7 text-foreground/90", LEGAL_PROSE_TEXT_CLASS)}>
+      <strong className="font-semibold text-foreground">{label}:</strong> {value}
+    </p>
+  );
+}
+
+function LegalInlineDetails({ items }: { items: Array<{ label: string; value?: string }> }) {
+  const text = metadataSentence(items);
+  if (!text) return null;
+  return <p className={cn("text-[15px] leading-7 text-foreground/90", LEGAL_PROSE_TEXT_CLASS)}>{text}</p>;
+}
+
+function LegalItemHeading({ children }: { children: ReactNode }) {
+  return <h3 className={cn("text-[15px] font-semibold leading-7 text-foreground", LEGAL_PROSE_TEXT_CLASS)}>{children}</h3>;
+}
+
+function LegalProseItem({ children }: { children: ReactNode }) {
+  return <div className="min-w-0 border-t border-border/50 pt-4 first:border-t-0 first:pt-0">{children}</div>;
+}
+
+function LegalProfileProse({ profile }: { profile: LegalMetadataItem }) {
   const profileItems = [
     { label: "Document", value: metadataText(profile, ["document_type_label", "document_type"]) },
     { label: "Mode", value: metadataText(profile, ["review_mode_label", "review_mode"]) },
     { label: "Counterparty", value: metadataText(profile, ["counterparty_position_label", "counterparty_position"]) },
     { label: "Risk", value: metadataText(profile, ["risk_tolerance_label", "risk_tolerance"]) },
-  ].filter((item) => item.value);
+  ];
 
-  if (!profileItems.length) return null;
+  if (!profileItems.some((item) => item.value)) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-muted/10 p-4">
-      <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Review profile</div>
-      <div className="flex flex-wrap gap-2">
-        {profileItems.map((item) => (
-          <Badge key={item.label} variant="outline" className="max-w-full whitespace-normal rounded-full bg-background px-2 py-1 text-left text-[11px] font-normal">
-            {item.label}: {humanizeMetadataValue(item.value)}
-          </Badge>
-        ))}
-      </div>
-    </div>
+    <LegalProseSection title="Review profile">
+      <LegalInlineDetails items={profileItems} />
+    </LegalProseSection>
   );
 }
 
-function RiskItemsCard({ items }: { items: LegalMetadataItem[] }) {
+function RiskItemsProse({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   const severityCounts = items.reduce<Record<string, number>>((counts, item) => {
     const severity = humanizeMetadataValue(metadataText(item, ["severity", "risk_level"], "review"));
     counts[severity] = (counts[severity] || 0) + 1;
     return counts;
   }, {});
+  const countSummary = Object.entries(severityCounts).map(([severity, count]) => `${count} ${severity}`).join(" · ");
 
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Risk highlights</div>
-        <div className="flex flex-wrap gap-1.5">
-          {Object.entries(severityCounts).map(([severity, count]) => (
-            <Badge key={severity} variant="secondary" className="rounded-full text-[10px] font-normal">
-              {count} {severity}
-            </Badge>
-          ))}
-        </div>
-      </div>
-      <div className="space-y-3">
+    <LegalProseSection title="Risk highlights">
+      {countSummary ? <p className="text-[15px] leading-7 text-muted-foreground">{countSummary}</p> : null}
+      <div className="space-y-5">
         {items.map((item, index) => {
           const issue = metadataText(item, ["issue", "title", "risk"], "Risk item");
           const severity = metadataText(item, ["severity", "risk_level"], "review");
@@ -225,89 +230,50 @@ function RiskItemsCard({ items }: { items: LegalMetadataItem[] }) {
           const fallback = metadataText(item, ["fallback", "acceptable_fallback", "fallback_position"]);
           const source = metadataText(item, ["source_basis", "source", "evidence"]);
           return (
-            <div key={`${issue}-${index}`} className="min-w-0 rounded-2xl border border-border/60 bg-muted/10 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className={cn("min-w-0 flex-1 text-sm font-medium leading-6 text-foreground", LEGAL_CARD_TEXT_CLASS)}>{issue}</div>
-                <Badge variant="outline" className="shrink-0 rounded-full text-[10px] font-normal">{humanizeMetadataValue(severity)}</Badge>
-              </div>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <MetadataLabelValue label="Impact" value={impact} />
-                <MetadataLabelValue label="Recommendation" value={recommendation} />
-                <MetadataLabelValue label="Fallback" value={fallback} />
-                <MetadataLabelValue label="Source" value={source} />
-              </div>
-            </div>
+            <LegalProseItem key={`${issue}-${index}`}>
+              <LegalItemHeading>{issue}</LegalItemHeading>
+              <LegalParagraph label="Severity" value={humanizeMetadataValue(severity)} />
+              <LegalParagraph label="Impact" value={impact} />
+              <LegalParagraph label="Recommendation" value={recommendation} />
+              <LegalParagraph label="Fallback" value={fallback} />
+              <LegalParagraph label="Source" value={source} />
+            </LegalProseItem>
           );
         })}
       </div>
-    </div>
+    </LegalProseSection>
   );
 }
 
-function ClauseItemsCard({ items }: { items: LegalMetadataItem[] }) {
+function ClauseItemsProse({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Clause notes</div>
-        <Badge variant="secondary" className="rounded-full text-[10px] font-normal">{items.length}</Badge>
-      </div>
-      <div className="space-y-3 min-[1800px]:hidden">
+    <LegalProseSection title="Clause notes">
+      <div className="space-y-5">
         {items.map((item, index) => {
           const clause = metadataText(item, ["clause_family", "clause", "field"], "Clause");
           const concern = metadataText(item, ["concern", "current_position", "source_basis"]);
           const recommendation = metadataText(item, ["recommended_position", "recommended_change", "value"]);
           const confidence = metadataText(item, ["confidence"]);
           return (
-            <div key={`${clause}-card-${index}`} className="min-w-0 rounded-2xl border border-border/60 bg-muted/10 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className={cn("min-w-0 flex-1 text-sm font-medium leading-6 text-foreground", LEGAL_CARD_TEXT_CLASS)}>{humanizeMetadataValue(clause)}</div>
-                {confidence ? <Badge variant="outline" className="shrink-0 rounded-full text-[10px] font-normal">{humanizeMetadataValue(confidence)}</Badge> : null}
-              </div>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <MetadataLabelValue label="Concern" value={concern || "Review source language."} />
-                <MetadataLabelValue label="Recommended position" value={recommendation || "Confirm preferred position."} />
-              </div>
-            </div>
+            <LegalProseItem key={`${clause}-${index}`}>
+              <LegalItemHeading>{humanizeMetadataValue(clause)}</LegalItemHeading>
+              <LegalParagraph label="Concern" value={concern || "Review source language."} />
+              <LegalParagraph label="Recommended position" value={recommendation || "Confirm preferred position."} />
+              <LegalParagraph label="Confidence" value={confidence ? humanizeMetadataValue(confidence) : ""} />
+            </LegalProseItem>
           );
         })}
       </div>
-      <ResponsiveMetadataTable minWidth="min-w-[1040px]">
-        <thead className="bg-muted/30 text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-          <tr>
-            <th className={cn("min-w-[180px] px-3 py-2 font-semibold", LEGAL_TABLE_WRAP_CLASS)}>Clause</th>
-            <th className={cn("min-w-[360px] px-3 py-2 font-semibold", LEGAL_TABLE_WRAP_CLASS)}>Concern</th>
-            <th className={cn("min-w-[360px] px-3 py-2 font-semibold", LEGAL_TABLE_WRAP_CLASS)}>Recommended position</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, index) => {
-            const clause = metadataText(item, ["clause_family", "clause", "field"], "Clause");
-            const concern = metadataText(item, ["concern", "current_position", "source_basis"]);
-            const recommendation = metadataText(item, ["recommended_position", "recommended_change", "value"]);
-            return (
-              <tr key={`${clause}-${index}`} className="border-t border-border/70">
-                <td className={cn("min-w-[180px] px-3 py-2 align-top text-sm font-medium text-foreground", LEGAL_TABLE_WRAP_CLASS)}>{humanizeMetadataValue(clause)}</td>
-                <td className={cn("min-w-[360px] px-3 py-2 align-top text-sm leading-6 text-muted-foreground", LEGAL_TABLE_WRAP_CLASS)}>{concern || "Review source language."}</td>
-                <td className={cn("min-w-[360px] px-3 py-2 align-top text-sm leading-6 text-foreground/85", LEGAL_TABLE_WRAP_CLASS)}>{recommendation || "Confirm preferred position."}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </ResponsiveMetadataTable>
-    </div>
+    </LegalProseSection>
   );
 }
 
-function ObligationItemsCard({ items }: { items: LegalMetadataItem[] }) {
+function ObligationItemsProse({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Obligations</div>
-        <Badge variant="secondary" className="rounded-full text-[10px] font-normal">{items.length}</Badge>
-      </div>
-      <div className="space-y-2">
+    <LegalProseSection title="Obligations">
+      <div className="space-y-5">
         {items.map((item, index) => {
           const obligation = metadataText(item, ["obligation", "action", "field"], "Obligation");
           const party = metadataText(item, ["responsible_party", "owner"], "TBD");
@@ -315,91 +281,49 @@ function ObligationItemsCard({ items }: { items: LegalMetadataItem[] }) {
           const followUp = metadataText(item, ["follow_up", "recommendation", "value"]);
           const source = metadataText(item, ["source_basis", "source", "evidence"]);
           return (
-            <div key={`${obligation}-${index}`} className="min-w-0 rounded-2xl border border-border/60 bg-muted/10 p-3">
-              <div className={cn("text-sm font-medium leading-6 text-foreground", LEGAL_CARD_TEXT_CLASS)}>{obligation}</div>
-              <div className="mt-2 flex min-w-0 flex-wrap gap-2 text-[11px] text-muted-foreground">
-                <Badge variant="outline" className="max-w-full whitespace-normal rounded-full text-left font-normal">Owner: {party}</Badge>
-                <Badge variant="outline" className="max-w-full whitespace-normal rounded-full text-left font-normal">Trigger: {deadline}</Badge>
-              </div>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <MetadataLabelValue label="Follow-up" value={followUp} />
-                <MetadataLabelValue label="Source" value={source} />
-              </div>
-            </div>
+            <LegalProseItem key={`${obligation}-${index}`}>
+              <LegalItemHeading>{obligation}</LegalItemHeading>
+              <LegalParagraph label="Owner" value={party} />
+              <LegalParagraph label="Trigger" value={deadline} />
+              <LegalParagraph label="Follow-up" value={followUp} />
+              <LegalParagraph label="Source" value={source} />
+            </LegalProseItem>
           );
         })}
       </div>
-    </div>
+    </LegalProseSection>
   );
 }
 
-function FieldItemsCard({ items }: { items: LegalMetadataItem[] }) {
+function FieldItemsProse({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Extracted details</div>
-        <Badge variant="secondary" className="rounded-full text-[10px] font-normal">{items.length}</Badge>
-      </div>
-      <div className="space-y-3 min-[1800px]:hidden">
+    <LegalProseSection title="Extracted details">
+      <div className="space-y-5">
         {items.map((item, index) => {
           const field = metadataText(item, ["field", "name", "label"], "Extracted detail");
           const value = metadataText(item, ["value", "current_position", "text", "summary"]);
           const source = metadataText(item, ["source_basis", "source", "evidence"]);
           const confidence = metadataText(item, ["confidence"], "review");
           return (
-            <div key={`${field}-card-${index}`} className="min-w-0 rounded-2xl border border-border/60 bg-muted/10 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className={cn("min-w-0 flex-1 text-sm font-medium leading-6 text-foreground", LEGAL_CARD_TEXT_CLASS)}>{humanizeMetadataValue(field)}</div>
-                <Badge variant="outline" className="shrink-0 rounded-full text-[10px] font-normal">{humanizeMetadataValue(confidence)}</Badge>
-              </div>
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <MetadataLabelValue label="Value" value={value || "Confirm against source material."} />
-                <MetadataLabelValue label="Source" value={source || "Not available"} />
-              </div>
-            </div>
+            <LegalProseItem key={`${field}-${index}`}>
+              <LegalItemHeading>{humanizeMetadataValue(field)}</LegalItemHeading>
+              <LegalParagraph label="Value" value={value || "Confirm against source material."} />
+              <LegalParagraph label="Source" value={source || "Not available"} />
+              <LegalParagraph label="Confidence" value={humanizeMetadataValue(confidence)} />
+            </LegalProseItem>
           );
         })}
       </div>
-      <ResponsiveMetadataTable minWidth="min-w-[1120px]">
-        <thead className="bg-muted/30 text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-          <tr>
-            <th className={cn("min-w-[180px] px-3 py-2 font-semibold", LEGAL_TABLE_WRAP_CLASS)}>Field</th>
-            <th className={cn("min-w-[360px] px-3 py-2 font-semibold", LEGAL_TABLE_WRAP_CLASS)}>Value</th>
-            <th className={cn("min-w-[360px] px-3 py-2 font-semibold", LEGAL_TABLE_WRAP_CLASS)}>Source</th>
-            <th className={cn("min-w-[140px] px-3 py-2 font-semibold", LEGAL_TABLE_WRAP_CLASS)}>Confidence</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((item, index) => {
-            const field = metadataText(item, ["field", "name", "label"], "Extracted detail");
-            const value = metadataText(item, ["value", "current_position", "text", "summary"]);
-            const source = metadataText(item, ["source_basis", "source", "evidence"]);
-            const confidence = metadataText(item, ["confidence"], "review");
-            return (
-              <tr key={`${field}-${index}`} className="border-t border-border/70">
-                <td className={cn("min-w-[180px] px-3 py-2 align-top text-sm font-medium text-foreground", LEGAL_TABLE_WRAP_CLASS)}>{humanizeMetadataValue(field)}</td>
-                <td className={cn("min-w-[360px] px-3 py-2 align-top text-sm leading-6 text-foreground/85", LEGAL_TABLE_WRAP_CLASS)}>{value || "Confirm against source material."}</td>
-                <td className={cn("min-w-[360px] px-3 py-2 align-top text-sm leading-6 text-muted-foreground", LEGAL_TABLE_WRAP_CLASS)}>{source || "Not available"}</td>
-                <td className={cn("min-w-[140px] px-3 py-2 align-top text-sm leading-6 text-muted-foreground", LEGAL_TABLE_WRAP_CLASS)}>{humanizeMetadataValue(confidence)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </ResponsiveMetadataTable>
-    </div>
+    </LegalProseSection>
   );
 }
 
-function FallbackItemsCard({ items }: { items: LegalMetadataItem[] }) {
+function FallbackItemsProse({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Fallback language</div>
-        <Badge variant="secondary" className="rounded-full text-[10px] font-normal">{items.length}</Badge>
-      </div>
-      <div className="space-y-3">
+    <LegalProseSection title="Fallback language">
+      <div className="space-y-5">
         {items.map((item, index) => {
           const clause = metadataText(item, ["clause_family", "clause", "category"], "Clause");
           const proposedLanguage = metadataText(item, ["proposed_language", "language", "clause_language", "fallback_language", "draft", "text"]);
@@ -407,32 +331,25 @@ function FallbackItemsCard({ items }: { items: LegalMetadataItem[] }) {
           const source = metadataText(item, ["source_basis", "source", "evidence"]);
           const confidence = metadataText(item, ["confidence"], "review");
           return (
-            <div key={`${clause}-${index}`} className="min-w-0 rounded-2xl border border-border/60 bg-muted/10 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className={cn("min-w-0 flex-1 text-sm font-medium leading-6 text-foreground", LEGAL_CARD_TEXT_CLASS)}>{humanizeMetadataValue(clause)}</div>
-                <Badge variant="outline" className="shrink-0 rounded-full text-[10px] font-normal">{humanizeMetadataValue(confidence)}</Badge>
-              </div>
-              {proposedLanguage ? (
-                <div className={cn("mt-2 rounded-xl border border-border/60 bg-background px-3 py-2 text-sm leading-6 text-foreground/90", LEGAL_CARD_TEXT_CLASS)}>
-                  {proposedLanguage}
-                </div>
-              ) : null}
-              {rationale ? <p className={cn("mt-2 text-xs leading-5 text-muted-foreground", LEGAL_CARD_TEXT_CLASS)}>{rationale}</p> : null}
-              {source ? <p className={cn("mt-2 text-[11px] leading-5 text-muted-foreground", LEGAL_CARD_TEXT_CLASS)}>Source: {source}</p> : null}
-            </div>
+            <LegalProseItem key={`${clause}-${index}`}>
+              <LegalItemHeading>{humanizeMetadataValue(clause)}</LegalItemHeading>
+              <LegalParagraph label="Proposed language" value={proposedLanguage} />
+              <LegalParagraph label="Rationale" value={rationale} />
+              <LegalParagraph label="Source" value={source} />
+              <LegalParagraph label="Confidence" value={humanizeMetadataValue(confidence)} />
+            </LegalProseItem>
           );
         })}
       </div>
-    </div>
+    </LegalProseSection>
   );
 }
 
-function PlanItemsCard({ items }: { items: LegalMetadataItem[] }) {
+function PlanItemsProse({ items }: { items: LegalMetadataItem[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
-      <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Action plan</div>
-      <div className="space-y-2">
+    <LegalProseSection title="Action plan">
+      <ol className="space-y-5">
         {items.map((item, index) => {
           const action = metadataText(item, ["action", "item", "change", "task"], "Confirm negotiation position");
           const priority = metadataText(item, ["priority"], "medium");
@@ -440,36 +357,33 @@ function PlanItemsCard({ items }: { items: LegalMetadataItem[] }) {
           const timeline = metadataText(item, ["timeline", "deadline"], "TBD");
           const clause = metadataText(item, ["related_clause_family", "clause_family", "clause"]);
           return (
-            <div key={`${action}-${index}`} className="min-w-0 rounded-2xl border border-border/60 bg-muted/10 p-3">
-              <div className={cn("text-sm font-medium leading-6 text-foreground", LEGAL_CARD_TEXT_CLASS)}>{action}</div>
-              <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                <Badge variant="outline" className="max-w-full whitespace-normal rounded-full text-left font-normal">Priority: {humanizeMetadataValue(priority)}</Badge>
-                <Badge variant="outline" className="max-w-full whitespace-normal rounded-full text-left font-normal">Owner: {owner}</Badge>
-                <Badge variant="outline" className="max-w-full whitespace-normal rounded-full text-left font-normal">Timeline: {timeline}</Badge>
-                {clause ? <Badge variant="outline" className="max-w-full whitespace-normal rounded-full text-left font-normal">Clause: {humanizeMetadataValue(clause)}</Badge> : null}
-              </div>
-            </div>
+            <li key={`${action}-${index}`} className="min-w-0 border-t border-border/50 pt-4 first:border-t-0 first:pt-0">
+              <LegalItemHeading>{index + 1}. {action}</LegalItemHeading>
+              <LegalParagraph label="Priority" value={humanizeMetadataValue(priority)} />
+              <LegalParagraph label="Owner" value={owner} />
+              <LegalParagraph label="Timeline" value={timeline} />
+              <LegalParagraph label="Clause" value={clause ? humanizeMetadataValue(clause) : ""} />
+            </li>
           );
         })}
-      </div>
-    </div>
+      </ol>
+    </LegalProseSection>
   );
 }
 
-function NotesListCard({ title, items }: { title: string; items: string[] }) {
+function NotesProseSection({ title, items }: { title: string; items: string[] }) {
   if (!items.length) return null;
   return (
-    <div className="rounded-2xl border border-border/70 bg-muted/10 p-4">
-      <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{title}</div>
-      <ul className="space-y-2 text-sm leading-6 text-foreground/85">
+    <LegalProseSection title={title}>
+      <ul className="space-y-2 text-[15px] leading-7 text-foreground/90">
         {items.slice(0, 5).map((item, index) => (
-          <li key={`${title}-${index}`} className="flex gap-2">
-            <Circle className="mt-2 h-1.5 w-1.5 shrink-0 fill-current text-muted-foreground" />
-            <span className={LEGAL_CARD_TEXT_CLASS}>{item}</span>
+          <li key={`${title}-${index}`} className="flex min-w-0 gap-2">
+            <Circle className="mt-3 h-1.5 w-1.5 shrink-0 fill-current text-muted-foreground" />
+            <span className={LEGAL_PROSE_TEXT_CLASS}>{item}</span>
           </li>
         ))}
       </ul>
-    </div>
+    </LegalProseSection>
   );
 }
 
@@ -509,20 +423,16 @@ function LegalMetadataSummary({ result }: { result: WorkflowResult }) {
   }
 
   return (
-    <div className="mb-8 min-w-0 space-y-4 overflow-hidden">
-      <LegalProfileCard profile={profile} />
-      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-        <RiskItemsCard items={riskItems} />
-        <ObligationItemsCard items={obligationItems} />
-        <FallbackItemsCard items={fallbackItems} />
-        <PlanItemsCard items={planItems} />
-      </div>
-      <ClauseItemsCard items={clauseItems} />
-      {showFieldItems ? <FieldItemsCard items={fieldItems} /> : null}
-      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-        <NotesListCard title="Open questions" items={openQuestions} />
-        <NotesListCard title="Approval notes" items={approvalNotes} />
-      </div>
+    <div className="mb-8 min-w-0 space-y-8 border-b border-border/70 pb-8">
+      <LegalProfileProse profile={profile} />
+      <RiskItemsProse items={riskItems} />
+      <ObligationItemsProse items={obligationItems} />
+      <FallbackItemsProse items={fallbackItems} />
+      <PlanItemsProse items={planItems} />
+      <ClauseItemsProse items={clauseItems} />
+      {showFieldItems ? <FieldItemsProse items={fieldItems} /> : null}
+      <NotesProseSection title="Open questions" items={openQuestions} />
+      <NotesProseSection title="Approval notes" items={approvalNotes} />
     </div>
   );
 }
@@ -1491,7 +1401,7 @@ export function WorkflowResultDetails({
             />
           </>
         ) : (
-          <article className="min-w-0 max-w-full overflow-hidden px-5 py-6 md:px-8 md:py-8">
+          <article className="mx-auto min-w-0 w-full max-w-[960px] overflow-hidden px-5 py-6 md:px-8 md:py-8">
             <LegalMetadataSummary result={result} />
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
