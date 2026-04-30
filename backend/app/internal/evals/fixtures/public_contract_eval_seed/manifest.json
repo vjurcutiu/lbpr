@@ -1,0 +1,259 @@
+{
+  "dataset_id": "public_contract_eval_seed_001",
+  "created_for": "LBP/Lexbot legal workflow evals",
+  "created_at": "2026-04-29",
+  "contents_note": "Two SEC contracts are included as plain text. The remaining entries are source-linked and can be fetched with scripts/fetch_public_contracts.py in a normal networked environment.",
+  "recommended_eval_workflows": [
+    "legal_nda_review",
+    "legal_contract_review",
+    "legal_msa_review",
+    "legal_risk_matrix",
+    "legal_clause_extraction",
+    "legal_obligation_tracker",
+    "legal_negotiation_brief",
+    "legal_matter_handoff"
+  ],
+  "contracts": [
+    {
+      "id": "sec_fusionio_sandisk_nda",
+      "title": "Fusion-io / SanDisk Nondisclosure Agreement",
+      "document_type": "NDA",
+      "category": "nda",
+      "source": "SEC EDGAR",
+      "url": "https://www.sec.gov/Archives/edgar/data/1000180/000104746914005832/a2220589zex-99_d10.htm",
+      "local_path": "contracts/nda/sec_fusionio_sandisk_nda.txt",
+      "download_status": "included_as_text",
+      "suggested_workflows": [
+        "legal_nda_review",
+        "legal_risk_matrix",
+        "legal_clause_extraction",
+        "legal_negotiation_brief"
+      ],
+      "notes": "M&A-style NDA; standstill, permitted purpose, residual knowledge, employee nonsolicit."
+    },
+    {
+      "id": "sec_aspac_confidentiality_agreement",
+      "title": "A SPAC I Acquisition Corp Confidentiality Agreement",
+      "document_type": "Confidentiality Agreement",
+      "category": "nda",
+      "source": "SEC EDGAR",
+      "url": "https://www.sec.gov/Archives/edgar/data/1868775/000110465921120382/tm2120324d5_ex10-10.htm",
+      "local_path": "contracts/nda/sec_aspac_confidentiality_agreement.txt",
+      "download_status": "included_as_text",
+      "suggested_workflows": [
+        "legal_contract_review",
+        "legal_risk_matrix",
+        "legal_clause_extraction"
+      ],
+      "notes": "Short confidentiality agreement; good smoke test."
+    },
+    {
+      "id": "sec_sequans_renesas_mutual_nda",
+      "title": "Sequans / Renesas Mutual Nondisclosure Agreement",
+      "document_type": "Mutual NDA",
+      "category": "nda",
+      "source": "SEC EDGAR",
+      "url": "https://www.sec.gov/Archives/edgar/data/1383395/000119312523231944/d543505dex99d10.htm",
+      "local_path": "contracts/nda/sec_sequans_renesas_mutual_nda.txt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_nda_review",
+        "legal_risk_matrix",
+        "legal_clause_extraction",
+        "legal_negotiation_brief"
+      ],
+      "notes": "Mutual NDA with standstill and survival terms."
+    },
+    {
+      "id": "sec_csr_qualcomm_nda",
+      "title": "CSR / Qualcomm Non-Disclosure Agreement",
+      "document_type": "NDA",
+      "category": "nda",
+      "source": "SEC EDGAR",
+      "url": "https://www.sec.gov/Archives/edgar/data/1368358/000119312515099203/d857976dex102.htm",
+      "local_path": "contracts/nda/sec_csr_qualcomm_nda.txt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_nda_review",
+        "legal_risk_matrix",
+        "legal_clause_extraction",
+        "legal_negotiation_brief"
+      ],
+      "notes": "Acquisition NDA; good for permitted purpose/disclosees."
+    },
+    {
+      "id": "sec_hifn_exar_confidentiality_nda",
+      "title": "Hifn / Exar Confidentiality and Non-disclosure Agreement",
+      "document_type": "NDA",
+      "category": "nda",
+      "source": "SEC EDGAR",
+      "url": "https://www.sec.gov/Archives/edgar/data/1065246/000119312509046323/dex99e8.htm",
+      "local_path": "contracts/nda/sec_hifn_exar_confidentiality_nda.txt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_nda_review",
+        "legal_risk_matrix",
+        "legal_clause_extraction",
+        "legal_negotiation_brief"
+      ],
+      "notes": "Classic M&A confidentiality agreement."
+    },
+    {
+      "id": "sec_anebulo_potrero_msa",
+      "title": "Anebulo / Potrero Hill Advisors Master Services Agreement",
+      "document_type": "MSA",
+      "category": "msa_saas",
+      "source": "SEC EDGAR",
+      "url": "https://www.sec.gov/Archives/edgar/data/1815974/000149315223006974/ex10-1.htm",
+      "local_path": "contracts/msa_saas/sec_anebulo_potrero_msa.txt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_msa_review",
+        "legal_contract_review",
+        "legal_obligation_tracker",
+        "legal_risk_matrix"
+      ],
+      "notes": "Compact service agreement; good MSA smoke test."
+    },
+    {
+      "id": "sec_indegene_cingulate_msa",
+      "title": "Indegene / Cingulate Therapeutics Master Services Agreement",
+      "document_type": "MSA",
+      "category": "msa_saas",
+      "source": "SEC EDGAR",
+      "url": "https://www.sec.gov/Archives/edgar/data/1862150/000164117225009289/ex10-4.htm",
+      "local_path": "contracts/msa_saas/sec_indegene_cingulate_msa.txt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_msa_review",
+        "legal_contract_review",
+        "legal_obligation_tracker",
+        "legal_risk_matrix"
+      ],
+      "notes": "Recent services agreement sample."
+    },
+    {
+      "id": "sec_proquest_ibm_msa",
+      "title": "ProQuest / IBM Master Services Agreement",
+      "document_type": "MSA",
+      "category": "msa_saas",
+      "source": "SEC EDGAR",
+      "url": "https://www.sec.gov/Archives/edgar/data/215219/000119312505053815/dex1021.htm",
+      "local_path": "contracts/msa_saas/sec_proquest_ibm_msa.txt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_msa_review",
+        "legal_contract_review",
+        "legal_obligation_tracker",
+        "legal_risk_matrix"
+      ],
+      "notes": "Long enterprise MSA; good long-document stress test."
+    },
+    {
+      "id": "sec_anthem_castlight_saas",
+      "title": "Anthem / Castlight Software as a Service Agreement",
+      "document_type": "SaaS Agreement",
+      "category": "msa_saas",
+      "source": "SEC EDGAR",
+      "url": "https://www.sec.gov/Archives/edgar/data/1433714/000143371419000036/ex101softwareasaservic.htm",
+      "local_path": "contracts/msa_saas/sec_anthem_castlight_saas.txt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_msa_review",
+        "legal_contract_review",
+        "legal_obligation_tracker",
+        "legal_risk_matrix"
+      ],
+      "notes": "Enterprise SaaS contract; data/security/service terms."
+    },
+    {
+      "id": "sec_relativity_kldiscovery_master_terms_dpa",
+      "title": "Relativity / KLDiscovery Master Terms and DPA",
+      "document_type": "SaaS + DPA",
+      "category": "dpa",
+      "source": "SEC EDGAR / Justia mirror",
+      "url": "https://www.sec.gov/Archives/edgar/data/1752474/000095017023041271/kld-ex10_1.htm",
+      "local_path": "contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_contract_review",
+        "legal_clause_extraction",
+        "legal_obligation_tracker",
+        "legal_risk_matrix"
+      ],
+      "notes": "SaaS master terms with data/security and DPA coverage.",
+      "alternate_url": "https://contracts.justia.com/companies/pivotal-acquisition-corp-6277/contract/1276886/"
+    },
+    {
+      "id": "cure53_nda_template",
+      "title": "Cure53 Mutual NDA Template",
+      "document_type": "NDA Template",
+      "category": "nda",
+      "source": "GitHub",
+      "url": "https://github.com/cure53/Contracts/blob/main/NDA-en.odt",
+      "local_path": "contracts/nda/cure53_nda_template.odt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_nda_review",
+        "legal_risk_matrix",
+        "legal_clause_extraction",
+        "legal_negotiation_brief"
+      ],
+      "notes": "Clean baseline template. Use raw_url in manifest.",
+      "raw_url": "https://github.com/cure53/Contracts/raw/refs/heads/main/NDA-en.odt"
+    },
+    {
+      "id": "cure53_msa_template",
+      "title": "Cure53 MSA Template",
+      "document_type": "MSA Template",
+      "category": "msa_saas",
+      "source": "GitHub",
+      "url": "https://github.com/cure53/Contracts/blob/main/MSA-en.odt",
+      "local_path": "contracts/msa_saas/cure53_msa_template.odt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_msa_review",
+        "legal_contract_review",
+        "legal_obligation_tracker",
+        "legal_risk_matrix"
+      ],
+      "notes": "Clean MSA baseline template.",
+      "raw_url": "https://github.com/cure53/Contracts/raw/refs/heads/main/MSA-en.odt"
+    },
+    {
+      "id": "cure53_dpa_template",
+      "title": "Cure53 Data Protection Addendum Template",
+      "document_type": "DPA Template",
+      "category": "dpa",
+      "source": "GitHub",
+      "url": "https://github.com/cure53/Contracts/blob/main/DPA-en.odt",
+      "local_path": "contracts/dpa/cure53_dpa_template.odt",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_contract_review",
+        "legal_clause_extraction",
+        "legal_obligation_tracker",
+        "legal_risk_matrix"
+      ],
+      "notes": "Clean DPA baseline template.",
+      "raw_url": "https://github.com/cure53/Contracts/raw/refs/heads/main/DPA-en.odt"
+    },
+    {
+      "id": "github_dpa_pdf",
+      "title": "GitHub Data Protection Agreement PDF",
+      "document_type": "DPA",
+      "category": "dpa",
+      "source": "GitHub Legal PDF",
+      "url": "https://assets.ctfassets.net/8aevphvgewt8/DaflLjyuIt6un69xg3n6W/9e51773d6687d4d5f4c29fc63c115d24/GITHUB-20230922-GitHubDataProtectionAgreement.pdf",
+      "local_path": "contracts/dpa/github_data_protection_agreement.pdf",
+      "download_status": "manifest_only_fetch_with_script",
+      "suggested_workflows": [
+        "legal_contract_review",
+        "legal_clause_extraction",
+        "legal_obligation_tracker",
+        "legal_risk_matrix"
+      ],
+      "notes": "Public DPA PDF reference."
+    }
+  ]
+}

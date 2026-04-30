@@ -1,0 +1,168 @@
+Source title: Sequans / Renesas Mutual Nondisclosure Agreement
+Source URL: https://www.sec.gov/Archives/edgar/data/1383395/000119312523231944/d543505dex99d10.htm
+Document type: Mutual NDA
+
+---
+
+EX-99.(D)(10)
+14
+d543505dex99d10.htm
+EX-99.(D)(10)
+EX-99.(d)(10)
+Exhibit (d)(10)
+MUTUAL NONDISCLOSURE AGREEMENT
+THIS AGREEMENT
+is made as of March 7, 2023 by and between Sequans Communications S.A., a French corporation with its principal
+office at
+15-55
+boulevard Charles de Gaulle, 92700 Colombes, France (“Sequans”), and Renesas Electronics Corporation, a Japanese corporation with its principal place of business at
+3-2-24
+Toyosu,
+Koto-ku,
+Tokyo
+135-0061
+(“Renesas”).
+1.
+Permitted Purpose
+.
+Sequans and Renesas wish to explore a potential strategic or business combination transaction (a
+“Potential Transaction”) under which each party (the “disclosing party”) may disclose its Confidential Information to the other party (the “receiving party”) solely for the purpose of evaluating, negotiating, or
+implementing a potential strategic or business combination transaction (the “Permitted Purpose”).
+2.
+Definition of
+Confidential Information
+.
+“Confidential Information” means the terms and existence of this Agreement, the fact that discussions or negotiations with respect to a Potential Transaction are taking place between the parties (including
+any of the terms, conditions or other facts with respect thereto), and any information, technical data, trade secrets or
+know-how
+of the disclosing party or its customers, vendors, business partners or
+investors that is provided to the receiving party by or on behalf of the disclosing party, either directly or indirectly, whether in writing, orally or by observation, including, but not limited to, research, products, services, product plans,
+clients, client lists, lead lists, markets, marketing, expansion plans, databases, software, developments, inventions, processes, technology, maskworks, designs, drawings, engineering, hardware configuration information, finances, financial results
+or other business information, in each case which is (a) marked in writing as “confidential” or “proprietary” (or with a similar legend indicating its proprietary nature) or (b) that by its nature or in the
+circumstances of its disclosure ought to be treated as confidential. Confidential Information does not include information, technical data, trade secrets or
+know-how
+that: (i) is in the possession of, or
+becomes available to, the receiving party or its Representatives (as defined below) on a
+non-confidential
+basis, as shown by the receiving party’s or its Representative’s files and records, and such
+information was received from a source not known by the receiving party to be bound by any obligation not to disclose the information, (ii) prior or after the time of disclosure becomes available to the public other than as a result of a breach
+of this Agreement by the receiving party or its Representatives, (iii) is independently developed by the receiving party or its Representatives without use of or reference to any Confidential Information, or (iv) is approved for release by
+the disclosing party in writing.
+3.
+Non-Disclosure
+of Confidential Information
+.
+Sequans and Renesas agree not to use the Confidential Information disclosed to it by the other party for any purpose except the Permitted Purpose. Neither party will disclose any Confidential Information of the other party to third parties except
+its and its affiliates’ directors, officers, employees, consultants, professional advisers, accountants, legal counsel, and agents (collectively, “Representatives”) who need to have the information in order to carry out the Permitted
+Purpose. Each party has had its Representatives who has access to Confidential Information of the other party be bound by a written agreement, or by a legally enforceable code of professional responsibility, to protect the Confidential Information
+under restrictions on use and nondisclosure that are no less restrictive than those set forth in this Agreement. In any event, each party will be liable for any breach of this Agreement by any of its Representatives. Each party agrees that it will
+take all reasonable measures to protect the secrecy of and avoid disclosure or nonpermitted use of Confidential Information of the other party in order to prevent it from falling into the public domain or the possession of persons other than those
+persons authorized hereunder to have any such information, which measures will include the same degree of care that either party utilizes to protect its own Confidential Information of a similar nature, and in no event less than reasonable care.
+Each party agrees to notify the other party in writing of any misuse or misappropriation of such Confidential Information that may come to its attention.
+4.
+Disclosure Required by Law
+. In the event that the receiving party or any of its Representatives is requested or required by
+legal process to disclose any of the Confidential Information of the disclosing party, the receiving party will give prompt written notice, to the extent legally permissible, to the disclosing party so that the disclosing party may seek, at its
+expense, a protective order or other appropriate relief. In the event that such protective order is not obtained, the receiving party or its Representatives will disclose only that portion of the Confidential Information that, in the advice of its
+counsel, it is legally required to disclose.
+5.
+Return of Materials
+. Upon the disclosing party’s written request, the
+receiving party will, within thirty (30) days from receipt of such written request, return or destroy any materials or documents that have been furnished by or on behalf of the disclosing party to the receiving party or its Representatives.
+Notwithstanding the foregoing, the receiving party (a) shall not be obligated to destroy or deliver backup copies of the Confidential Information automatically generated by data backup or recovery systems so long as such data or records are not
+accessible in the ordinary course of business and (b) may retain one (1) copy of the Confidential Information for archival or evidentiary purposes as required to comply with applicable laws; provided, however, that the receiving party
+continues to maintain such Confidential Information in the manner required by this Agreement for as long as the receiving party continues to possess the Confidential Information. Such copies shall not be used for any purposes other than the purpose
+stated in the foregoing sentence.
+6.
+Information Provided As Is
+. The disclosing party makes no representations or
+warranties, express or implied, to the receiving party regarding, and the receiving party may not rely on, the completeness or accuracy of any information provided to the receiving party, except as may be expressly agreed in a definitive agreement
+entered into with respect to a Potential Transaction.
+7.
+No License Granted
+. Nothing in this Agreement is intended to grant
+any rights to either party or any of its Representatives under any patent, copyright, trade secret or other intellectual property right, nor does this Agreement grant either party or any of its Representatives any rights in or to the other
+party’s information, except the limited right to use such information solely for the Permitted Purpose.
+8.
+No Trading on Inside
+Information
+. Renesas is aware, and will advise its Representatives who are provided any Confidential Information of Sequans, of the restrictions imposed by federal securities laws on the purchase or sale of Sequans’ securities by any
+person who has received material
+non-public
+information from Sequans or its Representatives and on the communication of such information to any other person when it is reasonably foreseeable that such other
+person may purchase or sell Sequans’s securities while in possession of such information. Renesas agrees to require its Representatives to comply with these restrictions.
+NDA
+9.
+Public Standstill
+. For a period of one (1) year from the date of this
+Agreement, unless previously approved by the Board of Directors of the disclosing party, each receiving party will not, and will instruct and use its best efforts to cause its Representatives not to, directly or indirectly:
+(a) inquire about, announce or make any offer or proposal (including, without limitation, any offer or proposal to the stockholders of the
+disclosing party) concerning an Acquisition Transaction (as defined below);
+(b) knowingly encourage, solicit or discuss with, or provide
+any Confidential Information of the disclosing party to, any person or entity with respect to any inquiry or announcement regarding or the making of any offer or proposal concerning any Acquisition Transaction;
+(c) otherwise knowingly facilitate or participate in any effort or attempt to make or implement any Acquisition Transaction; or
+(d) participate in any “solicitation” of “proxies” to vote (as such terms are used in the rules and regulations of the
+Securities and Exchange Commission), or seek to advise or influence any person or entity with respect to the voting of, any securities of the disclosing party.
+As used in this paragraph 9, “Acquisition Transaction” means any acquisition or exchange of all or any material portion of the assets of, or 15% or
+more of the equity interest in, the disclosing party or any of its subsidiaries (by purchase on the New York Stock Exchange, direct purchase from the other party, tender or exchange offer or otherwise) or any business combination, merger or similar
+transaction (including an exchange of stock or assets) with or involving the disclosing party or any it its subsidiaries. The provisions of this Section 9 shall be inoperative and of no force or effect with respect to the receiving party or its
+Representatives if (i) any other person shall have entered into a definitive agreement with the disclosing party for a transaction that, after consummation thereof, the shareholders of the disclosing party cease to own a majority of the total
+voting power (without giving effect to any overlapping shareholdings), or a majority of the consolidated total assets, of disclosing party or any successor entity or parent entity or resulting entity, or (ii) a tender or exchange offer is made
+by any other person to acquire a majority of the outstanding voting securities of disclosing party and the Board of Directors of disclosing party fails to recommend to its shareholders rejection of such tender or exchange offer within 10 business
+days of commencement thereof or withdraws such recommendation of rejection or recommends acceptance of such tender or exchange offer (any such event, a “Fall-Away Event”). Notwithstanding anything to the contrary in this Agreement, from
+and after the occurrence of a Fall-Away Event or any expiration of this paragraph, no other provisions of this Agreement will be interpreted to prevent or restrict the receiving party, its affiliates or its Representatives from proposing, pursuing
+or executing a business combination transaction, or from taking any of the actions described in this paragraph, or from taking any actions in furtherance thereof, with respect to disclosing party. Nothing in this paragraph shall prohibit the
+receiving party, its affiliates or its Representatives from communicating with disclosing party for the purpose of making a
+non-public
+proposal regarding a transaction or an amendment or waiver of this
+paragraph in such a manner as would not reasonably be expected to require public disclosure thereof under applicable law.
+10.
+No
+Recruitment of Other Party’s Employees
+. For a period of one (1) year from the date of this Agreement, each party will not, and will instruct and use its best efforts to cause its Representatives not to, directly or indirectly,
+recruit or solicit for hire any of the other party’s employees at the vice president level or above, or aid anyone else in recruiting or soliciting for hire any of such employees, or induce or otherwise encourage any of such employees to leave
+their employment with the other party, provided that (i) general,
+non-targeted
+advertisements or solicitations through independent employment recruiters will not be deemed to breach the foregoing
+provisions of this sentence, and (ii) this Section 10 shall not prohibit the receiving party from soliciting or hiring any person who initiates contact with the receiving party regarding employment without inducement by the receiving party
+or its Representatives.
+11.
+Entire Agreement
+. This Agreement sets forth the entire understanding of the parties concerning
+the matters set forth herein. Except as set forth in this Agreement, neither party will be committed in any way concerning a Potential Transaction being explored unless and until a definitive written agreement with respect thereto is duly authorized
+and executed by the appropriate officers of both parties.
+12.
+Governing Law and Jurisdiction
+. This
+Agreement will be governed by and construed and enforced in accordance with the internal laws of the State of California without regard to its
+conflict-of-laws
+principles. The federal and state courts within the State of California will have exclusive jurisdiction to adjudicate any dispute arising out of this Agreement. Each party irrevocably consents to the personal jurisdiction of such courts and
+expressly waives any objection to such jurisdiction based on inconvenient forum or otherwise.
+13.
+Remedies
+. Each party
+agrees that its obligations hereunder are necessary and reasonable in order to protect the other party and the other party’s business and expressly agrees that monetary damages may be inadequate to compensate the other party for any breach by
+either party of any covenants and agreements set forth herein. Accordingly, each party agrees and acknowledges that any such violation or threatened violation may cause irreparable injury to the other party and that, in addition to any other
+remedies that may be available, in law, in equity or otherwise, the other party will be entitled to seek injunctive relief against the threatened breach of this Agreement or the continuation of any such breach, without the necessity of proving
+actual damages.
+14.
+Miscellaneous
+. This Agreement will be binding upon and for the benefit of the undersigned parties,
+their successors and assigns. Failure to enforce any provision of this Agreement will not constitute a waiver of any term hereof. This Agreement may not be amended except by a writing signed by both Sequans and Renesas.
+15.
+Term
+. This Agreement applies to Confidential Information disclosed for the Permitted Purpose between the date hereof and two
+(2) years thereafter. The confidentiality obligations in this Agreement will survive any termination of discussions between the parties for a period of two (2) years following the date of this Agreement.
+NDA
+-2-
+SEQUANS COMMUNICATIONS S.A.
+RENESAS ELECTRONICS CORPORATION
+By:
+/s/ Deborah Choate
+By:
+/s/ Sho Ozaki
+Print Name: Deborah Choate
+Print Name: Sho Ozaki
+Print Title: Chief Financial Officer
+Print Title: Senior Director
+NDA

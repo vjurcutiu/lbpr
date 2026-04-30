@@ -1,0 +1,192 @@
+Source title: Hifn / Exar Confidentiality and Non-disclosure Agreement
+Source URL: https://www.sec.gov/Archives/edgar/data/1065246/000119312509046323/dex99e8.htm
+Document type: NDA
+
+---
+
+EX-99.(E)(8)
+3
+dex99e8.htm
+CONFIDENTIALITY AND NON-DISCLOSURE AGREEMENT
+Confidentiality and Non-disclosure Agreement
+Exhibit (e)(8)
+CONFIDENTIALITY AND NON-DISCLOSURE AGREEMENT
+This Confidentiality and Non-disclosure Agreement (the
+“
+Agreement
+”) is made and entered into effective as of September 10, 2008, by and between Hifn, Inc. (the “
+Company
+”), and Exar Corporation (“
+Exar
+”). In consideration of the mutual covenants and
+conditions contained herein, to induce the parties hereto to provide certain information to each other and for other good and valuable consideration, the receipt and adequacy of which are hereby acknowledged, the parties to this Agreement do hereby
+agree as follows:
+1.
+Definition of Confidential Information
+. For all purposes of this Agreement, the term “
+Confidential
+Information
+” shall collectively refer to all non-public information or material disclosed or provided by one party to the other, either orally or in writing, or obtained by the recipient party from a third party or any other source,
+concerning any aspect of the business or affairs of the other party or its “affiliates” (as such term is defined in Rule 12b-2 under the Securities Exchange Act of 1934), including without limitation, any information or material pertaining
+to products, formulae, specifications, designs, processes, plans, policies, procedures, employees, work conditions, legal and regulatory affairs, assets, inventory, discoveries, trademarks, patents, manufacturing, packaging, distribution, sales,
+marketing, expenses, financial statements and data, customer and supplier lists, raw materials, costs of goods and relationships with third parties. Confidential Information also includes any notes, analyses, compilations, studies or other material
+or documents prepared by the recipient party which contain, reflect or are based, in whole or in part, on the Confidential Information.
+Notwithstanding
+the foregoing, Confidential Information shall not include information or material that (i) is publicly available or becomes publicly available through no action or fault of the recipient party, (ii) was already in the recipient
+party’s possession or known to the recipient party prior to being disclosed or provided to the recipient party by or on behalf of the other party,
+provided
+, that, the source of such information or material was not bound by a contractual,
+legal or fiduciary obligation of confidentiality to the non-disclosing party or any other party with respect thereto, (iii) was or is obtained by the recipient party from a third party, provided, that, such third party was not bound by a
+contractual, legal or fiduciary obligation of confidentiality to the non-disclosing party or any other party with respect to such information or material, or (iv) is independently developed by the recipient party without reference to the
+Confidential Information.
+2.
+Restrictions on Disclosure and Use
+. The Company and Exar do hereby covenant and agree with each other as follows:
+2.1
+Non-disclosure
+. Both parties shall keep strictly confidential and shall not disclose, or cause or permit to be disclosed, to any person or
+entity, (i) any information about the potential sale of all or a portion of all of the assets or equity securities of the Company (the “
+Transaction
+”) or the fact that either party has received the Confidential Information and
+is considering the Transaction and all discussions between the Company and Exar related thereto, except that both parties may make such disclosure if it has received the reasonable advice of its outside counsel that such disclosure must be made in
+order that such party not commit a violation of law, and (ii) the Confidential Information, except to those officers, employees or other authorized agents and representatives and professional consultants of such party to whom disclosure is
+reasonably necessary in connection with the Transaction and who shall agree to be bound by the terms of this Agreement, and except as otherwise consented to in writing by the non-disclosing party. Both parties shall take all actions reasonably
+necessary to ensure that the Confidential Information remains strictly confidential and is not disclosed to or seen, used or obtained by any person or entity except in accordance with the terms of this Agreement. Both parties agree not to contact
+any employees, customers, or suppliers of the other party or its affiliates with respect to the Transaction or for the purpose of obtaining information for use in evaluating the Transaction, without the other party’s prior written consent. Exar
+further agrees that all inquiries, requests for information and other communications concerning the Transaction shall be made only through RBC Capital Markets Corporation (“RBCCM”) unless otherwise advised or permitted by Company.
+In the event that either party is requested or required (by oral questions, interrogatories, requests for
+information or documents in legal proceedings, subpoena, civil investigative demand or other similar process or by any law, rule or regulation of any governmental agency or regulatory authority) to disclose any of the Confidential Information, such
+party shall provide the other party with prompt written notice of any such request or requirement so that such other party may seek a protective order or other appropriate remedy and/or waive compliance with the provisions of this Agreement. If, in
+the absence of a protective order or other remedy or the receipt of a waiver, and if one party is nonetheless, legally compelled to disclose Confidential Information, such party may, without liability hereunder, disclose to such tribunal only that
+portion of the Confidential Information which such counsel advises it is legally required to be disclosed, provided that such party shall use its best efforts to preserve the confidentiality of the Confidential Information, including, without
+limitation, by cooperating with the other party to obtain an appropriate protective order or other reliable assurance that confidential treatment will be afforded the Confidential Information by such tribunal.
+2.2
+Ownership
+. All Confidential Information of a party shall remain the exclusive property of such party, and no right, title or interest in or to
+any of the Confidential Information or any material developed therefrom is transferred to the recipient party hereby or by its delivery to the recipient party hereunder.
+2.3
+Use
+. The recipient party shall use or cause the Confidential Information to be used only to evaluate the Transaction and in a manner consistent with the terms and conditions of this Agreement and at no time
+shall the recipient party otherwise use the Confidential Information for the benefit of itself or any other third party or in any manner adverse to, or to the detriment of, the disclosing party or its affiliates or their respective shareholders.
+2.4
+Other Parties Bound
+. All affiliates of a recipient party and all directors, officers, employees, agents and representatives of
+a recipient party or its affiliates shall be included within the definition of the term “
+recipient party
+” for purposes of this Agreement and shall be bound by the terms and conditions of this Agreement. The recipient party shall be
+responsible for any breaches of this Agreement by any of its affiliates and any directors, officers, employees, agents and representatives of such recipient party or its affiliates.
+3.
+No Solicitation
+. For a period of one year from the date of this Agreement, neither party will directly solicit the employment of any officer or employee of the other party or its affiliates without the prior
+written consent of such other party.
+4.
+Return of Confidential Information
+. A recipient party shall, upon accomplishing the limited purpose of
+evaluating the Transaction, or at any time upon the written request of the other party, immediately return to the other party all Confidential Information (including notes, writings and other material developed therefrom by the recipient party) and
+all copies thereof and retain none for its files. Notwithstanding such return, both parties shall continue to be bound by this Agreement.
+5.
+No
+Representations or Warranties
+. The Confidential Information is being provided under this Agreement “as is” and without any representation or warranty of any kind, either express or implied, regarding the accuracy or completeness or
+other quality of the Confidential Information. In no event shall either party or its affiliates or any of their respective directors, officers, employees, agents or representatives (including, without limitation, RBCCM) have any liability to other
+party relating to or arising out of any use of the Confidential Information in accordance with this Agreement.
+6.
+Indemnification
+. Each party shall indemnify and hold harmless the other party and its affiliates and their
+respective directors, officers, employees, agents and representatives from and against any and all losses, damages, costs and expenses (including, without limitation, reasonable attorneys’ fees and expenses) caused by or arising out of any
+direct breach of this Agreement or any direct breach for it is responsible hereunder, and any and all actions, suits, proceedings, claims, demands or judgments incident thereto.
+7.
+Equitable Remedies
+. Both parties hereby agree that their failure to perform any obligation or duty which they have agreed to perform under this Agreement may cause irreparable harm to the other party, which
+harm cannot be adequately compensated for by money damages. It is further agreed by both parties that an order of specific performance or for injunctive relief against the recipient party in the event of a breach or default under the terms of this
+Agreement would be equitable and would not work a hardship on the recipient party. Accordingly, in the event of a breach or default by either party hereunder, the non-defaulting party, without any bond or other security being required and in
+addition to whatever other remedies are or might be available at law or in equity, shall have the right either to compel specific performance by, or to obtain injunctive relief against, the other party, with respect to any obligation or duty herein
+or breach thereof.
+8.
+No Licenses Granted
+. Neither party grants any licenses, by implication or otherwise, under any patent, copyright, trademark,
+trade secret or other rights by disclosing Confidential Information under this Agreement.
+9.
+Definitive Agreement
+. The Company and Exar understand
+and agree that no contract or agreement providing for any transaction involving the Company or Exar shall be deemed to exist between Exar and the Company unless and until a final definitive agreement has been executed and delivered, and the Company
+and Exar hereby waive in advance, any claims (including, without limitation, breach of contract) in connection with any such transaction unless and until Exar and the Company shall have entered into a final definitive agreement. The Company and Exar
+also agree that unless and until a final definitive agreement between Exar and the Company has been executed and delivered, neither Exar nor the Company will be under any legal obligation of any kind whatsoever with respect to such a transaction by
+virtue of this Agreement except for the matters specifically agreed to herein. Both parties reserve the right, in their sole discretion, to reject any and all proposals made by the other party and to terminate discussions and negotiations with
+respect to a Transaction at any time. Both parties further understand that (i) either party shall be free to conduct any process for any transaction involving the Company or Exar, if and as such party in its sole discretion shall determine
+(including, without limitation, negotiating with any other interested party and entering into a definitive agreement without prior notice to the other or any other person), (ii) any procedures relating to such process or transaction may be
+changed at any time in either party’s sole discretion without notice to the other or any other person, and (iii) neither party shall have any claims whatsoever against the other or any of its agents or representatives (including, without
+limitation, RBCCM) arising out of or relating to any transaction involving the Company and Exar (other than any claims against the parties to a definitive agreement in accordance with the terms thereof) nor, unless a definitive agreement is entered
+into, against any third party with whom a transaction is entered into.
+10.
+Standstill
+. Each of the Company and Exar hereby covenant and agree that,
+for a period of six months from the date of this Agreement, without the prior written consent of the other party, which shall not be unreasonably withheld, it will not in any manner, directly or indirectly, or in conjunction with any other person or
+entity, (a) effect or seek, offer or propose (whether publicly or otherwise) to effect or participate in, (i) any acquisition of any securities (or beneficial ownership thereof) or assets of the other party, (ii) any tender or
+exchange offer, merger or other business combination involving the other party, (iii) any recapitalization, restructuring, liquidation, dissolution or other extraordinary transaction with respect to the other party, or (iv) any
+“solicitation” of “proxies” (as such terms are defined in Rule 14a-1
+under the Securities Exchange Act of 1934) or consents to vote any securities of the other party; (b) form, join or
+in any way participate in a “group” (as such term is used in Section 13(d)(3) of the Securities Exchange Act of 1934) or otherwise act, alone or with others, to seek to acquire or affect control or influence the management, board of
+directors or policies of the other party; (c) enter into any discussions or arrangements with any third party regarding any of the foregoing; or (d) take any action which might force the other party to make a public announcement regarding
+any of the foregoing. Each of the Company and Exar further convenant and agree that, without the prior written consent of the other party, it will not directly or indirectly, enter into any agreement, arrangement or understanding, with any other
+person or entity regarding a possible transaction involving such other party of the type and for the term described above.
+11.
+Notices
+. Any notices
+to be given by either party to the other will be sufficiently given if delivered personally or transmitted by facsimile or if sent by registered mail, postage prepaid, to the parties at their respective addresses set out below, or to any other
+addresses as the parties may notify to the other from time to time in writing. This notice will be deemed to have been given at the time of delivery, if delivered in person or transmitted by facsimile, or within three business days from the date of
+posting if sent by registered mail.
+If to Hifn, Inc.:
+750
+University Avenue
+Los Gatos, CA 95031
+Attention: Bill Walker,
+Chief Financial Officer
+Facsimile: (408) 399-3509
+If to
+Exar Corporation:
+48720 Kato Road
+Fremont, CA 94538
+Attention: Law Department
+Facsimile: 510-668-7002
+12.
+Trading in Securities
+. Both parties acknowledge that they are aware, and agree to advise their directors, officers, employees, agents and representatives
+who are informed as to the matters which are the subject of this Agreement, that the United States securities laws prohibit any person who has material, non-public information concerning the Transaction from purchasing or selling securities of a
+company that may be a party to such Transaction or from communicating such information to any other person under circumstances in which it is reasonably foreseeable that such person is likely to purchase or sell such securities.
+13.
+Privileged Information and Work Product
+. To the extent any Confidential Information may include materials subject to attorney-client privilege, work product
+doctrine or any other applicable privilege concerning pending or threatened legal proceedings or governmental investigations, Exar and the Company understand and agree that they both have a commonality of interest with respect to such matters and it
+is both our desire, intention and mutual understanding that the sharing of such material is not intended to, and shall not, waive or diminish in any way the confidentiality of such material or its continued protection under the attorney-client
+privilege, work product doctrine or other applicable privilege. All Confidential Information provided by either party that is entitled to protection under the attorney-client privilege, work product doctrine or other applicable privilege shall
+remain entitled to such protection under these privileges, this agreement, and under the joint defense doctrine.
+14.
+Miscellaneous
+. This Agreement
+shall be binding upon, and inure to the benefit of, and be enforceable by, the parties hereto and their respective successors and assigns, however, neither party
+shall have the right to assign or otherwise transfer its rights or obligations under this Agreement without the prior
+written consent of the other party; provided, however, that a successor in interest to a party by merger, by operation of law, or by assignment, purchase, or otherwise, of the entire business of either party shall acquire all the rights and be
+subject to all the obligations of such party hereunder, without the necessity of obtaining such prior written consent; provided, however, that nothing herein shall prevent either party from assigning all of its rights and obligations under this
+Agreement to a subsidiary of that party upon written notice to the other party. This Agreement constitutes the complete agreement between the parties hereto with respect to the subject matter hereof and shall continue in full force and effect until
+terminated by mutual agreement of the parties hereto. The section headings used herein are for reference purposes only and shall not in any way affect the meaning or interpretation of this Agreement. This Agreement shall be construed, performed and
+enforced in accordance with, and governed by, the internal laws of the State of California, without giving effect to the principles of conflicts of law thereof, and each party consents to personal jurisdiction in such state and voluntarily submits
+to the jurisdiction of the courts of such state in any action or proceeding relating to this Agreement. Whenever possible, each provision of this Agreement shall be interpreted in such a manner as to be effective and valid under applicable law, but
+if any provision hereof is held to be invalid, illegal or unenforceable under any applicable law or rule in any jurisdiction, such provision will be ineffective only to the extent of such invalidity, illegality, or unenforceability, without
+invalidating the remainder of this Agreement. This Agreement may not be modified or amended and no provision hereof may be waived, in whole or in part, except by a written agreement signed by the parties hereto. No waiver of any breach or default
+hereunder shall be considered valid unless in writing, and no such waiver shall be deemed a waiver of any subsequent breach or default of the same or similar nature. This Agreement may be executed in any number of counterparts, each of which shall
+be deemed an original, but all of which taken together shall constitute one and the same instrument.
+15.
+Term
+. This Agreement shall remain in full force and effect for one year from the date hereof.
+IN WITNESS WHEREOF, the parties hereto have duly executed this Agreement effective as of the date first set forth above.
+Hifn, Inc.
+Exar Corporation
+By
+/s/ William R. Walker
+By
+/s/ Pedro P. Rodriguez
+Title
+Chief Financial Officer
+Title
+President and Chief Executive Officer

@@ -1,0 +1,225 @@
+Source title: CSR / Qualcomm Non-Disclosure Agreement
+Source URL: https://www.sec.gov/Archives/edgar/data/1368358/000119312515099203/d857976dex102.htm
+Document type: NDA
+
+---
+
+EX-10.2
+5
+d857976dex102.htm
+EX-10.2
+EX-10.2
+Exhibit 10.2
+NON-DISCLOSURE AGREEMENT
+THIS
+NON-DISCLOSURE AGREEMENT
+(the “
+Agreement
+”) is entered into effective as of the date last signed below (the “
+Effective Date
+”)
+BETWEEN:
+CSR plc, a company organized and existing
+under the laws of England and Wales with its principal place of business’ at Churchill House, Cambridge Business Park, Cowley Road, Cambridge, CB4 0WZ, UK, acting on its behalf and on behalf of its Affiliates (“
+CSR
+” and the
+“
+Disclosing Party
+”); and QUALCOMM Incorporated a company organized and existing under the laws of Delaware with its principal place of business at 5775 Morehouse Drive, San Diego, CA 92121 (“
+Qualcomm
+” and the
+“
+Receiving Party
+”) (each a “
+Party
+” and together the “
+Parties
+”). As used in this Agreement, Affiliates includes any company which is a direct or indirect holding company of that Party or a direct or
+indirect subsidiary of that Party or any such holding company.
+WHEREAS:
+(A)
+The Receiving Party wishes to learn more about, and CSR wishes to provide, information concerning certain aspects of CSR’s business and technologies (the “
+Business
+”), for the purposes of the
+possible acquisition by the Receiving Party of the whole of the issued and to be issued share capital of CSR (the “
+Permitted Purpose
+”).
+(B)
+The Receiving Party, its respective directors, officers and employees, and agents or professional advisers with a need to know the Confidential Information (as defined below) for the Permitted Purpose (together referred
+to as the “
+Disclosees
+”), will need access to certain information relating to the Business which is to be treated as confidential.
+NOW THE PARTIES AGREE AS FOLLOWS:
+1.
+Confidential Information
+For the purposes of this Agreement “
+Confidential
+Information
+” means all information disclosed to the Receiving Party by the Disclosing Party or any person acting on the Disclosing Party’s behalf, including its directors, officers, employees, affiliates, and professional advisers
+(together referred to as the “
+Disclosers
+”) in relation to the Permitted Purpose whether orally or in writing in whatever form, or by the inspection of tangible objects, including, but not limited to, documents, prototypes, samples,
+business plans, customer opportunities, research, development, know-how, product plans, designs, costs, finances, spread sheets, marketing plans, and prices.
+2.
+Maintenance of Confidentiality
+In consideration of the Disclosing Party supplying or
+procuring the supply of, the Confidential Information to the Receiving Party, the Receiving Party hereby undertakes and agrees as follows:
+(a)
+to hold the Confidential Information in confidence and not to disclose or permit it to be made available to any person, firm or company (except to other Disclosees), without the Disclosing Party’s prior consent;
+(b)
+only to use the Confidential Information for the Permitted Purpose and only to disclose the Confidential Information to Disclosees who need to know such information for the Permitted Purpose;
+(c)
+to ensure that each person to whom disclosure of Confidential Information is made by the Receiving Party is fully aware in advance of the Receiving Party’s obligations under this Agreement;
+(d)
+upon written demand from the Disclosing Party either to return the Confidential Information and any materials derived from or based on the
+Confidential Information (including all copies thereof whether in
+UK Takeover Code Standard Form NDA
+1
+hard copy or electronic form) or to confirm to the Disclosing Party in writing that, save as required by law or regulation, it has been destroyed (notwithstanding the above, the Receiving Party
+may retain copies of Confidential Information stored on backup disks or in backup storage facilities automatically produced in the ordinary course of business. Any Confidential Information so retained will be held subject to the confidentiality and
+use limitations of this Agreement); and
+(e)
+to keep confidential and not reveal to any person, firm or company (other than Disclosees) the fact that discussions or negotiations are taking place or have taken place between the Parties in connection with the
+Permitted Purpose or any details of those discussions or negotiations.
+3.
+Exceptions
+Nothing in clauses 2(a) to (f) of this Agreement shall apply to any
+information or Confidential Information which:
+(a)
+at the time of its disclosure is in the public domain;
+(b)
+after disclosure comes into the public domain for any reason except the Receiving Party’s failure, or failure on the part of any Disclosee, to comply with the terms of this Agreement;
+(c)
+is disclosed by any of the Disclosers on a non-confidential basis;
+(d)
+was lawfully in the Receiving Party’s possession prior to such disclosure;
+(e)
+is subsequently received by the Receiving Party from a third party without obligations of confidentiality (and, for the avoidance of doubt, the Receiving Party shall not be required to inquire whether there is a duty of
+confidentiality); or
+(f)
+is required to be disclosed pursuant to a valid order issued by a court or government agency or as required by applicable law, provided that the Receiving Party provides the Disclosing Party (i) prompt notice (in
+all instances, such notice shall be given within 48 hours of learning of such obligation), and (ii) the opportunity and sufficient time to oppose such disclosure or seek a protective order or other appropriate remedy. The Receiving Party shall
+cooperate with and not oppose the Disclosing Party’s efforts to seek any necessary protection (to the extent the Disclosing Party decides to seek such protection). In the absence of a protective order and provided that the Receiving Party has
+complied with its aforementioned obligations, it may disclose only the Confidential Information specifically required and only to the extent compelled to do so by an appropriate governmental authority.
+4.
+Use
+The Receiving Party shall not reverse engineer, disassemble, or decompile any
+prototypes or other tangible objects which embody Disclosing Party’s Confidential Information. In the event that the Receiving Party discovers any unauthorized use or disclosure of Disclosing Party’s Confidential Information, then
+Receiving Party shall immediately: (i) notify Disclosing Party thereof in writing; and (ii) take all reasonable steps to limit such unauthorized use or disclosure.
+5.
+Independent Development
+The Disclosing Party understands that the Receiving Party may
+currently or in the future be developing information internally or receiving information from other parties that may be similar to the Confidential Information. Nothing in this Agreement shall prohibit the Receiving Party from developing or
+receiving such information or from developing products, or having products developed for the Receiving Party, that compete with Disclosing Party’s products, provided that in doing so, Receiving Party does not use or disclose any Confidential
+Information.
+UK Takeover Code Standard Form NDA
+2
+6.
+No Representations or License
+(a)
+The Receiving Party acknowledges that the Disclosing Party, does not make or give any representation, warranty or undertaking as to the accuracy, completeness or reasonableness of the Confidential Information.
+(b)
+The Confidential Information shall remain the sole property of the Disclosing Party. Nothing in this Agreement is intended to grant any right to the Confidential Information except as expressly set forth herein.
+(c)
+Nothing in this Agreement shall obligate the Parties to proceed with any business relationship and each Party may terminate the discussions contemplated by this Agreement.
+7.
+Term
+This Agreement shall be effective from the Effective Date until one (1) year
+thereafter, provided that the obligations undertaken by each Party under this Agreement shall continue for five (5) years from receipt of any Confidential Information and, in particular, such obligations will survive the termination of
+negotiations between the Parties regarding the Permitted Purpose.
+8.
+Non solicit
+Without the Disclosing Party’s prior written consent, the Receiving
+Party and its Affiliates will not for a period of twelve (12) months from the date hereof (the “Specified Period”) directly or indirectly solicit the employment of any person who (x) is now an employee (including, but not limited
+to, development engineers) of the Disclosing Party or its Affiliates and (y)(i) who was introduced in person to the Receiving Party by the Disclosing Party during the Specified Period in connection with the Permitted Purpose or (ii) about whom
+the Receiving Party received from the Disclosing Party Confidential Information in connection with the Permitted Purpose. For purposes of this paragraph 8 only, Confidential Information shall not include the mere disclosure of a name of an officer
+or employee and/or his title. The foregoing restrictions do not prohibit (i) the Receiving Party or its Affiliates from engaging in any general solicitation of employees or individual contractors not specifically targeted at the employees or
+individual contractors of the Disclosing Party or its Affiliates or (ii) the employment of any person following an unsolicited approach by that person at his/her own instigation or (iii) an approach made by a recruiter without the person
+having first been identified to the recruiter by the Receiving Party or its Affiliates seeking to employ that person.
+9.
+Insider Dealing and Market Abuse
+The Receiving Party acknowledges and agrees that:
+(a)
+the Confidential Information is provided to the Receiving Party in confidence and that until the Confidential Information has been made public, the Receiving Party will maintain the confidential nature of the
+Confidential Information and will not engage in any behavior in relation to qualifying investments or relevant related investments (within the meaning of Part VIII of the Financial Services and Markets Act 2000 (“FSMA”) and the Code of
+Market Conduct made pursuant to FSMA) while in possession of the Confidential Information which would amount to market abuse for the purposes of FSMA; and
+(b)
+any potential transaction and some or all of the Confidential Information may constitute inside information including for the purposes of the Securities Act of 1933, as amended and the Securities and Exchange Act of
+1934, as amended, including the rules and regulations promulgated thereunder and the Criminal Justice Act 1993 (“CJA”), and accordingly by receiving such Confidential Information the Receiving Party may become an “insider”. The
+Receiving Party consents to being made an insider by virtue of receiving such Confidential Information and acknowledges that, subject to and in accordance with applicable law, the Receiving Party may not deal in securities traded on a U.S. Stock
+Exchange or securities that are price-affected securities (as defined in the CJA) in relation to any such inside information or, encourage another person to deal in price-affected securities or disclose the information except as permitted by the
+Securities Act of 1933, as amended, the Securities Exchange Act of 1934, as amended, and the CJA before such Confidential Information has been made public.
+UK Takeover Code Standard Form NDA
+3
+10.
+Export Control
+The Receiving Party acknowledges and agrees that Confidential
+Information may be subject to export control laws and regulations. The Receiving Party agrees to follow all applicable export laws and regulations with respect to Confidential Information received by it.
+11.
+No Hostile Actions
+The Receiving Party agrees that for a period (the “Standstill
+Period”) beginning on the Effective Date and ending twelve (12) months from such date, unless otherwise invited in advance to do so by the Board of Directors of CSR (or any authorized committee thereof), the Receiving Party or any
+representative that is acting for and on behalf of the Receiving Party or at its direction or instruction shall not, directly or indirectly, and the Receiving Party shall cause any person or entity controlled by it not to, (i) in any manner
+acquire, agree to acquire or make any proposal to acquire, directly or indirectly, any securities (including depository receipts and other derivative securities) of CSR or any of its subsidiaries, (ii) enter into any derivative contract linked,
+directly or indirectly, to any securities, (including depository receipts and other derivative securities), debt or property of CSR or any of its subsidiaries, or agree or propose to do any of the foregoing, (iii) propose any merger,
+consolidation, binding share exchange, recapitalization, reorganization, business combination, partnership, joint venture or other similar transaction involving CSR or any of its subsidiaries, (iv) initiate, make or otherwise participate in any
+solicitation of proxies to vote or other rights to vote any securities of CSR or any solicitation of written consents from holders of any securities of CSR, (v) seek to direct, oblige, restrict, advise or influence any person with respect to
+the voting of any securities of CSR, whether at a meeting of shareholders of CSR or by written consent, or (vi) seek to call or convene a meeting of the shareholders of CSR, (vii) otherwise act, alone or in concert with others, to seek to
+control or influence the management, Board of Directors (or any committee thereof) or policies of CSR, (viii) make any public announcement with respect to, or submit a proposal for, or offer of (with or without conditions) any extraordinary
+transaction involving CSR or any of its securities or assets, or (iv) advise, assist or encourage any other persons in connection with any of the foregoing. The Receiving Party also agrees during the Standstill Period not to (x) request
+CSR (or CSR’s representatives), directly or indirectly, to amend or waive any provision of this paragraph (including this sentence), (y) take any action which could reasonably be expected to require CSR or any of its subsidiaries to make
+public announcement regarding this Agreement or the possibility of any merger, consolidation, binding share exchange, recapitalization, reorganization, business combination, partnership, joint venture or other similar transaction involving CSR or
+any of its subsidiaries, including, without limitation, any such transaction between the Receiving Party and CSR, or (z) communicate with any of CSR’s stockholders regarding the subject matter of this Agreement. With respect to the
+foregoing, CSR acknowledges that “derivative securities” shall not include mutual funds or other similar investment instruments which contain securities of CSR and over which the Receiving Party has no control. For purposes of this section
+the obligations in the clauses above will not apply, (i) to any person who acquires or disposes of any interest in the securities of CSR in the ordinary course of business of that person as a fund manager, market-maker, broker or provider of
+trustee or nominee services where the decision to acquire or dispose is taken by an individual who is not in possession of Confidential Information; (ii) at any time any person (other than the Receiving Party or any person acting in concert
+with the Receiving Party) has made, or announced a firm intention to make, a general offer to acquire shares carrying over 50% of the voting rights (as defined in the City Code on Takeovers and Mergers) of CSR which has been recommended by the board
+of CSR; (iii) if the negotiations of the proposed transaction in relation to the Permitted Purpose are either on-going or terminated before the consummation of such transaction and at any time any person (other than the Receiving Party or any
+person acting in concert with the Receiving Party) has made, or announced a firm intention to make, a general offer to acquire shares carrying over 50% of the voting rights (as defined in the City Code on Takeovers and Mergers) which has not been
+recommended by the board of CSR, or (iv) to the acquisition or any offer to acquire any share capital (including depository receipts and other derivative securities) of CSR or any of its subsidiaries or entering
+UK Takeover Code Standard Form NDA
+4
+into any derivative contract linked, directly or indirectly, to any such share capital, (including depository receipts and other derivative securities), if the aggregate number of shares acquired
+or the subject of derivative contracts is less than five (5) per cent of the outstanding share capital of CSR. For the avoidance of doubt, the obligations within this Section will survive the termination of negotiations between the Parties
+regarding the Permitted Purpose.
+12.
+Variation and waiver
+(a)
+No variation to this Agreement shall be of any effect unless it is agreed in writing and signed by or on behalf of the Parties.
+(b)
+No omission to exercise or delay in exercising any right, power or remedy provided by law or under this Agreement shall constitute a waiver thereof.
+13.
+Remedies
+The Receiving Party agrees that damages may not be an adequate remedy for any
+breach (whether actual or threatened) of the provisions of this Agreement and that accordingly, the Disclosing Party shall be entitled to seek the remedies of injunction, specific performance or other equitable relief.
+14.
+Assignment and Entire Agreement
+This Agreement shall be binding upon and for the
+benefit of the Parties and their successors and assigns. This Agreement constitutes the entire agreement between the Parties with respect to the subject matter hereof, and no alteration to this Agreement shall be valid unless made in writing and
+signed by the Parties.
+15.
+Governing Law
+This Agreement shall be governed by, and construed in accordance with,
+English law. Any matter claim or dispute arising out of or in connection with this Agreement, whether contractual or non-contractual, is to be governed by and determined in accordance with English law. Each Party hereby irrevocably submits to the
+exclusive jurisdiction of the English courts in respect of any claim or dispute arising out of or in connection with this Agreement.
+UK Takeover Code Standard Form NDA
+5
+IN WITNESS WHEREOF this Agreement has been executed on the date below.
+CSR plc
+By
+Name:
+Adam R. Dolinko
+Title:
+SVP & SC
+Date:
+Sept 3, 2014
+QUALCOMM Incorporated
+By
+Name:
+Adam Schwenker
+Title:
+VP, Legal Counsel and Asst. Secretary
+Date:
+September 2, 2014
+UK Takeover Code Standard Form NDA
+6

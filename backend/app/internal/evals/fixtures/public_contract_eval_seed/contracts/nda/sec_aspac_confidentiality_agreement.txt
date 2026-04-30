@@ -1,0 +1,53 @@
+Title: 
+
+URL Source: https://www.sec.gov/Archives/edgar/data/1868775/000110465921120382/tm2120324d5_ex10-10.htm
+
+Published Time: Wed, 29 Sep 2021 10:04:27 GMT
+
+Markdown Content:
+EX-10.10 11 tm2120324d5_ex10-10.htm EXHIBIT 10.10 
+**Exhibit 10.10**
+
+CONFIDENTIALITY AGREEMENT
+
+This Confidentiality Agreement (“Agreement”) is entered into on, 2021 by and between A SPAC I Acquisition Corp (the “SPAC”) and __Jin Ming_________ (“Recipient”).
+
+WHEREAS, in connection with a potential business relationship, the SPAC may disclose to Recipient certain Confidential Information (as defined below);
+
+NOW THEREFORE, in consideration of the mutual covenants contained herein, the parties agree as follows:
+
+1.Recipient may receive or become aware of certain confidential and proprietary information relating to the business and operations of the SPAC, A SPAC (Holdings) Acquisition Corp., the SPAC’s sponsor, any target company considered by the SPAC for the initial business combination or any of their respective affiliates, including reports, financial information, trade secrets, research information, finances and financial projections, current or future business plans and models and other business or operational information (the “Confidential Information”), regardless of whether such information is designated as “confidential information” at the time of its disclosure. “Confidential Information” shall include all information (oral or written) relating to the potential business relationship (including the fact that the SPAC has reached out to Recipient regarding the potential business relationship and, to the extent applicable, has entered into such business relationship), that the SPAC furnishes or has furnished to Recipient prior to, on or after the date of this Agreement, and all notes, analyses, compilations, forecasts, studies or other documents prepared by Recipient that contain, reflect or are based on such information.
+
+2.Recipient hereby acknowledges the confidential and proprietary nature of such Confidential Information and agrees that the Confidential information will be used solely in connection with Recipient’s service on the board of directors of the SPAC and for no other purpose and further agrees not to disclose or otherwise attempt to use or personally benefit from any Confidential Information that is disclosed to or known by Recipient until such time as the Confidential Information has become publicly available through no action of Recipient, except to the extent required by law or as expressly permitted by the SPAC.
+
+3.If Recipient is requested or required, in connection with any proceeding by or before a governmental authority, to disclose any Confidential Information, Recipient will give the SPAC prompt written notice of such request or requirement so that the SPAC may seek an appropriate order or other remedy protecting the Confidential Information from disclosure, and Recipient will cooperate with the SPAC to obtain such protective order or other remedy. In the event that a protective order or other remedy is not obtained or the SPAC waives its rights to seek such an order or other remedy, Recipient may, without liability under this Agreement, furnish only that portion of the Confidential Information which, in the written opinion of Recipient’s counsel, Recipient is legally required to disclose, provided that Recipient gives the SPAC written notice of the information to be disclosed as far in advance of its disclosure as practicable and uses its best efforts to obtain assurances that confidential treatment will be accorded to such information.
+
+4.In the event of the termination or conclusion of this potential or consummated relationship, Recipient shall return or destroy all Confidential Information and destroy or permanently erase (to the extent technically practicable) all copies of Confidential Information made by Recipient and use its reasonable endeavors to ensure that anyone to whom it has supplied any Confidential Information destroys or permanently erases (to the extent technically practicable) such Confidential Information and any copies made save to the extent required to be retained by applicable law, rule or regulation or by any competent judicial, governmental, supervisory or regulatory body, or where the Confidential Information has been disclosed under paragraph 3 above.
+
+5.Recipient acknowledges that money damages would not be a sufficient remedy for any breach of this Agreement by Recipient and, in addition to all other remedies available under applicable law, the SPAC shall be entitled to seek specific performance and to injunctive or other equitable relief as a remedy for any such breach.
+
+6.This Agreement shall be governed in all respects by the internal laws of the State of New York, without giving effect to New York principles or rules of conflict of laws to the extent such principles or rules would require or permit the application of the laws of another jurisdiction.
+
+7.This Agreement may be executed in one or more counterparts, each of which shall be deemed an original copy of this Agreement, and all of which, taken together, shall be deemed to constitute one and the same agreement.
+
+8.This Agreement represents the entire understanding of the SPAC and Recipient and cannot be amended, supplemented or otherwise modified except in a writing executed by the parties.
+
+I have read and understand the foregoing terms and conditions and agree to be bound by them as of the date written above.
+
+_[Signature pages follow]_
+
+_[Signature page to confidentiality agreement]_
+
+A SPAC I Acquisition Corp.
+
+By:
+Name: Claudius Tsang
+Title: Chief Executive Officer
+Date:
+
+_[Signature page to confidentiality agreement]_
+
+Name: Jin Ming
+Date:
+
+_[Signature page to confidentiality agreement]_

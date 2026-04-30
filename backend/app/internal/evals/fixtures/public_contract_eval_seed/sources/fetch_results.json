@@ -1,0 +1,58 @@
+[
+  {
+    "id": "sec_fusionio_sandisk_nda",
+    "status": "exists"
+  },
+  {
+    "id": "sec_aspac_confidentiality_agreement",
+    "status": "exists"
+  },
+  {
+    "id": "sec_sequans_renesas_mutual_nda",
+    "status": "downloaded_text"
+  },
+  {
+    "id": "sec_csr_qualcomm_nda",
+    "status": "downloaded_text"
+  },
+  {
+    "id": "sec_hifn_exar_confidentiality_nda",
+    "status": "downloaded_text"
+  },
+  {
+    "id": "sec_anebulo_potrero_msa",
+    "status": "downloaded_text"
+  },
+  {
+    "id": "sec_indegene_cingulate_msa",
+    "status": "downloaded_text"
+  },
+  {
+    "id": "sec_proquest_ibm_msa",
+    "status": "downloaded_text"
+  },
+  {
+    "id": "sec_anthem_castlight_saas",
+    "status": "downloaded_text"
+  },
+  {
+    "id": "sec_relativity_kldiscovery_master_terms_dpa",
+    "status": "downloaded_text"
+  },
+  {
+    "id": "cure53_nda_template",
+    "status": "downloaded_binary"
+  },
+  {
+    "id": "cure53_msa_template",
+    "status": "downloaded_binary"
+  },
+  {
+    "id": "cure53_dpa_template",
+    "status": "downloaded_binary"
+  },
+  {
+    "id": "github_dpa_pdf",
+    "status": "downloaded_binary"
+  }
+]

@@ -1,0 +1,2206 @@
+Source title: Indegene / Cingulate Therapeutics Master Services Agreement
+Source URL: https://www.sec.gov/Archives/edgar/data/1862150/000164117225009289/ex10-4.htm
+Document type: MSA
+
+---
+
+EX-10.4
+2
+ex10-4.htm
+EX-10.4
+Exhibit
+10.4
+MASTER
+SERVICES AGREEMENT
+This
+Master Services Agreement (this “
+Agreement
+”) is made on May 7, 2025 (the “
+Effective Date
+”) by and
+between
+Indegene, Inc.,
+a Delaware corporation having its place of business at Suite 104, 150 College Road W, Princeton, NJ 08540
+(hereinafter referred to as “
+Indegene
+”) and
+Cingulate Therapeutics LLC
+, a Delaware limited liability company
+having its corporate office at 1901 W 47th Place, 3rd Floor, Kansas City, KS 66205 (hereinafter referred to as “
+Cingulate
+”).
+Indegene and Cingulate may be referred to individually as a “
+Party
+” and together referred to as the “
+Parties
+”.
+Capitalized terms in the Agreement not otherwise defined shall have the meaning set forth in
+Section 1
+below.
+RECITALS
+WHEREAS
+Indegene is in the business of providing an integrated end-to-end commercialization solution to healthcare organizations and pharmaceutical
+enterprises including agile operations, co-commercialization and consulting in clinical, regulatory, safety, medical affairs, analytics,
+pricing, reimbursement & market access, marketing and customer experience;
+WHEREAS
+,
+during the Term of this Agreement, Indegene is willing to furnish certain services to Cingulate as shall be set forth in one or more
+Statements of Work;
+NOW,
+THEREFORE
+, in consideration of the mutual promises, covenants, conditions and provisions contained in or referenced by this Agreement,
+the Parties have reviewed and accepted all referenced material and any appendices, exhibits or other attachments and agree to be bound
+by the terms and conditions set forth in this Agreement as follows:
+1.
+DEFINITIONS
+Unless
+the context otherwise requires, when used in this Agreement.
+1.1
+“Affiliate”
+means, with respect to a Party, any Person, that, directly or indirectly, controls, is controlled
+by or is under common control with such Party, for so long as such control exists. For purposes of this definition, “control”
+shall be defined as shall mean direct or indirect ownership of at least fifty percent (50%) of the outstanding voting securities
+or other equity interests of such Person and the power to direct or cause the direction of the management, policies and affairs of
+such Person. Neither Party shall be deemed to be an “Affiliate” of the other. A Person shall cease to be an “Affiliate”
+of a Party hereunder upon the date that such Person no longer satisfies the requirements set forth in this definition. For purposes
+of this definition only, the term “Person” shall exclude any and all natural persons.
+1.2
+“
+Change
+Order
+” has the meaning set forth in
+Section 3.1
+.
+1.3
+“Confidential
+Information”
+means any and all information that is disclosed hereunder on or after the Effective
+Date, whether orally or in means any and all information, including, but not limited to, information relating to products, designs,
+patents, patent applications, copyrights, target molecules, biological targets, methods of manufacture, development or research or
+to the business operations that is disclosed hereunder on or after the Effective Date, whether orally or in written, electronic or
+other tangible form, by or on behalf of a Party or any of its Affiliates (each a “
+Disclosing Party
+”)
+to, the other Party or any of its Affiliates (each, a “
+Receiving Party
+”), that
+in each case: (i) if disclosed in writing or other tangible form, is labeled or identified as “Confidential”, “Proprietary”
+or the like by cover letter or by the use of an appropriate proprietary stamp or legend, prior to or at the time of disclosure by
+the Disclosing Party to the Receiving Party; (ii) if disclosed in writing or other tangible form and not so labeled or identified,
+or if disclosed visually or orally, is within thirty (30) days after disclosure described in a written document(s) delivered by the
+Disclosing Party to the Receiving Party that identifies such information as “Confidential”, “Proprietary”
+or the like and, if applicable, references the place and date of such oral, visual or written disclosure and the names of the Representatives
+of the Receiving Party to whom such disclosure was made; or (iii) if disclosed in any form, it would be apparent to a reasonable
+person, familiar with the Disclosing Party’s business and the industry in which it operates, that such information is of a
+confidential or proprietary nature the maintenance of which is important to the Disclosing Party. Notwithstanding anything to the
+contrary, subject to Cingulate making payment of the applicable, undisputed Fees to Indegene, all Deliverables shall be deemed to
+be Confidential Information of Cingulate, and not Confidential Information of Indegene (and Cingulate shall be deemed to be the Disclosing
+Party, and Indegene the Receiving Party, with respect to any such Confidential Information).
+-
+1
+- | Page
+1.4
+“Deliverable
+”
+means any reports and other documents, data, information, software, tangible material or other items or work product produced in
+the course of performing the Services and/or delivered by Indegene to Cingulate as may be specified in the respective SOW or is otherwise
+provided by Indegene during the Term.
+1.5
+“
+Intellectual
+Property
+” means any and all intellectual property rights including, without limitation, patents
+(including patent applications and patents arising from such applications, and continuations of or relating to patents), trademarks,
+copyrights, registered designs, rights of license, assignment, use, right of confidence in know-how or technical or commercial information
+generally and any other such rights or interests in intellectual property whether or not protected under any law in force.
+1.6
+“
+Person
+”
+means any natural person, corporation, firm, business trust, joint venture, association, organization, Indegene, partnership or other
+business entity, or any government or agency or political subdivision thereof.
+1.7
+“
+Services
+”
+means the services to be performed by Indegene as set forth in any Statement of Work.
+1.8
+“
+Statement
+Of Work
+” or “
+SOW
+” means a document which
+is executed by both Parties which specifies the Services to be obtained by Cingulate from Indegene and shall include a written description
+in reasonably sufficient detail of (a) the specific Services to be conducted pursuant to such SOW; (b) required Deliverables with
+respect to such Services and SOW; (c) the fees payable by Cingulate to Indegene for such Services; (d) the key performance indicators
+(“
+KPIs
+”) and service levels applicable to such SOW, and consequences for failing
+to meet such KPIs or service levels and (e) any additional terms and conditions agreed to by the Parties (
+i.e
+., in addition
+to those set forth elsewhere in this Agreement) with respect to such SOW.
+1.9
+“
+Subcontractor
+”
+means a third party engaged by Indegene to provide products and/or services used by Indegene in rendering the Services.
+2.
+SCOPE
+OF SERVICES
+2.1
+Services
+.
+During the Term, Indegene will perform such Services for Cingulate as agreed in the respective SOWs. The Parties acknowledge that
+(a) the required services may vary over time depending on the different stages in Cingulate’s overall plans and (b) a list
+of potential services that may be agreed upon by the Parties in the Statements of Work (is attached to this Agreement as
+Appendix-A
+).
+Any deviation to the SOW shall be only through a mutual agreed and executed Change Order. Each SOW shall be subject to the terms
+and conditions of this Agreement. In the event of a conflict between the terms and conditions of any SOW and this Agreement, the
+terms and conditions of this Agreement shall control unless such SOW specifically references a Section of this Agreement and expressly
+states that such Section is intended to be changed or amended by such SOW. Upon execution by both Parties, each SOW shall be incorporated
+into and made a part of this Agreement. Indegene shall perform all Services using at least commercially reasonable efforts and shall
+adhere to all key performance indicators, diligence obligations and milestones set forth in the applicable SOW. The Parties acknowledge
+that payment agreed in the respective SOW for services rendered may include certain risk from Indegene on account of agreed service
+level and Indegene’s performance against the said service level. The Parties shall agree to the specific service levels and
+the performance matrix in the respective SOWs. Unless, the service level and performance matrix is expressed in the SOW, the same
+shall not be applicable.
+2.2
+Standard
+of Performance
+. Indegene shall perform the Services in accordance the applicable SOW and Change
+Order (if any) under this Agreement. In addition, Indegene shall perform the Services (a) in conformance with generally accepted
+professional standards of care and conduct; (b) in compliance with all laws, regulations and guidance (
+provided
+,
+however
+,
+that Indegene shall have no liability under this Agreement for any breach of this clause (b) if such breach arises out of Indegene’s
+adherence to an instruction of Cingulate that is inconsistent with this Agreement and Indegene has previously notified Cingulate’s
+CEO, in writing, if Indegene believes that the Company is asking Indegene to act illegally or immorally) and (c) with a level of
+timeliness, staffing, skill, effort and quality at least as high as that an established, global pharmaceutical company with a portfolio
+of commercialized, patent-protected pharmaceutical products would achieve in performing similar services for its own account in connection
+with the pre-launch preparation, launch and post-launch commercialization of a product. Cingulate acknowledges that Indegene’s
+agreement to perform the Services is not a guarantee that such Services will produce specific results.
+-
+2
+- | Page
+2.3
+Indegene
+Right to Participate.
+In the event that Cingulate intends to outsource any services within
+the scope of services that Indegene has the capability to perform, Cingulate shall allow Indegene to participate in Cingulate’s
+request for proposals; provided, that Cingulate may, in its sole discretion, select the party that will provide such services.
+3.
+SERVICES
+AND PROJECT MANAGEMENT
+3.1
+Changes
+to Services
+. Either Party may request a change order (“
+Change Order
+”) in the event of actual or anticipated
+change(s) to the agreed scope of Services, Deliverables, project schedule, fee, or any other aspect of an applicable Statement of
+Work. Indegene will prepare a Change Order reflecting the proposed changes, including but not limited to the impact on the Deliverables,
+project schedule, and fee. Absent a Change Order signed by the Parties, Indegene shall not be bound to perform (and Cingulate shall
+not be bound to pay for) any additional or out-of-scope services beyond what is stated in any applicable SOW. The Parties agree to
+negotiate all Change Order requests expeditiously and in good faith. The Parties further agree that Indegene may at its discretion
+undertake and accomplish tasks of a de minimis nature necessary to perform its obligations under a SOW at no additional cost to Cingulate
+and without requiring the execution of a Change Order. A template Change Order is attached hereto as
+Schedule 2
+.
+3.2
+Acceptance
+.
+Cingulate may test and review all Deliverables using testing and review procedures agreed by both parties in the respective SOW.
+The standard of review of the Deliverable(s) shall be a working Deliverable that is in material conformance with any agreed specifications
+under an applicable SOW and is otherwise free of material defects. Unless otherwise agreed in an applicable SOW, within fifteen (15)
+days of receipt of any Deliverables (the “
+Review Period
+”), Cingulate will submit a written statement (a “
+Deliverable
+Review Statement
+”) to Indegene (or, if specified an applicable SOW, the appropriate Indegene project manager) indicating
+acceptance of the Deliverable(s) (“
+Acceptance
+”) or specifying in detail how the submitted Deliverable(s) fails
+to materially conform to the agreed specification(s) or otherwise contains material defects, in which case Indegene shall be afforded
+a commercially reasonable period of time not less than twenty (20) business days to correct any nonconformities at no cost to Cingulate,
+whereupon the review cycle will recommence. Deliverables will be deemed to be fully and finally accepted by Cingulate in the event
+Cingulate has not submitted a Deliverable Review Statement to Indegene before the expiration of the applicable Review Period, or
+when Cingulate uses the Deliverable in its commercially released product, whichever occurs first. Services provided on time and in
+material compliance with this Agreement and the applicable SOW are deemed accepted upon provision of the same. Unless otherwise agreed
+in an applicable SOW, all Deliverables that are provided in physical form will be made available to Cingulate EXW (Incoterms 2020)
+a facility in the United States designated by Indegene in writing. Cingulate shall pay all costs of shipping, handling and insuring
+such Deliverables supplied to Cingulate hereunder.
+3.3
+Access
+to Cingulate Facility
+. In the event that Indegene is required to provide the Services on-site at Cingulate’s facility,
+Cingulate shall, at no cost to Indegene, provide Indegene and its personnel access to all facilities that may be reasonably required
+by Indegene for Indegene to provide the Services, including but not limited to computing resources, clerical support and reprographic
+facilities. Indegene shall follow any applicable policies and procedures provided by Cingulate to Indegene with respect to access
+to Cingulate’s facilities and networks.
+3.4
+Service
+Locations
+.
+Each of the Services shall be provided from the applicable service location expressly set forth in the applicable
+SOW (the “
+Service Locations
+”). The Services may only be provided from another Service Location after approval
+by Cingulate in writing. Indegene shall ensure that each of its Service Locations comply with the safety and security procedures
+and standards and other requirements set forth in this Agreement.
+-
+3
+- | Page
+3.5
+Subcontracting
+.
+Indegene may subcontract any of the Services to any of its Affiliates or to third party provided that (a) Indegene will not subcontract
+any significant portion of the Services to anyone other than an Affiliate except as expressly set forth in a SOW or as otherwise
+approved by Cingulate in writing (such approval not to be unreasonably withheld) and (b) in all cases, Indegene will be responsible
+to Cingulate for performance of any Services by any of its Affiliates or other Subcontractors. Indegene will notify and receive consent
+of Cingulate in case of (a) any material change in the location of the work performed or (b) any significant change in the portion
+of the Services to subcontractors It is hereby clarified that, Cingulate agrees that, for the term of this Agreement, Cingulate will
+not (a) enter into any agreement, transaction or arrangement directly or indirectly with any of the Subcontractors which Indegene
+has mentioned in the SOW (b) by-pass, compete, avoid, circumvent, or attempt to circumvent Indegene by directly receiving services
+from the Subcontractors named in the SOW without Indegene’s prior written approval. Any breach of this clause shall be a material
+breach deemed an attempt to circumvent Indegene.
+3.6
+Service
+Personnel
+.
+a.
+Service
+Personnel Qualifications
+.
+Indegene shall ensure that all personnel who provide any of the Services (the “
+Service
+Personnel
+”) are, and at all times while they are involved in providing the Services shall be: (i) of suitable experience,
+training and skills to provide the Services pursuant to such SOW, including properly trained personnel fluent in the English language,
+(ii) adequately experienced and trained by Indegene, before such Indegene personnel are assigned to perform the Services pursuant
+to such SOW and (iii) authorized to work in the country in which the Service Location is located. Indegene shall provide Cingulate
+with resumes and any other documents required by Cingulate to determine the qualifications of each proposed Service Personnel. Indegene
+shall ensure that all Service Personnel comply with all applicable provisions of this Agreement.
+b.
+Service
+Personnel Roster
+.
+Indegene will maintain and provide Cingulate with real-time access to an up-to-date roster of all Service
+Personnel.
+c.
+Background
+Screening Requirements
+.
+Indegene will ensure that each of the Service Personnel have passed the background check and exclusion
+screening requirements set forth in the applicable SOW (the “
+Background Screening Requirements
+”) before such Service
+Personnel begins any work on the Services. Indegene will provide Cingulate with all results of the Background Screening Requirements
+upon request, except for any information that Indegene cannot provide under applicable law.
+d.
+Service
+Personnel Restrictions; Exclusivity
+.
+Service Personnel shall not be assigned to or interact with any other Indegene customer
+engaged in similar or competing projects within the same therapeutic area for which such Service Personnel are providing Services
+to Cingulate (“
+Competing Projects
+”). Indegene shall implement appropriate internal safeguards, including industry-standard
+information and physical, operational, and technological separation to prevent the exchange of Confidential Information between Service
+Personnel and Indegene personnel providing services to other Indegene customers engaged in Competing Projects.
+The
+exclusivity obligations under this Section apply solely to the Service Personnel and do not restrict Indegene from offering similar
+or competing services to other customers, including Competing Projects, through separate personnel, teams or Affiliates; provided,
+that Indegene complies with the terms and Conditions of this Agreement, including the confidentiality provisions.
+e.
+Dedicated
+Personnel
+.
+To the extent SOW provides that Indegene will provide Service Personnel who are dedicated to providing Services
+for Cingulate (“
+Dedicated Personnel
+”): (i) each individual who is proposed by Indegene to be included in the Dedicated
+Personnel are subject to being approved by Cingulate in writing before becoming Dedicated Personnel, (ii) each of the Dedicated Personnel
+shall be dedicated to providing Services solely for Cingulate and (iii) Indegene shall not reassign or replace, or permit the reassignment
+or replacement of, any Dedicated Personnel unless (A) Indegene has received the prior written consent of Cingulate for such reassignment
+or replacement or (B) such Dedicated Personnel ceases performance of the Services due to (1) voluntary resignation from employment
+with Indegene, (2) dismissal from employment with Indegene for misconduct (
+e.g.
+, fraud, drug abuse or theft), (3) removal
+of such Dedicated Personnel following his or her failure to perform obligations pursuant to this Agreement or (4) death or disability
+of such Dedicated Personnel.
+-
+4
+- | Page
+f.
+Removal
+of Service Personnel
+.
+Cingulate’s CEO may at any time request the removal of any of the Service Personnel from performing
+Services, with cause (as reasonably determined by Cingulate), and Indegene will immediately comply with such requests and shall provide
+replacement personnel of necessary skill, knowledge and training, subject to the requirements of this
+Section 3.6
+.
+g.
+Training
+of New Service Personnel
+.
+During the transition period for new Service Personnel, Indegene shall provide any training necessary
+to bring them up to date at no charge to Cingulate.
+h.
+Relationship
+Manager
+.
+Indegene will appoint a relationship manager for the Services under each SOW who shall: (i) have overall responsibility
+for managing and coordinating the performance of Indegene’s obligations under such SOW; (ii) act as the primary contact person
+and focal point for all communications related to such SOW; and (iii) be authorized to act for, and on behalf of, Indegene with respect
+to all matters relating to such SOW. Indegene’s appointment of any such project manager shall be subject to Cingulate’s
+prior, written consent.
+i.
+Responsibility
+for Service Personnel
+.
+As between the Parties, Indegene will be solely responsible for payment of the Service Personnel’s
+salaries, unemployment insurance, worker’s compensation, employee benefits, employee-related taxes and other employment-related
+charges and deductions. No Service Personnel shall have any entitlement to any compensation from Cingulate or to participate in any
+benefit plan of Cingulate. Indegene acknowledges that while Cingulate determines the overall strategy and direction of the Services,
+Cingulate does not exercise any control or influence over the professional judgment of any Service Personnel.
+3.7
+Safety
+and Security Procedures; Data Security Requirements
+.
+Indegene shall maintain and enforce at Indegene’s Service Locations
+safety and security procedures (including, but not limited to, procedures with respect to the screening of employees, physical security
+procedures and information technology security procedures) that: (i) comply in all respects with the other terms and conditions of
+this Agreement and (ii) without limiting the foregoing, are at least equal to industry best practices followed at the U.S. facilities
+of major business process outsourcing companies.
+3.8
+DRBC
+Plan
+.
+Indegene has and at all times shall maintain a disaster recovery and business continuity plan to enable the continued
+provision of the Services by Indegene at each Service Location in accordance with this Agreement upon the occurrence of any disaster
+or other business disruption (the “
+DRBC Plan
+”). A copy of the then-current DRBC Plan will be provided by Indegene
+to Cingulate upon request. Indegene will test the DRBC Plan on an annual basis and will provide Cingulate with the results of such
+testing upon request. In addition, Indegene will review the DRBC Plan on an annual basis and update the DRBC Plan to align with then-current
+best practices prevalent in the business process outsourcing industry. Indegene will consult with Cingulate with respect to any such
+updates and will provide Cingulate with a copy of each updated DRBC Plan.
+3.9
+Third
+Party Audit
+. Indegene will have an independent third-party audit firm conduct, on an annual basis for as long as the Services
+are being provided, a SOC 1 (SSAE16), if required and agreed under SOW and SOC 2 Type II (with trust principles of Confidentiality,
+Integrity, Availability, Security and Privacy) audits with respect to Indegene, including its control policies and procedures at
+all Service Locations. Indegene will provide Cingulate with copies of all reports generated pursuant to such audits and will promptly
+correct all deficiencies identified in such audit reports. Indegene will provide a bridge letter for any interim period as requested
+by Cingulate’s external audit firm. Please note that with respect to financial reporting controls as envisaged under SOC 1
+(SSAE16), Indegene shall furnish it’s audited financial statements audited by an independent auditor under the Companies Act
+of India, 2013 which provides an assurance over financial reporting controls.
+3.10
+Access
+to Deliverables
+.
+Indegene shall at all times provide Cingulate with full access to (and upon Cingulate’s request Indegene
+shall promptly deliver to Cingulate) copies of any and all Deliverables, regardless of the stage of completion, as well as any data,
+information and materials made available to Indegene by or on behalf of Cingulate.
+-
+5
+- | Page
+3.11
+Records
+and Audit
+.
+a.
+Records
+.
+At its own expense, Indegene will create and maintain all records reasonably documenting the performance of the Services, including,
+but not limited to: (i) records related to any payments made in connection with the Services, (ii) records to support the accuracy
+and completeness of any Deliverables and (iii) any records that are expressly required to be created or maintained under any Statement
+of Work or applicable laws or regulations (collectively, “
+Records
+”). Indegene will maintain all Records for the
+longer of (i) five (5) years from the date of creation or (ii) any period prescribed by applicable law or stated expressly in this
+Agreement. During the Term (as defined below) and thereafter for as long as Indegene is required to maintain the Records, Indegene
+will allow Cingulate to inspect (and, upon request, Indegene will promptly furnish Cingulate with copies of) all Records.
+b.
+Audit
+by Cingulate
+.
+During the Term, upon reasonable notice and at reasonable times, no more than once per calendar year, Cingulate
+will have the right to audit and examine all contracts, documents, correspondence, books, time sheets, account records and other
+material which relate to the Services. This right of audit will extend to the actual performance of Services as well (including,
+but not limited to, any equipment, other materials and facilities being used in any phase of the conduct of any Services, and the
+data and results generated from such performance, including, without limitation, notes, schedules, written reports, or other work
+product, which document work done and results achieved, and quality assurance or control records). Audits may be implemented by any
+employee, agent, representative, attorney, accountant or auditor authorized by Cingulate. The expense of such audit or examination
+will be borne by Cingulate except that Cingulate will not be responsible for Indegene’s costs incurred in facilitating such
+audit. Indegene shall address any audit findings in a corrective and preventive action plan that is reasonably acceptable to Cingulate.
+In addition to Indegene’s obligations under Section 3.10 and Section 9.2, it is hereby agreed that after the Term of this Agreement
+and for a period of one (1) year, Cingulate may request Indegene to provide certain documents and clarifications related to this
+Agreement for review (at no cost to Indegene) and Indegene will within a reasonable time provide such documents to Cingulate.
+4.
+CONSIDERATION;
+TERMS OF PAYMENT
+4.1
+Fees
+- The fees payable for the Services shall be mutually agreed by the Parties and will be detailed in each SOW (the “
+Fees
+”).
+Further, it is agreed that, unless otherwise agreed in the SOW, all invoices shall be raised by Indegene at the beginning of the
+respective month during the Term of the SOW.
+4.2
+Taxes
+.
+All sales, use, gross receipts, compensating, value-added, or other taxes, duties, registrations, tariffs, customs fees, license
+fees, and other amounts assessed by any tax jurisdiction, U.S. Customs or foreign equivalent, or any other regulatory authority (excluding
+Indegene’s net income and franchise taxes) (“
+Taxes
+”), on or for Services, prior to or upon provision or
+sale to Indegene or Cingulate, as the case may be, whether assessed on Indegene or Cingulate, are the responsibility of Cingulate,
+whether paid by Indegene or Cingulate, and either Cingulate shall reimburse Indegene for all such Taxes paid by Indegene or such
+sums will be added to invoices directed to Cingulate. If any deduction or withholding in respect of Taxes or otherwise is required
+by law to be made from any of the sums payable hereunder, then such amount will be deducted from such payment and timely paid to
+the appropriate taxing authority, in which event Cingulate will secure and send to Indegene proof of any such Taxes withheld and
+paid by Cingulate for the benefit of Indegene, and cooperate with any reasonable request to help ensure that amounts withheld and/or
+paid are reduced and/or recovered to the extent permitted by the relevant jurisdiction.
+4.3
+Payment
+Terms
+. Except for any amounts disputed by Cingulate in good faith, Cingulate shall make payment to Indegene within thirty
+(30) days of receipt of an invoice from Indegene. Indegene reserves the right to charge interest on undisputed past due amounts from
+the date past due until paid, at the rate of twelve percent (12%) per annum. In the event of payment default of undisputed fees,
+Indegene may suspend any or all Services upon ten (10) days written notice to Cingulate and/or to modify the payment terms, and to
+request full payment before any additional performance is rendered by Indegene.
+-
+6
+- | Page
+4.4
+Disputed
+Payments
+. If Cingulate wishes to dispute any amount invoiced by Indegene hereunder, Cingulate must notify Indegene within
+thirty (30) days after the date of invoice by Indegene, such notice to specify the amount disputed and provide a reasonably detailed
+description of the basis for such dispute. Invoices not disputed within 30 (thirty) days of receipt shall be deemed undisputed. The
+Parties shall attempt to resolve any such dispute in good faith. Cingulate shall pay all undisputed amounts within thirty (30) days
+after the date of invoice by Indegene and may withhold payment only of disputed amounts during the pendency of the Parties attempts
+to resolve such dispute. Indegene may suspend the provision of all Services during the pendency of any such dispute.
+5.
+REPRESENTATIONS,
+WARRANTIES AND COVENANTS
+5.1
+Mutual
+Representations and Warranties
+. Each Party hereby represents, warrants and covenants to the other Party that, as of the Effective
+Date and at all times thereafter during the Term:
+5.1.1
+such
+Party is duly organized and validly existing under the laws of the jurisdiction of its incorporation or organization.
+5.1.2
+such
+Party has taken all action necessary to authorize the execution and delivery of this Agreement and the performance of its obligations
+under this Agreement.
+5.1.3
+this
+Agreement is a legal and valid obligation of such Party, binding upon such Party and enforceable against such Party in accordance
+with the terms of this Agreement, except as enforcement may be limited by applicable bankruptcy, fraudulent conveyance, insolvency,
+reorganization, moratorium, and other laws relating to or affecting creditors’ rights generally and by general equitable principles.
+The execution, delivery and performance of this Agreement by such Party does not conflict with, breach or create in any third party
+the right to accelerate, terminate or modify any agreement or instrument to which such Party;
+5.1.4
+such
+Party has and shall maintain all right, power, and authority to enter into this Agreement and to perform its obligations under this
+Agreement (including, without limitation, to make the assignments and grant the licenses made and granted hereunder);
+5.1.5
+no
+consent by any third party or governmental body is required with respect to the execution and delivery of this Agreement; and
+5.1.6
+no
+Deliverable or other item provided by or on behalf of either Party to the other Party in connection with this Agreement infringes,
+misappropriates or otherwise violates any Intellectual Property or other rights of any third party.
+5.2
+Trade
+Sanctions Compliance
+. Each Party warrants that as of the date of this Agreement it or any entity or person that has direct
+or indirect control of fifty percent or more of its shares (“
+Beneficiaries
+”) are not subject to any economic,
+trade or financial sanctions or other trade restrictions administered or enforced by the United Nations, the European Union, the
+United States of America or any other relevant jurisdiction, including, without limitation, the EU Consolidated list of persons,
+groups and entities subject to EU financial sanctions, the U.S. Treasury Department Office of Foreign Assets Control list of Specially
+Designated Nationals and Blocked Persons or any similar list maintained by any EU member state or the country of registration of
+Indegene or Cingulate (“
+Sanctions
+”). A breach of this warranty shall be a material default for the purpose of
+termination. Should either party discover or otherwise become aware of violation of the Sanctions, the Party who first becomes aware
+of the violation of the Sanctions shall notify the other Party, and the Parties shall cooperate in order to take all necessary corrective
+actions. Each Party agrees that if at any time after the date of formation of the Agreement it or any of its Beneficiaries become
+subject to any Sanctions, whether introduced before or after such date, which prohibit or restrict a Party’s performance of
+or rights under the Agreement, or the performance of the Agreement exposes such Party, or creates a risk of such party being exposed,
+to any Sanctions, including, without limitation, any extraterritorial or secondary sanctions, the other Party may suspend or terminate
+the affected Services upon such Sanctions becoming effective.
+-
+7
+- | Page
+5.3
+No
+Debarment
+.
+Indegene represents, warrants and covenants that neither Indegene, nor any of its Affiliates, has been debarred
+or is subject to debarment under section 306 of the Federal Food, Drug, and Cosmetic Act (or any other analogous law or regulation)
+and neither Indegene, nor any of its Affiliates, shall use in any capacity, in connection with this Agreement, any Person who has
+been debarred, or who is the subject of a conviction in any jurisdiction, for acts or omissions relating to the development, regulatory
+approval, marketing or sale of a medical device or drug product.
+5.4
+DISCLAIMER
+.
+EXCEPT AS OTHERWISE EXPRESSLY SET FORTH IN THIS AGREEMENT, INDEGENE MAKES NO REPRESENTATIONS AND EXTENDS NO WARRANTIES OR CONDITIONS
+OF ANY KIND, EITHER EXPRESS OR IMPLIED, WITH RESPECT TO THE SERVICES, DELIVERABLES, OR ANY INTELLECTUAL PROPERTY RIGHTS OWNED OR
+CONTROLLED BY INDEGENE, INCLUDING WITHOUT LIMITATION, WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NONINFRINGEMENT,
+VALIDITY OF ANY INTELLECTUAL PROPERTY RIGHTS OR OTHERWISE, AND THE ABSENCE OF LATENT OR OTHER DEFECTS, WHETHER OR NOT DISCOVERABLE
+.
+6.
+CONFIDENTIALITY,
+DATA PROTECTION & CYBER SECURITY
+6.1
+Each
+Party may disclose to the other, orally or in writing, or a Party may otherwise obtain, through observation or otherwise, Confidential
+Information. The Receiving Party must: (i) protect, and cause all its representatives to protect, all Confidential Information from
+disclosure in violation of this Article; (ii) restrict the use of Confidential Information to the intended purpose of this Agreement;
+(iii) limit dissemination of Confidential Information to only those representatives that require disclosure for performance of obligations
+hereunder; and (iv) clearly and completely convey the requirements of this clause to such representatives to ensure such requirements
+are understood and followed. If requested by either Party, the other Party shall secure written commitments from its representatives
+to comply with the confidentiality requirements of this Agreement.
+6.2
+During
+the term of this Agreement, and (a) for a period of five (5) years following the expiration or earlier termination hereof in the
+case of Confidential Information that has not been identified as a trade secret and (b) perpetually in the case of Confidential Information
+that has been identified as a trade secret, each Party shall use the Confidential Information of the other Party solely for performing
+its obligations or exercising its rights under this Agreement and shall hold such Confidential Information in confidence and not
+disclose or otherwise provide it to third parties without the prior written consent of the other Party. Notwithstanding the foregoing,
+(i) the Receiving Party may make any disclosure of such Confidential Information to which the Disclosing Party gives its prior written
+consent; (ii) any of the Confidential Information of the Disclosing Party may be disclosed by the Receiving Party to its representatives
+who need to know such information in connection with performing the Receiving Party’s obligations hereunder, in each case who
+are informed of the confidential nature of such information and of the terms of this Agreement and who are bound by written obligations
+of confidentiality and non-use (or, in the case of attorneys, legally enforceable professional obligations) at least as restrictive
+as those contained herein. The Receiving Party shall be responsible for any breach of this Agreement by any of its representatives
+or such other parties, and agrees, at its sole expense, to take reasonable measures to restrain its representatives and such parties
+from prohibited or unauthorized disclosure or use of the Confidential Information. Notwithstanding anything contained in this Agreement
+to the contrary, this Agreement shall not prohibit the Receiving Party from disclosing Confidential Information of the Disclosing
+Party to the extent required in order for the Receiving Party to comply with laws, provided that the Receiving Party provides prior
+written notice of such required disclosure to the Disclosing Party and takes reasonable and lawful actions to avoid and/or minimize
+the extent of such disclosure
+6.3
+The
+obligations of the Receiving Party specified in this
+Article 6
+shall not apply, and the Receiving Party shall have no further
+obligations, with respect to any Confidential Information to the extent that such Confidential Information:
+a.
+a
+Party already knew of prior to disclosure hereunder as documented by prior written records; or
+b.
+is
+or becomes public knowledge other than by breach of this provision by a Party; or
+c.
+a
+Party receives in good faith from a third party not in violation of an obligation of confidentiality; or
+d.
+a
+Party develops independently of any Confidential Information disclosed hereunder as documented by written records; or
+-
+8
+- | Page
+e.
+a
+Party is obliged to disclose in accordance with a regulatory submission or other requirement of law; provided that said Party shall
+first notify the other Party, so that it may seek a protective order or similar relief if appropriate or available.
+Notwithstanding
+the foregoing, nothing in this
+Section 6.3
+(other than
+Section 6.3(b)
+) shall relieve Indegene of any of its obligations
+under this
+Article 6
+with respect to any Deliverables.
+6.4
+Upon
+termination or expiration of this Agreement, or earlier if so agreed in writing by the Parties, each Party shall either return all
+copies of the Confidential Information it may have received or destroy in a secure manner all such copies of the Confidential Information
+if so instructed by the other Party except for one copy which may be retained for the purpose of establishing that Party’s
+compliance with its obligations under this Agreement.
+6.5
+Where
+personal data is processed in relation with this Agreement, the Parties shall comply with applicable laws and regulations, including
+but not limited to Regulation (EU) 2016/679 (“
+General Data Protection Regulation
+”, or “
+GDPR
+”).
+Each Party represents and guarantees to the other Party that it will strictly comply with the applicable data protection and privacy
+laws for any processing of personal data related to this Agreement. Notwithstanding anything to the contrary, the Parties will not
+be liable under this Agreement insofar as compliance with the applicable data protection and privacy laws prevents them from executing
+any obligation contemplated herein.
+6.6
+In
+the event that the activities contemplated by the Agreement involve the processing as such terms are defined under the GDPR of which
+Cingulate is the controller, as defined in GDPR, regardless of whether such personal data constitutes Cingulate’s data, then
+Cingulate and Indegene agree to complete/execute a Personal Data Processing Agreement or comply with the Standard Contractual Clauses
+to the extent to which the GDPR applies to such processing.
+7.
+INTELLECTUAL
+PROPERTY
+7.1
+Background
+IP
+. Each Party retains all right, title and interest in and to any Intellectual Property (i) owned or controlled by such
+Party as of the Effective Date or (ii) which, after the Effective Date, is developed or becomes controlled by such Party outside
+the scope of this Agreement and without use of or reference to any Confidential Information of the other Party (“
+Background
+IP
+”). Cingulate hereby grants to Indegene during the Term this Agreement a non-exclusive, worldwide, non-transferable and
+non-sublicensable license (except to Indegene’s permitted Subcontractors) under Cingulate’s Background IP, solely for
+the purposes of Indegene performing the Services in accordance with this Agreement and any applicable SOW.
+7.2
+Cingulate
+Inventions
+. Indegene agrees that: (a) all Deliverables and all Intellectual Property rights embodied therein that are not
+an Indegene Invention (as defined below) or Background IP of Indegene (collectively, “
+Cingulate Inventions
+”),
+shall become and remain the property of Cingulate; and (b) subject to payment of applicable, undisputed Fees towards the respective
+Deliverables, Indegene hereby assigns (and shall cause each of its Affiliates and any of its and their respective personnel and contractors
+to assign) to Cingulate all rights in the United States and throughout the world to the Cingulate Inventions. Indegene shall execute
+and deliver (and shall cause each of its Affiliates and any of its and their respective personnel and contractors to execute and
+deliver) such agreements, assignments, documents and instruments as may be reasonably requested by Cingulate to further reflect or
+evidence Cingulate’s ownership of the Cingulate Inventions, to transfer to Cingulate any and all rights and interests Indegene
+may have in and to such Cingulate Inventions, and to insure that Cingulate has the legal right and ability to transfer, assign and
+enforce its rights in and to the Cingulate Inventions. Cingulate agrees that portions of the Deliverables that are or to the extent
+they contain Background IP of Indegene or Indegene Inventions (collectively, “
+Indegene IP
+”) shall be and remain
+the sole and exclusive property of Indegene and shall not be subject to assignment to Cingulate pursuant to this
+Section 7.2
+or otherwise (but rather shall be licensed to Cingulate pursuant to
+Section 7.4
+).
+-
+9
+- | Page
+7.3
+Indegene
+Inventions
+. The Parties acknowledge and agree that in the course of providing the Services, Indegene will be using technology,
+platforms, systems and methods of providing the Services that are owned or controlled by Indegene (collectively, “
+Indegene
+Platform Technology
+”). Cingulate agrees that all Intellectual Property covering or embodied in the Indegene Platform Technology,
+including any developments, improvements and modifications made by or on behalf of Indegene that relate to the Indegene Platform
+Technology, whether made in the course of providing the Services or otherwise (collectively, “
+Indegene Inventions
+”),
+shall be and remain the sole and exclusive property of Indegene and shall not be subject to assignment to Cingulate pursuant to
+Section
+7.2
+or otherwise. Indegene’s rights in Indegene Inventions shall not be diluted in any manner whatsoever on account of
+Indegene using or making Indegene Inventions in the course of providing the Services to Cingulate. This Agreement shall not be construed
+to grant any license or other rights to Cingulate in any Intellectual Property owned or controlled by Indegene except as specifically
+granted herein.
+7.4
+License
+to Cingulate
+.
+To the extent any Indegene IP is incorporated in any Deliverable, or is necessary or useful for the use of
+any Deliverable, Indegene hereby grants Cingulate a perpetual, irrevocable, royalty-free, paid-up, transferable, worldwide, nonexclusive
+license under such Indegene IP, with the right to grant sublicenses, to make, have made, use, sell, offer to sell, import, reproduce,
+distribute, prepare derivative works, perform, display and otherwise fully exploit any such Deliverable and any items derived therefrom.
+Notwithstanding anything mentioned in this Agreement, Cingulate and/or any 3
+rd
+party shall not utilize the Indegene Background
+IP other than with a Deliverable or an item derived from a Deliverable.
+7.5
+Output
+.
+Indegene may retain and curate output of the Services performed at any time (“
+Output
+”) for internal use for the
+purposes of personnel training, or for internal use to develop and/or improve Indegene’s Platform Technology and other products
+and services including, but not limited to, developing, testing and/or validating artificial intelligence or machine learning algorithms,
+provided that all such Output shall subject to de-identification, anonymization and aggregation with other similarly curated records
+and no identifiable characteristics of Cingulate, or its products, customers, business, samples, original study design or the primary
+use of the Output shall be revealed (“
+Anonymized and Aggregated Output
+”). In the event Output is shared with Indegene’s
+agents, consultants and partners, it shall only be shared in the form of Anonymized and Aggregated Output via designated channels
+for secure data with agents, consultants and partners who have demonstrated secure data upload and storage practices as assessed
+by Indegene.
+7.6
+Residual
+Knowledge
+. Indegene may use for any purpose any information which may be retained in the unaided memories of personnel performing
+the Services such as ideas, concepts, know-how, experience and techniques which do not contain any Cingulate Confidential Information.
+An employee’s memory is unaided if the employee has not intentionally memorized the information for the purpose of retaining
+and subsequently using or disclosing it.
+7.7
+Third
+Party IP
+.
+Indegene will not incorporate any inventions, works of authorship, data or other materials that are covered by
+any Intellectual Property of any third party (the “
+Third Party IP
+”) into any Deliverable without, in each particular
+instance, either (a) obtaining the prior, written approval of Cingulate, which approval Cingulate may grant or withhold in its sole
+and absolute discretion or (b) ensuring that Cingulate gets a license or sublicense to such Third Party IP on the same basis as which
+Indegene IP is licensed to Cingulate under Section 7.4 or (c) identifying such Third Party IP in the applicable SOW, along with the
+terms that will govern Cingulate’s use of such Third Party IP.
+8.
+TERM
+AND TERMINATION
+8.1
+Term
+.
+The term of this Agreement shall commence on the Effective Date, and, unless terminated earlier as set forth below or extended by
+the mutual written agreement of the Parties, shall expire three (3) years after the Effective Date (the “
+Term
+”).
+8.2
+Termination
+for Material Breach
+. A Party may terminate this Agreement upon thirty (30) days prior, written notice to the other Party
+if the other Party has materially breached this Agreement indicating such breach and the notifying Party’s intent to terminate
+this Agreement; provided, however, that this Agreement will not terminate (a) if such breach is cured by the end of such thirty (30)
+day period or (b) if such breach is not capable of being cured within 30 days and the breaching party has initiated the cure within
+30 days of notice (in which case this Agreement will terminate if such breach in not cured within 90 days of the initial notice from
+the non-breaching Party or any other timeline which the Parties agree in writing).
+-
+10
+- | Page
+8.3
+Termination
+by Parties for Convenience
+. Neither party can terminate this Agreement for convenience during the initial twelve (12) months
+following the first commercial sale of CTx-1301 or eighteen (18) months from the Effective Date of this Agreement, whichever is earlier.
+Thereafter, either party can terminate this Agreement for convenience upon providing six (6) months notice irrespective of whether
+Dedicated Personnel are engaged. Notwithstanding anything mentioned in this Agreement, the termination right under convenience is
+only for the entire Agreement and not part of the Agreement and/or any SOW.
+8.4
+Termination
+for Bankruptcy
+. Either Party may terminate this Agreement immediately without further action if the other Party files a petition
+in bankruptcy, enters into an agreement with its creditors, applies for or consents to the appointment of a receiver, administrative
+receiver, trustee or administrator for its affairs, makes an assignment for the benefit of creditors, suffers or permits the entry
+of any order adjudicating it to be bankrupt or insolvent where such order is not discharged within thirty (30) days, or takes any
+equivalent or similar action in consequence of debt in any jurisdiction.
+9.
+CONSEQUENCES OF TERMINATION
+9.1
+Pre-Existing
+Obligations
+. Expiration or termination of this Agreement shall not relieve the Parties of any obligation accruing prior to
+such expiration or termination. In the event of termination of this Agreement by either Party, Indegene shall be entitled to payments
+of Fees for Services completed in accordance with this Agreement prior to the effective date of termination, for contractual commitments
+made prior to the notice of termination to the extent that liability for such commitments cannot be mitigated, and for such reasonable
+costs and expenses as are necessary to terminate the Services.
+9.2
+Transition
+Assistance
+. Following any termination (in whole or in part) or expiration of any of the Services, if requested by Cingulate,
+Indegene shall provide to Cingulate, or at Cingulate’s request to Cingulate’s designee, termination assistance so as
+to allow the terminated Services to continue without interruption or adverse effect and to facilitate the orderly transfer of such
+Services to Cingulate or its designee (“
+Transition Assistance
+”), subject to Cingulate’s payment of fees
+(at such rates as are reasonable and agreed upon by the Parties in writing) for time spent by Indegene personnel in providing the
+Transition Assistance. If requested by Cingulate, Indegene and Cingulate shall jointly develop a plan to effect the orderly transition
+and migration to Cingulate or its designee of all such Services then being performed by Indegene (a “
+Transition Plan
+”),
+and Indegene shall provide the Transition Assistance in accordance with such Transition Plan. Indegene shall provide Transition Assistance
+for a period beginning when a notice of termination is delivered by one Party to the other pursuant to this Agreement and continuing
+until Transition Assistance is no longer reasonably required by Cingulate (or until the Transition Plan is completed, as applicable),
+but in no event to exceed 12 consecutive months from the effective date of expiration or termination of the applicable SOW’s,
+unless otherwise agreed by the Parties.
+9.3
+Notwithstanding
+anything contained herein to the contrary, if Cingulate terminates this Agreement or a SOW for convenience before expiration during the
+first twelve (12) months of the Term, or if Indegene terminates this Agreement or a SOW early due to Cingulate’s material breach
+during the first twelve (12) months of the Term, then, in addition to any outstanding fees owed at termination, Cingulate shall pay Indegene,
+if applicable, any early termination fee set forth in any SOW that is so terminated. For purposes of illustration, the early termination
+fee may include the following types of items:
+9.3.1
+The
+depreciated cost/amortized value of any equipment that Indegene acquired to provide the Services under this Agreement and that Indegene
+cannot, using reasonable efforts, repurpose for other clients of Indegene.
+9.3.2
+Costs
+Indegene must pay to Service Personnel it hired to perform the Services under this Agreement whom Indegene cannot, using reasonable
+efforts, reassign to other projects or clients of Indegene.
+9.3.3
+All
+costs, including early termination fees, that Indegene incurs under agreements with third parties, including but not limited to facility
+leases, equipment leases, and software licenses, that Indegene entered into in order to provide the Services and that Indegene cannot:
+(i) assign to Customer; or (ii) cancel or terminate without cost.
+-
+11
+- | Page
+9.3.4
+The
+startup and committed costs identified in the applicable SOW.
+9.3.5
+Any
+other identified and agreed cost under the applicable SOW.
+10.
+INDEMNITY
+AND LIMITATION OF LIABILITY
+10.1
+Indemnification
+by Cingulate for Third Party Claims
+. Cingulate shall indemnify, defend and hold Indegene and its Affiliates and its and their
+respective directors, officers, members, managers, employees, contractors and agents (the “
+Indegene Indemnitees
+”)
+harmless from and against any and all liability, damages, loss settlement payments, awards, fines, and cost or expense of defense
+(including reasonable attorneys’ fees) (collectively, “
+Losses
+”) arising out of any suits, claims, demands,
+proceedings, investigations including Subpoena or causes of action brought by a third party (“
+Third Party Claims
+”)
+to the extent resulting from or caused by: (a) the gross negligence, recklessness or willful misconduct of any Cingulate Indemnitee
+(as defined below); (b) Cingulate’s breach of its obligations, warranties, or representations under this Agreement; (c) breach
+of warranty by Cingulate or any product liability claims with respect to Cingulate products for which Indegene performs Services,
+whether arising out of warranty, negligence, strict liability (including manufacturing, design, warning or instruction claims) or
+any other product based statutory claim; (d) misappropriation and/or infringement of Intellectual Property by Cingulate products
+or any other material provided /approved by Cingulate; or (e) any assertions Indegene makes about Cingulate or Cingulate’s
+product or services in any materials that are approved by Cingulate for use in Indegene’s performance under this Agreement;
+except in each of the foregoing cases to the extent that a Third Party Claim arises out of or results from the negligence, recklessness
+or willful misconduct of any Indegene Indemnitee or Indegene’s breach of its obligations, warranties, or representations under
+this Agreement.
+10.2
+Indemnification
+by Indegene for Third Party Claims
+. Indegene shall indemnify, defend and hold harmless Cingulate and its Affiliates and its
+and their respective directors, officers, members, managers, employees, contractors and agents (the “Cingulate Indemnitees”)
+from and against any and all Losses arising out of any Third Party Claims brought against any Cingulate Indemnitees to the extent
+resulting from or caused by: (a) the gross negligence, recklessness or willful misconduct of any Indegene Indemnitee; or (b) Indegene’s
+breach of its obligations, warranties, or representations under this Agreement except in each case to the extent that a Third Party
+Claim arises out of or results from the negligence, recklessness or willful misconduct of any Cingulate Indemnitee, or Cingulate’s
+breach of its obligations, warranties, or representations under this Agreement. In addition, Indegene shall indemnify, defend and
+hold harmless the Cingulate Indemnitees from any Losses arising out of any Third Party Claims arising out of or relating to any assertion
+that any of the Cingulate Indemnitees should be deemed the employer or joint employer of any of the Service Personnel.
+10.3
+Indemnification
+Conditions and Procedures
+. Each Party’s agreement to indemnify, defend and hold harmless the other Party is conditioned
+on the indemnified Party: (a) providing written notice to the indemnifying Party of any Third Party Claim for which is it seeking
+indemnification hereunder promptly after the indemnified Party has knowledge of such claim; (b) permitting the indemnifying Party
+to assume full control over the defense and settlement of such Third Party Claim, except that the indemnified Party may participate
+in the defense at its own expense using its own counsel; (c) providing reasonable cooperation, information and assistance to the
+indemnifying Party, at the indemnifying Party’s reasonable expense, with respect to the defense and settlement of such Third
+Party Claim; and (d) not compromising, settling, or admitting any liability for such Third Party Claim without the indemnifying Party’s
+written consent. Notwithstanding the foregoing, the indemnifying Party shall not enter into any settlement that admits the fault
+of the indemnified Party or otherwise materially adversely prejudices the indemnified Party without such indemnified Party’s
+prior written consent, such consent not to be unreasonably withheld, conditioned or delayed.
+10.4
+Limitation
+of Liability
+.
+A.
+Direct
+Damages
+: Subject to Section 10.4 (C), the total aggregate liability of Indegene under this Agreement (whether in contract, tort
+(including negligence)) shall not exceed the Fees paid or payable to Indegene hereunder.
+B.
+Indirect
+Damages
+: Except for breach of Confidentiality, the Parties disclaim any indirect, special, consequential, or incidental damages
+or loss of revenue or business profits, however caused.
+-
+12
+- | Page
+C.
+Exclusions
+:
+The foregoing limits under clause 10.4 (A) shall not apply to: (i) misappropriation or infringement of the other Party’s Intellectual
+Property; (ii) breach of confidentiality obligations under this Agreement or (iii) under clause 10.2, indemnification obligation the
+Parties’ respective indemnification obligations under Section 10.1 and Section 10.2 with respect to Third Party Claims. For clarity
+purposes, all Losses covered under Section 10.1 and Section 10.2 are deemed to be Direct Damages.
+10.5
+Insurance
+.
+Indegene shall carry and maintain in force during the term of the Agreement the following insurance coverage with one or more
+insurance companies that have a rating of A minus or better and a financial size category of VIII or larger, (both as determined
+by A. M. Best & Indegene): (a) Commercial General Liability insurance with limits of at least three million dollars ($3,000,000)
+per occurrence and five million dollars ($5,000,000) in the aggregate; (b) Professional Liability insurance with limits of at least
+three million dollars ($3,000,000) per occurrence and five million dollars ($5,000,000) in the aggregate, (c) Cyber / Privacy Liability
+Insurance coverage for data breaches and intrusions by a third parties to nonpublic personal information, with limits of at least
+five million dollars ($5,000,000) per occurrence, (d) Employer’s liability insurance with limits of at least one million dollars
+($1,000,000) per occurrence and (e) worker’s compensation and related insurance as prescribed by the law of each jurisdiction
+in which Services are performed. Indegene shall, upon request by Cingulate, furnish certificates or adequate proof of the foregoing
+insurance. Cingulate shall be notified in writing at least thirty (30) days prior to any cancellation of, or material change to,
+an applicable policy. Except for Worker’s Compensation insurance, all policies shall name the Cingulate (and at Cingulate’s
+request, any Affiliates that are receiving the Services) as an additional insured. Certificates for all policies shall stipulate
+that coverage provided thereunder shall be primary and not excess of, or contributory with, any other insurance, and that subrogation
+rights are waived. At the time of and following commercial launch of a product, Cingulate will maintain appropriate insurance in
+commercially reasonable amounts with financially capable carriers, including product liability insurance in the amount of at least
+ten million dollars ($10,000,000). Cingulate shall name Indegene as an additional insured on such product liability insurance coverage.
+In addition, upon written request, Cingulate will provide Indegene with evidence of coverage complying with this Section.
+11
+SAVINGS
+CLAUSE
+:
+11.1
+The
+Parties agree that Indegene’s timely provision of Services under this Agreement is dependent on timely provision of inputs.
+Where approval, acceptance, consent or similar action by Cingulate is required under this Agreement, such action will not be unreasonably
+delayed, conditioned or withheld.
+11.2
+Indegene’s
+non-performance of its obligations under this Agreement will be excused if and to the extent such non-performance results from Cingulate’s
+failure to perform its responsibilities hereunder.
+12
+IMPORT/EXPORT
+CONTROLS
+12.1
+The
+Parties acknowledge that certain software and technical data exchanged/ accessed pursuant to this Agreement may be subject to import/export
+controls under the Laws of the United States and other countries. Neither Party will import, export or re-export any such items,
+any direct product of those items, or any technical data in violation of applicable import/export control Laws.
+12.2
+Each
+Party will be responsible for compliance with import/export control Laws with respect to any items it is deemed under such Laws to
+have imported or exported, including responsibility for preparing and filing all required documentation and obtaining all licenses,
+permits and authorizations required for compliance. Each Party will cooperate with the other Party in that Party’s efforts
+to comply with applicable import/export control Laws.
+13
+MISCELLANEOUS
+13.1
+Severability
+.
+Should any part of this Agreement be declared illegal or unenforceable, the Parties will co-operate in all the ways open to them
+to obtain substantially the same result or as much thereof as may be possible, including taking appropriate steps to amend, modify
+or alter this Agreement. If any term or provision of this Agreement shall be hereafter declared by a final adjudication of any tribunal
+or court of competent jurisdiction to be illegal, such adjudication shall not alter the validity or enforceability of any other term
+or provision unless the terms and provisions declared (by any of the Parties) shall be one expressly defined as a condition precedent
+or as of the essence of this Agreement, or comprising an integral part of, or inseparable from the remainder of this Agreement.
+-
+13
+- | Page
+13.2
+Assignment
+. Neither Party shall assign its rights
+or obligations under this Agreement, in whole or in part, by operation of law or otherwise, without the prior express written consent
+of the other Party;
+provided
+,
+however
+, that notwithstanding the foregoing, a Party may, without the consent of the other
+Party, assign this Agreement (including all of such Party’s rights and obligations hereunder to any of its Affiliates or (ii) in
+connection with a merger, consolidation, sale of equity interests, sale of all or substantially all assets or change of control transaction
+involving such Party (or, in the case of Cingulate, sale of all or substantially all assets of its business related to the any product
+that is the subject of the Services.
+Any purported assignment in violation of this article shall be null and void.
+13.3
+Notice
+.
+Any consent, notice or report required
+or permitted to be given or made under this Agreement by one Party to the other Party shall be in writing, delivered personally, by facsimile
+(and promptly confirmed by personal delivery, U.S. first class mail, courier or nationally-recognized delivery service), U.S. first class
+mail postage prepaid, courier or nationally-recognized delivery service, and addressed to the other Party at its address indicated below,
+or to such other address as the addressee shall have last furnished in writing to the addressor. Except as otherwise provided in this
+Agreement, such consent, notice or report shall be effective upon receipt by the addressee.
+If to Indegene:
+For
+the attention of
+: Legal Department
+Address
+:
+Indegene, Inc.,
+150
+College Rd W, Suite 104
+Princeton,
+NJ 08540
+If to
+Cingulate:
+For
+the attention of
+: Legal Department
+Address
+:
+Cingulate Therapeutics LLC
+1901
+W47th Place
+Kansas
+City, KS 66205
+13.4
+Waiver
+. The failure, with or without intent, of any
+Party hereto to insist upon the performance of the terms of this Agreement by the other Party, shall not be treated as, or be deemed to
+constitute, a modification of any terms or stipulations of this Agreement nor shall such failure or election be deemed to constitute a
+waiver of the right of such Party, at any time whatsoever thereafter, to insist upon performance by the other, strictly in accordance
+with any terms or provisions hereof. All terms, conditions and obligations under this Agreement shall remain in full force and effect
+at all times during the subsistence of this Agreement except where otherwise amended or modified by the Parties by mutual written Agreement.
+13.5
+Publicity
+. Neither Party shall issue a press release
+or public announcement relating to this Agreement without the prior written approval of the other Party, which approval shall not be unreasonably
+withheld, conditioned or delayed, except that a Party may (i) once a press release or other public statement is approved in writing by
+both Parties, make subsequent public disclosure of the information contained in such press release or other written statement without
+the further approval of the other Party, and (ii) issue a press release or public announcement as required, in the reasonable judgment
+of such Party, by law or applicable exchange rules.
+13.6
+Force Majeure
+.
+If the performance by either Party
+hereto, of any of its obligations hereunder is prevented, restricted or interfered with by reason of fire, or other causality or accident;
+strike or labour disputes; war or other violence; any law, or regulation of any government; any condition which is unforeseeable, unavoidable
+and beyond the reasonable control of such Party (each such occurrence being hereinafter referred to as a “
+Force Majeure
+”),
+then such Party shall be excused from such performance to the extent of such prevention, restriction or interference; provided, however,
+that such Party shall give prompt notice within a period of 15 days from the date of Force Majeure occurrence and providing a description
+to the other Party of such Force Majeure in such notice, including a description, in reasonable specificity, of the cause of the Force
+Majeure; and provided further that such Party shall use reasonable efforts to avoid or remove such cause of non-performance and shall
+continue performance hereunder whenever such causes are removed. If a Force Majeure event restricts the performance of Services for a
+period of greater than three (3) months, then the Party that is not subject to such Force Majeure event may terminate this Agreement or
+any SOW impacted by such Force Majeure event and Indegene shall only be paid in accordance with
+Section 9.1
+.
+-
+14
+- | Page
+13.7
+Entire
+Agreement
+. The Parties confirm and acknowledge that this Agreement (including the
+Schedules and Appendices hereto, and any SOWs) shall constitute the entire agreement between
+them and shall supersede and override all previous communications, either oral or written,
+between the Parties with respect to the subject matter of this Agreement, and no agreement
+or understanding varying or extending the same shall be binding upon any Party unless arising
+out of the specific provisions of this Agreement and is in writing.
+13.8
+Non-Solicitation
+.
+During the term of this Agreement and for a period of twelve (12) months thereafter, neither
+Party shall, directly or indirectly, in any manner solicit or induce for employment any person
+who performed any work under this Agreement, who is then in the employment of the other Party,
+unless the Parties mutually agree to waive this, in writing. A general advertisement or notice
+of a job listing or opening or other similar general publication of a job search or availability
+to fill employment positions, including on the internet, not specifically targeted at Indegene’s
+employees, shall not be construed as a solicitation or inducement for the purposes of this
+Section and the hiring of any such employees or independent contractor who freely responds
+thereto shall not be a breach of this Section.
+13.9
+Survival
+.
+The provisions of Section 1 (“Definitions”),
+Section 3.10
+(“Access
+to Deliverables”), Section 3.11 (“Records and Audit”), Section 5 (“Representations,
+Warranties and Covenants”), Section 6 (“Confidentiality, Data Protection and
+Cybersecurity”), Section 7 (“Intellectual Property”), Section 9 (“Consequences
+of Termination”), Section 10 (“Indemnity and Limitation of Liability”)Section
+12 (“Import/Export Controls”) and Section 13 (“Miscellaneous”) and
+any other provisions of this Agreement which by their nature or intent are intended to survive
+the termination or expiration of this Agreement, shall survive the termination or expiration
+of this Agreement and continue in effect.
+13.10
+Independent
+Contractor
+. This Agreement is not intended to create nor shall be construed to create
+any relationship between the Parties other than that of independent entities contracting
+for the purpose of effecting the provisions of this Agreement. Neither of the Parties nor
+any of their representatives shall be construed to be the agent, employer, employee or representative
+of the other. Additionally, nothing in the execution of this Agreement or in its performance
+shall be construed to establish a joint venture by or partnership between the Parties.
+13.11
+Applicable
+Law
+. This Agreement shall be governed by and construed in accordance with the laws
+of Delaware without giving effect to principles of conflict of laws thereof, regardless of
+the place of making or performance.
+13.12
+Dispute
+Resolution.
+13.12.1
+Dispute
+Escalation
+. Upon the written request of either Party to the other Party, either Party
+may refer any claim, dispute, or controversy or claim arising out of or related to this Agreement
+(a “
+Dispute
+”) to senior executive officers of Cingulate and Indegene
+for resolution (the “
+Executive Officers
+”). If the Executive Officers are
+unable to resolve such matter within thirty (30) days after the initial written request,
+then, upon the written demand of either Party, the Parties shall resolve such matter by binding
+arbitration, as provided in
+Section 13.12.2
+. Any Disputes about the propriety of commencing
+arbitration or the scope or applicability of the agreement to arbitrate shall be finally
+settled by the arbitral tribunal.
+-
+15
+- | Page
+13.12.2
+Arbitration
+.
+In the event that a Dispute is not resolved between the Parties or their Executive Officers
+as set forth in Section 13.12.1, then a Party seeking further resolution of the Dispute may
+submit the Dispute to resolution by final and binding arbitration. Whenever a Party determines
+to institute arbitration proceedings, it will give written notice to that effect to the other
+Party. Arbitration will be held in New York City, New York, and administered by JAMS pursuant
+to its Streamlined Arbitration Rules then in effect (the “
+Rules
+”), except
+as otherwise provided herein and applying the substantive law specified in Section 13.11.
+The arbitration will be conducted by a single arbitrator appointed in accordance with the
+Rules, provided that such arbitrator must have significant business or legal experience in
+the pharmaceutical business. After conducting any hearing and taking any evidence deemed
+appropriate for consideration, the arbitrator will render his/her opinion within thirty (30)
+days of the final arbitration hearing. Decisions of the arbitrator that conform to the terms
+of this Section 13.12.2 will be final and binding on the Parties and judgment on the award
+so rendered may be entered in any court of competent jurisdiction and the Parties undertake
+to carry out any award without delay. The losing Party, as determined by the arbitrator,
+will pay all of the JAMS administrative costs and fees of the arbitration and the fees and
+costs of the arbitrator, and the arbitrator will be directed to provide for payment or reimbursement
+of such fees and costs by the losing Party. If the arbitrator determines that there is no
+losing Party, the Parties will each be responsible for one-half of those costs and fees and
+the arbitrator’s award will so provide. Notwithstanding anything to the contrary in
+the foregoing, each Party shall be responsible for its own attorneys’ fees, expert
+or witness fees, and any other fees and costs, and no such fees or costs will be shifted
+to the other Party.
+13.12.3
+Injunctive
+Relief; Court Actions.
+Either Party may apply to the arbitrator for interim injunctive
+relief until the arbitration award is rendered or the controversy is otherwise resolved.
+Notwithstanding anything to the contrary: (a) either Party also may, without waiving any
+remedy under this Agreement, seek from any court having jurisdiction any interim injunctive
+or other interim relief in the context of a
+bona fide
+emergency or prospective irreparable
+harm, and such an action may be filed and maintained notwithstanding any ongoing discussions
+between the Parties or any ongoing arbitration proceeding and (b) either Party may bring
+an action in any court of competent jurisdiction to resolve disputes pertaining to the validity,
+construction, scope, enforceability, infringement or other violations of Intellectual Property
+rights, and no such claim shall be subject to arbitration pursuant to
+Section 13.12.2
+.
+IN
+WITNESS WHEREOF,
+the Parties have caused this Agreement to be executed by and through their duly authorized representatives as of
+the Effective Date.
+Indegene,
+Inc.
+Cingulate
+Therapeutics LLC
+Sign.
+/s/
+Gaurav Kapoor
+Sign
+/s/
+Shane J. Schaffer
+Name
+Gaurav
+Kapoor
+Name
+Shane
+J. Schaffer
+Title:
+EVP
+Title:
+CEO
+-
+16
+- | Page
+SCHEDULE
+1
+MASTER
+SERVICE AGREEMENT
+STATEMENT
+OF WORK NO. XXXXX/ XXX
+(Only
+Template)
+This
+Statement Of Work is entered into as of __________ by and between
+____ ______________
+(“____”), with an office at
+_______________________________________________________ and
+Indegene, Inc.
+, a Delaware corporation having its place of business
+at Suite 104, 150 College Road W, Princeton, NJ 08540 and affiliates (hereinafter collectively referred to as Parties) pursuant to the
+terms of the Master Services Agreement between Indegene, Inc. and _________________________ dated _________________ (“MSA”).
+In
+the event of any inconsistency or conflict between the terms of this Statement of Work on the one hand and the terms of the MSA, the
+terms of this Statement of Work shall prevail to the extent of such inconsistency or conflict.
+PART
+I: PROJECT INFORMATION
+A.
+Project
+Title
+B.
+Scope
+of Services
+C.
+[Work
+Schedule] [and] [Deliverables].
+[The
+relevant milestones, completion dates, and terms associated with this SOW are as follows:
+D.
+Key
+Assumptions
+E.
+Receivables
+from Customer
+F.
+[Permitted
+[Subcontractors/Delegates].
+The
+following subcontractors are permitted [subcontractors/delegates] under Section [NUMBER] of the Master Agreement: [SUBCONTRACTOR/DELEGATE
+NAMES].]
+G.
+Customer
+Obligation
+PART
+II: COSTS AND PAYMENT SCHEDULE
+The
+total cost for the project described in this Statement of Work shall be __________________.
+PART
+III: SERVICE LEVEL AND PERFORMANCE MATRIX
+PART
+IV: Early Termination Fees:
+PART
+V: MISCELLANEOUS
+○
+Invoices
+are due upon receipt and if not paid within credit period of thirty (30) days, a penalty of 1.5% shall be charged to the outstanding
+balance due on a monthly basis.
+○
+The
+above pricing is exclusive of taxes and pass-through costs.
+○
+Any
+VAT/GST/sales tax payable on services, will be charged by Indegene on invoice and collected from Customer.
+○
+Indegene
+will submit a request for a Cost-Of-Living Adjustment (“COLA”) to Cingulate in writing by April 1st each year and the
+parties will review the relevant facts presented justifying the adjustment. For example, Indegene will submit a request for a COLA
+adjustment along with published CPI index or publicly available published human resources data and market insights reported by Human
+Resources consulting firms to justify the COLA. The parties will negotiate the adjustment in good faith and such negotiated adjustments
+will become effective on August 1st of each year.
+○
+Indegene
+should receive full invoice value without any withholding tax deduction. Any document required in order not to deduct taxes will
+be mutually coordinated between the parties to avail tax treaty benefits.
+○
+Cingulate
+may identify and communicate the discrepancies in invoices within three (3) weeks from invoice generation, else the invoice will
+be presumed as accepted. Any discrepancy shall be resolved in mutually coordinated way within the Parties. In case there is any partial
+discrepancy, the undisputed part shall be paid by Cingulate without delay.
+○
+Any
+expenses of Cingulate that relate to payment of fees, creation of purchase order, vendor management system and any related activities,
+shall be dealt by Cingulate to the complete exclusion of Indegene. Any such expenses if deducted in any payments made by Cingulate
+shall be added back into the next consecutive invoice and Cingulate shall be obligated to pay this back to Indegene.
+-
+17
+- | Page
+PART
+V: COMMUNICATIONS
+All
+communications provided for in this Agreement shall be mailed postage prepaid and addressed to the respective parties as follows:
+To
+____:
+To
+Indegene:
+IN
+WITNESS WHEREOF, the parties hereto have caused this Statement of Work to be executed by their respective duly authorized representatives
+as of the day and year first above written.
+CINGULATE
+Indegene,
+Inc.
+By:
+By:
+Name:
+Name:
+Title:
+Title:
+-
+18
+- | Page
+SCHEDULE
+2
+Change
+Order Template
+(Only
+Template)
+Once
+the project plan and assumptions are approved, all changes to the timeline, budget, or scope (deliverable requirements) should be funneled
+through the change management process.
+The
+Indegene program manager (PM) will be the single point of contact through whom all change requests should be funneled on the Indegene
+side. ____ will establish a single point of contact, who will have ultimate approval authority over all change requests.
+The
+Indegene PM will document all change requests on the Indegene Change Request Form.
+Indegene
+recommends that Cingulate assign a backup single point of contact with the same approval authority as the primary single point of contact,
+in the absence of the primary single point of contact. Indegene will assign a similar back up single point of contact at their end.
+CHANGE REQUEST FORM
+Request
+Name:
+Project
+Phase:
+Date
+Issued:
+Deliverable
+Due Date:
+Request
+#:
+Description of Change(s):
+Reason(s) for Change(s):
+Amount and Nature of Significant Cost Increase (if applicable) as a result of the Change(s):
+Timetable for implementation of the Change(s):
+Expected impact of the Change(s) on project schedule or Service Levels under the SOW:
+Process
+of Implementation (if applicable):
+Other information:
+All capitalized terms used in this Change Order will have the meanings given to them in the SOW or the Agreement unless otherwise defined in this Change Order.
+The modifications, amendments or alterations set forth in this Change Order do not amend or waive any other provision of the Agreement or any SOW thereunder.
+Cingulate:
+Indegene:
+Name:
+Signature:
+Date
+:
+Name:
+Signature:
+Date
+:
+-
+19
+- | Page
+SCHEDULE
+1
+TEMPLATE CHANGE ORDER
+Appendix
+A
+Description
+of Services
+An
+illustration for the ‘Key Services’ across the different functional domains for overall program is mentioned below. Exact
+Services with specificity to be outlined with detailed descriptions in respective SOW’s.
+Medical
+Affairs & Pharmacovigilance Services
+Pre-Launch
+Medical
+Operations
+●
+Medical
+Director (Provides Operations Support)
+- Medical strategy planning and set up of process and cross functional coordination and
+content strategy for healthcare professionals (HCPs).
+●
+Recruit
+Medical Director
+- Recruit, Hire, & on-board Medical Director
+●
+Medical
+Strategy
+- Establish medical strategic planning by defining processes and cross functional coordination regarding the product
+lexicon, review of content, and engagement of healthcare professionals (HCPs) as advisors, authors and speakers
+●
+Scientific
+Platform Setup/Management
+- Define scientific platform with key product safety, efficacy, usage and medical/clinical messages
+and differentiation
+Medical
+Communications
+●
+Medical
+Communication & Pub. Plan
+- Develop publication plan – determine key congress activities for release of scientific
+data and/or publication, provide ad hoc support for development medical communication materials including abstracts, posters, presentations,
+company sponsored medical education, infographics, standard response documents (SRDs) and others
+Pharmacovigilance
+●
+Safety
+Database Setup
+- Host safety database for Cingulate and migrate all legacy cases from existing database
+●
+Safety
+Database Operations
+- Safety database hosting & managed services
+●
+Comprehensive
+Clinical Safety Services -
+Project and Study Setup, Safety Case Processing, Medical Review, & Safety Monitoring, Project
+Reporting, CSR + ISS / ISE review, and DB Lock support.
+Pre-Launch
+Medical
+Operations
+●
+Medical
+Director & Operations Support
+- Continued support on medical strategy planning and execution
+●
+Medical
+Operations Lead
+- Manage overall medical activities and operations
+●
+Launch
+Plan & SOPs/Guidelines
+- Launch plan & SOPs including compliant engagement of HCPs, publication authorship, material
+review/approval & document management, payments to HCPs, & documentation in CRM
+●
+Scientific
+Platform Management -
+Maintain scientific platform for medical communications based on the new data from both internal clinical
+trials and competitive analysis
+●
+Material
+Review Setup
+- Define processes for material review and implement, create Medical Affairs reporting dashboard(s)
+●
+MSL
+Staffing
+- Recruit, hire, on-board and train MSLs
+●
+KOL
+Engagement Plan
+– Mapping of target KOLs to MSLs. Ensure scientific/clinical exchange in adequate frequency. Interactions
+can be both virtual/F2F based on the preference of HCPs.
+Medical
+Communications
+●
+Medical
+Communication Materials
+- Develop materials per plan for publications, tools and training content for MSLs & HCPs (includes
+proactive and reactive communication (infographics, MSL slide decks/tools), create summary reports from key congresses for medical
+team to share with HCPs and provide adhoc support of any additional med comm & publication deliverables
+●
+Advisory
+Board Support
+- Execute advisory board(s) in alignment with medical strategy & needs assessment gaining HCP perspective on
+data, gaps & future development
+Medical
+Information
+●
+Medical
+Information Setup
+- Delineate process for handling medical inquiries and providing responses to Healthcare Professionals (HCPs)
+●
+Style
+Guide, Templates & FAQs
+– Establish formats, create standard and custom response documents (SRDs and CRDs) and FAQs
+●
+Integrated
+Call Center Setup
+- Launch contact center, corporate website and publish med info toll free number
+●
+Insight
+Tracking & Reporting
+- Track & report medical inquiry types, insight on potential gaps/customer needs, product complaints
+& adverse events
+-
+20
+- | Page
+Post-Launch
+Medical
+Operations
+●
+Medical
+Director & Operations Support
+- Continued support on medical strategy planning and execution
+●
+Medical
+Operations Lead
+- Manage overall medical activities and operations
+●
+SOP
+& Policy Updates -
+Periodic update of processes and policies for optimization, curation of approved materials and maintain
+document repository
+●
+Scientific
+Platform Management -
+Maintain scientific platform for medical communications based on the new data from both internal clinical
+trials and competitive analysis
+●
+Material
+Review -
+Material review (MLR) for assets which includes routing and approval
+●
+MSL
+Support
+- Reporting dashboard(s) for KPIs across medical affairs functions, KOL engagement, execution & MSL performance management
+Medical
+Communications
+●
+Medical
+Communication Materials/Support
+- Develop HCP training content for key groups: PAs, Family Nurse Practitioners (FNPs), Pharmacists
+and Nurses, support targeted/systematic literature review to extract, curate & interpret scientific data, synthesize results
+& summarize key competitive data
+●
+Advisory
+Board Support
+- Execute advisory board(s) in alignment with medical strategy & needs assessment gaining HCP perspective on
+data, gaps & future development
+●
+Ad
+Hoc Publication Support
+- Ad hoc publication support (manuscripts, abstracts, posters and medical team tools)
+Medical
+Information Support
+●
+Style
+Guide, Templates & FAQs
+– Periodic update of style guide/lexicon, templates, FAQs, & content based internal and
+customer feedback and new data
+●
+Inquiry
+Management
+(inc. AE & PQC intake) - Inquiry management from multiple sources: contact center, web site and field teams
+●
+Insight
+Tracking & Reporting
+- Track & report medical inquiry types, insight on potential gaps/customer needs, product complaints
+& adverse events
+-
+21
+- | Page
+Pricing,
+Reimbursement and Market Access Services
+Pre-Launch
+Pricing,
+Reimbursement & Market Access
+●
+Landscape
+& Gap Analysis (w/ Booster Research)
+- Build upon Cingulate’s understanding of the current landscape and expected development
+in ADHD, collaborate with Cingulate team & provide landscape assessment concerning competition and reimbursement environment
+●
+Booster
+Research - Research will explore payer understanding, perception of the rebound, crash, and potential need for a booster for target
+patients to continue benefit of treatment. Abuse and diversion potential will also be assessed in this research
+●
+MCO
+Payer Qualitative Research
+- Understand current coverage, reimbursement & contracting status for ADHD products & payers’
+perceptions around CTx-1301
+●
+Physician
+Quantitative Research
+- Understand physician’s use & satisfaction with current ADHD products & examine perceptions/expected
+use of CTx-1301 in various pricing scenarios
+●
+Initial
+Pricing Strategy
+- Provide initial pricing strategy recommendations
+●
+PIE
+Deck
+– Develop a pre-approval information exchange (PIE) deck for use with external stakeholders (part of HEOR publications)
+●
+Focus
+Group
+- 3-hr Virtual focus group with n=8 physicians (mixture of psychiatrists and primary care physicians, recommended even
+split). Research will explore perceptions of CTx-1301, appropriate patients, willingness to prescribe, impact of payer restrictions
+and access on adoption / prescribing.
+Pre-Launch
+Pricing,
+Reimbursement & Market Access
+●
+Access
+Valuation, Payer Segmentation & Contract Guidelines -
+Analysis of different access and utilization management to show the
+market share lift or suppression, deliverables include excel based analysis on the value of access and utilization management, payer
+segmentation at the channel level, contract guidelines at the channel level
+●
+Redo
+MCO Payer Qualitative Research
+- Redo the exercise. Understand changes in payers’ perceptions and expectations towards CTx-1301
+●
+Final
+Pricing Strategy Assessment
+- Work on final pricing strategy assessment, provide a coordinated market access, pricing and reimbursement
+strategy for CTx-1301
+●
+Payer
+Communication Materials
+– Develop payer communication deck including value story proposition/messages for CTx-1301
+●
+Budget
+Impact Model
+- Economic model to demonstrate benefit/ value of CTx-1301 vs current options from a payer perspective to be used
+in payer communications allowing Cingulate to show savings in PMPM and additional costs. Model includes a user friend dashboard and
+instructions so that inputs may be modified
+●
+AMCP
+Dossier
+- Building upon Cingulate’s assumptions for CTx-1301 and findings from primary and secondary research, document
+will be developed to use with decision makers. This document will provide the clinical and economic story for CTx-1301 to gain reimbursement
+and formulary placement in the US. It may be developed pre-or post-launch
+Post-Launch
+Pricing,
+Reimbursement & Market Access
+●
+Access
+Diagnostic Evaluation
+– Access diagnostic evaluation; perform re-assessment on a quarterly basis using DRG data.
+-
+22
+- | Page
+Commercial
+Operations Services
+Pre-Launch
+General
+Management
+●
+General
+Manager- Leads Pre-Launch with Cingulate Leadership
+●
+Project
+Plan Creation
+●
+Communication
+Plan Creation
+●
+Develop
+Commercial Operating Plan (w/ Strategic Plan)
+Training
+●
+TBD
+Technology
+Management
+●
+TBD
+Commercial
+Data & Analytics
+●
+Market
+Research Support
+- Surveys, secondary research validation, conducting primary research, HCP digital channel preference and adoption,
+patient awareness & compliance
+●
+Market
+& Opportunity Assessment
+- Understanding market size, patient population, key specialties and competition
+●
+Disease
+Landscaping
+- Disease understanding, risk factors, causative factors of disease, classification/staging, disease pathway and
+biomarker
+●
+Commercial
+Data Warehouse Begin Setup
+– Begin design and build of a cloud based integrated data platform for reporting and analytics
+capabilities
+●
+KOL
+Profiling & Mapping-
+Identification, profiling, and mapping of KOLs from publication, clinical trial registries, conferences,
+guidelines, advisory boards, CMS open payments, industry & faculty affiliation, network & influencer mapping & social
+Profile
+Pre-Launch
+General
+Management
+●
+General
+Manager Leads Pre-Launch and Approval Activities with Cingulate Leadership
+●
+Develop
+Commercial Operating Plan
+Training
+●
+Disease
+State Training (with Certification Quiz)
+- Disease state overview covering broad training on ADHD and nervous system
+●
+Product
+Training (with Certification Quiz)
+- Competitive Landscape, PRMA, guidelines & treatment options for ADHD, & product
+profile - patient journey, PTR technology, CTx-1301
+●
+Selling
+Skills Training (with Certification Quiz) -
+Objection handling, CVA walkthrough, vILTs on disease state overview, product profile,
+competitive landscape, objection handling, PRMA and selling skills with virtual facilitation and game-based certification quiz (questions
+& associated points increase difficulty as user moves forward)
+●
+Learning
+Management System
+- Indegene proprietary SCORM compliant Learning Management System to host the training materials for Cingulate
+Technology
+Management
+●
+Strategy
+& Roadmap
+- Strategy & planning, needs assessment, solution architecture, platform package selection, integration requirement,
+architecture, & roadmap development
+●
+Technology
+Implementation
+- Identify & setup governance, monitor tech implementation, manage change controls through appropriate governance
+●
+Web
+Infrastructure & Site Enablement Setup
+- Infrastructure sizing, security enablement, website template setup, component enablement
+and configuration, integrations with required systems, GTM setup, procure web licenses & initiate website development for up
+to 4 websites (2 simple, 2 med complex)
+Commercial
+Data & Analytics
+●
+Market
+Research Support
+- Surveys, secondary research validation, conducting primary research, HCP digital channel preference and adoption,
+patient awareness & compliance
+●
+Competitor
+Landscape & Activity Tracking
+- Monitoring and tracking of competitors in disease/therapy area - clinical, news, regulatory,
+conference (1 indication)
+●
+Brand
+Performance Launch Analytics Design
+–Design reporting frameworks and define variables customized to track key Brand Launch
+and Ahead; performance Indicators
+●
+CDW
+Finalize Setup & CDW Operations
+– Finalize setup and begin maintenance, administration, support, enhancement and additional
+data management activities
+●
+Social
+Media Listening
+- Sentiment analysis, perception, awareness, preferences for 1-2 social channels, including competitor analysis
+for defined segment
+●
+KOL
+Profiling & Mapping
+– Identification, profiling and mapping of 300 - 400 KOLs from publication, clinical
+trial registries, conferences, guidelines, advisory boards, CMS open payments, industry & faculty affiliation, network &
+influencer mapping & social Profile - 1 indication, 1 country. This also includes topic modelling as a one-time activity
+●
+Pipeline
+Forecasting
+– Cloud-based, scalable forecasting model for pipeline products which eliminates the inefficiencies of proliferating
+Excels
+●
+Incentive
+Compensation Design–
+This is part of Sales force planning activity. Includes operations setup. It includes defining motivation
+goals for the sales reps aligning with the org strategy, design payout curves with guiding principles of fairness, simplicity &
+commercial viability
+-
+23
+- | Page
+Post-Launch
+General
+Management
+●
+General
+Manager Leads Launch Activities with Cingulate Leadership
+●
+Execute
+Commercial Operating Plan
+●
+Ongoing
+Management, Delivery and Cross-Functional Operation Alignment
+●
+Lead
+Post-Launch Activities with Cingulate Leadership
+Training
+●
+Learning
+Management System –
+Making the Learning Management System available post launch as well, for sales reps to utilize the
+training materials
+●
+Learning
+Sustainment
+- Executive summaries, clinical trial backgrounders, infographics, regular virtual touchpoints to reinforce content,
+share best practices, and continue to practice verbalization, NEXT Learning Retention – Indegene’s web-based confidence
+enhancement platform for paced assessment integrates the concepts of spaced learning for better retention using repetition and confidence-based
+assessments to assess knowledge and the confidence of learners
+Technology
+Management
+●
+Technology
+Governance/Maintenance -
+Lead cross platform governance & manage new technology capability requirements, make informed decision
+to prioritize the technology upgrades, manage various platform & technology subscriptions, renewals, security, compliance, contracts,
+etc., create & manage tech ecosystem architecture across workstream (Safety, Med Affairs, PRMA, Patient, HCP), work across different
+workstream and enable the technology platform solutions, validate the use cases and manage any priority enablement
+●
+Web
+Infrastructure & Site Enablement
+– Launch & maintain websites, enable on page SEO, define reporting framework &
+publish website related reports
+Commercial
+Data & Analytics
+●
+Market
+Research Support
+- Surveys, secondary research validation, conducting primary research, HCP digital channel preference and adoption,
+patient awareness & compliance
+●
+CDW
+Operations
+- Maintenance, administration, support, enhancement and additional data management activities
+●
+Inline
+Forecasting
+– Design and build of required data & inline forecasting models, reporting and visualization of forecasting
+model
+●
+Competitor
+Landscape & Tracking
+- Monitoring and tracking of competitors in disease/therapy area - clinical, news, regulatory, conference
+(1 indication)
+●
+Social
+Media Listening
+- Sentiment analysis, perception, awareness, preferences for 1-2 social channels, including competitor analysis
+for defined segment
+●
+KOL
+Mapping Refresh
+– It is a continuous activity which results is achieving higher accuracy in mapping KOLS and correctly
+identifying their networks throughout the engagement. This also includes topic modelling as a one-time activity
+●
+Brand
+Performance Launch Analytics –
+A library of KPIs, frameworks and business rules customized to client needs, customized
+insights and recommendations driving key business actions to drive efficiency
+●
+Sales
+Force Operations
+(Call planning / IC Admin)- Call planning exercises based on market feedback and calibration of incentives &
+compensation
+-
+24
+- | Page
+Marketing
+(may include Field Force) Services
+Pre-Launch
+Payer
+●
+TBD
+HCP
+( may include Field Force)
+●
+Marketer
+-
+Hire & On-board marketer to oversee all the marketing operations
+●
+HCP
+Research –
+Identifying target audience and market
+●
+Brand
+Guidelines & Strategy
+- Brand guidelines development which includes brand logo, tone, color palette, typography, fonts,
+commanding claims, visual branding, application examples etc.
+●
+Strategic
+Positioning
+- Marketing & competitive analysis based on the research reports received, develop brand personality/personas
+and value proposition
+●
+Omnichannel
+Strategy & Planning
+- Setting the omnichannel content brief & developing the content plan
+●
+Develop
+Pharmacy Dispensing Strategy/Wholesale/Trade Assets –
+Create pharmacy strategy plan
+●
+Develop
+HCP, Tactical Planning
+– Create a plan that illustrates all the key tactics that will drive revenue and how it latter up
+to the business goals
+Patient,
+Caregiver & Advocacy
+●
+Strategic
+Positioning
+- Marketing & competitive analysis based on the research reports received, develop brand personality/personas
+and value proposition
+Medical
+Education
+●
+Convention
+Planning –
+Coordination of events and post event activities
+-
+25
+- | Page
+Pre-Launch
+Payer
+●
+Recruit
+KAMs -
+Profiles developed, screening and & interviews timed to make offers just prior to payer engagements, medical aligned
+training timed to prep market & meet with payers in alignment with planned implementation
+●
+Hire
+& Train KAM Team -
+Profiles developed, screening and & interviews timed to make offers just prior to payer engagements,
+medical aligned training timed to prep market & meet with payers in alignment with planned implementation (2 hired L-12, 3 hired
+L-6)
+●
+Payer
+Communication Planning –
+Plan for communication between payers and KAMs according to project timelines
+●
+Develop
+Communication Materials
+– Develop payer value narrative and contract guidelines (includes Pre-Launch Strategy/Research)
+●
+Trade
+Kit & Wholesaler Fact Sheet
+– Key materials about product to payors, vendors and distributors
+●
+Create
+Day 1 Promotional Materials
+– Key priority materials that will be used in promotion of product upon approval
+●
+Early
+Payer Discussions -
+Early discussions with Payers, first pass completed prior to KAM hiring, KAM sets appointments while training
+HCP
+( may include Field Force)
+●
+Campaign
+Theme & Modular Content
+- Develop core campaign theme, modular content pack, concept creation & launch readiness plan
+●
+Asset
+Planning & Creation
+– Creation as per customer & channel matrix including MOA video, website, banner, emails, press
+release, & master pack design
+●
+HCP
+Segmentation & Targeting
+– Utilize proprietary data sources & algorithms to identify, target, profile and create
+smart segmentation of HCPs
+●
+Campaign
+Setup
+– Use AI & ML to develop strategic insights and enable a highly targeted marketing approach in a custom digital
+omnichannel experience using SFMC & HCP CRM
+●
+HCP
+Communications Plan
+– aligned sales and marketing communication business plan to promote to HCPs including business rules
+and strategies
+●
+SF
+Sizing & Territory Design -
+Utilize Rx potential, access & digital affinity to design territories and sales force sizing
+●
+Hire
+National Sales Manager
+- Timing connected to completion of sizing exercise, backed into from launch date
+●
+Hire
+& Train SF -
+Profiles developed, sourcing at geographical footprint, screening & interviews to align for offers as territories
+complete approval
+●
+Direct
+to Pharmacy Operations Setup
+- Setup process flow for Rx triage to preferred pharmacy network to reduce substitution and increase
+fill rate, document management in accordance with pharmacy standards
+●
+Pharmacy
+Research –
+Research to inform pharmacy strategy plan
+Patient,
+Caregiver & Advocacy
+●
+Patient
+CRM, App & Portal Setup
+- Build and support patient app and portal for patients to consume multiple support services, tools
+and resources. Integrated pharmacy and co-pay support, platform setup to facilitate patient-facing mobile App, consent management,
+and multi-channel communication, pharmacy distribution, reimbursement and co-pay support
+●
+Copay
+Operations Setup
+- Integrated pharmacy and co-pay support; co-pay offer to eligible patients on website or at the time of drug
+dispense at pharmacy
+●
+Patient
+Education Materials Setup
+- Develop disease education materials, including patient starter kit, patient brochure/FAQ, email campaign,
+and social media campaign, create consumer marketing materials.
+●
+Create
+Consumer Marketing Materials & Account Management –
+Marketing in market tactics to promote to patients, and overall
+management of patient engagement program
+●
+Creative
+Campaign Creation
+- Develop core campaign theme, modular content pack, concept creation & launch readiness plan
+●
+Omnichannel
+Strategy & Planning
+- Setting the omnichannel content brief & developing the content plan
+●
+Patient
+Strategy & Segmentation
+– Define patient journey, promotional strategy and segmentation
+●
+Patient
+Research
+– Patient market research to inform strategy
+Medical
+Education
+●
+Convention
+Activity and Asset Development -
+Asset development and KOL speaker programs to educate HCPs on the benefits, risks, and best
+practices of prescribing CTx-1301
+●
+KOL
+Education Materials & Training –
+Creation of KOL education training materials and speaker training programs for events
+●
+KOL
+Ad Board Planning –
+Planning and coordination for planning & execution which includes KOL identification, content support
+(Invites, slide decks, post congress summary & event analytics)
+●
+Speaker
+Identification –
+Identification of KOL for conventions and ad-board events
+-
+26
+- | Page
+Post-Launch
+Payer
+●
+KAM
+Support
+- Retain top customers and maintain/nurture key relationships over time. Act as strategic partner and advisor to the
+client and identify new opportunities to work together for mutual benefit.
+●
+KAM
+Alignment
+- Adjust KAM alignment if necessary - quarterly review/confirmation post launch
+●
+Performance
+Management
+– Manage KAM performance through pre decided guidelines, KPIs
+●
+Execute
+On Formulary Pull Through Launch Materials
+– Pull-through materials for field force and KAMs to on prince and reimbursement
+promotional claims
+●
+Pull
+Through Announcements
+– Create digital and printed templates to be used as announcements for each payor wins
+HCP
+(may include Field Force)
+●
+Asset
+Planning & Creation
+– Asset creation continues as per customer & channel matrix
+●
+Update
+HCP Segmentation & Targeting
+– Update HCP segmentation & targeting as needed
+●
+Data
+Reporting & KPI Tracking
+- Track & confirm KPIs / data reports are meeting needs and program performance evaluation
+●
+Campaign
+Deployment & Optimization
+- Fully integrated omni-channel fully deployed (SF, VSRs & NPP ), optimize channel mix through
+campaign analytics
+●
+Campaign
+Refresh
+- Update Omnichannel campaign as per the learnings from campaign analytics
+●
+Launch
+Meeting
+- Preparation planning to execute post approval and FF/KAM onboarding, align to early payer engagement for KAMs
+●
+POA
+Meetings
+- Quarterly meetings (2x f2f, 2x virtual)
+●
+Sales
+Force Alignment
+- Adjust sales force alignment if necessary - quarterly review/confirmation post launch
+●
+Sales
+Force Staffing
+- Process and guidance set prior to launch and ongoing Performance Management
+●
+Direct
+to Pharmacy Operations
+- Management and support - Outbound calls to patients/healthcare providers, Rx clarifications, document
+management in accordance with pharmacy standards, benefit verification, process prior authorization, fulfil and dispense medication
+Patient,
+Caregiver & Advocacy
+●
+Patient
+CRM, App & Portal Operations
+- Technology support and maintenance for patient portal and app
+●
+Ongoing
+Co-pay Eligibility & Claims Operations
+- Co-pay management and support: Co-pay offer to eligible patients through website
+or at the time of drug dispense at pharmacy, processing and reporting
+●
+Patient
+Education Materials Refresh
+- Refresh and development of branded materials in preparation for launch. Materials include patient
+starter kick, patient brochure/FAQ, email campaign, and social media campaign
+●
+OPDP
+Prep/Submission of Brand Materials –
+Prepare in market materials to proactively gather FDA feedback prior to market release.
+●
+Advocacy
+Group Awareness and Meetings–
+Develop relationships and deliver educational/promotional materials to advocacy groups
+●
+Deploy
+& Optimize Omnichannel -
+Deploy omnichannel program, gather insights and creation new best action. Includes content production
+and refresh.
+Medical
+Education
+●
+Speaker
+Training –
+Coordination and facilitation of the speaker program along with the speaker training assistance from Medical
+SME (Medical director)
+●
+KOL
+Ad Board activity -
+Planning and coordination for planning & execution which includes KOL identification, content support
+(Invites, slide decks, post congress summary & event analytics)
+●
+Speaker
+Programs, Convention Activity, and Asset Development –
+Asset development and KOL speaker programs to educate HCPs on the
+benefits, risks, and best practices of prescribing CTx-1301
+-
+27
+- | Page
