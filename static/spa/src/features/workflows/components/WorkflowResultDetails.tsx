@@ -275,10 +275,15 @@ function priorityBadgeClass(value: unknown) {
   return severityBadgeClass(value);
 }
 
-function LegalBadge({ children, className }: { children: ReactNode; className?: string }) {
+function LegalBadge({ children, className, title }: { children: ReactNode; className?: string; title?: string }) {
+  const label = typeof children === "string" ? children : title;
   return (
-    <Badge variant="outline" className={cn("max-w-full shrink-0 whitespace-normal rounded-full px-2.5 py-0.5 text-left text-[11px] font-semibold", className)}>
-      {children}
+    <Badge
+      variant="outline"
+      title={label}
+      className={cn("max-w-full min-w-0 shrink overflow-hidden rounded-full px-2.5 py-0.5 text-left text-[11px] font-semibold", className)}
+    >
+      <span className="min-w-0 truncate">{children}</span>
     </Badge>
   );
 }
@@ -304,9 +309,9 @@ function LegalDashboardRow({
     <LegalProseItem>
       <details className="group min-w-0">
         <summary className="grid cursor-pointer list-none gap-3 px-4 py-3 transition hover:bg-muted/40 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_1.25rem] md:items-center [&::-webkit-details-marker]:hidden">
-          <div className="flex min-w-0 items-start gap-3">
-            {badge ? <div className="mt-0.5 shrink-0">{badge}</div> : null}
-            <div className="min-w-0">
+          <div className="flex min-w-0 items-start gap-2.5">
+            {badge ? <div className="mt-0.5 min-w-0 max-w-[9.5rem] shrink sm:max-w-[10.5rem] md:max-w-[12rem]">{badge}</div> : null}
+            <div className="min-w-0 flex-1">
               <LegalItemHeading>{title}</LegalItemHeading>
               {subtitle ? <p className="mt-0.5 min-w-0 break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">{compactLegalText(subtitle, 140)}</p> : null}
             </div>
