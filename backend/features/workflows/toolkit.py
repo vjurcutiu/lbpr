@@ -4,12 +4,14 @@ import asyncio
 import json
 import logging
 import re
+from pathlib import Path
 from collections import Counter, defaultdict
 from typing import Any
 
 from core.pii import detokenize_text, tokenize_text
 from features.files import service as files_service
 from features.files.schemas import FileItem
+from urllib.parse import unquote
 from features.rag.chunker import simple_word_chunker
 from features.rag.orchestrator import query_request
 from features.rag.schemas import QueryRequest
@@ -18,6 +20,51 @@ from .domain_packs import get_domain_workflow_spec
 from .models import WorkflowSourceFile
 
 log = logging.getLogger("workflows.toolkit")
+
+_EVAL_FIXTURE_ID_PREFIX = "eval_fixture://"
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+_EVAL_FIXTURE_ROOTS = (
+    _BACKEND_ROOT / "internal" / "evals" / "fixtures",
+    _BACKEND_ROOT / "app" / "internal" / "evals" / "fixtures",
+)
+
+
+def _is_path_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except Exception:
+        return False
+
+
+def _safe_eval_fixture_roots() -> list[Path]:
+    roots: list[Path] = []
+    for root in _EVAL_FIXTURE_ROOTS:
+        try:
+            resolved = root.resolve()
+        except Exception:
+            continue
+        if resolved.exists() and resolved.is_dir():
+            roots.append(resolved)
+    return roots
+
+
+def _eval_fixture_path_from_file_id(file_id: str) -> Path | None:
+    if not str(file_id or "").startswith(_EVAL_FIXTURE_ID_PREFIX):
+        return None
+    raw = unquote(str(file_id)[len(_EVAL_FIXTURE_ID_PREFIX):])
+    try:
+        path = Path(raw).resolve()
+    except Exception:
+        return None
+    for root in _safe_eval_fixture_roots():
+        if _is_path_within(path, root) and path.exists() and path.is_file():
+            return path
+    return None
+
+
+def _is_eval_fixture_file_id(file_id: str) -> bool:
+    return _eval_fixture_path_from_file_id(file_id) is not None
 
 _ARTIFACT_VERSION = 1
 _ARTIFACT_NAME = "workflow_chunks.v1.json"
@@ -114,6 +161,8 @@ def persist_chunk_artifact(
     if len(encoded) > _MAX_ARTIFACT_BYTES:
         log.info("workflow_chunk_artifact_skip_large", uid=uid, file_id=file_id, size=len(encoded))
         return payload
+    if _is_eval_fixture_file_id(file_id):
+        return payload
     try:
         files_service._assert_user_owns(uid, file_id)  # type: ignore[attr-defined]
         blob = files_service._bucket().blob(chunk_artifact_path(file_id))  # type: ignore[attr-defined]
@@ -124,6 +173,8 @@ def persist_chunk_artifact(
 
 
 def _load_chunk_artifact(uid: str, file_item: FileItem) -> dict[str, Any] | None:
+    if _is_eval_fixture_file_id(file_item.id):
+        return None
     try:
         files_service._assert_user_owns(uid, file_item.id)  # type: ignore[attr-defined]
         blob = files_service._bucket().blob(chunk_artifact_path(file_item.id))  # type: ignore[attr-defined]
@@ -140,7 +191,17 @@ def _load_chunk_artifact(uid: str, file_item: FileItem) -> dict[str, Any] | None
 
 
 def _extract_text_on_demand(uid: str, file_item: FileItem) -> str | None:
-    data, content_type = files_service.get_file_bytes(uid, file_item.id)
+    fixture_path = _eval_fixture_path_from_file_id(file_item.id)
+    if fixture_path is not None:
+        try:
+            data = fixture_path.read_bytes()
+        except Exception:
+            log.warning("workflow_eval_fixture_read_failed", uid=uid, file_id=file_item.id, exc_info=True)
+            return None
+        content_type = file_item.content_type
+    else:
+        data, content_type = files_service.get_file_bytes(uid, file_item.id)
+
     text = asyncio.run(
         files_service._extract_text(  # type: ignore[attr-defined]
             uid,
@@ -305,6 +366,8 @@ def _detokenize_metadata(uid: str, meta: dict[str, Any]) -> dict[str, Any]:
 
 
 def _dataset_for_file(uid: str, file_item: FileItem) -> str:
+    if _is_eval_fixture_file_id(file_item.id):
+        return "eval_fixtures"
     try:
         meta = files_service._get_blob_metadata(uid, file_item.id)  # type: ignore[attr-defined]
     except Exception:
@@ -431,8 +494,9 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
     retrieved_sources: list[WorkflowSourceFile] = []
     if coverage_sources:
         should_retrieve = get_domain_workflow_spec(workflow_id) is not None or not _looks_broad_focus(focus) or workflow_id in {"create_action_plan", "extract_information", "compare_documents"}
-        if should_retrieve:
-            retrieved_sources = _retrieve_focus_chunks(uid, files, workflow_id=workflow_id, focus=focus)
+        retrieval_files = [item for item in files if not _is_eval_fixture_file_id(item.id)]
+        if should_retrieve and retrieval_files:
+            retrieved_sources = _retrieve_focus_chunks(uid, retrieval_files, workflow_id=workflow_id, focus=focus)
 
     sources = [*coverage_sources, *retrieved_sources]
     if len(sources) > _MAX_TOTAL_SOURCES:

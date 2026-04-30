@@ -418,7 +418,7 @@ export default function InternalEvalsPage() {
                       <div>
                         <div className="font-medium">Document manifest</div>
                         <div className="text-xs text-muted-foreground">
-                          {manifestPaths.length ? `${manifestPaths.length} selected path${manifestPaths.length === 1 ? "" : "s"}` : "Browse local files or folders to fill file paths."}
+                          {manifestPaths.length ? `${manifestPaths.length} selected path${manifestPaths.length === 1 ? "" : "s"}` : "Browse files or folders to fill paths; matching uploaded files or bundled eval fixtures will be used."}
                         </div>
                       </div>
                       <div className="flex shrink-0 gap-2">
@@ -443,7 +443,7 @@ export default function InternalEvalsPage() {
                     <Textarea
                       rows={5}
                       value={launcher.manifest_paths}
-                      placeholder={"contracts/nda/example.txt\ncontracts/msa/example.txt"}
+                      placeholder={"contracts/nda/example.txt\ncontracts/msa_saas/example.txt"}
                       onChange={(event) => setLauncher((prev) => ({ ...prev, manifest_paths: event.target.value }))}
                     />
                     <div className="space-y-2 text-xs text-muted-foreground">

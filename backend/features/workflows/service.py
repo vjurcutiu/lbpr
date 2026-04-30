@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import mimetypes
 import re
 import threading
 import time
 from collections import defaultdict
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
+from urllib.parse import quote, unquote
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -53,6 +56,13 @@ from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX, edit_workflow_section, 
 from .exporting import ExportedArtifact, export_artifact, sanitize_export_markdown
 
 log = logging.getLogger("workflows.service")
+
+_EVAL_FIXTURE_ID_PREFIX = "eval_fixture://"
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+_EVAL_FIXTURE_ROOTS = (
+    _BACKEND_ROOT / "internal" / "evals" / "fixtures",
+    _BACKEND_ROOT / "app" / "internal" / "evals" / "fixtures",
+)
 
 ROOT_COLLECTION = USERS_COLLECTION
 _WORKFLOW_RUNS_SUBCOLLECTION = "workflow_runs"
@@ -1315,6 +1325,197 @@ def _is_within_folder(file_item: FileItem, folder_path: str) -> bool:
     return bool(target) and (current == target or current.startswith(target + "/"))
 
 
+def _safe_eval_fixture_roots() -> list[Path]:
+    roots: list[Path] = []
+    for root in _EVAL_FIXTURE_ROOTS:
+        try:
+            resolved = root.resolve()
+        except Exception:
+            continue
+        if resolved.exists() and resolved.is_dir():
+            roots.append(resolved)
+    return roots
+
+
+def _strip_eval_fixture_prefixes(path: str) -> str:
+    cleaned = _normalize_manifest_file_path(path)
+    prefixes = (
+        "backend/app/internal/evals/fixtures/",
+        "backend/internal/evals/fixtures/",
+        "app/internal/evals/fixtures/",
+        "internal/evals/fixtures/",
+    )
+    lowered = cleaned.lower()
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            return cleaned[len(prefix):]
+    return cleaned
+
+
+def _is_path_within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_eval_fixture_file_path(path: str) -> Path | None:
+    cleaned = _strip_eval_fixture_prefixes(path)
+    if not cleaned:
+        return None
+
+    roots = _safe_eval_fixture_roots()
+    for root in roots:
+        candidate = (root / cleaned).resolve()
+        if candidate.exists() and candidate.is_file() and _is_path_within(candidate, root):
+            return candidate
+
+    basename = cleaned.rsplit("/", 1)[-1]
+    if not basename:
+        return None
+
+    matches: list[Path] = []
+    lowered_cleaned = cleaned.lower()
+    for root in roots:
+        try:
+            for candidate in root.rglob(basename):
+                if not candidate.is_file() or not _is_path_within(candidate, root):
+                    continue
+                rel = candidate.relative_to(root).as_posix().lower()
+                if rel == lowered_cleaned or rel.endswith("/" + lowered_cleaned) or lowered_cleaned.endswith("/" + rel):
+                    matches.append(candidate.resolve())
+        except Exception:
+            continue
+
+    unique_matches = sorted({match for match in matches}, key=lambda item: item.as_posix().lower())
+    if len(unique_matches) == 1:
+        return unique_matches[0]
+
+    if not matches and "/" not in cleaned:
+        basename_matches: list[Path] = []
+        for root in roots:
+            try:
+                basename_matches.extend(candidate.resolve() for candidate in root.rglob(basename) if candidate.is_file() and _is_path_within(candidate, root))
+            except Exception:
+                continue
+        unique_basename_matches = sorted({match for match in basename_matches}, key=lambda item: item.as_posix().lower())
+        if len(unique_basename_matches) == 1:
+            return unique_basename_matches[0]
+
+    return None
+
+
+def _resolve_eval_fixture_folder_path(path: str) -> Path | None:
+    cleaned = _strip_eval_fixture_prefixes(path)
+    if not cleaned:
+        return None
+
+    roots = _safe_eval_fixture_roots()
+    for root in roots:
+        candidate = (root / cleaned).resolve()
+        if candidate.exists() and candidate.is_dir() and _is_path_within(candidate, root):
+            return candidate
+
+    matches: list[Path] = []
+    lowered_cleaned = cleaned.lower()
+    for root in roots:
+        try:
+            for candidate in root.rglob(cleaned.rsplit("/", 1)[-1]):
+                if not candidate.is_dir() or not _is_path_within(candidate, root):
+                    continue
+                rel = candidate.relative_to(root).as_posix().lower()
+                if rel == lowered_cleaned or rel.endswith("/" + lowered_cleaned) or lowered_cleaned.endswith("/" + rel):
+                    matches.append(candidate.resolve())
+        except Exception:
+            continue
+
+    unique_matches = sorted({match for match in matches}, key=lambda item: item.as_posix().lower())
+    if len(unique_matches) == 1:
+        return unique_matches[0]
+    return None
+
+
+def _eval_fixture_id_for_path(path: Path) -> str:
+    return f"{_EVAL_FIXTURE_ID_PREFIX}{quote(path.resolve().as_posix(), safe='')}"
+
+
+def eval_fixture_path_from_file_id(file_id: str) -> Path | None:
+    if not str(file_id or "").startswith(_EVAL_FIXTURE_ID_PREFIX):
+        return None
+    raw = unquote(str(file_id)[len(_EVAL_FIXTURE_ID_PREFIX):])
+    try:
+        path = Path(raw).resolve()
+    except Exception:
+        return None
+    for root in _safe_eval_fixture_roots():
+        if _is_path_within(path, root) and path.exists() and path.is_file():
+            return path
+    return None
+
+
+def is_eval_fixture_file_id(file_id: str) -> bool:
+    return eval_fixture_path_from_file_id(file_id) is not None
+
+
+def _eval_fixture_folder_for_file(path: Path) -> str:
+    for root in _safe_eval_fixture_roots():
+        try:
+            rel_parent = path.resolve().parent.relative_to(root).as_posix()
+            return "" if rel_parent == "." else rel_parent
+        except Exception:
+            continue
+    return ""
+
+
+def _file_item_from_eval_fixture(path: Path) -> FileItem:
+    content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileItem(
+        id=_eval_fixture_id_for_path(path),
+        name=path.name,
+        original_name=path.name,
+        size=int(path.stat().st_size),
+        content_type=content_type,
+        folder_path=_eval_fixture_folder_for_file(path),
+    )
+
+
+def _resolve_eval_fixture_file_items(paths: list[str]) -> list[FileItem]:
+    items: list[FileItem] = []
+    for value in paths:
+        resolved = _resolve_eval_fixture_file_path(value)
+        if resolved is not None:
+            items.append(_file_item_from_eval_fixture(resolved))
+    return _dedupe_files(items)
+
+
+def _resolve_eval_fixture_folder_items(paths: list[str]) -> list[FileItem]:
+    items: list[FileItem] = []
+    for value in paths:
+        folder = _resolve_eval_fixture_folder_path(value)
+        if folder is None:
+            continue
+        try:
+            for file_path in sorted((item for item in folder.rglob("*") if item.is_file()), key=lambda item: item.as_posix().lower()):
+                items.append(_file_item_from_eval_fixture(file_path))
+        except Exception:
+            continue
+    return _dedupe_files(items)
+
+
+def _fixture_hint_for_selection(selection: WorkflowSelectionIn) -> str:
+    roots = ", ".join(str(root) for root in _safe_eval_fixture_roots()) or "backend/internal/evals/fixtures"
+    requested = [*list(selection.file_paths), *list(selection.folder_paths)]
+    requested_preview = ", ".join(requested[:3])
+    if len(requested) > 3:
+        requested_preview += f", +{len(requested) - 3} more"
+    return (
+        "No files were found for the current workflow selection. "
+        "Manifest paths must match files already uploaded for the eval UID or files inside the internal eval fixtures directory. "
+        f"Fixture roots checked: {roots}."
+        + (f" Requested: {requested_preview}." if requested_preview else "")
+    )
+
 
 def _remaining_workflow_tokens(snap: dict[str, object]) -> int:
     cap = int(snap.get("cap_workflow_tokens") or snap.get("cap_file_processing_tokens") or snap.get("cap_upload_tokens") or 0)
@@ -1405,6 +1606,7 @@ def _resolve_selected_files(uid: str, selection: WorkflowSelectionIn) -> list[Fi
         if item is not None:
             selected.append(item)
 
+    unresolved_file_paths: list[str] = []
     for file_path in selection.file_paths:
         normalized = _normalize_manifest_file_path(file_path)
         if not normalized:
@@ -1427,13 +1629,29 @@ def _resolve_selected_files(uid: str, selection: WorkflowSelectionIn) -> list[Fi
         basename_matches = by_basename.get(basename) or []
         if len({item.id for item in basename_matches}) == 1:
             selected.extend(basename_matches)
+            continue
 
+        unresolved_file_paths.append(normalized)
+
+    if unresolved_file_paths:
+        selected.extend(_resolve_eval_fixture_file_items(unresolved_file_paths))
+
+    unresolved_folder_paths: list[str] = []
     for folder_path in selection.folder_paths:
-        selected.extend(item for item in all_files if _is_within_folder(item, folder_path))
+        uploaded_matches = [item for item in all_files if _is_within_folder(item, folder_path)]
+        if uploaded_matches:
+            selected.extend(uploaded_matches)
+        else:
+            normalized_folder = _normalize_folder_path(folder_path)
+            if normalized_folder:
+                unresolved_folder_paths.append(normalized_folder)
+
+    if unresolved_folder_paths:
+        selected.extend(_resolve_eval_fixture_folder_items(unresolved_folder_paths))
 
     selected = _dedupe_files(selected)
     if not selected:
-        raise HTTPException(status_code=400, detail="No files were found for the current workflow selection")
+        raise HTTPException(status_code=400, detail=_fixture_hint_for_selection(selection))
     return selected
 
 

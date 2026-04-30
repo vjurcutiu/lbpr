@@ -251,3 +251,16 @@ Those paths are sent as `manifest_paths` and as workflow `selection.file_paths`.
 3. a unique basename match when there is only one uploaded file with that name
 
 This keeps the picker lightweight: it does not ingest local file bytes by itself. Upload/ingest the contracts into the app once, then use the picker to fill the same paths into the eval manifest and run repeatable selections without pasting IDs.
+
+### Bundled internal fixture path resolution
+
+For internal eval smoke tests, manifest paths can also resolve to files stored under the repo's internal fixture directories:
+
+```text
+backend/internal/evals/fixtures/
+backend/app/internal/evals/fixtures/
+```
+
+This is useful for curated public-contract eval sets that are checked into or mounted with the dev repo. For example, a browser-selected folder path like `contracts/nda/example.txt` can resolve to `backend/app/internal/evals/fixtures/public_contract_eval_seed/contracts/nda/example.txt` when that suffix is unique. Folder selections are recursive when they resolve to an internal fixture folder.
+
+The resolver still prefers already uploaded app files first. If no uploaded file matches, it falls back to internal fixture files only inside the safe fixture roots above. It does not read arbitrary absolute paths from the user's PC.

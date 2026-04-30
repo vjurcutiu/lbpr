@@ -3,11 +3,13 @@
   "description": "Smoke-test core legal workflows against a selected document set and export the outputs for manual review.",
   "document_set": {
     "name": "sample_contracts_batch_1",
-    "description": "Replace these file IDs with uploaded files from the eval tenant before running.",
+    "description": "Default smoke set uses bundled internal eval fixture contracts. You can override this from the internal eval UI manifest picker.",
     "selection": {
       "file_ids": [],
       "file_paths": [],
-      "folder_paths": [],
+      "folder_paths": [
+        "contracts"
+      ],
       "current_folder": "contracts"
     }
   },
