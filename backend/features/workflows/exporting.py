@@ -88,6 +88,10 @@ LEGAL_CLAUSE_TYPE_LABELS: dict[str, str] = {
 }
 
 LEGAL_EXPORT_TOKEN_LABELS: dict[str, str] = {**LEGAL_EXPORT_FIELD_LABELS, **LEGAL_CLAUSE_TYPE_LABELS}
+LEGAL_EXPORT_FIELD_LABEL_KEYS: dict[str, str] = {
+    re.sub(r"[^a-z0-9]+", "_", key.strip().lower()).strip("_"): label
+    for key, label in LEGAL_EXPORT_FIELD_LABELS.items()
+}
 
 _INTERNAL_CLAUSE_TOKEN_RE = re.compile(
     r"\b("
@@ -101,13 +105,23 @@ _INTERNAL_CLAUSE_TOKEN_RE = re.compile(
 )
 
 
+def _normalize_export_label_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
 def _normalize_clause_type_key(value: str) -> str:
-    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return _normalize_export_label_key(value)
+
+
+def _format_export_field_label(value: str) -> str:
+    raw = str(value or "").strip()
+    return LEGAL_EXPORT_FIELD_LABEL_KEYS.get(_normalize_export_label_key(raw), raw)
 
 
 def _format_clause_type_label(value: str) -> str:
-    key = _normalize_clause_type_key(value)
-    return LEGAL_CLAUSE_TYPE_LABELS.get(key, str(value or "").strip())
+    raw = str(value or "").strip()
+    key = _normalize_clause_type_key(raw)
+    return LEGAL_CLAUSE_TYPE_LABELS.get(key, raw)
 
 
 def _format_internal_clause_tokens(text: str) -> str:
@@ -121,6 +135,10 @@ def _format_clause_table_cell(text: str) -> str:
     raw = str(text or "").strip()
     if not raw:
         return raw
+
+    field_label = _format_export_field_label(raw)
+    if field_label != raw:
+        return field_label
 
     exact = _format_clause_type_label(raw)
     if exact != raw:
@@ -136,7 +154,19 @@ def _format_clause_table_cell(text: str) -> str:
 
 
 def _format_export_clause_labels(markdown: str) -> str:
-    return "\n".join(_format_internal_clause_tokens(line) for line in str(markdown or "").split("\n"))
+    formatted_lines: list[str] = []
+    for line in str(markdown or "").split("\n"):
+        if _is_table_line(line):
+            cells = _split_table_cells(line)
+            if cells and _is_table_separator_row(cells):
+                formatted_lines.append(line)
+            elif cells:
+                formatted_lines.append("| " + " | ".join(cells) + " |")
+            else:
+                formatted_lines.append(_format_internal_clause_tokens(line))
+        else:
+            formatted_lines.append(_format_internal_clause_tokens(line))
+    return "\n".join(formatted_lines)
 
 
 def sanitize_export_markdown(markdown: str) -> str:
@@ -675,16 +705,16 @@ def _build_pdf_styles() -> tuple[ParagraphStyle, dict[int, ParagraphStyle], Para
         "WorkflowTableCell",
         parent=styles["BodyText"],
         fontName="Helvetica",
-        fontSize=7.1,
+        fontSize=7.0,
         leading=8.6,
         alignment=TA_LEFT,
-        wordWrap="CJK",
+        splitLongWords=0,
     )
     table_header = ParagraphStyle(
         "WorkflowTableHeader",
         parent=table_cell,
         fontName="Helvetica-Bold",
-        fontSize=7.2,
+        fontSize=7.1,
         leading=8.7,
         textColor=colors.black,
     )
@@ -787,23 +817,78 @@ def _build_pdf_table(block: MarkdownBlock, *, table_cell: ParagraphStyle, table_
     return table
 
 
+def _table_header_key(header: str) -> str:
+    normalized = _normalize_export_label_key(_format_export_field_label(header))
+    if normalized == "clause_family":
+        return "clause_type"
+    return normalized
+
+
+def _pdf_min_column_width(header: str) -> float:
+    key = _table_header_key(header)
+    width_inches_by_key = {
+        "issue": 1.22,
+        "severity": 0.58,
+        "clause_type": 0.92,
+        "business_impact": 1.25,
+        "source_basis": 1.28,
+        "recommended_fix": 1.28,
+        "recommended_change": 1.28,
+        "recommended_position": 1.28,
+        "fallback": 1.12,
+        "fallback_position": 1.12,
+        "approval": 0.9,
+        "approver": 0.9,
+        "owner": 0.72,
+        "status": 0.72,
+        "current_position": 1.22,
+        "responsible_party": 0.95,
+        "trigger_deadline": 1.05,
+        "trigger_or_deadline": 1.05,
+        "follow_up": 1.0,
+        "risk_note": 1.0,
+    }
+    return width_inches_by_key.get(key, 0.72) * inch
+
+
 def _calculate_pdf_column_widths(rows: list[list[str]], available_width: float) -> list[float]:
     if not rows:
         return []
     column_count = max(len(row) for row in rows)
     normalized_rows = [_normalize_table_row(row, column_count) for row in rows]
+    headers = normalized_rows[0] if normalized_rows else [""] * column_count
+
+    min_widths = [_pdf_min_column_width(headers[col]) for col in range(column_count)]
+    min_total = sum(min_widths) or 1.0
+    if min_total >= available_width:
+        scale = available_width / min_total
+        return [width * scale for width in min_widths]
+
     weights: list[float] = []
     for col in range(column_count):
-        max_len = max(len(row[col]) for row in normalized_rows)
-        avg_len = sum(len(row[col]) for row in normalized_rows) / max(len(normalized_rows), 1)
-        weights.append(max(8.0, min(40.0, max_len * 0.7 + avg_len * 0.3)))
+        values = [row[col] for row in normalized_rows]
+        max_len = max(len(value) for value in values)
+        avg_len = sum(len(value) for value in values) / max(len(values), 1)
+        header_key = _table_header_key(headers[col])
+        semantic_boost = 1.15 if header_key in {
+            "issue",
+            "business_impact",
+            "source_basis",
+            "recommended_fix",
+            "recommended_change",
+            "recommended_position",
+            "fallback",
+            "fallback_position",
+            "current_position",
+        } else 0.85
+        weights.append(max(4.0, min(36.0, (max_len * 0.6 + avg_len * 0.4) * semantic_boost)))
+
+    remaining_width = available_width - min_total
     total_weight = sum(weights) or 1.0
-    min_width = 0.7 * inch
-    widths = [max(min_width, available_width * (weight / total_weight)) for weight in weights]
-    total_width = sum(widths)
-    if total_width > available_width:
-        scale = available_width / total_width
-        widths = [width * scale for width in widths]
+    widths = [
+        min_widths[col] + remaining_width * (weights[col] / total_weight)
+        for col in range(column_count)
+    ]
     return widths
 
 

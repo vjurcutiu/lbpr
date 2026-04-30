@@ -845,7 +845,7 @@ def test_workflow_artifact_downloads_use_customer_facing_clause_labels():
 
 Focus areas: ip_ownership, data_protection, and limitation_of_liability.
 
-| clause_family | current_position | recommended_position |
+| Clause family | current_position | recommended_position |
 | --- | --- | --- |
 | ip_ownership | Vendor owns custom work product. | Customer should own paid deliverables. |
 | data_protection | Security language is light. | Add security controls. |
@@ -860,6 +860,7 @@ Focus areas: ip_ownership, data_protection, and limitation_of_liability.
     assert 'data_protection' not in markdown_text
     assert 'limitation_of_liability' not in markdown_text
     assert 'clause_family' not in markdown_text
+    assert 'Clause family' not in markdown_text
     assert 'current_position' not in markdown_text
     assert 'recommended_position' not in markdown_text
     assert 'IP Ownership' in markdown_text
@@ -882,6 +883,7 @@ Focus areas: ip_ownership, data_protection, and limitation_of_liability.
     assert 'data_protection' not in document_xml
     assert 'limitation_of_liability' not in document_xml
     assert 'clause_family' not in document_xml
+    assert 'Clause family' not in document_xml
     assert 'current_position' not in document_xml
     assert 'recommended_position' not in document_xml
     assert 'IP Ownership' in document_xml
@@ -890,6 +892,18 @@ Focus areas: ip_ownership, data_protection, and limitation_of_liability.
     assert 'Clause Type' in document_xml
     assert 'Current Position' in document_xml
     assert 'Recommended Position' in document_xml
+
+    pdf_download = workflow_service.export_artifact_for_download(artifact, target_format='pdf')
+    assert pdf_download.content.startswith(b'%PDF')
+    try:
+        from pypdf import PdfReader
+    except Exception:  # pragma: no cover - local dependency guard
+        return
+    reader = PdfReader(BytesIO(pdf_download.content))
+    pdf_text = '\n'.join(page.extract_text() or '' for page in reader.pages)
+    assert 'Clause family' not in pdf_text
+    assert 'Clause Type' in pdf_text
+    assert 'Confidentialit y' not in pdf_text
 
 
 def test_workflow_artifact_table_exports_keep_tables_and_landscape_layout():
