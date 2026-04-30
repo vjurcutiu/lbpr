@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ChevronRight, CornerDownRight, GitBranch, MoreVertical, Pencil, Search, Trash2 } from "lucide-react";
+import { ArrowRight, ChevronRight, CornerDownRight, GitBranch, Maximize2, Minimize2, MoreVertical, Pencil, Search, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -493,7 +493,7 @@ function WorkflowCatalogItem({
       onClick={() => onLaunch(workflow)}
       disabled={disabled}
       className={cn(
-        "flex w-full min-w-0 max-w-full items-start justify-between gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
+        "flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
         active ? "bg-primary/10" : ""
       )}
     >
@@ -533,13 +533,13 @@ function ProPackAccordion({
         disabled={disabled || !workflow}
         onClick={() => workflow && onLaunch(group, pack, workflow)}
         className={cn(
-          "flex w-full min-w-0 max-w-full items-start justify-between gap-3 overflow-hidden rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
+          "flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
           isActive ? "bg-primary/10" : ""
         )}
       >
-        <span className="min-w-0 flex-1 overflow-hidden">
+        <span className="min-w-0">
           <span className={cn("block truncate text-sm font-medium", isActive ? "text-primary" : "text-foreground")}>{pack.title}</span>
-          <span className="mt-1 block break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">{pack.description}</span>
+          <span className="mt-1 block text-xs leading-5 text-muted-foreground">{pack.description}</span>
         </span>
         <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
       </button>
@@ -608,6 +608,7 @@ export default function WorkflowsPage() {
   const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(null);
   const [workflowLibraryView, setWorkflowLibraryView] = useState<WorkflowLibraryView>("core");
+  const [workflowOutputFocus, setWorkflowOutputFocus] = useState(false);
   const [activeCoreWorkflowId, setActiveCoreWorkflowId] = useState<string | null>(null);
   const [activeProPackId, setActiveProPackId] = useState<string | null>(null);
   const [launcherFiles, setLauncherFiles] = useState<FileItem[]>([]);
@@ -1283,6 +1284,10 @@ export default function WorkflowsPage() {
   }, [isMobile]);
 
   useEffect(() => {
+    if (isMobile) setWorkflowOutputFocus(false);
+  }, [isMobile]);
+
+  useEffect(() => {
     if (!isResizableDesktop) setResizingPane(null);
   }, [isResizableDesktop]);
 
@@ -1531,9 +1536,10 @@ export default function WorkflowsPage() {
   }, [deletingRun, renamingRunId, selectedRunId, selectRun, updateOutputEditDrafts]);
 
 
-  const showInbox = !isMobile || mobilePanel === "inbox";
+  const outputFocusActive = workflowOutputFocus && !isMobile && !!selectedRun;
+  const showInbox = (!isMobile && !outputFocusActive) || mobilePanel === "inbox";
   const showDetails = !isMobile || mobilePanel === "details";
-  const showFlows = !isMobile || mobilePanel === "flows";
+  const showFlows = (!isMobile && !outputFocusActive) || mobilePanel === "flows";
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -1568,7 +1574,7 @@ export default function WorkflowsPage() {
             "border border-border/70 bg-background shadow-sm",
             isMobile
               ? "border-t-0"
-              : isCompactDesktop
+              : isCompactDesktop && !outputFocusActive
                 ? "grid h-full min-h-0 grid-cols-[minmax(260px,32vw)_minmax(0,1fr)] grid-rows-[minmax(180px,42%)_minmax(180px,58%)] overflow-hidden"
                 : "flex h-full min-h-0 flex-row overflow-hidden"
           )}
@@ -1633,7 +1639,8 @@ export default function WorkflowsPage() {
           }}
           className={cn(
             "hidden w-1 shrink-0 cursor-col-resize bg-border/70 transition-colors hover:bg-primary/20 xl:block",
-            resizingPane === "runs" && "bg-primary/30"
+            resizingPane === "runs" && "bg-primary/30",
+            (!showInbox || outputFocusActive) && "!hidden"
           )}
           title="Drag to resize"
         />
@@ -1642,18 +1649,18 @@ export default function WorkflowsPage() {
           className={cn(
             "flex min-h-[320px] min-w-0 flex-col border-border/70",
             isMobile && "border-b",
-            isCompactDesktop && "min-h-0 [grid-column:2] [grid-row:1_/_span_2]",
-            !isMobile && !isCompactDesktop && "min-h-0",
+            isCompactDesktop && !outputFocusActive && "min-h-0 [grid-column:2] [grid-row:1_/_span_2]",
+            !isMobile && (!isCompactDesktop || outputFocusActive) && "min-h-0",
             !showDetails && "hidden"
           )}
-          style={isResizableDesktop ? { flex: "1 1 0", minWidth: 0 } : undefined}
+          style={isResizableDesktop || outputFocusActive ? { flex: "1 1 0", minWidth: 0 } : undefined}
         >
 
           {selectedRun ? (
             <div className={cn("min-h-0 flex-1 bg-muted/15", !isMobile && "overflow-hidden")}>
               <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
-                <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-5 overflow-hidden px-3 py-4 sm:px-4 md:px-6 lg:px-8 xl:px-12">
-                  <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background px-4 py-5 shadow-sm sm:px-5 md:px-6 md:py-7 xl:px-8">
+                <div className={cn("mx-auto flex w-full min-w-0 flex-col gap-5 px-3 py-4 sm:px-4 md:px-6 lg:px-8", outputFocusActive ? "max-w-7xl xl:px-10" : "max-w-4xl xl:px-12")}>
+                  <div className="min-w-0 rounded-2xl border border-border/70 bg-background px-4 py-5 shadow-sm sm:px-5 md:px-6 md:py-7 xl:px-8">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-3">
@@ -1714,7 +1721,7 @@ export default function WorkflowsPage() {
                             </div>
                             <p className="mt-4 max-w-3xl text-[15px] leading-7 text-foreground/90">{renderStatusCopy(selectedRun, selectedRunDisplayStatus || selectedRun.status)}</p>
                             {selectedRunChainSource ? (
-                              <div className="mt-4 max-w-3xl overflow-hidden border border-border/70 bg-muted/15 px-3 py-3">
+                              <div className="mt-4 max-w-3xl border border-border/70 bg-muted/15 px-3 py-3">
                                 <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">Built from previous result</div>
                                 <div className="mt-2 flex flex-wrap gap-1.5 text-xs text-muted-foreground">
                                   <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-normal">{selectedRunChainSource.parent_title}</Badge>
@@ -1722,18 +1729,30 @@ export default function WorkflowsPage() {
                                   {selectedRunChainSource.action_label ? <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-normal">{selectedRunChainSource.action_label}</Badge> : null}
                                 </div>
                                 {selectedRunChainSource.summary ? (
-                                  <p className="mt-2 break-words text-sm leading-6 text-foreground/85 [overflow-wrap:anywhere]">{selectedRunChainSource.summary}</p>
+                                  <p className="mt-2 text-sm leading-6 text-foreground/85">{selectedRunChainSource.summary}</p>
                                 ) : null}
                               </div>
                             ) : null}
                           </div>
                         </div>
                       </div>
+                      {!isMobile ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 shrink-0 rounded-full px-3 text-xs"
+                          onClick={() => setWorkflowOutputFocus((current) => !current)}
+                        >
+                          {outputFocusActive ? <Minimize2 className="mr-1 h-3.5 w-3.5" /> : <Maximize2 className="mr-1 h-3.5 w-3.5" />}
+                          {outputFocusActive ? "Exit focus" : "Focus output"}
+                        </Button>
+                      ) : null}
                     </div>
 
                   </div>
 
-                  <div className="min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background px-4 py-5 shadow-sm sm:px-5 md:px-6 md:py-7 xl:px-8">
+                  <div className="min-w-0 rounded-2xl border border-border/70 bg-background px-4 py-5 shadow-sm sm:px-5 md:px-6 md:py-7 xl:px-8">
                     {selectedRun.result ? (
                       <WorkflowResultDetails
                         result={selectedRun.result}
@@ -1796,7 +1815,8 @@ export default function WorkflowsPage() {
           }}
           className={cn(
             "hidden w-1 shrink-0 cursor-col-resize bg-border/70 transition-colors hover:bg-primary/20 xl:block",
-            resizingPane === "flows" && "bg-primary/30"
+            resizingPane === "flows" && "bg-primary/30",
+            (!showFlows || outputFocusActive) && "!hidden"
           )}
           title="Drag to resize"
         />
