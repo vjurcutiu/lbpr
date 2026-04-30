@@ -45,6 +45,100 @@ _INTERNAL_SECTION_HEADINGS = {
 }
 
 
+LEGAL_EXPORT_FIELD_LABELS: dict[str, str] = {
+    "business_impact": "Business Impact",
+    "clause_family": "Clause Type",
+    "clause_type": "Clause Type",
+    "current_position": "Current Position",
+    "fallback_position": "Fallback Position",
+    "follow_up": "Follow-Up",
+    "recommended_change": "Recommended Change",
+    "recommended_position": "Recommended Position",
+    "requires_human_review": "Requires Human Review",
+    "responsible_party": "Responsible Party",
+    "risk_note": "Risk Note",
+    "source_basis": "Source Basis",
+    "trigger_or_deadline": "Trigger / Deadline",
+}
+
+LEGAL_CLAUSE_TYPE_LABELS: dict[str, str] = {
+    "assignment": "Assignment",
+    "audit": "Audit",
+    "change_control": "Change Control",
+    "confidentiality": "Confidentiality",
+    "data_protection": "Data Protection",
+    "dispute_resolution": "Dispute Resolution",
+    "exclusivity": "Exclusivity",
+    "force_majeure": "Force Majeure",
+    "governing_law": "Governing Law",
+    "indemnity": "Indemnity",
+    "insurance": "Insurance",
+    "ip_ownership": "IP Ownership",
+    "intellectual_property": "Intellectual Property",
+    "limitation_of_liability": "Limitation of Liability",
+    "non_compete": "Non-Compete",
+    "non_solicit": "Non-Solicit",
+    "notices": "Notices",
+    "payment": "Payment",
+    "renewal": "Renewal",
+    "residuals": "Residuals",
+    "service_levels": "Service Levels",
+    "termination": "Termination",
+    "warranties": "Warranties",
+}
+
+LEGAL_EXPORT_TOKEN_LABELS: dict[str, str] = {**LEGAL_EXPORT_FIELD_LABELS, **LEGAL_CLAUSE_TYPE_LABELS}
+
+_INTERNAL_CLAUSE_TOKEN_RE = re.compile(
+    r"\b("
+    + "|".join(
+        re.escape(key)
+        for key in sorted(LEGAL_EXPORT_TOKEN_LABELS, key=len, reverse=True)
+        if "_" in key
+    )
+    + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _normalize_clause_type_key(value: str) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _format_clause_type_label(value: str) -> str:
+    key = _normalize_clause_type_key(value)
+    return LEGAL_CLAUSE_TYPE_LABELS.get(key, str(value or "").strip())
+
+
+def _format_internal_clause_tokens(text: str) -> str:
+    return _INTERNAL_CLAUSE_TOKEN_RE.sub(
+        lambda match: LEGAL_EXPORT_TOKEN_LABELS.get(_normalize_clause_type_key(match.group(0)), match.group(0)),
+        str(text or ""),
+    )
+
+
+def _format_clause_table_cell(text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return raw
+
+    exact = _format_clause_type_label(raw)
+    if exact != raw:
+        return exact
+
+    parts = [part.strip() for part in re.split(r"\s*[,;]\s*", raw) if part.strip()]
+    if len(parts) > 1:
+        normalized = [_normalize_clause_type_key(part) for part in parts]
+        if all(part in LEGAL_CLAUSE_TYPE_LABELS for part in normalized):
+            return ", ".join(LEGAL_CLAUSE_TYPE_LABELS[part] for part in normalized)
+
+    return _format_internal_clause_tokens(raw)
+
+
+def _format_export_clause_labels(markdown: str) -> str:
+    return "\n".join(_format_internal_clause_tokens(line) for line in str(markdown or "").split("\n"))
+
+
 def sanitize_export_markdown(markdown: str) -> str:
     text = str(markdown or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
@@ -93,7 +187,7 @@ class MarkdownBlock:
 
 
 def export_artifact(*, title: str, markdown: str, file_stem: str, target_format: MarkdownExportFormat) -> ExportedArtifact:
-    normalized = _normalize_markdown(sanitize_export_markdown(markdown))
+    normalized = _normalize_markdown(_format_export_clause_labels(sanitize_export_markdown(markdown)))
     if target_format == "markdown":
         return ExportedArtifact(
             content=normalized.encode("utf-8"),
@@ -184,7 +278,7 @@ def _split_table_cells(line: str) -> list[str]:
     if stripped.endswith("|"):
         stripped = stripped[:-1]
     cells = re.split(r"(?<!\\)\|", stripped)
-    return [_strip_inline_markdown(cell.replace(r"\|", "|").strip()) for cell in cells]
+    return [_format_clause_table_cell(_strip_inline_markdown(cell.replace(r"\|", "|").strip())) for cell in cells]
 
 
 def _parse_table_lines(lines: list[str]) -> MarkdownBlock | None:

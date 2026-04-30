@@ -833,6 +833,65 @@ def test_workflow_artifact_exports_strip_internal_notes_sections():
     assert 'Share with the client' in document_xml
 
 
+def test_workflow_artifact_downloads_use_customer_facing_clause_labels():
+    artifact = workflow_service.WorkflowArtifact(
+        id='wf_art_clause_labels',
+        run_id='wf_run_clause_labels',
+        workflow_id='legal_clause_extraction',
+        title='Clause Review',
+        capability='extract',
+        file_name='clause-review.md',
+        content="""# Clause Review
+
+Focus areas: ip_ownership, data_protection, and limitation_of_liability.
+
+| clause_family | current_position | recommended_position |
+| --- | --- | --- |
+| ip_ownership | Vendor owns custom work product. | Customer should own paid deliverables. |
+| data_protection | Security language is light. | Add security controls. |
+| limitation_of_liability | Cap excludes confidentiality. | Add narrow carveouts. |
+""",
+        metadata={},
+    )
+
+    markdown_download = workflow_service.export_artifact_for_download(artifact, target_format='markdown')
+    markdown_text = markdown_download.content.decode('utf-8')
+    assert 'ip_ownership' not in markdown_text
+    assert 'data_protection' not in markdown_text
+    assert 'limitation_of_liability' not in markdown_text
+    assert 'clause_family' not in markdown_text
+    assert 'current_position' not in markdown_text
+    assert 'recommended_position' not in markdown_text
+    assert 'IP Ownership' in markdown_text
+    assert 'Data Protection' in markdown_text
+    assert 'Limitation of Liability' in markdown_text
+    assert 'Clause Type' in markdown_text
+    assert 'Current Position' in markdown_text
+    assert 'Recommended Position' in markdown_text
+
+    txt_download = workflow_service.export_artifact_for_download(artifact, target_format='txt')
+    txt_text = txt_download.content.decode('utf-8')
+    assert 'ip_ownership' not in txt_text
+    assert 'IP Ownership' in txt_text
+    assert '| IP Ownership' in txt_text
+
+    docx_download = workflow_service.export_artifact_for_download(artifact, target_format='docx')
+    with ZipFile(BytesIO(docx_download.content)) as archive:
+        document_xml = archive.read('word/document.xml').decode('utf-8')
+    assert 'ip_ownership' not in document_xml
+    assert 'data_protection' not in document_xml
+    assert 'limitation_of_liability' not in document_xml
+    assert 'clause_family' not in document_xml
+    assert 'current_position' not in document_xml
+    assert 'recommended_position' not in document_xml
+    assert 'IP Ownership' in document_xml
+    assert 'Data Protection' in document_xml
+    assert 'Limitation of Liability' in document_xml
+    assert 'Clause Type' in document_xml
+    assert 'Current Position' in document_xml
+    assert 'Recommended Position' in document_xml
+
+
 def test_workflow_artifact_table_exports_keep_tables_and_landscape_layout():
     artifact = workflow_service.WorkflowArtifact(
         id='wf_art_table',
