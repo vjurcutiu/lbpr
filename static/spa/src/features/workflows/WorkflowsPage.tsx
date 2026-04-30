@@ -51,7 +51,7 @@ import {
 } from "./api";
 import { LegalWorkflowLauncher } from "./components/LegalWorkflowLauncher";
 import { WorkflowLauncher } from "./components/WorkflowLauncher";
-import { WorkflowResultDetails, type WorkflowOutputEditState } from "./components/WorkflowResultDetails";
+import { WorkflowResultDetails, type WorkflowMarkdownTableBlock, type WorkflowOutputEditState } from "./components/WorkflowResultDetails";
 import { WorkflowStatusBadge } from "./components/WorkflowStatusBadge";
 import { WorkflowStatusIcon, workflowStatusAccentClass, workflowStatusLabel, type WorkflowVisualStatus } from "./components/WorkflowStatusIcon";
 import { buildProPackInputs, getVisibleProPackGroups, PRO_PACK_LIBRARY_VIEW, type ProPackGroup, type ProPackItem } from "./proPacks";
@@ -609,6 +609,7 @@ export default function WorkflowsPage() {
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(null);
   const [workflowLibraryView, setWorkflowLibraryView] = useState<WorkflowLibraryView>("core");
   const [workflowOutputFocus, setWorkflowOutputFocus] = useState(false);
+  const [expandedWorkflowTable, setExpandedWorkflowTable] = useState<{ runId: string; table: WorkflowMarkdownTableBlock } | null>(null);
   const [activeCoreWorkflowId, setActiveCoreWorkflowId] = useState<string | null>(null);
   const [activeProPackId, setActiveProPackId] = useState<string | null>(null);
   const [launcherFiles, setLauncherFiles] = useState<FileItem[]>([]);
@@ -1288,6 +1289,12 @@ export default function WorkflowsPage() {
   }, [isMobile]);
 
   useEffect(() => {
+    if (expandedWorkflowTable && expandedWorkflowTable.runId !== selectedRunId) {
+      setExpandedWorkflowTable(null);
+    }
+  }, [expandedWorkflowTable, selectedRunId]);
+
+  useEffect(() => {
     if (!isResizableDesktop) setResizingPane(null);
   }, [isResizableDesktop]);
 
@@ -1781,6 +1788,10 @@ export default function WorkflowsPage() {
                         onDownloadVersion={(version, format) => { void handleDownloadVersion(selectedRun, version, format); }}
                         onBranchVersion={(version) => openBranchDialog(selectedRun, version)}
                         onRefine={(prompt) => { void handleRefineRun(selectedRun, prompt); }}
+                        expandedTable={expandedWorkflowTable?.runId === selectedRun.id ? expandedWorkflowTable.table : null}
+                        onExpandedTableChange={(table) => {
+                          setExpandedWorkflowTable(table ? { runId: selectedRun.id, table } : null);
+                        }}
                         onWorkflowAction={handleWorkflowAction}
                       />
                     ) : selectedRun.status === "failed" ? (

@@ -445,6 +445,8 @@ type MarkdownContentBlock =
   | { type: "markdown"; id: string; content: string }
   | { type: "table"; id: string; title: string; headingLevel: number; tableMarkdown: string };
 
+export type WorkflowMarkdownTableBlock = Extract<MarkdownContentBlock, { type: "table" }>;
+
 const TABLE_SCROLL_CLASS = "max-w-full overflow-x-auto overscroll-x-contain rounded-2xl border border-border/70 bg-background";
 const TABLE_CLASS = "w-max max-w-none border-collapse text-sm";
 const TABLE_CELL_WRAP_CLASS = "whitespace-normal [overflow-wrap:anywhere]";
@@ -608,7 +610,7 @@ function WorkflowMarkdownBlock({ content }: { content: string }) {
   );
 }
 
-function ExpandableMarkdownTable({ block, onExpand }: { block: Extract<MarkdownContentBlock, { type: "table" }>; onExpand: (block: Extract<MarkdownContentBlock, { type: "table" }>) => void }) {
+function ExpandableMarkdownTable({ block, onExpand }: { block: WorkflowMarkdownTableBlock; onExpand: (block: WorkflowMarkdownTableBlock) => void }) {
   return (
     <section className="my-7 min-w-0">
       <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
@@ -623,7 +625,7 @@ function ExpandableMarkdownTable({ block, onExpand }: { block: Extract<MarkdownC
   );
 }
 
-function WorkflowMarkdownContent({ markdown, onExpandTable }: { markdown: string; onExpandTable: (block: Extract<MarkdownContentBlock, { type: "table" }>) => void }) {
+function WorkflowMarkdownContent({ markdown, onExpandTable }: { markdown: string; onExpandTable: (block: WorkflowMarkdownTableBlock) => void }) {
   const blocks = useMemo(() => splitMarkdownTableBlocks(markdown), [markdown]);
   return (
     <>
@@ -638,7 +640,7 @@ function WorkflowMarkdownContent({ markdown, onExpandTable }: { markdown: string
   );
 }
 
-function ExpandedTableDialog({ table, onClose }: { table: Extract<MarkdownContentBlock, { type: "table" }> | null; onClose: () => void }) {
+function ExpandedTableDialog({ table, onClose }: { table: WorkflowMarkdownTableBlock | null; onClose: () => void }) {
   return (
     <Dialog open={!!table} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-[calc(100dvw-1rem)] max-w-[calc(100dvw-1rem)] gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[calc(100dvw-1rem)]">
@@ -690,6 +692,8 @@ type Props = {
   onDownloadVersion?: (version: WorkflowRunVersion, format: WorkflowArtifactFormat) => void;
   onBranchVersion?: (version: WorkflowRunVersion) => void;
   onRefine?: (prompt: string) => void;
+  expandedTable?: WorkflowMarkdownTableBlock | null;
+  onExpandedTableChange?: (table: WorkflowMarkdownTableBlock | null) => void;
   onWorkflowAction?: (action: WorkflowSuggestedAction, selection: WorkflowSelection, sourceRun: WorkflowRun) => void;
 };
 
@@ -1399,6 +1403,8 @@ export function WorkflowResultDetails({
   onMoveVersion,
   onResetVersionLayout,
   onRefine,
+  expandedTable: controlledExpandedTable,
+  onExpandedTableChange,
   onWorkflowAction,
 }: Props) {
   const rawSourceFiles = asArray<SourceFileMeta>(result.metadata?.source_files);
@@ -1409,14 +1415,31 @@ export function WorkflowResultDetails({
   const [aiEditPrompt, setAiEditPrompt] = useState("");
   const [aiEditSubmitting, setAiEditSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [expandedTable, setExpandedTable] = useState<Extract<MarkdownContentBlock, { type: "table" }> | null>(null);
+  const [localExpandedTable, setLocalExpandedTable] = useState<WorkflowMarkdownTableBlock | null>(null);
+  const expandedTable = controlledExpandedTable === undefined ? localExpandedTable : controlledExpandedTable;
+  const setExpandedTable = useCallback((table: WorkflowMarkdownTableBlock | null) => {
+    if (onExpandedTableChange) onExpandedTableChange(table);
+    else setLocalExpandedTable(table);
+  }, [onExpandedTableChange]);
+  const outputIdentityRef = useRef({ activeVersionId: activeVersionId || null, markdown });
 
   useEffect(() => {
+    const nextIdentity = { activeVersionId: activeVersionId || null, markdown };
+    const previousIdentity = outputIdentityRef.current;
+    outputIdentityRef.current = nextIdentity;
+
+    if (
+      previousIdentity.activeVersionId === nextIdentity.activeVersionId &&
+      previousIdentity.markdown === nextIdentity.markdown
+    ) {
+      return;
+    }
+
     setAiEditSelection(null);
     setAiEditPrompt("");
     setCopied(false);
     setExpandedTable(null);
-  }, [activeVersionId, markdown]);
+  }, [activeVersionId, markdown, setExpandedTable]);
 
   const editingOutput = !!editState;
   const draftMarkdown = editState?.draftMarkdown ?? markdown;
