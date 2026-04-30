@@ -391,7 +391,11 @@ function LegalMetadataSummary({ result }: { result: WorkflowResult }) {
   if (!isLegalResult(result)) return null;
   const metadata = result.metadata || {};
   const workflow = workflowMetadata(metadata);
-  const workflowId = String(workflow.workflow_id || "").trim();
+  const workflowId = String(workflow.workflow_id || metadata.workflow_id || "").trim();
+
+  if (workflowId === "legal_contract_risk_matrix") {
+    return null;
+  }
   const rawProfile = metadata.legal_profile && typeof metadata.legal_profile === "object" && !Array.isArray(metadata.legal_profile)
     ? metadata.legal_profile as LegalMetadataItem
     : {};
