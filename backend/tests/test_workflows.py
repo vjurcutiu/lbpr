@@ -868,6 +868,8 @@ Executive summary paragraph.
         document_xml = archive.read('word/document.xml').decode('utf-8')
     assert '<w:tbl>' in document_xml
     assert 'w:orient="landscape"' in document_xml
+    assert '<w:tblHeader w:val="true"/>' in document_xml
+    assert '<w:cantSplit/>' in document_xml
     assert 'Return/destruction' in document_xml
     assert 'Residuals' in document_xml
 

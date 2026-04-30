@@ -494,8 +494,10 @@ def _add_docx_table(document: Document, block: MarkdownBlock) -> None:
         cell = table.cell(0, col_index)
         _format_docx_cell(cell, header, bold=True, font_size=font_size, width_inches=col_width, shaded=True)
     _repeat_docx_table_header(table.rows[0])
+    _prevent_docx_row_split(table.rows[0])
 
     for row_index, row in enumerate(rows, start=1):
+        _prevent_docx_row_split(table.rows[row_index])
         for col_index, value in enumerate(row):
             cell = table.cell(row_index, col_index)
             _format_docx_cell(cell, value, bold=False, font_size=font_size, width_inches=col_width, shaded=False)
@@ -545,6 +547,14 @@ def _repeat_docx_table_header(row) -> None:
     tbl_header = OxmlElement("w:tblHeader")
     tbl_header.set(qn("w:val"), "true")
     tr_pr.append(tbl_header)
+
+
+def _prevent_docx_row_split(row) -> None:
+    tr_pr = row._tr.get_or_add_trPr()
+    if tr_pr.find(qn("w:cantSplit")) is not None:
+        return
+    cant_split = OxmlElement("w:cantSplit")
+    tr_pr.append(cant_split)
 
 
 def _escape_pdf_text(text: str) -> str:
