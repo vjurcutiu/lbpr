@@ -1,24 +1,40 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 import re
 from typing import Iterable, Literal
 from xml.sax.saxutils import escape
 
 from docx import Document
-from docx.enum.section import WD_SECTION
+from docx.enum.section import WD_ORIENTATION, WD_SECTION
+from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import (
+    BaseDocTemplate,
+    Frame,
+    ListFlowable,
+    ListItem,
+    NextPageTemplate,
+    PageBreak,
+    PageTemplate,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 MarkdownExportFormat = Literal["markdown", "txt", "docx", "pdf"]
-
+MarkdownBlockKind = Literal["heading", "paragraph", "bullet", "numbered", "table"]
 
 
 _INTERNAL_SECTION_HEADINGS = {
@@ -69,9 +85,11 @@ class ExportedArtifact:
 
 @dataclass(slots=True)
 class MarkdownBlock:
-    kind: Literal["heading", "paragraph", "bullet", "numbered"]
-    text: str
+    kind: MarkdownBlockKind
+    text: str = ""
     level: int = 0
+    headers: list[str] = field(default_factory=list)
+    rows: list[list[str]] = field(default_factory=list)
 
 
 def export_artifact(*, title: str, markdown: str, file_stem: str, target_format: MarkdownExportFormat) -> ExportedArtifact:
@@ -140,12 +158,78 @@ def _strip_inline_markdown(text: str) -> str:
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 _BULLET_RE = re.compile(r"^[-*+]\s+(.*)$")
 _NUMBERED_RE = re.compile(r"^\d+[.)]\s+(.*)$")
+_TABLE_SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
+
+
+def _is_table_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if stripped.startswith("|") and stripped.count("|") >= 2:
+        return True
+    return stripped.count("|") >= 2 and " | " in stripped
+
+
+def _is_table_separator_row(cells: list[str]) -> bool:
+    meaningful = [cell.strip() for cell in cells if cell.strip()]
+    if not meaningful:
+        return False
+    return all(bool(_TABLE_SEPARATOR_CELL_RE.match(cell)) for cell in meaningful)
+
+
+def _split_table_cells(line: str) -> list[str]:
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    cells = re.split(r"(?<!\\)\|", stripped)
+    return [_strip_inline_markdown(cell.replace(r"\|", "|").strip()) for cell in cells]
+
+
+def _parse_table_lines(lines: list[str]) -> MarkdownBlock | None:
+    parsed_rows = [_split_table_cells(line) for line in lines if _is_table_line(line)]
+    parsed_rows = [row for row in parsed_rows if len(row) >= 2 and any(cell for cell in row)]
+    if not parsed_rows:
+        return None
+
+    header_index = 0
+    header = parsed_rows[header_index]
+    body_start = header_index + 1
+    if len(parsed_rows) > 1 and _is_table_separator_row(parsed_rows[1]):
+        body_start = 2
+    elif _is_table_separator_row(header):
+        if len(parsed_rows) < 2:
+            return None
+        header = parsed_rows[1]
+        body_start = 2
+
+    body_rows = [row for row in parsed_rows[body_start:] if not _is_table_separator_row(row)]
+    if not body_rows and len(parsed_rows) <= 1:
+        return None
+
+    column_count = max(len(header), *(len(row) for row in body_rows)) if body_rows else len(header)
+    if column_count < 2:
+        return None
+
+    normalized_header = _normalize_table_row(header, column_count)
+    normalized_rows = [_normalize_table_row(row, column_count) for row in body_rows]
+    return MarkdownBlock(kind="table", headers=normalized_header, rows=normalized_rows)
+
+
+def _normalize_table_row(row: list[str], column_count: int) -> list[str]:
+    values = list(row[:column_count])
+    if len(values) < column_count:
+        values.extend([""] * (column_count - len(values)))
+    return values
 
 
 def _parse_markdown_blocks(markdown: str) -> list[MarkdownBlock]:
     blocks: list[MarkdownBlock] = []
     paragraph_lines: list[str] = []
     in_code_fence = False
+    lines = markdown.split("\n")
+    index = 0
 
     def flush_paragraph() -> None:
         if not paragraph_lines:
@@ -155,19 +239,36 @@ def _parse_markdown_blocks(markdown: str) -> list[MarkdownBlock]:
         if text:
             blocks.append(MarkdownBlock(kind="paragraph", text=text))
 
-    for raw_line in markdown.split("\n"):
+    while index < len(lines):
+        raw_line = lines[index]
         line = raw_line.rstrip()
         stripped = line.strip()
         if stripped.startswith("```"):
             in_code_fence = not in_code_fence
             flush_paragraph()
+            index += 1
             continue
         if in_code_fence:
             if stripped:
                 paragraph_lines.append(stripped)
+            index += 1
             continue
         if not stripped:
             flush_paragraph()
+            index += 1
+            continue
+
+        if _is_table_line(stripped):
+            table_lines: list[str] = []
+            while index < len(lines) and _is_table_line(lines[index].strip()):
+                table_lines.append(lines[index].rstrip())
+                index += 1
+            table = _parse_table_lines(table_lines)
+            if table:
+                flush_paragraph()
+                blocks.append(table)
+            else:
+                paragraph_lines.extend(line.strip() for line in table_lines if line.strip())
             continue
 
         heading_match = _HEADING_RE.match(stripped)
@@ -176,6 +277,7 @@ def _parse_markdown_blocks(markdown: str) -> list[MarkdownBlock]:
             text = _strip_inline_markdown(heading_match.group(2))
             if text:
                 blocks.append(MarkdownBlock(kind="heading", text=text, level=len(heading_match.group(1))))
+            index += 1
             continue
 
         bullet_match = _BULLET_RE.match(stripped)
@@ -184,6 +286,7 @@ def _parse_markdown_blocks(markdown: str) -> list[MarkdownBlock]:
             text = _strip_inline_markdown(bullet_match.group(1))
             if text:
                 blocks.append(MarkdownBlock(kind="bullet", text=text))
+            index += 1
             continue
 
         numbered_match = _NUMBERED_RE.match(stripped)
@@ -192,19 +295,11 @@ def _parse_markdown_blocks(markdown: str) -> list[MarkdownBlock]:
             text = _strip_inline_markdown(numbered_match.group(1))
             if text:
                 blocks.append(MarkdownBlock(kind="numbered", text=text))
-            continue
-
-        tableish = stripped.startswith("|") and stripped.endswith("|")
-        if tableish:
-            flush_paragraph()
-            cells = [cell.strip() for cell in stripped.strip("|").split("|")]
-            text = " | ".join(cell for cell in cells if cell and set(cell) != {"-"})
-            text = _strip_inline_markdown(text)
-            if text:
-                blocks.append(MarkdownBlock(kind="paragraph", text=text))
+            index += 1
             continue
 
         paragraph_lines.append(stripped)
+        index += 1
 
     flush_paragraph()
     return blocks
@@ -226,6 +321,8 @@ def _render_plain_text(blocks: list[MarkdownBlock], *, fallback_title: str) -> s
             lines.append(f"- {block.text}")
         elif block.kind == "numbered":
             lines.append(f"1. {block.text}")
+        elif block.kind == "table":
+            lines.extend(_render_plain_text_table(block))
         else:
             lines.append(block.text)
         if idx < len(blocks) - 1:
@@ -233,13 +330,29 @@ def _render_plain_text(blocks: list[MarkdownBlock], *, fallback_title: str) -> s
     return "\n".join(lines).strip()
 
 
+def _render_plain_text_table(block: MarkdownBlock) -> list[str]:
+    rows = [block.headers, *block.rows]
+    if not rows:
+        return []
+    column_count = max(len(row) for row in rows)
+    normalized_rows = [_normalize_table_row(row, column_count) for row in rows]
+    widths = [
+        max(len(row[col]) for row in normalized_rows)
+        for col in range(column_count)
+    ]
+
+    def render_row(row: list[str]) -> str:
+        return "| " + " | ".join(row[col].ljust(widths[col]) for col in range(column_count)) + " |"
+
+    separator = "| " + " | ".join("-" * max(width, 3) for width in widths) + " |"
+    rendered = [render_row(normalized_rows[0]), separator]
+    rendered.extend(render_row(row) for row in normalized_rows[1:])
+    return rendered
+
+
 def _apply_doc_styles(document: Document) -> None:
-    section = document.sections[0]
-    section.top_margin = Inches(0.75)
-    section.bottom_margin = Inches(0.75)
-    section.left_margin = Inches(0.75)
-    section.right_margin = Inches(0.75)
-    section.start_type = WD_SECTION.NEW_PAGE
+    _configure_section(document.sections[0], landscape_mode=False)
+    document.sections[0].start_type = WD_SECTION.NEW_PAGE
 
     normal_style = document.styles["Normal"]
     normal_style.font.name = "Arial"
@@ -257,6 +370,44 @@ def _apply_doc_styles(document: Document) -> None:
         style.font.bold = bold
 
 
+def _configure_section(section, *, landscape_mode: bool) -> None:
+    section.orientation = WD_ORIENTATION.LANDSCAPE if landscape_mode else WD_ORIENTATION.PORTRAIT
+    if landscape_mode:
+        section.page_width = Inches(11.69)
+        section.page_height = Inches(8.27)
+        margin = Inches(0.45)
+    else:
+        section.page_width = Inches(8.27)
+        section.page_height = Inches(11.69)
+        margin = Inches(0.75)
+    section.top_margin = margin
+    section.bottom_margin = margin
+    section.left_margin = margin
+    section.right_margin = margin
+
+
+def _has_table_blocks(blocks: Iterable[MarkdownBlock]) -> bool:
+    return any(block.kind == "table" for block in blocks)
+
+
+def _block_needs_landscape(blocks: list[MarkdownBlock], index: int) -> bool:
+    block = blocks[index]
+    if block.kind == "table":
+        return True
+    return block.kind == "heading" and index + 1 < len(blocks) and blocks[index + 1].kind == "table"
+
+
+def _switch_docx_orientation(document: Document, *, landscape_mode: bool, current_landscape: bool, has_content: bool) -> bool:
+    if current_landscape == landscape_mode:
+        return current_landscape
+    if has_content:
+        section = document.add_section(WD_SECTION.NEW_PAGE)
+    else:
+        section = document.sections[-1]
+    _configure_section(section, landscape_mode=landscape_mode)
+    return landscape_mode
+
+
 def _render_docx(*, title: str, blocks: list[MarkdownBlock]) -> bytes:
     document = Document()
     _apply_doc_styles(document)
@@ -267,22 +418,38 @@ def _render_docx(*, title: str, blocks: list[MarkdownBlock]) -> bytes:
         para.style = document.styles["Title"]
     else:
         title_added = False
-        for block in blocks:
+        current_landscape = False
+        has_content = False
+        for index, block in enumerate(blocks):
+            needs_landscape = _block_needs_landscape(blocks, index)
+            current_landscape = _switch_docx_orientation(
+                document,
+                landscape_mode=needs_landscape,
+                current_landscape=current_landscape,
+                has_content=has_content,
+            )
             if block.kind == "heading":
-                level = max(0, min(block.level, 3))
+                level = max(1, min(block.level, 3))
                 para = document.add_paragraph(block.text)
-                para.style = document.styles["Title" if level == 0 else f"Heading {level}"]
+                para.style = document.styles[f"Heading {level}"]
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-                title_added = True if level == 0 else title_added
+                title_added = True if level == 1 else title_added
+                has_content = True
             elif block.kind == "bullet":
                 para = document.add_paragraph(block.text, style="List Bullet")
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                has_content = True
             elif block.kind == "numbered":
                 para = document.add_paragraph(block.text, style="List Number")
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                has_content = True
+            elif block.kind == "table":
+                _add_docx_table(document, block)
+                has_content = True
             else:
                 para = document.add_paragraph(block.text)
                 para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                has_content = True
         if not title_added and title.strip():
             first = document.paragraphs[0]
             first.insert_paragraph_before(title.strip(), style="Title")
@@ -292,11 +459,99 @@ def _render_docx(*, title: str, blocks: list[MarkdownBlock]) -> bytes:
     return handle.getvalue()
 
 
+def _docx_available_width_inches(document: Document) -> float:
+    section = document.sections[-1]
+    return float(section.page_width - section.left_margin - section.right_margin) / 914400.0
+
+
+def _docx_font_size_for_columns(column_count: int) -> float:
+    if column_count <= 4:
+        return 9.0
+    if column_count <= 6:
+        return 8.3
+    return 7.4
+
+
+def _add_docx_table(document: Document, block: MarkdownBlock) -> None:
+    headers = block.headers or []
+    rows = block.rows or []
+    column_count = max(len(headers), *(len(row) for row in rows)) if rows else len(headers)
+    if column_count <= 0:
+        return
+
+    headers = _normalize_table_row(headers, column_count)
+    rows = [_normalize_table_row(row, column_count) for row in rows]
+    table = document.add_table(rows=1 + len(rows), cols=column_count)
+    table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
+
+    available_width = _docx_available_width_inches(document)
+    col_width = max(0.65, available_width / column_count)
+    font_size = _docx_font_size_for_columns(column_count)
+
+    for col_index, header in enumerate(headers):
+        cell = table.cell(0, col_index)
+        _format_docx_cell(cell, header, bold=True, font_size=font_size, width_inches=col_width, shaded=True)
+    _repeat_docx_table_header(table.rows[0])
+
+    for row_index, row in enumerate(rows, start=1):
+        for col_index, value in enumerate(row):
+            cell = table.cell(row_index, col_index)
+            _format_docx_cell(cell, value, bold=False, font_size=font_size, width_inches=col_width, shaded=False)
+
+    document.add_paragraph()
+
+
+def _format_docx_cell(cell, text: str, *, bold: bool, font_size: float, width_inches: float, shaded: bool) -> None:
+    cell.width = Inches(width_inches)
+    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
+    _set_docx_cell_margins(cell, top=80, start=80, bottom=80, end=80)
+    if shaded:
+        _shade_docx_cell(cell, "EDEDED")
+    paragraph = cell.paragraphs[0]
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    paragraph.paragraph_format.space_after = Pt(0)
+    run = paragraph.add_run(str(text or ""))
+    run.bold = bold
+    run.font.name = "Arial"
+    run.font.size = Pt(font_size)
+
+
+def _shade_docx_cell(cell, fill: str) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shading = OxmlElement("w:shd")
+    shading.set(qn("w:fill"), fill)
+    tc_pr.append(shading)
+
+
+def _set_docx_cell_margins(cell, *, top: int, start: int, bottom: int, end: int) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_mar = tc_pr.first_child_found_in("w:tcMar")
+    if tc_mar is None:
+        tc_mar = OxmlElement("w:tcMar")
+        tc_pr.append(tc_mar)
+    for margin_name, value in (("top", top), ("start", start), ("bottom", bottom), ("end", end)):
+        node = tc_mar.find(qn(f"w:{margin_name}"))
+        if node is None:
+            node = OxmlElement(f"w:{margin_name}")
+            tc_mar.append(node)
+        node.set(qn("w:w"), str(value))
+        node.set(qn("w:type"), "dxa")
+
+
+def _repeat_docx_table_header(row) -> None:
+    tr_pr = row._tr.get_or_add_trPr()
+    tbl_header = OxmlElement("w:tblHeader")
+    tbl_header.set(qn("w:val"), "true")
+    tr_pr.append(tbl_header)
+
+
 def _escape_pdf_text(text: str) -> str:
     return escape(text).replace("\n", "<br/>")
 
 
-def _build_pdf_story(blocks: Iterable[MarkdownBlock]) -> list[object]:
+def _build_pdf_styles() -> tuple[ParagraphStyle, dict[int, ParagraphStyle], ParagraphStyle, ParagraphStyle]:
     styles = getSampleStyleSheet()
     normal = ParagraphStyle(
         "WorkflowNormal",
@@ -312,9 +567,46 @@ def _build_pdf_story(blocks: Iterable[MarkdownBlock]) -> list[object]:
         2: ParagraphStyle("WorkflowH2", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=13, leading=17, textColor=colors.black, spaceAfter=8),
         3: ParagraphStyle("WorkflowH3", parent=styles["Heading3"], fontName="Helvetica-Bold", fontSize=11, leading=15, textColor=colors.black, spaceAfter=6),
     }
+    table_cell = ParagraphStyle(
+        "WorkflowTableCell",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=7.1,
+        leading=8.6,
+        alignment=TA_LEFT,
+        wordWrap="CJK",
+    )
+    table_header = ParagraphStyle(
+        "WorkflowTableHeader",
+        parent=table_cell,
+        fontName="Helvetica-Bold",
+        fontSize=7.2,
+        leading=8.7,
+        textColor=colors.black,
+    )
+    return normal, headings, table_cell, table_header
 
+
+def _build_pdf_story(blocks: list[MarkdownBlock]) -> tuple[list[object], str]:
+    normal, headings, table_cell, table_header = _build_pdf_styles()
     story: list[object] = []
     pending_bullets: list[tuple[str, str]] = []
+    page_mode = "Portrait"
+    initial_page_mode = "Portrait"
+    initial_page_mode_set = False
+
+    def switch_page_mode(target: str) -> None:
+        nonlocal page_mode, initial_page_mode, initial_page_mode_set
+        if not initial_page_mode_set:
+            initial_page_mode = target
+            page_mode = target
+            initial_page_mode_set = True
+            return
+        if page_mode == target:
+            return
+        story.append(NextPageTemplate(target))
+        story.append(PageBreak())
+        page_mode = target
 
     def flush_list() -> None:
         nonlocal pending_bullets
@@ -329,39 +621,120 @@ def _build_pdf_story(blocks: Iterable[MarkdownBlock]) -> list[object]:
         story.append(Spacer(1, 0.08 * inch))
         pending_bullets = []
 
-    for block in blocks:
+    for index, block in enumerate(blocks):
+        target_mode = "Landscape" if _block_needs_landscape(blocks, index) else "Portrait"
+        if block.kind not in {"bullet", "numbered"}:
+            flush_list()
+            switch_page_mode(target_mode)
         if block.kind in {"bullet", "numbered"}:
             kind = block.kind
             if pending_bullets and pending_bullets[0][0] != kind:
                 flush_list()
+            switch_page_mode(target_mode)
             pending_bullets.append((kind, block.text))
             continue
 
-        flush_list()
         if block.kind == "heading":
             style = headings.get(min(max(block.level, 1), 3), headings[3])
             story.append(Paragraph(_escape_pdf_text(block.text), style))
             story.append(Spacer(1, 0.04 * inch))
+        elif block.kind == "table":
+            table = _build_pdf_table(block, table_cell=table_cell, table_header=table_header)
+            if table is not None:
+                story.append(table)
+                story.append(Spacer(1, 0.18 * inch))
         else:
             story.append(Paragraph(_escape_pdf_text(block.text), normal))
     flush_list()
-    return story
+    return story, initial_page_mode
+
+
+def _build_pdf_table(block: MarkdownBlock, *, table_cell: ParagraphStyle, table_header: ParagraphStyle) -> Table | None:
+    headers = block.headers or []
+    rows = block.rows or []
+    column_count = max(len(headers), *(len(row) for row in rows)) if rows else len(headers)
+    if column_count <= 0:
+        return None
+
+    headers = _normalize_table_row(headers, column_count)
+    rows = [_normalize_table_row(row, column_count) for row in rows]
+    data = [
+        [Paragraph(_escape_pdf_text(cell), table_header) for cell in headers],
+        *[[Paragraph(_escape_pdf_text(cell), table_cell) for cell in row] for row in rows],
+    ]
+
+    available_width = landscape(A4)[0] - (0.5 * inch * 2)
+    col_widths = _calculate_pdf_column_widths([headers, *rows], available_width)
+    table = Table(data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EDEDED")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#9CA3AF")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3.5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3.5),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    return table
+
+
+def _calculate_pdf_column_widths(rows: list[list[str]], available_width: float) -> list[float]:
+    if not rows:
+        return []
+    column_count = max(len(row) for row in rows)
+    normalized_rows = [_normalize_table_row(row, column_count) for row in rows]
+    weights: list[float] = []
+    for col in range(column_count):
+        max_len = max(len(row[col]) for row in normalized_rows)
+        avg_len = sum(len(row[col]) for row in normalized_rows) / max(len(normalized_rows), 1)
+        weights.append(max(8.0, min(40.0, max_len * 0.7 + avg_len * 0.3)))
+    total_weight = sum(weights) or 1.0
+    min_width = 0.7 * inch
+    widths = [max(min_width, available_width * (weight / total_weight)) for weight in weights]
+    total_width = sum(widths)
+    if total_width > available_width:
+        scale = available_width / total_width
+        widths = [width * scale for width in widths]
+    return widths
 
 
 def _render_pdf(*, title: str, blocks: list[MarkdownBlock]) -> bytes:
     handle = BytesIO()
-    doc = SimpleDocTemplate(
-        handle,
-        pagesize=A4,
-        title=title,
-        leftMargin=0.75 * inch,
-        rightMargin=0.75 * inch,
-        topMargin=0.75 * inch,
-        bottomMargin=0.75 * inch,
-    )
-    story = _build_pdf_story(blocks)
+    story, initial_page_mode = _build_pdf_story(blocks)
     if not story:
         styles = getSampleStyleSheet()
         story = [Paragraph(_escape_pdf_text(title or "Workflow output"), styles["Title"])]
+        initial_page_mode = "Portrait"
+
+    if not _has_table_blocks(blocks):
+        doc = SimpleDocTemplate(
+            handle,
+            pagesize=A4,
+            title=title,
+            leftMargin=0.75 * inch,
+            rightMargin=0.75 * inch,
+            topMargin=0.75 * inch,
+            bottomMargin=0.75 * inch,
+        )
+        doc.build(story)
+        return handle.getvalue()
+
+    portrait_frame = Frame(0.75 * inch, 0.75 * inch, A4[0] - 1.5 * inch, A4[1] - 1.5 * inch, id="portrait-frame")
+    landscape_size = landscape(A4)
+    landscape_frame = Frame(0.5 * inch, 0.5 * inch, landscape_size[0] - 1.0 * inch, landscape_size[1] - 1.0 * inch, id="landscape-frame")
+    portrait_template = PageTemplate(id="Portrait", frames=[portrait_frame], pagesize=A4)
+    landscape_template = PageTemplate(id="Landscape", frames=[landscape_frame], pagesize=landscape_size)
+    page_templates = [landscape_template, portrait_template] if initial_page_mode == "Landscape" else [portrait_template, landscape_template]
+
+    doc = BaseDocTemplate(
+        handle,
+        pageTemplates=page_templates,
+        title=title,
+    )
     doc.build(story)
     return handle.getvalue()

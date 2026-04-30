@@ -833,6 +833,54 @@ def test_workflow_artifact_exports_strip_internal_notes_sections():
     assert 'Share with the client' in document_xml
 
 
+def test_workflow_artifact_table_exports_keep_tables_and_landscape_layout():
+    artifact = workflow_service.WorkflowArtifact(
+        id='wf_art_table',
+        run_id='wf_run_table',
+        workflow_id='legal_risk_matrix',
+        title='Risk Matrix',
+        capability='extract',
+        file_name='risk-matrix.md',
+        content="""# Risk Matrix
+
+Executive summary paragraph.
+
+## Risk Matrix
+
+| Issue | Severity | Source basis | Recommendation | Fallback position |
+| --- | --- | --- | --- | --- |
+| Return/destruction | High | On request, destroy or return confidential information. | Add a documented response owner and timeline. | Accept with internal deletion process. |
+| Residuals | Medium | Residual knowledge language is broad. | Narrow residuals to unaided memory. | Escalate if source code is included. |
+
+## Approval checklist
+- Legal approval required
+""",
+        metadata={},
+    )
+
+    txt_download = workflow_service.export_artifact_for_download(artifact, target_format='txt')
+    txt_text = txt_download.content.decode('utf-8')
+    assert '| Issue              | Severity | Source basis' in txt_text
+    assert '| Return/destruction | High' in txt_text
+
+    docx_download = workflow_service.export_artifact_for_download(artifact, target_format='docx')
+    with ZipFile(BytesIO(docx_download.content)) as archive:
+        document_xml = archive.read('word/document.xml').decode('utf-8')
+    assert '<w:tbl>' in document_xml
+    assert 'w:orient="landscape"' in document_xml
+    assert 'Return/destruction' in document_xml
+    assert 'Residuals' in document_xml
+
+    pdf_download = workflow_service.export_artifact_for_download(artifact, target_format='pdf')
+    assert pdf_download.content.startswith(b'%PDF')
+    try:
+        from pypdf import PdfReader
+    except Exception:  # pragma: no cover - local dependency guard
+        return
+    reader = PdfReader(BytesIO(pdf_download.content))
+    assert any(float(page.mediabox.width) > float(page.mediabox.height) for page in reader.pages)
+
+
 def test_workflow_preview_keeps_warnings_internal(auth_client, inline_workflow_jobs, stub_workflow_sources, monkeypatch):
     original_loader = workflow_service._load_source_documents
 
