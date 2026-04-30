@@ -23,6 +23,7 @@ from .schemas import (
     InternalEvalCompareResponse,
     InternalEvalFolderOption,
     InternalEvalJob,
+    InternalEvalJobMessage,
     InternalEvalResultSummary,
     InternalEvalReviewPayload,
     InternalEvalReviewRecord,
@@ -163,6 +164,110 @@ def _load_job(job_id: str) -> InternalEvalJob:
 def _save_job(job: InternalEvalJob) -> InternalEvalJob:
     _json_write(_job_path(job.id), job.model_dump(mode="json"))
     return job
+
+
+MAX_JOB_MESSAGES = 80
+
+
+def _append_job_message(
+    job: InternalEvalJob,
+    message: str,
+    *,
+    level: str = "info",
+    run_key: str | None = None,
+    workflow_id: str | None = None,
+    label: str | None = None,
+) -> None:
+    safe_level = level if level in {"info", "success", "warning", "error"} else "info"
+    job.last_message = message
+    job.messages.append(
+        InternalEvalJobMessage(
+            level=safe_level,  # type: ignore[arg-type]
+            message=message,
+            run_key=run_key,
+            workflow_id=workflow_id,
+            label=label,
+        )
+    )
+    if len(job.messages) > MAX_JOB_MESSAGES:
+        job.messages = job.messages[-MAX_JOB_MESSAGES:]
+
+
+def _validation_counts_for_run(record: Any) -> tuple[int, int]:
+    errors = 0
+    warnings = 0
+    validation = getattr(record, "validation", None)
+    for issue in getattr(validation, "issues", []) or []:
+        severity = getattr(issue, "severity", None)
+        if severity == "error":
+            errors += 1
+        elif severity == "warning":
+            warnings += 1
+    return errors, warnings
+
+
+def _record_job_progress(job: InternalEvalJob, payload: dict[str, Any]) -> None:
+    event = str(payload.get("event") or "")
+    total = int(payload.get("total") or 0)
+    if total:
+        job.total_runs = total
+
+    if event == "case_started":
+        job.completed_runs = 0
+        job.failed_runs = 0
+        job.skipped_runs = 0
+        job.validation_error_count = 0
+        job.validation_warning_count = 0
+        _append_job_message(job, f"Eval started with {job.total_runs} workflow run{'' if job.total_runs == 1 else 's'}.")
+        return
+
+    if event == "run_started":
+        index = int(payload.get("index") or 0)
+        run_key = str(payload.get("run_key") or "")
+        workflow_id = str(payload.get("workflow_id") or "")
+        label = str(payload.get("label") or "") or workflow_id
+        job.current_run_key = run_key or None
+        job.current_workflow_id = workflow_id or None
+        job.current_label = label or None
+        _append_job_message(
+            job,
+            f"Running {index}/{job.total_runs or total}: {label}",
+            run_key=run_key or None,
+            workflow_id=workflow_id or None,
+            label=label or None,
+        )
+        return
+
+    if event == "run_finished":
+        record = payload.get("record")
+        run_key = str(getattr(record, "run_key", "") or "")
+        workflow_id = str(getattr(record, "workflow_id", "") or "")
+        label = str(getattr(record, "label", "") or "") or workflow_id
+        status = str(getattr(record, "status", "") or "")
+        errors, warnings = _validation_counts_for_run(record)
+        job.validation_error_count += errors
+        job.validation_warning_count += warnings
+
+        if status == "completed":
+            job.completed_runs += 1
+            level = "success" if errors == 0 else "warning"
+            suffix = f" · {errors} validation error{'' if errors == 1 else 's'}" if errors else ""
+            _append_job_message(job, f"Completed: {label}{suffix}", level=level, run_key=run_key or None, workflow_id=workflow_id or None, label=label or None)
+        elif status == "skipped":
+            job.skipped_runs += 1
+            _append_job_message(job, f"Skipped: {label}", level="warning", run_key=run_key or None, workflow_id=workflow_id or None, label=label or None)
+        else:
+            job.failed_runs += 1
+            error = str(getattr(record, "error", "") or "Workflow run failed")
+            _append_job_message(job, f"Failed: {label} — {error}", level="error", run_key=run_key or None, workflow_id=workflow_id or None, label=label or None)
+        return
+
+    if event == "case_finished":
+        _append_job_message(
+            job,
+            f"Workflow execution finished: {job.completed_runs} completed, {job.failed_runs} failed, {job.skipped_runs} skipped.",
+            level="success" if job.failed_runs == 0 else "warning",
+        )
 
 
 def _summarize_case(path: Path) -> InternalEvalCaseSummary:
@@ -386,20 +491,53 @@ def _run_eval_job(job_id: str) -> None:
         job = _load_job(job_id)
         job.status = "running"
         job.started_at = utc_now()
+        job.finished_at = None
+        job.error = None
+        job.result_id = None
+        job.export_path = None
+        job.markdown_path = None
+        job.comparison_path = None
+        job.comparison_markdown_path = None
+        job.total_runs = 0
+        job.completed_runs = 0
+        job.failed_runs = 0
+        job.skipped_runs = 0
+        job.validation_error_count = 0
+        job.validation_warning_count = 0
+        job.current_run_key = None
+        job.current_workflow_id = None
+        job.current_label = None
+        job.last_message = None
+        job.messages = []
+        _append_job_message(job, "Job accepted. Loading manifest and preparing workflow runs.")
         _save_job(job)
+
+        def on_progress(payload: dict[str, Any]) -> None:
+            nonlocal job
+            _record_job_progress(job, payload)
+            _save_job(job)
 
         try:
             request = job.request
             uid = request.uid or job.requested_by_uid
             case_path = _case_path(request.case_path)
             case = _apply_request_overrides(load_eval_case(case_path), request)
-            export = run_eval_case(uid, case, mode=request.mode, case_dir=case_path.parent, rubric_dir=RUBRICS_DIR)
+            job.total_runs = len(case.workflows)
+            _append_job_message(job, f"Loaded case {case.eval_id} with {job.total_runs} workflow run{'' if job.total_runs == 1 else 's'}.")
+            _save_job(job)
+
+            export = run_eval_case(uid, case, mode=request.mode, case_dir=case_path.parent, rubric_dir=RUBRICS_DIR, progress_callback=on_progress)
+            _append_job_message(job, "Writing JSON export.")
+            _save_job(job)
             export_path = write_eval_export(export, RESULTS_DIR)
             markdown_path = write_markdown_bundle(export, RESULTS_DIR) if request.markdown else None
+            if markdown_path:
+                _append_job_message(job, "Markdown review bundle written.")
 
             comparison_path: Path | None = None
             comparison_markdown_path: Path | None = None
             if request.compare_to:
+                _append_job_message(job, "Comparing against selected baseline.")
                 baseline_path = _result_path(request.compare_to)
                 baseline = load_eval_export(baseline_path)
                 comparison = compare_eval_exports(export, baseline, current_path=str(export_path), baseline_path=str(baseline_path))
@@ -410,18 +548,29 @@ def _run_eval_job(job_id: str) -> None:
 
             job.status = "completed"
             job.finished_at = utc_now()
+            job.current_run_key = None
+            job.current_workflow_id = None
+            job.current_label = None
             job.result_id = export_path.stem
             job.export_path = _relative(export_path)
             job.markdown_path = _relative(markdown_path) if markdown_path else None
             job.comparison_path = _relative(comparison_path) if comparison_path else None
             job.comparison_markdown_path = _relative(comparison_markdown_path) if comparison_markdown_path else None
+            _append_job_message(
+                job,
+                f"Completed eval job. {job.completed_runs} completed, {job.failed_runs} failed, {job.skipped_runs} skipped.",
+                level="success" if job.failed_runs == 0 else "warning",
+            )
             _save_job(job)
         except Exception as exc:
             job.status = "failed"
             job.finished_at = utc_now()
+            job.current_run_key = None
+            job.current_workflow_id = None
+            job.current_label = None
             job.error = str(exc) or "Eval job failed"
+            _append_job_message(job, job.error, level="error")
             _save_job(job)
-
 
 def create_job(request: InternalEvalRunRequest, *, uid: str, email: str | None) -> InternalEvalJob:
     # Validate paths before accepting the job so UI errors are immediate.
@@ -444,6 +593,19 @@ def run_job_sync(job_id: str) -> None:
 
 def get_job(job_id: str) -> InternalEvalJob:
     return _load_job(job_id)
+
+
+def list_jobs(limit: int = 25) -> list[InternalEvalJob]:
+    if not JOBS_DIR.exists():
+        return []
+    jobs: list[InternalEvalJob] = []
+    paths = sorted(JOBS_DIR.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+    for path in paths[: max(1, min(limit, 100))]:
+        try:
+            jobs.append(InternalEvalJob.model_validate(_json_load(path)))
+        except Exception:
+            continue
+    return jobs
 
 
 def compare_results(payload: InternalEvalCompareRequest) -> InternalEvalCompareResponse:

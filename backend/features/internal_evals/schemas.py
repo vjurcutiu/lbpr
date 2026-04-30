@@ -68,6 +68,15 @@ class InternalEvalRunRequest(BaseModel):
     apply_selection_to_workflows: bool = True
 
 
+class InternalEvalJobMessage(BaseModel):
+    at: datetime = Field(default_factory=utc_now)
+    level: Literal["info", "success", "warning", "error"] = "info"
+    message: str
+    run_key: str | None = None
+    workflow_id: str | None = None
+    label: str | None = None
+
+
 class InternalEvalJob(BaseModel):
     id: str
     status: Literal["queued", "running", "completed", "failed"] = "queued"
@@ -83,6 +92,17 @@ class InternalEvalJob(BaseModel):
     comparison_path: str | None = None
     comparison_markdown_path: str | None = None
     error: str | None = None
+    total_runs: int = 0
+    completed_runs: int = 0
+    failed_runs: int = 0
+    skipped_runs: int = 0
+    validation_error_count: int = 0
+    validation_warning_count: int = 0
+    current_run_key: str | None = None
+    current_workflow_id: str | None = None
+    current_label: str | None = None
+    last_message: str | None = None
+    messages: list[InternalEvalJobMessage] = Field(default_factory=list)
 
 
 class InternalEvalRunResponse(BaseModel):

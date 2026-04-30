@@ -46,6 +46,15 @@ export type EvalRunRequest = {
   apply_selection_to_workflows?: boolean;
 };
 
+export type EvalJobMessage = {
+  at: string;
+  level: "info" | "success" | "warning" | "error";
+  message: string;
+  run_key?: string | null;
+  workflow_id?: string | null;
+  label?: string | null;
+};
+
 export type EvalJob = {
   id: string;
   status: "queued" | "running" | "completed" | "failed";
@@ -61,6 +70,17 @@ export type EvalJob = {
   comparison_path?: string | null;
   comparison_markdown_path?: string | null;
   error?: string | null;
+  total_runs?: number;
+  completed_runs?: number;
+  failed_runs?: number;
+  skipped_runs?: number;
+  validation_error_count?: number;
+  validation_warning_count?: number;
+  current_run_key?: string | null;
+  current_workflow_id?: string | null;
+  current_label?: string | null;
+  last_message?: string | null;
+  messages?: EvalJobMessage[];
 };
 
 export type EvalCriterionScore = {

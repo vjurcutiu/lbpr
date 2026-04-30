@@ -106,6 +106,14 @@ def create_eval_run(
     return InternalEvalRunResponse(job=job)
 
 
+@router.get("/runs", response_model=list[InternalEvalJob])
+def list_eval_jobs(
+    limit: int = Query(25, ge=1, le=100),
+    user: SessionOut = Depends(require_internal_eval_admin),
+) -> list[InternalEvalJob]:
+    return service.list_jobs(limit=limit)
+
+
 @router.get("/runs/{job_id}", response_model=InternalEvalJob)
 def get_eval_job(job_id: str, user: SessionOut = Depends(require_internal_eval_admin)) -> InternalEvalJob:
     return service.get_job(job_id)

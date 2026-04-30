@@ -6,7 +6,7 @@ import json
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import HTTPException
 
@@ -316,9 +316,22 @@ def run_eval_case(
     mode: str | None = None,
     case_dir: str | Path | None = None,
     rubric_dir: str | Path = DEFAULT_RUBRICS_DIR,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> WorkflowEvalExport:
     active_mode = mode or case.mode or "full"
     runs: list[WorkflowEvalRunRecord] = []
+    total_runs = len(case.workflows)
+
+    def emit_progress(event: str, **payload: Any) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback({"event": event, "total": total_runs, **payload})
+        except Exception:
+            # Progress tracking should never be able to break an eval run.
+            return
+
+    emit_progress("case_started", completed=0, failed=0, skipped=0)
 
     for index, workflow in enumerate(case.workflows, start=1):
         inputs = _merge_inputs(case, workflow)
@@ -327,6 +340,14 @@ def run_eval_case(
         prompt_version = workflow.prompt_version or case.default_prompt_version
         run_key = _run_key(workflow, index)
         rubric = _load_rubric(case, workflow, case_dir=case_dir, rubric_dir=rubric_dir)
+
+        emit_progress(
+            "run_started",
+            index=index,
+            workflow_id=workflow.workflow_id,
+            run_key=run_key,
+            label=workflow.label,
+        )
 
         if workflow.modes and active_mode not in workflow.modes:
             record = _record_from_skipped_spec(
@@ -338,7 +359,9 @@ def run_eval_case(
                 prompt_version=prompt_version,
                 rubric=rubric,
             )
-            runs.append(_apply_validation_and_fingerprints(record, workflow=workflow, selection=selection, inputs=inputs, rubric=rubric))
+            record = _apply_validation_and_fingerprints(record, workflow=workflow, selection=selection, inputs=inputs, rubric=rubric)
+            runs.append(record)
+            emit_progress("run_finished", index=index, record=record)
             continue
 
         started_at = time.perf_counter()
@@ -386,7 +409,16 @@ def run_eval_case(
                 rubric=rubric,
             )
 
-        runs.append(_apply_validation_and_fingerprints(record, workflow=workflow, selection=selection, inputs=inputs, rubric=rubric))
+        record = _apply_validation_and_fingerprints(record, workflow=workflow, selection=selection, inputs=inputs, rubric=rubric)
+        runs.append(record)
+        emit_progress("run_finished", index=index, record=record)
+
+    emit_progress(
+        "case_finished",
+        completed=sum(1 for run in runs if run.status == "completed"),
+        failed=sum(1 for run in runs if run.status == "failed"),
+        skipped=sum(1 for run in runs if run.status == "skipped"),
+    )
 
     export = WorkflowEvalExport(
         eval_id=case.eval_id,
@@ -409,7 +441,6 @@ def run_eval_case(
         }
     )
     return export
-
 
 def write_eval_export(export: WorkflowEvalExport, output_dir: str | Path = DEFAULT_RESULTS_DIR) -> Path:
     target_dir = Path(output_dir)

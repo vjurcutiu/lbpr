@@ -36,6 +36,10 @@ export async function createEvalRun(payload: EvalRunRequest): Promise<{ job: Eva
   return postJSON("/v1/internal/evals/runs", payload);
 }
 
+export async function listEvalJobs(limit = 25): Promise<EvalJob[]> {
+  return getJSON(`/v1/internal/evals/runs?limit=${encodeURIComponent(String(limit))}`);
+}
+
 export async function getEvalJob(jobId: string): Promise<EvalJob> {
   return getJSON(`/v1/internal/evals/runs/${encodeURIComponent(jobId)}`);
 }

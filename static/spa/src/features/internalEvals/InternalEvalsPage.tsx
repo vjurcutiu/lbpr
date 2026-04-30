@@ -20,6 +20,7 @@ import {
   getEvalResult,
   getInternalEvalStatus,
   listEvalCases,
+  listEvalJobs,
   listEvalResults,
   saveEvalReview,
 } from "./api";
@@ -53,6 +54,30 @@ function statusBadge(status?: string) {
   if (status === "queued") return <Badge variant="outline">Queued</Badge>;
   if (status === "skipped") return <Badge variant="secondary">Skipped</Badge>;
   return <Badge variant="outline">{status || "Unknown"}</Badge>;
+}
+
+function jobCompletedCount(job: EvalJob): number {
+  return Number(job.completed_runs || 0) + Number(job.failed_runs || 0) + Number(job.skipped_runs || 0);
+}
+
+function jobProgressPercent(job: EvalJob): number {
+  const total = Number(job.total_runs || 0);
+  if (!total) return job.status === "completed" ? 100 : 0;
+  return Math.min(100, Math.round((jobCompletedCount(job) / total) * 100));
+}
+
+function jobMessageClass(level?: string): string {
+  if (level === "success") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (level === "warning") return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  if (level === "error") return "border-destructive/30 bg-destructive/10 text-destructive";
+  return "border-border bg-muted/40 text-muted-foreground";
+}
+
+function jobRuntime(job: EvalJob): string {
+  const started = job.started_at ? new Date(job.started_at).getTime() : 0;
+  const finished = job.finished_at ? new Date(job.finished_at).getTime() : Date.now();
+  if (!started || Number.isNaN(started) || Number.isNaN(finished)) return "—";
+  return fmtMs(Math.max(0, finished - started));
 }
 
 function validationSummary(run: EvalRunRecord) {
@@ -129,6 +154,7 @@ export default function InternalEvalsPage() {
   const [result, setResult] = useState<EvalResultDetail | null>(null);
   const [activeRunKey, setActiveRunKey] = useState<string>("");
   const [job, setJob] = useState<EvalJob | null>(null);
+  const [jobs, setJobs] = useState<EvalJob[]>([]);
   const [busy, setBusy] = useState(false);
   const [compareBaseline, setCompareBaseline] = useState("");
   const [reviewNotes, setReviewNotes] = useState("");
@@ -156,9 +182,15 @@ export default function InternalEvalsPage() {
   }, [user?.email]);
 
   async function refreshAll(nextResultId = selectedResultId) {
-    const [nextCases, nextResults] = await Promise.all([listEvalCases(), listEvalResults(75)]);
+    const [nextCases, nextResults, nextJobs] = await Promise.all([listEvalCases(), listEvalResults(75), listEvalJobs(25)]);
     setCases(nextCases);
     setResults(nextResults);
+    setJobs(nextJobs);
+    setJob((current) => {
+      const matching = current ? nextJobs.find((item) => item.id === current.id) : null;
+      if (matching) return matching;
+      return nextJobs.find((item) => ["queued", "running"].includes(item.status)) || nextJobs[0] || current;
+    });
     if (!launcher.case_path && nextCases[0]?.path) setLauncher((prev) => ({ ...prev, case_path: nextCases[0].path }));
     const target = nextResultId || nextResults[0]?.id || "";
     setSelectedResultId(target);
@@ -313,6 +345,7 @@ export default function InternalEvalsPage() {
   const activeRun = result?.runs.find((run) => (run.run_key || run.workflow_id) === activeRunKey) || result?.runs[0];
   const manifestPaths = parseManifestPaths(launcher.manifest_paths);
   const manifestFolderPaths = folderPathsFromManifest(manifestPaths);
+  const jobIsActive = !!job && ["queued", "running"].includes(job.status);
 
   if (loading) {
     return <div className="grid h-full place-items-center text-sm text-muted-foreground">Loading internal eval console…</div>;
@@ -475,8 +508,8 @@ export default function InternalEvalsPage() {
                     <span className="font-medium">Notes</span>
                     <Textarea rows={3} value={launcher.notes} onChange={(event) => setLauncher((prev) => ({ ...prev, notes: event.target.value }))} />
                   </label>
-                  <Button className="w-full gap-2" onClick={onRunEval} disabled={busy || !launcher.case_path}>
-                    <Play className="h-4 w-4" /> Run eval
+                  <Button className="w-full gap-2" onClick={onRunEval} disabled={busy || jobIsActive || !launcher.case_path}>
+                    <Play className="h-4 w-4" /> {jobIsActive ? "Eval running" : "Run eval"}
                   </Button>
                 </CardContent>
               </Card>
@@ -484,14 +517,101 @@ export default function InternalEvalsPage() {
               {job ? (
                 <Card>
                   <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center justify-between text-base">
-                      <span>Latest job</span>{statusBadge(job.status)}
+                    <CardTitle className="flex items-center justify-between gap-3 text-base">
+                      <span>Current eval run</span>
+                      {statusBadge(job.status)}
                     </CardTitle>
-                    <CardDescription>{job.id}</CardDescription>
+                    <CardDescription className="break-all">{job.id}</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    {job.export_path ? <div className="break-all text-muted-foreground">{job.export_path}</div> : null}
-                    {job.error ? <div className="text-destructive">{job.error}</div> : null}
+                  <CardContent className="space-y-4 text-sm">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                        <span>{jobCompletedCount(job)}/{job.total_runs || 0} workflow runs finished</span>
+                        <span>{jobProgressPercent(job)}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${jobProgressPercent(job)}%` }} />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                      <div className="rounded-lg border bg-background p-2">
+                        <div className="font-semibold text-emerald-600">{job.completed_runs || 0}</div>
+                        <div className="text-muted-foreground">completed</div>
+                      </div>
+                      <div className="rounded-lg border bg-background p-2">
+                        <div className="font-semibold text-destructive">{job.failed_runs || 0}</div>
+                        <div className="text-muted-foreground">failed</div>
+                      </div>
+                      <div className="rounded-lg border bg-background p-2">
+                        <div className="font-semibold">{job.skipped_runs || 0}</div>
+                        <div className="text-muted-foreground">skipped</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 rounded-lg border bg-background p-3">
+                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <span>Runtime {jobRuntime(job)}</span>
+                        <span>{job.validation_error_count || 0} validation errors · {job.validation_warning_count || 0} warnings</span>
+                      </div>
+                      {job.current_label ? (
+                        <div className="mt-2 text-sm">
+                          <span className="text-muted-foreground">Running now: </span>
+                          <span className="font-medium">{job.current_label}</span>
+                        </div>
+                      ) : null}
+                      {job.last_message ? <div className="mt-2 text-xs text-muted-foreground">{job.last_message}</div> : null}
+                    </div>
+
+                    {job.export_path ? (
+                      <div className="space-y-1">
+                        <div className="text-xs font-medium">Export</div>
+                        <div className="break-all rounded-md bg-muted p-2 text-xs text-muted-foreground">{job.export_path}</div>
+                      </div>
+                    ) : null}
+
+                    {job.error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">{job.error}</div> : null}
+
+                    {job.messages?.length ? (
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium">Run messages</div>
+                        <div className="max-h-56 space-y-2 overflow-auto pr-1">
+                          {job.messages.slice().reverse().slice(0, 12).map((message, index) => (
+                            <div key={`${message.at}-${index}`} className={`rounded-md border p-2 text-xs ${jobMessageClass(message.level)}`}>
+                              <div>{message.message}</div>
+                              <div className="mt-1 opacity-70">{fmtDate(message.at)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              ) : null}
+
+              {jobs.length > 1 ? (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Recent jobs</CardTitle>
+                    <CardDescription>Use this to reopen a running or recent eval job after refresh.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {jobs.slice(0, 5).map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setJob(item)}
+                        className={`w-full rounded-lg border p-2 text-left text-xs transition hover:bg-muted ${job?.id === item.id ? "border-primary bg-primary/5" : "bg-background"}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate font-medium">{item.id}</span>
+                          {statusBadge(item.status)}
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          {jobCompletedCount(item)}/{item.total_runs || 0} runs · {fmtDate(item.created_at)}
+                        </div>
+                      </button>
+                    ))}
                   </CardContent>
                 </Card>
               ) : null}
