@@ -5,6 +5,7 @@ import type {
   EvalJob,
   EvalResultDetail,
   EvalResultSummary,
+  EvalSelectionOptions,
   EvalReviewRecord,
   EvalRunRequest,
 } from "./types";
@@ -15,6 +16,12 @@ export async function getInternalEvalStatus(): Promise<{ enabled: boolean }> {
 
 export async function listEvalCases(): Promise<EvalCaseSummary[]> {
   return getJSON("/v1/internal/evals/cases");
+}
+
+
+export async function listEvalSelectionOptions(uid?: string | null): Promise<EvalSelectionOptions> {
+  const query = uid?.trim() ? `?uid=${encodeURIComponent(uid.trim())}` : "";
+  return getJSON(`/v1/internal/evals/selection-options${query}`);
 }
 
 export async function listEvalResults(limit = 50): Promise<EvalResultSummary[]> {

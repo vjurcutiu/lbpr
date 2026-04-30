@@ -5,9 +5,8 @@
     "name": "sample_contracts_batch_1",
     "description": "Replace these file IDs with uploaded files from the eval tenant before running.",
     "selection": {
-      "file_ids": [
-        "REPLACE_WITH_FILE_ID"
-      ],
+      "file_ids": [],
+      "file_paths": [],
       "folder_paths": [],
       "current_folder": "contracts"
     }

@@ -16,6 +16,7 @@ from .schemas import (
     InternalEvalCompareResponse,
     InternalEvalJob,
     InternalEvalResultSummary,
+    InternalEvalSelectionOptions,
     InternalEvalReviewPayload,
     InternalEvalReviewRecord,
     InternalEvalRunRequest,
@@ -56,6 +57,19 @@ def get_internal_eval_status(user: SessionOut = Depends(require_internal_eval_ad
 @router.get("/cases", response_model=list[InternalEvalCaseSummary])
 def list_eval_cases(user: SessionOut = Depends(require_internal_eval_admin)) -> list[InternalEvalCaseSummary]:
     return service.list_cases()
+
+
+
+
+@router.get("/selection-options", response_model=InternalEvalSelectionOptions)
+def list_eval_selection_options(
+    uid: str | None = Query(None, description="Optional eval UID. Defaults to the current internal admin user."),
+    user: SessionOut = Depends(require_internal_eval_admin),
+) -> InternalEvalSelectionOptions:
+    target_uid = (uid or user.uid or "").strip()
+    if not target_uid:
+        raise HTTPException(status_code=400, detail="UID is required")
+    return service.list_selection_options(target_uid)
 
 
 @router.get("/results", response_model=list[InternalEvalResultSummary])

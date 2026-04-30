@@ -9,6 +9,9 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from features.files import service as files_service
+from features.workflows.models import WorkflowSelectionIn
+
 from internal.evals.compare import compare_eval_exports, load_eval_export, write_comparison_export
 from internal.evals.export import slug, write_comparison_markdown, write_markdown_bundle
 from internal.evals.runner import DEFAULT_RESULTS_DIR, DEFAULT_RUBRICS_DIR, load_eval_case, run_eval_case, write_eval_export
@@ -18,11 +21,13 @@ from .schemas import (
     InternalEvalCaseSummary,
     InternalEvalCompareRequest,
     InternalEvalCompareResponse,
+    InternalEvalFolderOption,
     InternalEvalJob,
     InternalEvalResultSummary,
     InternalEvalReviewPayload,
     InternalEvalReviewRecord,
     InternalEvalRunRequest,
+    InternalEvalSelectionOptions,
 )
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +57,40 @@ def _json_write(path: Path, payload: dict[str, Any]) -> Path:
         json.dump(payload, handle, indent=2, ensure_ascii=False, default=str)
         handle.write("\n")
     return path
+
+
+def _normalize_folder_path(path: str | None) -> str:
+    return str(path or "").strip().strip("/")
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        cleaned = str(value or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+    return out
+
+
+def _is_within_folder_path(file_folder: str | None, folder_path: str) -> bool:
+    target = _normalize_folder_path(folder_path)
+    current = _normalize_folder_path(file_folder)
+    return bool(target) and (current == target or current.startswith(target + "/"))
+
+
+def _parent_folder(path: str) -> str | None:
+    cleaned = _normalize_folder_path(path)
+    if not cleaned or "/" not in cleaned:
+        return None
+    return cleaned.rsplit("/", 1)[0]
+
+
+def _folder_name(path: str) -> str:
+    cleaned = _normalize_folder_path(path)
+    return cleaned.rsplit("/", 1)[-1] if cleaned else "Root"
 
 
 def _relative(path: Path) -> str:
@@ -150,6 +189,37 @@ def list_cases() -> list[InternalEvalCaseSummary]:
     return [_summarize_case(path) for path in sorted(CASES_DIR.rglob("*.json"))]
 
 
+def list_selection_options(uid: str) -> InternalEvalSelectionOptions:
+    files = files_service.list_files(uid)
+    folder_paths: set[str] = set()
+
+    for folder in files_service.list_folders(uid):
+        path = _normalize_folder_path(getattr(folder, "path", None))
+        if path:
+            folder_paths.add(path)
+
+    for file_item in files:
+        folder = _normalize_folder_path(getattr(file_item, "folder_path", None))
+        if not folder:
+            continue
+        parts = folder.split("/")
+        for index in range(1, len(parts) + 1):
+            folder_paths.add("/".join(parts[:index]))
+
+    folder_options = [
+        InternalEvalFolderOption(
+            path=path,
+            name=_folder_name(path),
+            parent_path=_parent_folder(path),
+            direct_file_count=sum(1 for file_item in files if _normalize_folder_path(file_item.folder_path) == path),
+            recursive_file_count=sum(1 for file_item in files if _is_within_folder_path(file_item.folder_path, path)),
+        )
+        for path in sorted(folder_paths, key=lambda item: (item.count("/"), item.lower()))
+    ]
+
+    return InternalEvalSelectionOptions(uid=uid, files=files, folders=folder_options)
+
+
 def _validation_counts(export: WorkflowEvalExport) -> tuple[int, int]:
     errors = 0
     warnings = 0
@@ -231,15 +301,79 @@ def save_review(result_id: str, payload: InternalEvalReviewPayload, *, uid: str,
     return record
 
 
+def _clean_manifest_paths(paths: list[str]) -> list[str]:
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for value in paths or []:
+        path = str(value or "").replace("\\", "/").strip().strip("/")
+        parts = [part for part in path.split("/") if part and part != "."]
+        normalized = "/".join(parts)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            cleaned.append(normalized)
+    return cleaned
+
+
+
+def _selection_with_manifest_paths(request: InternalEvalRunRequest) -> WorkflowSelectionIn | None:
+    manifest_paths = _clean_manifest_paths(request.manifest_paths)
+    if request.selection is None and not manifest_paths:
+        return None
+
+    selection = request.selection or WorkflowSelectionIn()
+    file_paths = _clean_manifest_paths(list(getattr(selection, "file_paths", []) or []))
+    if manifest_paths:
+        file_paths = _dedupe_preserve_order(file_paths + manifest_paths)
+
+    folder_paths = _dedupe_preserve_order([_normalize_folder_path(path) for path in selection.folder_paths])
+    file_ids = _dedupe_preserve_order(list(selection.file_ids))
+    current_folder = _normalize_folder_path(selection.current_folder)
+    if not current_folder and len(folder_paths) == 1:
+        current_folder = folder_paths[0]
+
+    if not file_ids and not file_paths and not folder_paths:
+        return None
+
+    return WorkflowSelectionIn(
+        file_ids=file_ids,
+        file_paths=file_paths,
+        folder_paths=folder_paths,
+        current_folder=current_folder,
+    )
+
+
+
 def _apply_request_overrides(case, request: InternalEvalRunRequest):
     if request.prompt_version:
         case.default_prompt_version = request.prompt_version
     if request.workflow_version:
         case.default_workflow_version = request.workflow_version
+
+    metadata = dict(case.metadata or {})
     if request.notes:
-        metadata = dict(case.metadata or {})
         metadata["run_notes"] = request.notes
-        case.metadata = metadata
+
+    manifest_paths = _clean_manifest_paths(request.manifest_paths)
+    if manifest_paths:
+        metadata["manifest_paths"] = manifest_paths
+        metadata["manifest_path_count"] = len(manifest_paths)
+
+    selection = _selection_with_manifest_paths(request)
+    if selection is not None:
+        case.document_set.selection = selection
+        if request.apply_selection_to_workflows:
+            for workflow in case.workflows:
+                workflow.selection = selection
+        metadata["selection_override"] = {
+            "file_ids": list(selection.file_ids),
+            "file_paths": list(getattr(selection, "file_paths", []) or []),
+            "folder_paths": list(selection.folder_paths),
+            "current_folder": selection.current_folder,
+            "apply_selection_to_workflows": request.apply_selection_to_workflows,
+            "folder_paths_are_recursive": True,
+        }
+
+    case.metadata = metadata
     return case
 
 

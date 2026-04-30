@@ -71,12 +71,13 @@ class WorkflowManifest(BaseModel):
 
 class WorkflowSelectionIn(BaseModel):
     file_ids: list[str] = Field(default_factory=list)
+    file_paths: list[str] = Field(default_factory=list)
     folder_paths: list[str] = Field(default_factory=list)
     current_folder: str = ""
 
     @property
     def total_items(self) -> int:
-        return len(self.file_ids) + len(self.folder_paths)
+        return len(self.file_ids) + len(self.file_paths) + len(self.folder_paths)
 
 
 class WorkflowRunCreate(BaseModel):

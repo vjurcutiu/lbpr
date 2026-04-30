@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
-import { Activity, AlertTriangle, CheckCircle2, Download, GitCompare, Play, RefreshCcw, Save } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Download, FileSearch, FolderOpen, GitCompare, Play, RefreshCcw, Save } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,48 @@ function buildInitialReview(result: EvalResultDetail | null): ReviewDraft {
   return draft;
 }
 
+function normalizeManifestPath(value: string): string {
+  return String(value || "")
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part && part !== ".")
+    .join("/");
+}
+
+function parseManifestPaths(value: string): string[] {
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  for (const line of String(value || "").split(/\r?\n/)) {
+    const normalized = normalizeManifestPath(line);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    paths.push(normalized);
+  }
+  return paths;
+}
+
+function pathsFromFileList(files: FileList | null): string[] {
+  if (!files) return [];
+  return Array.from(files)
+    .map((file) => normalizeManifestPath((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name))
+    .filter(Boolean);
+}
+
+function mergeManifestPathText(current: string, incoming: string[]): string {
+  const merged = [...parseManifestPaths(current), ...incoming];
+  return parseManifestPaths(merged.join("\n")).join("\n");
+}
+
+function folderPathsFromManifest(paths: string[]): string[] {
+  const folders = new Set<string>();
+  for (const path of paths) {
+    const folder = path.split("/").slice(0, -1).join("/");
+    if (folder) folders.add(folder);
+  }
+  return Array.from(folders).sort();
+}
+
 export default function InternalEvalsPage() {
   const { user, loading } = useAuthContext();
   const [statusChecked, setStatusChecked] = useState(false);
@@ -91,6 +133,8 @@ export default function InternalEvalsPage() {
   const [compareBaseline, setCompareBaseline] = useState("");
   const [reviewNotes, setReviewNotes] = useState("");
   const [reviewDraft, setReviewDraft] = useState<ReviewDraft>({});
+  const filePickerRef = useRef<HTMLInputElement | null>(null);
+  const folderPickerRef = useRef<HTMLInputElement | null>(null);
   const [launcher, setLauncher] = useState({
     case_path: "internal/evals/cases/legal_pack_smoke.example.json",
     uid: "",
@@ -100,6 +144,9 @@ export default function InternalEvalsPage() {
     workflow_version: "",
     notes: "",
     markdown: true,
+    manifest_paths: "",
+    apply_selection_to_workflows: true,
+    remember_manifest_paths: true,
   });
 
   const frontendAdminAllowed = useMemo(() => {
@@ -167,7 +214,34 @@ export default function InternalEvalsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.id, job?.status]);
 
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("lbpr.internalEvals.manifestPaths");
+      if (saved) setLauncher((prev) => ({ ...prev, manifest_paths: saved }));
+    } catch {
+      // Ignore unavailable localStorage in restricted browser contexts.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!launcher.remember_manifest_paths) return;
+    try {
+      window.localStorage.setItem("lbpr.internalEvals.manifestPaths", launcher.manifest_paths || "");
+    } catch {
+      // Ignore unavailable localStorage in restricted browser contexts.
+    }
+  }, [launcher.manifest_paths, launcher.remember_manifest_paths]);
+
+  function addManifestFiles(files: FileList | null) {
+    const nextPaths = pathsFromFileList(files);
+    if (!nextPaths.length) return;
+    setLauncher((prev) => ({ ...prev, manifest_paths: mergeManifestPathText(prev.manifest_paths, nextPaths) }));
+    toast.success(`Added ${nextPaths.length} path${nextPaths.length === 1 ? "" : "s"} to the manifest`);
+  }
+
   async function onRunEval() {
+    const manifestPaths = parseManifestPaths(launcher.manifest_paths);
+    const folderPaths = folderPathsFromManifest(manifestPaths);
     setBusy(true);
     try {
       const response = await createEvalRun({
@@ -179,6 +253,14 @@ export default function InternalEvalsPage() {
         workflow_version: launcher.workflow_version.trim() || null,
         notes: launcher.notes,
         markdown: launcher.markdown,
+        manifest_paths: manifestPaths,
+        selection: manifestPaths.length
+          ? {
+              file_paths: manifestPaths,
+              current_folder: folderPaths[0] || "",
+            }
+          : null,
+        apply_selection_to_workflows: launcher.apply_selection_to_workflows,
       });
       setJob(response.job);
       toast.success("Eval run started");
@@ -229,6 +311,8 @@ export default function InternalEvalsPage() {
   }
 
   const activeRun = result?.runs.find((run) => (run.run_key || run.workflow_id) === activeRunKey) || result?.runs[0];
+  const manifestPaths = parseManifestPaths(launcher.manifest_paths);
+  const manifestFolderPaths = folderPathsFromManifest(manifestPaths);
 
   if (loading) {
     return <div className="grid h-full place-items-center text-sm text-muted-foreground">Loading internal eval console…</div>;
@@ -268,6 +352,27 @@ export default function InternalEvalsPage() {
                   <CardDescription>Use a saved case and optional version labels.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  <input
+                    ref={filePickerRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      addManifestFiles(event.target.files);
+                      event.target.value = "";
+                    }}
+                  />
+                  <input
+                    ref={folderPickerRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      addManifestFiles(event.target.files);
+                      event.target.value = "";
+                    }}
+                  />
+
                   <label className="block space-y-1 text-sm">
                     <span className="font-medium">Case</span>
                     <select
@@ -308,6 +413,64 @@ export default function InternalEvalsPage() {
                       {results.map((item) => <option key={item.id} value={item.id}>{item.eval_id} · {fmtDate(item.created_at)}</option>)}
                     </select>
                   </label>
+                  <div className="space-y-2 rounded-lg border bg-background p-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-medium">Document manifest</div>
+                        <div className="text-xs text-muted-foreground">
+                          {manifestPaths.length ? `${manifestPaths.length} selected path${manifestPaths.length === 1 ? "" : "s"}` : "Browse local files or folders to fill file paths."}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => filePickerRef.current?.click()}>
+                          <FileSearch className="h-3.5 w-3.5" /> Files
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="gap-1"
+                          onClick={() => {
+                            folderPickerRef.current?.setAttribute("webkitdirectory", "");
+                            folderPickerRef.current?.setAttribute("directory", "");
+                            folderPickerRef.current?.click();
+                          }}
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" /> Folder
+                        </Button>
+                      </div>
+                    </div>
+                    <Textarea
+                      rows={5}
+                      value={launcher.manifest_paths}
+                      placeholder={"contracts/nda/example.txt\ncontracts/msa/example.txt"}
+                      onChange={(event) => setLauncher((prev) => ({ ...prev, manifest_paths: event.target.value }))}
+                    />
+                    <div className="space-y-2 text-xs text-muted-foreground">
+                      {manifestFolderPaths.length ? <div>Folders inferred for selection: {manifestFolderPaths.slice(0, 3).join(", ")}{manifestFolderPaths.length > 3 ? ` +${manifestFolderPaths.length - 3} more` : ""}</div> : null}
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={launcher.apply_selection_to_workflows}
+                          onChange={(event) => setLauncher((prev) => ({ ...prev, apply_selection_to_workflows: event.target.checked }))}
+                        />
+                        <span>Apply this manifest to every workflow in the case</span>
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={launcher.remember_manifest_paths}
+                          onChange={(event) => setLauncher((prev) => ({ ...prev, remember_manifest_paths: event.target.checked }))}
+                        />
+                        <span>Remember these paths in this browser</span>
+                      </label>
+                      {manifestPaths.length ? (
+                        <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => setLauncher((prev) => ({ ...prev, manifest_paths: "" }))}>
+                          Clear manifest paths
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                   <label className="block space-y-1 text-sm">
                     <span className="font-medium">Notes</span>
                     <Textarea rows={3} value={launcher.notes} onChange={(event) => setLauncher((prev) => ({ ...prev, notes: event.target.value }))} />

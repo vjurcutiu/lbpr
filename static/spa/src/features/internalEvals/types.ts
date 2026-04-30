@@ -25,6 +25,13 @@ export type EvalResultSummary = {
   has_review: boolean;
 };
 
+export type WorkflowSelectionInput = {
+  file_ids?: string[];
+  file_paths?: string[];
+  folder_paths?: string[];
+  current_folder?: string;
+};
+
 export type EvalRunRequest = {
   case_path: string;
   uid?: string | null;
@@ -34,6 +41,9 @@ export type EvalRunRequest = {
   prompt_version?: string | null;
   workflow_version?: string | null;
   notes?: string;
+  selection?: WorkflowSelectionInput | null;
+  manifest_paths?: string[];
+  apply_selection_to_workflows?: boolean;
 };
 
 export type EvalJob = {

@@ -5,6 +5,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from features.files.schemas import FileItem
+from features.workflows.models import WorkflowSelectionIn
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -37,6 +40,20 @@ class InternalEvalResultSummary(BaseModel):
     has_review: bool = False
 
 
+class InternalEvalFolderOption(BaseModel):
+    path: str
+    name: str
+    parent_path: str | None = None
+    direct_file_count: int = 0
+    recursive_file_count: int = 0
+
+
+class InternalEvalSelectionOptions(BaseModel):
+    uid: str
+    files: list[FileItem] = Field(default_factory=list)
+    folders: list[InternalEvalFolderOption] = Field(default_factory=list)
+
+
 class InternalEvalRunRequest(BaseModel):
     case_path: str = Field(default="internal/evals/cases/legal_pack_smoke.example.json")
     uid: str | None = None
@@ -46,6 +63,9 @@ class InternalEvalRunRequest(BaseModel):
     prompt_version: str | None = None
     workflow_version: str | None = None
     notes: str = ""
+    selection: WorkflowSelectionIn | None = None
+    manifest_paths: list[str] = Field(default_factory=list)
+    apply_selection_to_workflows: bool = True
 
 
 class InternalEvalJob(BaseModel):

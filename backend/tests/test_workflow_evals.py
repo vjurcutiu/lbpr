@@ -6,6 +6,8 @@ from features.workflows import registry as workflow_registry
 from features.workflows import service as workflow_service
 from features.workflows.models import WorkflowSourceFile
 from internal.evals.compare import compare_eval_exports
+from features.internal_evals.schemas import InternalEvalRunRequest
+from features.internal_evals.service import _apply_request_overrides
 from internal.evals.runner import run_eval_case, write_eval_export
 from internal.evals.schemas import EvalDocumentSet, EvalRubric, EvalRubricCriterion, EvalWorkflowSpec, WorkflowEvalCase
 
@@ -152,3 +154,57 @@ def test_internal_eval_comparison_tracks_output_and_status_changes(monkeypatch):
     assert comparison.summary["output_changes"] == 1
     assert comparison.runs[0].output_changed is True
     assert comparison.runs[0].output_similarity is not None
+
+
+def test_internal_eval_request_selection_override_applies_to_case_and_workflows():
+    case = WorkflowEvalCase(
+        eval_id="selection_override_test",
+        document_set=EvalDocumentSet(name="contracts_batch", selection={"file_ids": ["old-file"]}),
+        workflows=[
+            EvalWorkflowSpec(workflow_id="legal_contract_review", label="Review", selection={"file_ids": ["workflow-file"]}),
+            EvalWorkflowSpec(workflow_id="legal_contract_risk_matrix", label="Risk matrix"),
+        ],
+    )
+    request = InternalEvalRunRequest(
+        selection={
+            "file_ids": ["file-a", "file-b"],
+            "folder_paths": ["contracts/nda"],
+            "current_folder": "contracts",
+        },
+        apply_selection_to_workflows=True,
+    )
+
+    updated = _apply_request_overrides(case, request)
+
+    assert updated.document_set.selection.file_ids == ["file-a", "file-b"]
+    assert updated.document_set.selection.folder_paths == ["contracts/nda"]
+    assert updated.document_set.selection.current_folder == "contracts"
+    assert updated.workflows[0].selection is not None
+    assert updated.workflows[0].selection.file_ids == ["file-a", "file-b"]
+    assert updated.workflows[1].selection is not None
+    assert updated.workflows[1].selection.folder_paths == ["contracts/nda"]
+    assert updated.metadata["selection_override"]["file_count"] == 2
+    assert updated.metadata["selection_override"]["folder_count"] == 1
+
+
+def test_internal_eval_request_selection_override_can_leave_workflow_specific_selection():
+    case = WorkflowEvalCase(
+        eval_id="selection_override_scope_test",
+        document_set=EvalDocumentSet(name="contracts_batch", selection={"file_ids": ["old-file"]}),
+        workflows=[
+            EvalWorkflowSpec(workflow_id="legal_contract_review", label="Review", selection={"file_ids": ["workflow-file"]}),
+            EvalWorkflowSpec(workflow_id="legal_contract_risk_matrix", label="Risk matrix"),
+        ],
+    )
+    request = InternalEvalRunRequest(
+        selection={"file_ids": [], "folder_paths": ["contracts"], "current_folder": "contracts"},
+        apply_selection_to_workflows=False,
+    )
+
+    updated = _apply_request_overrides(case, request)
+
+    assert updated.document_set.selection.folder_paths == ["contracts"]
+    assert updated.workflows[0].selection is not None
+    assert updated.workflows[0].selection.file_ids == ["workflow-file"]
+    assert updated.workflows[1].selection is None
+    assert updated.metadata["selection_override"]["apply_selection_to_workflows"] is False

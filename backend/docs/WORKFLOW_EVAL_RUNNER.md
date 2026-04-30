@@ -239,3 +239,15 @@ For local dev only, if `INTERNAL_EVAL_ADMIN_EMAILS` is empty and `ENV=dev`, any 
 - Download the JSON export
 
 The UI calls the existing eval runner/service path. It does not create a separate workflow execution implementation.
+
+### Local file manifest picker
+
+The internal eval UI can populate a document manifest from local file/folder picker selections. The browser only exposes the selected file names or folder-relative paths, not unrestricted absolute paths on the machine.
+
+Those paths are sent as `manifest_paths` and as workflow `selection.file_paths`. During execution, the backend resolves each path against files already uploaded for the eval UID by matching:
+
+1. the uploaded file display path, such as `contracts/nda/example.txt`
+2. a unique suffix match, such as local `public_contract_eval_seed/contracts/nda/example.txt` matching uploaded `contracts/nda/example.txt`
+3. a unique basename match when there is only one uploaded file with that name
+
+This keeps the picker lightweight: it does not ingest local file bytes by itself. Upload/ingest the contracts into the app once, then use the picker to fill the same paths into the eval manifest and run repeatable selections without pasting IDs.

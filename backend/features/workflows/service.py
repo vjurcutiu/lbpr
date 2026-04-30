@@ -289,11 +289,12 @@ def _build_artifact_from_result(
         "version_id": version_id or run.active_version_id,
         "selection": {
             "file_ids": list(run.selection.file_ids),
+            "file_paths": list(run.selection.file_paths),
             "folder_paths": list(run.selection.folder_paths),
             "current_folder": run.selection.current_folder,
         },
         "source_summary": {
-            "file_count": len(run.selection.file_ids),
+            "file_count": len(run.selection.file_ids) + len(run.selection.file_paths),
             "folder_count": len(run.selection.folder_paths),
         },
     }
@@ -1262,7 +1263,8 @@ def _validate_selection(payload: WorkflowRunCreate) -> WorkflowManifest:
         raise HTTPException(status_code=400, detail="Selection does not meet this workflow's minimum requirements")
     if requirements.max_total_items is not None and total_items > requirements.max_total_items:
         raise HTTPException(status_code=400, detail="Selection is too large for this workflow")
-    if requirements.exact_file_count is not None and len(payload.selection.file_ids) != requirements.exact_file_count:
+    explicit_file_count = len(payload.selection.file_ids) + len(payload.selection.file_paths)
+    if requirements.exact_file_count is not None and explicit_file_count != requirements.exact_file_count:
         raise HTTPException(status_code=400, detail="This workflow requires a specific number of files")
     if not requirements.allow_folders and payload.selection.folder_paths:
         raise HTTPException(status_code=400, detail="This workflow only accepts file selections")
@@ -1289,7 +1291,21 @@ def _persist_run(uid: str, run: WorkflowRun) -> None:
 
 
 def _normalize_folder_path(path: str | None) -> str:
-    return str(path or "").strip().strip("/")
+    return str(path or "").replace("\\", "/").strip().strip("/")
+
+
+
+def _normalize_manifest_file_path(path: str | None) -> str:
+    raw = str(path or "").replace("\\", "/").strip().strip("/")
+    parts = [part for part in raw.split("/") if part and part != "."]
+    return "/".join(parts)
+
+
+
+def _file_item_display_path(file_item: FileItem) -> str:
+    folder = _normalize_folder_path(file_item.folder_path)
+    name = _base_name(file_item)
+    return f"{folder}/{name}" if folder else name
 
 
 
@@ -1372,12 +1388,45 @@ def _dedupe_files(items: list[FileItem]) -> list[FileItem]:
 def _resolve_selected_files(uid: str, selection: WorkflowSelectionIn) -> list[FileItem]:
     all_files = files_service.list_files(uid)
     by_id = {item.id: item for item in all_files}
+    by_path: dict[str, list[FileItem]] = defaultdict(list)
+    by_basename: dict[str, list[FileItem]] = defaultdict(list)
     selected: list[FileItem] = []
+
+    for item in all_files:
+        display_path = _normalize_manifest_file_path(_file_item_display_path(item))
+        if display_path:
+            by_path[display_path.lower()].append(item)
+        basename = _normalize_manifest_file_path(_base_name(item)).lower()
+        if basename:
+            by_basename[basename].append(item)
 
     for file_id in selection.file_ids:
         item = by_id.get(file_id)
         if item is not None:
             selected.append(item)
+
+    for file_path in selection.file_paths:
+        normalized = _normalize_manifest_file_path(file_path)
+        if not normalized:
+            continue
+        key = normalized.lower()
+        exact = by_path.get(key) or []
+        if exact:
+            selected.extend(exact)
+            continue
+
+        suffix_matches: list[FileItem] = []
+        for display_key, items in by_path.items():
+            if display_key.endswith("/" + key) or key.endswith("/" + display_key):
+                suffix_matches.extend(items)
+        if len({item.id for item in suffix_matches}) == 1:
+            selected.extend(suffix_matches)
+            continue
+
+        basename = key.rsplit("/", 1)[-1]
+        basename_matches = by_basename.get(basename) or []
+        if len({item.id for item in basename_matches}) == 1:
+            selected.extend(basename_matches)
 
     for folder_path in selection.folder_paths:
         selected.extend(item for item in all_files if _is_within_folder(item, folder_path))
@@ -1522,6 +1571,7 @@ def _augment_result_metadata(run: WorkflowRun, docs: list[WorkflowSourceFile], s
         "selection",
         {
             "file_ids": list(run.selection.file_ids),
+            "file_paths": list(run.selection.file_paths),
             "folder_paths": list(run.selection.folder_paths),
             "current_folder": run.selection.current_folder,
         },
