@@ -15,6 +15,11 @@ from .domain_packs import (
     get_domain_workflow_spec,
 )
 from .models import WorkflowManifest, WorkflowResult, WorkflowRun, WorkflowSourceFile
+from .legal_analysis import (
+    build_legal_coverage_metadata,
+    supplement_metadata_from_fact_maps,
+    verify_output_against_fact_maps,
+)
 
 try:
     from features.rag.adapters.openai_chat import OpenAIChat  # type: ignore
@@ -97,6 +102,11 @@ def _unique_customer_source_files(sources: list[WorkflowSourceFile]) -> list[Wor
         # Targeted retrieval can add one or more records for the same selected
         # file. Prefer the coverage/original record so the user sees the file
         # once, not every retrieved chunk.
+        if existing.source_kind == "contract_fact_map" and source.source_kind != "contract_fact_map":
+            by_key[key] = source
+            continue
+        if source.source_kind == "contract_fact_map":
+            continue
         if existing.source_kind == "retrieved" and source.source_kind != "retrieved":
             by_key[key] = source
     return [by_key[key] for key in order if key in by_key]
@@ -694,6 +704,7 @@ def _llm_result(
                     [{idx}] {_source_label(source)}
                     Folder: {source.folder_path or 'Root'}
                     Content type: {source.content_type or 'unknown'}
+                Source kind: {source.source_kind}
                     Excerpt length used: {source.excerpt_chars} of {source.full_text_chars} characters
                     Excerpt:
                     {source.excerpt}
@@ -712,6 +723,7 @@ def _llm_result(
             f"""
             You create workflow outputs for a document workspace.
             Use only the provided source excerpts.
+            For Legal Pro workflows, treat any contract fact map as a full-contract coverage control: do not say a clause is missing if the fact map marks that clause family as found. If source text is condensed, say "not found in reviewed material" rather than implying the full agreement lacks the clause.
             Do not invent source facts.
             {single_source_instruction}
             Return valid JSON only.
@@ -1973,6 +1985,7 @@ def _ensure_legal_metadata(metadata: dict[str, Any], run: WorkflowRun, spec, sou
         }
     )
     metadata["legal_profile"] = merged_profile
+    metadata = supplement_metadata_from_fact_maps(metadata, sources)
 
     metadata["risk_items"] = _normalize_legal_risk_items(metadata.get("risk_items"))
     metadata["clause_items"] = _normalize_legal_clause_items(metadata.get("clause_items"))
@@ -2161,6 +2174,14 @@ def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile])
         )
 
     legal_context = _legal_context_for_prompt(legal_profile) if legal_profile else ""
+    legal_coverage = build_legal_coverage_metadata(sources) if is_legal else {}
+    legal_coverage_instruction = (
+        " Full-contract fact-map coverage is available; use it to avoid false missing-clause findings. "
+        "When the fact map marks a clause family as found, discuss it or leave it out only if irrelevant; do not call it missing. "
+        "Only call a protection missing when coverage_status supports not_found_after_full_text_scan. "
+        if is_legal and legal_coverage.get("coverage_status") == "full_contract_fact_map"
+        else ""
+    )
     result = _llm_result(
         run,
         sources,
@@ -2168,6 +2189,7 @@ def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile])
             f"{spec.task_brief} Focus the output on {focus}. "
             f"{legal_context + ' ' if legal_context else ''}"
             "Use practical business language and stay grounded in the selected source excerpts."
+            f"{legal_coverage_instruction}"
         ),
         output_requirements=(
             f"{spec.output_requirements} Keep the output usable as a finished workflow artifact. "
@@ -2194,6 +2216,12 @@ def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile])
     if is_legal:
         metadata = _ensure_legal_metadata(metadata, run, spec, sources)
         _ensure_legal_preview_sections(result, run, spec, metadata)
+        factual_issues = verify_output_against_fact_maps(metadata, result.preview_markdown, sources)
+        if factual_issues:
+            metadata["factual_warnings"] = factual_issues
+            metadata.setdefault("warnings", [])
+            if isinstance(metadata["warnings"], list):
+                metadata["warnings"].append("Output was checked against the full-contract fact map; review factual_warnings before relying on missing-clause statements.")
     result.metadata = metadata
     return result
 
@@ -2306,6 +2334,7 @@ def refine_workflow_result(
                 [{idx}] {_source_label(source)}
                 Folder: {source.folder_path or 'Root'}
                 Content type: {source.content_type or 'unknown'}
+                Source kind: {source.source_kind}
                 Excerpt:
                 {source.excerpt}
                 """
