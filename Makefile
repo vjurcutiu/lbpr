@@ -52,8 +52,8 @@ help:
 	@echo "  make telemetry-seed       - drive in-process seed flows and flush business metrics to Grafana"
 	@echo ""
 	@echo "Workflow evals:"
-	@echo "  make workflow-eval-dev EVAL_UID=<uid> [CASE=internal/evals/cases/legal_pro_public_contracts.example.json] [MODE=smoke] [MARKDOWN=1] [COMPARE_TO=path]"
-	@echo "  make workflow-eval     EVAL_UID=<uid> [CASE=internal/evals/cases/legal_pro_public_contracts.example.json] [MODE=smoke] [MARKDOWN=1] [COMPARE_TO=path]"
+	@echo "  make workflow-eval-dev EVAL_UID=<uid> [CASE=internal/evals/cases/legal_pro_public_contracts_v2_regression.example.json] [MODE=smoke] [MARKDOWN=1] [COMPARE_TO=path]"
+	@echo "  make workflow-eval     EVAL_UID=<uid> [CASE=internal/evals/cases/legal_pro_public_contracts_v2_regression.example.json] [MODE=smoke] [MARKDOWN=1] [COMPARE_TO=path]"
 	@echo "  make workflow-eval-ui-dev [INTERNAL_EVAL_ADMIN_EMAILS=you@example.com] - start dev stack with hidden eval UI enabled"
 	@echo "  make workflow-eval-ui     [INTERNAL_EVAL_ADMIN_EMAILS=you@example.com] - start base stack with internal eval API enabled"
 	@echo "  make grafana-init         - terraform init for Grafana dashboards as code"
@@ -108,7 +108,7 @@ telemetry-seed:
 
 # ----- Internal workflow evals -----
 
-WORKFLOW_EVAL_CASE ?= internal/evals/cases/legal_pro_public_contracts.example.json
+WORKFLOW_EVAL_CASE ?= internal/evals/cases/legal_pro_public_contracts_v2_regression.example.json
 WORKFLOW_EVAL_OUT ?= internal/evals/results
 WORKFLOW_EVAL_MODE ?= smoke
 WORKFLOW_EVAL_MARKDOWN_FLAG = $(if $(filter 1 true yes,$(MARKDOWN)),--markdown,)

@@ -35,6 +35,7 @@ class EvalRubric(BaseModel):
     required_metadata_keys: list[str] = Field(default_factory=list)
     required_metadata_min_items: dict[str, int] = Field(default_factory=dict)
     min_source_count: int | None = None
+    min_llm_total_tokens: int | None = None
 
 
 class EvalWorkflowSpec(BaseModel):
@@ -52,6 +53,7 @@ class EvalWorkflowSpec(BaseModel):
     required_metadata_keys: list[str] = Field(default_factory=list)
     required_metadata_min_items: dict[str, int] = Field(default_factory=dict)
     min_source_count: int | None = None
+    min_llm_total_tokens: int | None = None
 
 
 class WorkflowEvalCase(BaseModel):

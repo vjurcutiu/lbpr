@@ -55,7 +55,7 @@ class InternalEvalSelectionOptions(BaseModel):
 
 
 class InternalEvalRunRequest(BaseModel):
-    case_path: str = Field(default="internal/evals/cases/legal_pro_public_contracts.example.json")
+    case_path: str = Field(default="internal/evals/cases/legal_pro_public_contracts_v2_regression.example.json")
     uid: str | None = None
     mode: str | None = "smoke"
     markdown: bool = True

@@ -1,0 +1,221 @@
+{
+  "eval_id": "legal_pro_public_contracts_v2_regression",
+  "description": "Targeted Legal Pro regression eval for the remaining v2 issues only: Contract Review Executive Summary headings and ProQuest fallback-language visible target-family coverage.",
+  "mode": "smoke",
+  "default_prompt_version": "legal-pack-public-contracts-v2",
+  "default_workflow_version": "workflow-engine-v1",
+  "document_set": {
+    "name": "public_contract_eval_seed",
+    "description": "Bundled public SEC/contract fixtures under backend/app/internal/evals/fixtures/public_contract_eval_seed. Workflow-level selections choose the target contract for each run.",
+    "selection": {
+      "file_ids": [],
+      "file_paths": [],
+      "folder_paths": [],
+      "current_folder": "public_contract_eval_seed/contracts"
+    }
+  },
+  "default_inputs": {
+    "matter_context": "Internal Legal Pro workflow regression eval using public contract fixtures. Treat this as a workflow-quality test, not legal advice."
+  },
+  "workflows": [
+    {
+      "workflow_id": "legal_contract_review",
+      "label": "Contract Review \u00b7 Anthem / Castlight SaaS Agreement",
+      "notes": "Targeted public-contract eval for Contract Review using Anthem / Castlight SaaS Agreement. Regression retest for remaining v2 issue: Expected output section containing 'Executive'.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Prepare an approval-ready contract review covering business risk, legal risk, operational obligations, missing protections, and open questions.",
+        "document_type": "msa_services",
+        "review_mode": "approval",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "anthem_castlight_saas",
+        "target_contract_title": "Anthem / Castlight SaaS Agreement",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_anthem_castlight_saas.txt",
+        "target_contract_category": "msa_saas",
+        "audience": "business owner and legal reviewer",
+        "deal_stage": "approval review before signature"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Executive Summary",
+        "Risks",
+        "Open Questions"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/contract_review",
+      "min_llm_total_tokens": 1,
+      "required_metadata_min_items": {
+        "risk_items": 1
+      }
+    },
+    {
+      "workflow_id": "legal_contract_review",
+      "label": "Contract Review \u00b7 Relativity / KLDiscovery Master Terms + DPA",
+      "notes": "Targeted public-contract eval for Contract Review using Relativity / KLDiscovery Master Terms + DPA. Regression retest for remaining v2 issue: Expected output section containing 'Executive'.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/dpa"
+      },
+      "inputs": {
+        "focus": "Prepare an approval-ready contract review covering business risk, legal risk, operational obligations, missing protections, and open questions.",
+        "document_type": "dpa",
+        "review_mode": "approval",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "relativity_kldiscovery_master_terms_dpa",
+        "target_contract_title": "Relativity / KLDiscovery Master Terms + DPA",
+        "target_contract_path": "public_contract_eval_seed/contracts/dpa/sec_relativity_kldiscovery_master_terms_dpa.txt",
+        "target_contract_category": "dpa",
+        "audience": "business owner and legal reviewer",
+        "deal_stage": "approval review before signature"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Executive Summary",
+        "Risks",
+        "Open Questions"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/contract_review",
+      "min_llm_total_tokens": 1,
+      "required_metadata_min_items": {
+        "risk_items": 1
+      }
+    },
+    {
+      "workflow_id": "legal_contract_review",
+      "label": "Contract Review \u00b7 Indegene / Cingulate MSA",
+      "notes": "Targeted public-contract eval for Contract Review using Indegene / Cingulate MSA. Regression retest for remaining v2 issue: Expected output section containing 'Executive'.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_indegene_cingulate_msa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Prepare an approval-ready contract review covering business risk, legal risk, operational obligations, missing protections, and open questions.",
+        "document_type": "msa_services",
+        "review_mode": "approval",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "indegene_cingulate_msa",
+        "target_contract_title": "Indegene / Cingulate MSA",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_indegene_cingulate_msa.txt",
+        "target_contract_category": "msa_saas",
+        "audience": "business owner and legal reviewer",
+        "deal_stage": "approval review before signature"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Executive Summary",
+        "Risks",
+        "Open Questions"
+      ],
+      "min_source_count": 1,
+      "rubric_id": "legal/contract_review",
+      "min_llm_total_tokens": 1,
+      "required_metadata_min_items": {
+        "risk_items": 1
+      }
+    },
+    {
+      "workflow_id": "legal_fallback_language",
+      "label": "Fallback Language \u00b7 ProQuest / IBM MSA",
+      "notes": "Targeted public-contract eval for Fallback Language using ProQuest / IBM MSA. Regression retest for remaining content issue: requested fallback families must be visible in the markdown, not only present in structured metadata.",
+      "selection": {
+        "file_ids": [],
+        "file_paths": [
+          "public_contract_eval_seed/contracts/msa_saas/sec_proquest_ibm_msa.txt"
+        ],
+        "folder_paths": [],
+        "current_folder": "public_contract_eval_seed/contracts/msa_saas"
+      },
+      "inputs": {
+        "focus": "Draft safer fallback language, fallback ladders, and comment-ready negotiation notes for approval-sensitive clauses in the selected contract.",
+        "document_type": "msa_services",
+        "review_mode": "negotiation",
+        "counterparty_position": "vendor",
+        "risk_tolerance": "balanced",
+        "target_contract_id": "proquest_ibm_msa",
+        "target_contract_title": "ProQuest / IBM MSA",
+        "target_contract_path": "public_contract_eval_seed/contracts/msa_saas/sec_proquest_ibm_msa.txt",
+        "target_contract_category": "msa_saas",
+        "target_issue": "liability, indemnity, service obligations, change control, and termination rights",
+        "desired_position": "enterprise customer fallback positions with practical escalation notes",
+        "output_type": "fallback ladder plus internal rationale"
+      },
+      "modes": [
+        "smoke",
+        "full"
+      ],
+      "expected_sections": [
+        "Proposed Language",
+        "Targeted Fallback Language",
+        "Fallback",
+        "Open Questions"
+      ],
+      "min_source_count": 1,
+      "min_llm_total_tokens": 1,
+      "required_metadata_min_items": {
+        "fallback_items": 1
+      }
+    }
+  ],
+  "metadata": {
+    "owner": "internal",
+    "pack": "legal",
+    "fixture_set": "public_contract_eval_seed",
+    "source_eval_id": "legal_pro_public_contracts_v1",
+    "baseline_case": "backend/internal/evals/cases/legal_pro_public_contracts.example.json",
+    "run_shape": "Targeted retest of remaining v2 issues only.",
+    "workflow_count": 2,
+    "run_count": 4,
+    "selection_rule": "Include only runs that still had v2 validation warnings or v2 content-level issues after the prior regression pass.",
+    "retested_issue_summary": {
+      "legal_contract_review": [
+        "missing visible Executive Summary section on three targeted contract review runs"
+      ],
+      "legal_fallback_language": [
+        "requested fallback families must be rendered visibly in markdown, not only in fallback_items metadata"
+      ]
+    },
+    "workflow_target_map": {
+      "legal_contract_review": [
+        "anthem_castlight_saas",
+        "relativity_kldiscovery_master_terms_dpa",
+        "indegene_cingulate_msa"
+      ],
+      "legal_fallback_language": [
+        "proquest_ibm_msa"
+      ]
+    },
+    "excluded_fixture_formats": [
+      ".odt",
+      ".pdf"
+    ],
+    "review_instructions": "Run from the internal eval UI after applying the final workflow-output fixes. This focused v2 case should return zero validation warnings before rerunning the full public-contract suite."
+  }
+}

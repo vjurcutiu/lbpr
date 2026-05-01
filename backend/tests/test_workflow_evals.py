@@ -252,3 +252,59 @@ def test_legal_pro_public_contract_manifest_fixture_paths_exist():
     for workflow in raw["workflows"]:
         for file_path in workflow["selection"]["file_paths"]:
             assert (fixture_root / file_path).exists(), file_path
+
+
+def test_legal_pro_public_contract_v2_regression_manifest_targets_only_warning_runs():
+    manifest_path = (
+        Path(__file__).resolve().parents[1]
+        / "internal"
+        / "evals"
+        / "cases"
+        / "legal_pro_public_contracts_v2_regression.example.json"
+    )
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    case = WorkflowEvalCase.model_validate(raw)
+
+    assert case.eval_id == "legal_pro_public_contracts_v2_regression"
+    assert case.default_prompt_version == "legal-pack-public-contracts-v2"
+    assert case.metadata["source_eval_id"] == "legal_pro_public_contracts_v1"
+    assert case.metadata["workflow_count"] == 2
+    assert case.metadata["run_count"] == 4
+    assert case.metadata["selection_rule"] == "Include only runs that still had v2 validation warnings or v2 content-level issues after the prior regression pass."
+
+    expected_targets = {
+        "legal_contract_review": [
+            "anthem_castlight_saas",
+            "relativity_kldiscovery_master_terms_dpa",
+            "indegene_cingulate_msa",
+        ],
+        "legal_fallback_language": ["proquest_ibm_msa"],
+    }
+    actual_targets: dict[str, list[str]] = {}
+    for workflow in case.workflows:
+        actual_targets.setdefault(workflow.workflow_id, []).append(str(workflow.inputs.get("target_contract_id")))
+        assert workflow.workflow_id in expected_targets
+        assert workflow.selection is not None
+        assert len(workflow.selection.file_paths) == 1
+        assert workflow.inputs.get("target_contract_path") == workflow.selection.file_paths[0]
+        assert "Regression retest" in workflow.notes
+
+    assert actual_targets == expected_targets
+    assert case.metadata["workflow_target_map"] == expected_targets
+    assert len(case.workflows) == 4
+
+
+def test_legal_pro_public_contract_v2_regression_manifest_fixture_paths_exist():
+    manifest_path = (
+        Path(__file__).resolve().parents[1]
+        / "internal"
+        / "evals"
+        / "cases"
+        / "legal_pro_public_contracts_v2_regression.example.json"
+    )
+    fixture_root = Path(__file__).resolve().parents[1] / "app" / "internal" / "evals" / "fixtures"
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    for workflow in raw["workflows"]:
+        for file_path in workflow["selection"]["file_paths"]:
+            assert (fixture_root / file_path).exists(), file_path

@@ -767,9 +767,14 @@ def _llm_result(
             preview_markdown=str(payload.get("preview_markdown") or "").strip(),
             metadata=metadata,
         )
-    except Exception:
+    except Exception as exc:
         log.exception("workflow_llm_failed", extra={"workflow_id": run.workflow_id})
-        return _ensure_result_title_metadata(fallback_factory(), run, sources)
+        fallback_result = _ensure_result_title_metadata(fallback_factory(), run, sources)
+        fallback_metadata = dict(fallback_result.metadata or {})
+        fallback_metadata["llm_fallback_used"] = True
+        fallback_metadata["llm_fallback_reason"] = exc.__class__.__name__
+        fallback_result.metadata = fallback_metadata
+        return fallback_result
 
 
 def summarize_handler(run: WorkflowRun, sources: list[WorkflowSourceFile]) -> WorkflowResult:
@@ -1216,6 +1221,332 @@ def _metadata_confidence(value: Any, fallback: str = "low") -> str:
     return text if text in {"low", "medium", "high"} else fallback
 
 
+
+
+LEGAL_CLAUSE_FAMILY_LABELS: dict[str, str] = {
+    "confidentiality": "Confidentiality",
+    "indemnity": "Indemnity",
+    "limitation_of_liability": "Limitation of Liability",
+    "termination": "Termination",
+    "renewal": "Renewal",
+    "ip_ownership": "IP Ownership",
+    "data_protection": "Data Protection",
+    "governing_law": "Governing Law",
+    "payment": "Payment",
+    "assignment": "Assignment",
+    "audit": "Audit",
+    "insurance": "Insurance",
+    "non_solicit": "Non-Solicit",
+    "exclusivity": "Exclusivity",
+    "warranties": "Warranties / Service Levels",
+    "dispute_resolution": "Dispute Resolution",
+    "change_control": "Change Control",
+    "notices": "Notices",
+    "general_contract": "General Contract",
+}
+
+LEGAL_CLAUSE_FAMILY_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "confidentiality": ("confidential", "non-disclosure", "non disclosure", "proprietary information", "trade secret"),
+    "indemnity": ("indemn", "defend", "hold harmless", "third-party claim", "third party claim"),
+    "limitation_of_liability": ("limitation of liability", "liability", "consequential", "damages", "cap", "excluded damages"),
+    "termination": ("terminate", "termination", "expiration", "survive", "survival", "wind-down", "wind down"),
+    "renewal": ("renew", "renewal", "auto-renew", "non-renew", "anniversary"),
+    "ip_ownership": ("intellectual property", "work product", "ownership", "license", "source code", "deliverable"),
+    "data_protection": ("data", "security", "privacy", "breach", "incident", "encryption", "personal information", "personal data", "protected health"),
+    "governing_law": ("governing law", "jurisdiction", "venue", "courts", "laws of"),
+    "payment": ("payment", "fees", "invoice", "invoicing", "tax", "charges", "payable"),
+    "assignment": ("assign", "assignment", "change of control", "successor", "affiliate"),
+    "audit": ("audit", "inspect", "assessment", "certification", "soc", "penetration test", "questionnaire"),
+    "insurance": ("insurance", "insured", "coverage", "policy", "certificate"),
+    "non_solicit": ("non-solicit", "non solicit", "solicit", "employee", "recruit"),
+    "exclusivity": ("exclusive", "exclusivity", "standstill", "compete", "restriction"),
+    "warranties": ("warrant", "service level", "sla", "uptime", "availability", "remedy", "mttr"),
+    "dispute_resolution": ("dispute", "arbitration", "mediation", "injunctive", "equitable relief", "jury"),
+    "change_control": ("change order", "change request", "approval", "approve", "review", "comment"),
+    "notices": ("notice", "notify", "written notice", "facsimile", "mail"),
+}
+
+_FAMILY_RISK_TITLES: dict[str, str] = {
+    "confidentiality": "Confidentiality obligations may be too broad, too narrow, or missing operational guardrails",
+    "indemnity": "Indemnity allocation may shift third-party claim exposure beyond the intended deal risk",
+    "limitation_of_liability": "Liability cap or damages exclusions may leave material exposure unresolved",
+    "termination": "Termination and exit mechanics may not give the business a clean path out",
+    "renewal": "Renewal mechanics may create unintended extensions or missed notice windows",
+    "ip_ownership": "IP ownership or license rights may not match paid deliverable expectations",
+    "data_protection": "Data protection and security obligations may be incomplete or operationally demanding",
+    "governing_law": "Governing law and forum terms may affect enforcement cost and leverage",
+    "payment": "Payment, fee, tax, or invoice terms may create commercial uncertainty",
+    "assignment": "Assignment or change-of-control rights may allow an unwanted counterparty change",
+    "audit": "Audit rights may be too narrow for oversight or too broad operationally",
+    "insurance": "Insurance requirements may be missing or underspecified",
+    "non_solicit": "Non-solicit obligations may restrict recruiting or operating flexibility",
+    "exclusivity": "Exclusivity or standstill restrictions may limit strategic flexibility",
+    "warranties": "Warranties, service levels, or remedies may not support the expected service quality",
+    "dispute_resolution": "Dispute-resolution mechanics may limit practical enforcement or escalation rights",
+    "change_control": "Change-control and approval mechanics may create scope or acceptance ambiguity",
+    "notices": "Notice mechanics may create administrative risk if delivery methods are outdated or unclear",
+}
+
+_FAMILY_RECOMMENDATIONS: dict[str, str] = {
+    "confidentiality": "Clarify scope, permitted disclosures, return/destruction, survival, and required flow-down obligations.",
+    "indemnity": "Narrow indemnity to claims caused by the responsible party and add procedure, defense-control, and fault carveouts.",
+    "limitation_of_liability": "Confirm a reasonable aggregate cap and add narrow carveouts for confidentiality, data/security, IP misuse, payment, and intentional misconduct where appropriate.",
+    "termination": "Add clear termination for cause, cure periods, transition support, and post-termination payment/return obligations.",
+    "renewal": "Add explicit renewal term, non-renewal notice window, and no unintended evergreen renewal without clear notice.",
+    "ip_ownership": "Confirm customer ownership or broad paid-up use rights for paid deliverables while preserving only necessary background-IP rights.",
+    "data_protection": "Add specific security controls, breach notice, subprocessor flow-downs, data return/deletion, and audit support.",
+    "governing_law": "Confirm governing law, venue, jurisdiction, and any jury waiver are acceptable for the deal.",
+    "payment": "Specify fees, invoice timing, dispute windows, taxes, late fees, and withholding rights for disputed amounts.",
+    "assignment": "Require consent or at least notice for transfers, with a customer exit right for risky competitor or change-of-control assignments.",
+    "audit": "Define audit scope, frequency, notice, cost, confidentiality, and escalated rights for material non-compliance.",
+    "insurance": "Add coverage types, minimum limits, certificates, cancellation notice, and cyber/professional coverage where relevant.",
+    "non_solicit": "Narrow covered people, duration, and solicitation scope; preserve general solicitation and existing contact carveouts.",
+    "exclusivity": "Confirm the business intentionally accepts the restriction; otherwise narrow scope, duration, and exceptions.",
+    "warranties": "Tie warranties and service levels to objective metrics, remedies, cure rights, and escalation obligations.",
+    "dispute_resolution": "Confirm forum, rules, interim relief, confidentiality, cost allocation, and escalation process.",
+    "change_control": "Require written approvals, impact analysis, pricing/schedule controls, and clear acceptance rules.",
+    "notices": "Keep formal delivery mechanics but add operational notice contacts where needed.",
+}
+
+
+def _safe_markdown_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).replace("|", "\\|")
+
+
+def _source_corpus(sources: list[WorkflowSourceFile]) -> str:
+    return "\n\n".join(str(source.excerpt or "") for source in sources if str(source.excerpt or "").strip())
+
+
+def _compact_source_basis(text: str, keywords: tuple[str, ...], *, fallback: str = "Source excerpt should be checked for this clause family.") -> str:
+    corpus = re.sub(r"\s+", " ", str(text or "").strip())
+    if not corpus:
+        return fallback
+    lower = corpus.lower()
+    hit_index = -1
+    hit_keyword = ""
+    for keyword in keywords:
+        idx = lower.find(keyword.lower())
+        if idx >= 0 and (hit_index < 0 or idx < hit_index):
+            hit_index = idx
+            hit_keyword = keyword
+    if hit_index < 0:
+        return fallback
+    start = max(0, hit_index - 120)
+    end = min(len(corpus), hit_index + max(180, len(hit_keyword) + 120))
+    snippet = corpus[start:end].strip()
+    if start > 0:
+        snippet = "…" + snippet
+    if end < len(corpus):
+        snippet = snippet + "…"
+    return snippet
+
+
+def _requested_clause_families(run: WorkflowRun, *, default: list[str] | None = None) -> list[str]:
+    text = " ".join(str(run.inputs.get(key) or "") for key in ("target_issue", "priority_areas", "focus", "desired_position", "output_type")).lower()
+    aliases: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("limitation_of_liability", ("limitation of liability", "liability", "damages", "cap", "uncapped")),
+        ("indemnity", ("indemnity", "indemnification", "indemnify", "third-party claims", "third party claims")),
+        ("termination", ("termination", "terminate", "exit", "survival", "wind-down", "wind down")),
+        ("warranties", ("service obligations", "service levels", "service obligation", "sla", "warranty", "warranties", "performance")),
+        ("change_control", ("change control", "change order", "change request", "approval", "acceptance", "review")),
+        ("data_protection", ("data", "security", "privacy", "breach", "subprocessor", "personal data")),
+        ("ip_ownership", ("ip", "intellectual property", "ownership", "work product", "deliverable", "license")),
+        ("payment", ("payment", "fees", "invoice", "tax", "charges")),
+        ("renewal", ("renewal", "auto-renew", "non-renew", "anniversary")),
+        ("audit", ("audit", "inspection", "assessment", "certification")),
+        ("assignment", ("assignment", "assign", "change of control")),
+        ("confidentiality", ("confidential", "confidentiality", "non-disclosure", "nda")),
+        ("insurance", ("insurance", "coverage")),
+        ("governing_law", ("governing law", "jurisdiction", "venue")),
+        ("dispute_resolution", ("dispute", "arbitration", "injunctive")),
+    )
+    families: list[str] = []
+    for family, terms in aliases:
+        if any(term in text for term in terms) and family not in families:
+            families.append(family)
+    if families:
+        return families
+    return list(default or [])
+
+
+def _source_matched_families(sources: list[WorkflowSourceFile], preferred: list[str], *, limit: int = 8) -> list[str]:
+    corpus = _source_corpus(sources).lower()
+    ordered = list(preferred)
+    for family in LEGAL_CLAUSE_FAMILIES:
+        if family not in ordered:
+            ordered.append(family)
+    matched: list[str] = []
+    for family in ordered:
+        keywords = LEGAL_CLAUSE_FAMILY_KEYWORDS.get(family, ())
+        if family in preferred or any(keyword.lower() in corpus for keyword in keywords):
+            if family not in matched:
+                matched.append(family)
+        if len(matched) >= limit:
+            break
+    return matched or (preferred[:limit] if preferred else ["general_contract"])
+
+
+def _risk_item_for_family(family: str, sources: list[WorkflowSourceFile], *, requested: bool = False, severity: str = "medium") -> dict[str, Any]:
+    keywords = LEGAL_CLAUSE_FAMILY_KEYWORDS.get(family, ())
+    basis = _compact_source_basis(
+        _source_corpus(sources),
+        keywords,
+        fallback=("Requested focus; the source excerpt did not provide enough direct clause language for this family." if requested else "Source excerpt should be checked for this clause family."),
+    )
+    return {
+        "issue": _FAMILY_RISK_TITLES.get(family, f"{LEGAL_CLAUSE_FAMILY_LABELS.get(family, _humanize_choice(family))} position needs review"),
+        "severity": severity,
+        "clause_family": _legal_clause_family(family),
+        "business_impact": "Could affect approval, negotiation posture, operating obligations, or recovery if the relationship fails.",
+        "source_basis": basis,
+        "recommended_change": _FAMILY_RECOMMENDATIONS.get(family, "Confirm the source language and align it with the approved house position."),
+        "fallback_position": "Accept only if the business owner approves the residual risk and the clause is documented as an exception.",
+        "requires_human_review": severity in {"high", "critical"} or requested,
+    }
+
+
+def _legal_requested_fallback_items(metadata: dict[str, Any], run: WorkflowRun, sources: list[WorkflowSourceFile]) -> list[dict[str, Any]]:
+    requested = _requested_clause_families(run)
+    if not requested:
+        return []
+    existing = _normalize_legal_fallback_items(metadata.get("fallback_items"))
+    by_family: dict[str, dict[str, Any]] = {str(item.get("clause_family")): item for item in existing}
+    risks = _normalize_legal_risk_items(metadata.get("risk_items"))
+    clauses = _normalize_legal_clause_items(metadata.get("clause_items"))
+    for family in requested:
+        canonical = _legal_clause_family(family)
+        if canonical in by_family:
+            continue
+        risk = next((item for item in risks if item.get("clause_family") == canonical), None)
+        clause = next((item for item in clauses if item.get("clause_family") == canonical), None)
+        basis = _metadata_text((risk or {}).get("source_basis") or (clause or {}).get("source_basis"))
+        if not basis:
+            basis = _compact_source_basis(_source_corpus(sources), LEGAL_CLAUSE_FAMILY_KEYWORDS.get(canonical, ()), fallback="Requested focus; the source excerpt did not provide enough direct clause language for this family.")
+        proposed = _metadata_text((risk or {}).get("recommended_change") or (clause or {}).get("recommended_position"), _FAMILY_RECOMMENDATIONS.get(canonical, "Revise this clause to align with the approved house position."))
+        by_family[canonical] = {
+            "clause_family": canonical,
+            "proposed_language": proposed,
+            "rationale": _metadata_text((risk or {}).get("business_impact") or (clause or {}).get("concern"), "This item was requested in the fallback-language target issue and should be handled explicitly before approval."),
+            "source_basis": basis,
+            "confidence": "medium" if "did not provide enough direct clause language" not in basis else "low",
+        }
+    return list(by_family.values())
+
+
+def _markdown_has_heading(markdown: str, heading: str) -> bool:
+    return bool(re.search(rf"^\s*#{{1,6}}\s+.*{re.escape(heading)}.*$", markdown or "", re.IGNORECASE | re.MULTILINE))
+
+
+def _append_section(markdown: str, heading: str, body: str) -> str:
+    if _markdown_has_heading(markdown, heading):
+        return markdown
+    clean_body = str(body or "").strip() or "No additional items were generated for this section."
+    return f"{str(markdown or '').rstrip()}\n\n## {heading}\n{clean_body}".strip()
+
+
+def _insert_section_after_title(markdown: str, heading: str, body: str) -> str:
+    if _markdown_has_heading(markdown, heading):
+        return markdown
+    clean_body = str(body or "").strip() or "No additional items were generated for this section."
+    text = str(markdown or "").strip()
+    section = f"## {heading}\n{clean_body}"
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if re.match(r"^\s*#\s+", line):
+            insert_at = index + 1
+            while insert_at < len(lines) and not lines[insert_at].strip():
+                insert_at += 1
+            return "\n".join(lines[: index + 1] + ["", section, ""] + lines[insert_at:]).strip()
+    return f"{section}\n\n{text}".strip()
+
+
+def _fallback_target_markdown(fallback_items: list[dict[str, Any]], requested: list[str]) -> str:
+    if not requested:
+        return ""
+    by_family = {str(item.get("clause_family") or ""): item for item in fallback_items}
+    sections: list[str] = []
+    for family in requested:
+        canonical = _legal_clause_family(family)
+        item = by_family.get(canonical)
+        label = LEGAL_CLAUSE_FAMILY_LABELS.get(canonical, _humanize_choice(canonical))
+        if not item:
+            sections.append(
+                f"### {label}\n"
+                "**Fallback language:** Confirm whether the source contract contains enough direct language to draft this fallback.\n\n"
+                "**Rationale:** This clause family was requested in the workflow input but was not available in structured fallback metadata.\n\n"
+                "**Fallback ladder:** Require business/legal confirmation before sending a redline."
+            )
+            continue
+        sections.append(
+            f"### {label}\n"
+            f"**Fallback language:** {_safe_markdown_text(item.get('proposed_language'))}\n\n"
+            f"**Rationale:** {_safe_markdown_text(item.get('rationale'))}\n\n"
+            f"**Source basis:** {_safe_markdown_text(item.get('source_basis'))}\n\n"
+            "**Fallback ladder:** Start with the fallback language above; if resisted, narrow it to the minimum change needed to preserve the business position."
+        )
+    return "\n\n".join(sections).strip()
+
+
+def _risk_markdown_table(risk_items: list[dict[str, Any]]) -> str:
+    if not risk_items:
+        return "- No structured risk items were generated."
+    rows = ["| Issue | Severity | Business Impact | Recommendation |", "|---|---:|---|---|"]
+    for item in risk_items[:10]:
+        rows.append("| " + " | ".join(_safe_markdown_text(value) for value in (item.get("issue"), item.get("severity"), item.get("business_impact"), item.get("recommended_change"))) + " |")
+    return "\n".join(rows)
+
+
+def _obligation_markdown_list(obligation_items: list[dict[str, Any]]) -> str:
+    if not obligation_items:
+        return "- Confirm operational obligations, owners, and deadlines before signature."
+    return "\n".join(
+        f"- **{_safe_markdown_text(item.get('responsible_party') or 'TBD')}**: {_safe_markdown_text(item.get('obligation'))} — {_safe_markdown_text(item.get('trigger_or_deadline') or 'Timing TBD')}"
+        for item in obligation_items[:8]
+    )
+
+
+def _recommendations_markdown(risk_items: list[dict[str, Any]], fallback_items: list[dict[str, Any]] | None = None) -> str:
+    lines: list[str] = []
+    for item in risk_items[:8]:
+        recommendation = _metadata_text(item.get("recommended_change"))
+        if recommendation:
+            lines.append(f"- **{LEGAL_CLAUSE_FAMILY_LABELS.get(str(item.get('clause_family')), _humanize_choice(str(item.get('clause_family') or 'Issue')))}:** {recommendation}")
+    for item in (fallback_items or [])[:8]:
+        proposed = _metadata_text(item.get("proposed_language"))
+        if proposed and not any(proposed in line for line in lines):
+            lines.append(f"- **{LEGAL_CLAUSE_FAMILY_LABELS.get(str(item.get('clause_family')), _humanize_choice(str(item.get('clause_family') or 'Fallback')))} fallback:** {proposed}")
+    return "\n".join(lines) or "- Confirm the high-impact issues and approval exceptions before sending comments."
+
+
+def _ensure_legal_preview_sections(result: WorkflowResult, run: WorkflowRun, spec, metadata: dict[str, Any]) -> None:
+    markdown = str(result.preview_markdown or "").strip() or f"# {run.title}\n\n{result.summary}"
+    risk_items = _normalize_legal_risk_items(metadata.get("risk_items"))
+    obligation_items = _normalize_legal_obligation_items(metadata.get("obligation_items"))
+    fallback_items = _normalize_legal_fallback_items(metadata.get("fallback_items"))
+    if spec.workflow_id == "legal_contract_review":
+        markdown = _insert_section_after_title(markdown, "Executive Summary", result.summary)
+        markdown = _append_section(markdown, "Risks", _risk_markdown_table(risk_items))
+        markdown = _append_section(markdown, "Operational Obligations", _obligation_markdown_list(obligation_items))
+        markdown = _append_section(markdown, "Recommendations", _recommendations_markdown(risk_items))
+    elif spec.workflow_id == "legal_contract_risk_matrix":
+        markdown = _append_section(markdown, "Executive Summary", result.summary)
+        markdown = _append_section(markdown, "Recommendations", _recommendations_markdown(risk_items))
+        markdown = _append_section(markdown, "Approval Checklist", "\n".join(f"- {item}" for item in metadata.get("approval_notes") or []) or "- Confirm approval owners for high and critical risks before signature.")
+    elif spec.workflow_id == "legal_fallback_language":
+        requested = _requested_clause_families(run)
+        if requested:
+            target_markdown = _fallback_target_markdown(fallback_items, requested)
+            markdown = _append_section(markdown, "Targeted Fallback Language", target_markdown)
+            existing = {str(item.get("clause_family")) for item in fallback_items}
+            coverage_lines = []
+            for family in requested:
+                canonical = _legal_clause_family(family)
+                label = LEGAL_CLAUSE_FAMILY_LABELS.get(canonical, _humanize_choice(canonical))
+                status = "covered" if canonical in existing else "needs manual confirmation"
+                coverage_lines.append(f"- {label}: {status}")
+            markdown = _append_section(markdown, "Targeted Clause Coverage", "\n".join(coverage_lines))
+    result.preview_markdown = markdown.strip()
+
 def _normalize_legal_risk_items(value: Any) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for item in _dict_list(value):
@@ -1476,35 +1807,66 @@ def _legal_fallback_payload(spec, run: WorkflowRun, sources: list[WorkflowSource
     second = insights[1] if len(insights) > 1 else "Confirm the clause positions, operational obligations, and approval path against the source material."
     third = insights[2] if len(insights) > 2 else "Review any missing or ambiguous terms before relying on the agreement operationally."
     severity = "high" if profile.get("risk_tolerance") == "conservative" else "medium"
+    requested_families = _requested_clause_families(
+        run,
+        default=[
+            "limitation_of_liability",
+            "indemnity",
+            "termination",
+            "data_protection",
+            "ip_ownership",
+            "payment",
+            "audit",
+            "assignment",
+        ] if spec.workflow_id in {"legal_contract_review", "legal_contract_risk_matrix", "legal_msa_review"} else [],
+    )
+    family_limit = 10 if spec.workflow_id == "legal_contract_risk_matrix" else 6
+    matched_families = _source_matched_families(sources, requested_families, limit=family_limit)
     risk_items = [
-        {
-            "issue": first,
-            "severity": severity,
-            "clause_family": "general_contract",
-            "business_impact": "Needs review before approval or external use.",
-            "source_basis": first,
-            "recommended_change": "Confirm the source language and revise the clause if it creates avoidable business exposure.",
-            "fallback_position": "Use the default house position unless the business accepts the exception.",
-            "requires_human_review": True,
-        }
+        _risk_item_for_family(
+            family,
+            sources,
+            requested=family in requested_families,
+            severity=(
+                "critical" if spec.workflow_id == "legal_contract_risk_matrix" and family in {"limitation_of_liability", "data_protection", "exclusivity"}
+                else severity
+            ),
+        )
+        for family in matched_families
     ]
+    if not risk_items:
+        first = insights[0] if insights else "The selected material needs a closer legal review before it is finalized."
+        risk_items = [
+            {
+                "issue": first,
+                "severity": severity,
+                "clause_family": "general_contract",
+                "business_impact": "Needs review before approval or external use.",
+                "source_basis": first,
+                "recommended_change": "Confirm the source language and revise the clause if it creates avoidable business exposure.",
+                "fallback_position": "Use the default house position unless the business accepts the exception.",
+                "requires_human_review": True,
+            }
+        ]
     clause_items = [
         {
-            "clause_family": "general_contract",
-            "current_position": second,
-            "source_basis": second,
-            "concern": "The position may need clarification before approval.",
-            "recommended_position": "Align the clause with the selected review mode and risk tolerance.",
+            "clause_family": item["clause_family"],
+            "current_position": item["source_basis"],
+            "source_basis": item["source_basis"],
+            "concern": item["issue"],
+            "recommended_position": item["recommended_change"],
         }
+        for item in risk_items[:6]
     ]
     obligation_items = [
         {
-            "obligation": third,
+            "obligation": item["issue"],
             "responsible_party": "TBD",
-            "trigger_or_deadline": "TBD",
-            "source_basis": third,
-            "follow_up": "Confirm owner, timing, and operational handoff before signature or rollout.",
+            "trigger_or_deadline": "Before approval or signature",
+            "source_basis": item["source_basis"],
+            "follow_up": item["recommended_change"],
         }
+        for item in risk_items[:5]
     ]
     open_questions = [
         "Which issues require approval before the document can move forward?",
@@ -1597,7 +1959,7 @@ def _legal_fallback_payload(spec, run: WorkflowRun, sources: list[WorkflowSource
     return summary, bullets[:5], next_actions, preview, metadata
 
 
-def _ensure_legal_metadata(metadata: dict[str, Any], run: WorkflowRun, spec) -> dict[str, Any]:
+def _ensure_legal_metadata(metadata: dict[str, Any], run: WorkflowRun, spec, sources: list[WorkflowSourceFile]) -> dict[str, Any]:
     profile = metadata.get("legal_profile") if isinstance(metadata.get("legal_profile"), dict) else {}
     merged_profile = _legal_profile_from_run(run)
     # Preserve canonical enum-style profile values from the run inputs. Model
@@ -1669,6 +2031,9 @@ def _ensure_legal_metadata(metadata: dict[str, Any], run: WorkflowRun, spec) -> 
 
     if spec.workflow_id == "legal_fallback_language":
         metadata["fallback_items"] = _normalize_legal_fallback_items(metadata.get("fallback_items"))
+        requested_fallback_items = _legal_requested_fallback_items(metadata, run, sources)
+        if requested_fallback_items:
+            metadata["fallback_items"] = requested_fallback_items
         if not metadata["fallback_items"]:
             metadata["fallback_items"] = [_fallback_item_from_metadata(metadata)]
         metadata["draft_type"] = _metadata_text(metadata.get("draft_type"), spec.title)
@@ -1827,7 +2192,8 @@ def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile])
         **{key: value for key, value in profile.items() if key not in {"tier", "pack_id", "pack_label", "workflow_id", "title"}},
     }
     if is_legal:
-        metadata = _ensure_legal_metadata(metadata, run, spec)
+        metadata = _ensure_legal_metadata(metadata, run, spec, sources)
+        _ensure_legal_preview_sections(result, run, spec, metadata)
     result.metadata = metadata
     return result
 

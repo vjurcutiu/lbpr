@@ -162,8 +162,9 @@ DOMAIN_WORKFLOW_SPECS: tuple[DomainWorkflowSpec, ...] = (
             "missing protections, unusual terms, negotiation issues, and business implications. Apply the Legal pack schema and house-position assumptions."
         ),
         output_requirements=_legal_output_requirements(
-            "The markdown should include Executive Summary, Deal / Document Context, Key Terms, Risk Matrix, Missing or Ambiguous Terms, "
-            "Negotiation Recommendations, Approval Notes, and Open Questions."
+            "The markdown must include these exact top-level sections: Executive Summary, Deal / Document Context, Key Terms, Risks, "
+            "Operational Obligations, Missing or Ambiguous Terms, Recommendations, Approval Notes, and Open Questions. "
+            "The Risks section may contain a risk matrix table, but the heading must include the word Risks."
         ),
         default_focus="contract risks, obligations, missing protections, and approval issues",
         tags=("legal", "contract", "review", "pro"),
@@ -188,7 +189,7 @@ DOMAIN_WORKFLOW_SPECS: tuple[DomainWorkflowSpec, ...] = (
         ),
         output_requirements=_legal_output_requirements(
             "The markdown should center on a risk matrix with issue, severity, clause family, business impact, source basis, recommended fix, fallback, and approval owner. "
-            "Include a short executive summary and a short approval checklist."
+            "Include these exact sections: Executive Summary, Risk Matrix, Recommendations, and Approval Checklist."
         ),
         default_focus="risk severity, business impact, approval exceptions, and recommended fixes",
         tags=("legal", "contract", "risk", "matrix", "pro"),
@@ -287,6 +288,9 @@ DOMAIN_WORKFLOW_SPECS: tuple[DomainWorkflowSpec, ...] = (
         ),
         output_requirements=_legal_output_requirements(
             "The markdown should include Proposed Language, Rationale, Negotiation Note, Fallback Ladder, Assumptions, and Open Questions. "
+            "Draft against the user's target_issue / desired_position inputs. If target_issue names clause families such as liability, indemnity, "
+            "service obligations, change control, or termination, the visible markdown must include proposed fallback language for each requested family "
+            "or explicitly state that the source excerpt does not contain enough direct language for that family. "
             "In metadata, include fallback_items with clause_family, proposed_language, rationale, source_basis, and confidence."
         ),
         default_focus="fallback clause language, rationale, assumptions, and negotiation notes",

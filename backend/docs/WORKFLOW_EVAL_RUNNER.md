@@ -5,9 +5,23 @@ The workflow eval runner executes configured workflows against an existing uploa
 This is internal backend tooling only. It does not add product UI, does not create customer-facing workflow history, and skips workflow token billing while still recording usage estimates in the exported metadata.
 
 
-## Legal Pro public-contract manifest
+## Legal Pro public-contract manifests
 
-The main Legal Pro eval case is:
+The targeted v2 regression case is the default for the internal eval UI and Make targets:
+
+```text
+backend/internal/evals/cases/legal_pro_public_contracts_v2_regression.example.json
+```
+
+It reruns only the v1 public-contract runs that produced validation warnings:
+
+```text
+3 workflows × 7 targeted public contract sources
+```
+
+Use it after workflow-output fixes to confirm the warnings are gone before spending time and tokens on the full suite.
+
+The full baseline case is still available at:
 
 ```text
 backend/internal/evals/cases/legal_pro_public_contracts.example.json
@@ -19,9 +33,9 @@ It runs 27 workflow executions:
 9 Legal Pro workflows × 3 targeted public contract sources
 ```
 
-The manifest intentionally uses only bundled `.txt` fixtures, not the `.odt` or `.pdf` fixtures. Each workflow entry has its own `selection.file_paths` value so NDA Review receives NDA sources, MSA Review receives MSA/SaaS sources, Obligation Tracker receives obligation-heavy sources, and Fallback Language receives contracts with negotiable clause issues.
+Both manifests intentionally use only bundled `.txt` fixtures, not the `.odt` or `.pdf` fixtures. Each workflow entry has its own `selection.file_paths` value so NDA Review receives NDA sources, MSA Review receives MSA/SaaS sources, Obligation Tracker receives obligation-heavy sources, and Fallback Language receives contracts with negotiable clause issues.
 
-The internal eval UI can run this case directly. Leave the document manifest override blank unless you intentionally want to override the workflow-specific fixture selections.
+The internal eval UI can run either case directly. Leave the document manifest override blank unless you intentionally want to override the workflow-specific fixture selections.
 
 ## What it reuses
 
@@ -41,7 +55,7 @@ For the dev stack:
 ```bash
 make workflow-eval-dev \
   EVAL_UID=<USER_OR_EVAL_TENANT_UID> \
-  CASE=internal/evals/cases/legal_pro_public_contracts.example.json \
+  CASE=internal/evals/cases/legal_pro_public_contracts_v2_regression.example.json \
   MODE=smoke \
   MARKDOWN=1
 ```
@@ -51,7 +65,7 @@ For the base Compose stack:
 ```bash
 make workflow-eval \
   EVAL_UID=<USER_OR_EVAL_TENANT_UID> \
-  CASE=internal/evals/cases/legal_pro_public_contracts.example.json \
+  CASE=internal/evals/cases/legal_pro_public_contracts_v2_regression.example.json \
   MODE=smoke \
   MARKDOWN=1
 ```
@@ -61,10 +75,10 @@ To compare against a previous run:
 ```bash
 make workflow-eval-dev \
   EVAL_UID=<USER_OR_EVAL_TENANT_UID> \
-  CASE=internal/evals/cases/legal_pro_public_contracts.example.json \
+  CASE=internal/evals/cases/legal_pro_public_contracts_v2_regression.example.json \
   MODE=smoke \
   MARKDOWN=1 \
-  COMPARE_TO=internal/evals/results/legal_pro_public_contracts_v1__20260429T120000Z.json
+  COMPARE_TO=internal/evals/results/legal_pro_public_contracts_v2_regression__20260501T120000Z.json
 ```
 
 The Make targets run the command in the `api` container with `PYTHONPATH=/app`.
@@ -76,7 +90,7 @@ From the `backend/` directory:
 ```bash
 python -m internal.evals.runner \
   --uid <USER_OR_EVAL_TENANT_UID> \
-  --case internal/evals/cases/legal_pro_public_contracts.example.json \
+  --case internal/evals/cases/legal_pro_public_contracts_v2_regression.example.json \
   --out internal/evals/results \
   --mode smoke \
   --markdown
@@ -85,13 +99,13 @@ python -m internal.evals.runner \
 The command writes a JSON file like:
 
 ```text
-backend/internal/evals/results/legal_pro_public_contracts_v1__20260429T120000Z.json
+backend/internal/evals/results/legal_pro_public_contracts_v2_regression__20260501T120000Z.json
 ```
 
 With `--markdown`, it also writes a readable bundle:
 
 ```text
-backend/internal/evals/results/legal_pro_public_contracts_v1__20260429T120000Z/
+backend/internal/evals/results/legal_pro_public_contracts_v2_regression__20260501T120000Z/
   summary.md
   01-legal_contract_review.md
   02-legal_contract_risk_matrix.md
