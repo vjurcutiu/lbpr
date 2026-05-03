@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from core.pii import detokenize_text
-from core.tokenizer import count_tokens
 from features.files import service as files_service
 from features.files.schemas import FileItem
 from urllib.parse import unquote
@@ -16,7 +15,7 @@ from features.rag import chunk_store
 from features.rag.context_agent import build_context_bundle
 
 from .domain_packs import get_domain_workflow_spec
-from .legal_analysis import build_fact_map_source, normalize_contract_text
+from .legal_clause_map import build_clause_map_source, normalize_contract_text
 from .models import WorkflowSourceFile
 
 log = logging.getLogger("workflows.toolkit")
@@ -74,7 +73,7 @@ _MAX_COVERAGE_CHARS_PER_FILE = 8000
 _MAX_RETRIEVED_SOURCES = 4
 _MAX_TOTAL_SOURCES = 12
 _RETRIEVAL_K = 8
-_DEFAULT_FULL_CONTRACT_MAX_TOKENS = 320_000
+_DEFAULT_FULL_CONTRACT_MAX_TOKENS = 0
 _MIN_FULL_CONTRACT_CHARS = 1_000
 
 _BROAD_FOCUS_WORDS = {
@@ -410,12 +409,12 @@ def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str,
 
 def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: str = "") -> tuple[list[WorkflowSourceFile], dict[str, Any]]:
     coverage_sources: list[WorkflowSourceFile] = []
-    fact_map_sources: list[WorkflowSourceFile] = []
+    clause_map_sources: list[WorkflowSourceFile] = []
     skipped_files: list[str] = []
     artifacts_used = 0
     chunks_seen = 0
     full_contract_sources = 0
-    fact_maps_created = 0
+    clause_maps_created = 0
     legal_workflow = _is_legal_workflow(workflow_id)
     full_contract_max_tokens = _full_contract_max_tokens()
 
@@ -436,48 +435,52 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         full_text_chars = int(materialized.get("full_text_chars") or len(full_text))
         display_name = file_item.original_name or file_item.name or file_item.id
 
-        # Legal Pro workflows need completeness. Build a deterministic full-text
-        # contract fact map for every legal source, then include the full contract
-        # text when it fits the configured model context budget.
-        if legal_workflow and full_text:
+        # Legal Pro workflows need completeness. Build a persisted full stored-
+        # chunk clause map for every legal source. The map is compact evidence
+        # control, not a customer-facing source and not the full contract.
+        if legal_workflow and raw_chunks:
             try:
-                fact_map_sources.append(
-                    build_fact_map_source(
+                stored_chunks = chunk_store.chunks_from_payload(materialized)
+                clause_map_sources.append(
+                    build_clause_map_source(
+                        uid=uid,
                         file_id=file_item.id,
                         name=display_name,
                         folder_path=file_item.folder_path,
                         content_type=file_item.content_type,
-                        full_text=full_text,
+                        chunks=stored_chunks,
                         workflow_id=workflow_id,
+                        store=not _is_eval_fixture_file_id(file_item.id),
                     )
                 )
-                fact_maps_created += 1
+                clause_maps_created += 1
             except Exception:
-                log.warning("workflow_contract_fact_map_failed", uid=uid, file_id=file_item.id, workflow_id=workflow_id, exc_info=True)
+                log.warning("workflow_contract_clause_map_failed", uid=uid, file_id=file_item.id, workflow_id=workflow_id, exc_info=True)
 
-            token_estimate = count_tokens(full_text)
-            if (
-                full_contract_max_tokens > 0
-                and token_estimate <= full_contract_max_tokens
-                and len(full_text) >= _MIN_FULL_CONTRACT_CHARS
-            ):
-                coverage_sources.append(
-                    WorkflowSourceFile(
-                        file_id=file_item.id,
-                        name=display_name,
-                        folder_path=file_item.folder_path,
-                        content_type=file_item.content_type,
-                        excerpt=full_text,
-                        full_text_chars=full_text_chars,
-                        excerpt_chars=len(full_text),
-                        truncated=False,
-                        source_kind="full_contract",
-                        chunk_ids=chunk_ids,
-                        chunk_count=len(raw_chunks),
+            if full_contract_max_tokens > 0 and full_text and len(full_text) >= _MIN_FULL_CONTRACT_CHARS:
+                try:
+                    from core.tokenizer import count_tokens
+                    token_estimate = count_tokens(full_text)
+                except Exception:
+                    token_estimate = len(full_text) // 4
+                if token_estimate <= full_contract_max_tokens:
+                    coverage_sources.append(
+                        WorkflowSourceFile(
+                            file_id=file_item.id,
+                            name=display_name,
+                            folder_path=file_item.folder_path,
+                            content_type=file_item.content_type,
+                            excerpt=full_text,
+                            full_text_chars=full_text_chars,
+                            excerpt_chars=len(full_text),
+                            truncated=False,
+                            source_kind="full_contract",
+                            chunk_ids=chunk_ids,
+                            chunk_count=len(raw_chunks),
+                        )
                     )
-                )
-                full_contract_sources += 1
-                continue
+                    full_contract_sources += 1
+                    continue
 
         grouped = _group_chunks(raw_chunks)
         group_summaries = [
@@ -516,22 +519,22 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
 
     # Put customer-visible source text before hidden fact-map support records so
     # final Sources used renders the selected contract, not the internal fact map.
-    sources = [*coverage_sources, *fact_map_sources, *retrieved_sources]
+    sources = [*coverage_sources, *clause_map_sources, *retrieved_sources]
     if len(sources) > _MAX_TOTAL_SOURCES:
         # Preserve fact maps for legal workflows even when there are many sources.
-        if fact_map_sources:
-            source_limit = max(0, _MAX_TOTAL_SOURCES - len(fact_map_sources))
-            sources = [*coverage_sources[:source_limit], *fact_map_sources]
+        if clause_map_sources:
+            source_limit = max(0, _MAX_TOTAL_SOURCES - len(clause_map_sources))
+            sources = [*coverage_sources[:source_limit], *clause_map_sources]
         else:
             sources = sources[:_MAX_TOTAL_SOURCES]
 
     strategy = "coverage"
-    if full_contract_sources and fact_map_sources:
-        strategy = "full_contract_plus_fact_map"
-    elif fact_map_sources and coverage_sources:
-        strategy = "coverage_plus_fact_map"
-    elif fact_map_sources:
-        strategy = "fact_map"
+    if full_contract_sources and clause_map_sources:
+        strategy = "full_contract_plus_clause_map"
+    elif clause_map_sources and coverage_sources:
+        strategy = "coverage_plus_clause_map"
+    elif clause_map_sources:
+        strategy = "clause_map"
     if retrieved_sources:
         strategy = f"{strategy}_plus_targeted_rag"
 
@@ -539,7 +542,7 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         "source_strategy": strategy,
         "coverage_source_files": len([source for source in coverage_sources if source.source_kind == "coverage"]),
         "full_contract_source_files": full_contract_sources,
-        "contract_fact_map_files": fact_maps_created,
+        "contract_clause_map_files": clause_maps_created,
         "retrieved_source_files": len(retrieved_sources),
         "chunk_artifacts_used": artifacts_used,
         "chunks_seen": chunks_seen,
@@ -548,7 +551,7 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         **adaptive_context_stats,
         "warnings": [
             "Legal workflow used full-contract source text where it fit the configured context budget." if full_contract_sources else "",
-            "Legal workflow used a full-text contract fact map for clause coverage." if fact_map_sources else "",
+            "Legal workflow used a full stored-chunk clause map for clause coverage." if clause_map_sources else "",
             "Workflow sources use condensed chunk coverage for source text that exceeds the full-contract budget." if coverage_sources and not full_contract_sources else "",
             "Targeted retrieval was added for workflow-specific evidence." if retrieved_sources else "",
         ],

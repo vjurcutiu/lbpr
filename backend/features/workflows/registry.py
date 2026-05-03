@@ -102,10 +102,10 @@ def _unique_customer_source_files(sources: list[WorkflowSourceFile]) -> list[Wor
         # Targeted retrieval can add one or more records for the same selected
         # file. Prefer the coverage/original record so the user sees the file
         # once, not every retrieved chunk.
-        if existing.source_kind == "contract_fact_map" and source.source_kind != "contract_fact_map":
+        if existing.source_kind in {"contract_fact_map", "contract_clause_map"} and source.source_kind not in {"contract_fact_map", "contract_clause_map"}:
             by_key[key] = source
             continue
-        if source.source_kind == "contract_fact_map":
+        if source.source_kind in {"contract_fact_map", "contract_clause_map"}:
             continue
         if existing.source_kind == "retrieved" and source.source_kind != "retrieved":
             by_key[key] = source
@@ -2176,10 +2176,10 @@ def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile])
     legal_context = _legal_context_for_prompt(legal_profile) if legal_profile else ""
     legal_coverage = build_legal_coverage_metadata(sources) if is_legal else {}
     legal_coverage_instruction = (
-        " Full-contract fact-map coverage is available; use it to avoid false missing-clause findings. "
-        "When the fact map marks a clause family as found, discuss it or leave it out only if irrelevant; do not call it missing. "
-        "Only call a protection missing when coverage_status supports not_found_after_full_text_scan. "
-        if is_legal and legal_coverage.get("coverage_status") == "full_contract_fact_map"
+        " Full stored-chunk clause-map coverage is available; use it to avoid false missing-clause findings. "
+        "When the clause map marks a clause family as found, discuss it or leave it out only if irrelevant; do not call it missing. "
+        "Only call a protection missing when the clause map status supports not_found_after_full_chunk_scan; use \"not found in reviewed material\" for excerpt-only coverage. "
+        if is_legal and legal_coverage.get("coverage_status") in {"full_chunk_scan", "full_contract_fact_map"}
         else ""
     )
     result = _llm_result(
@@ -2221,7 +2221,7 @@ def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile])
             metadata["factual_warnings"] = factual_issues
             metadata.setdefault("warnings", [])
             if isinstance(metadata["warnings"], list):
-                metadata["warnings"].append("Output was checked against the full-contract fact map; review factual_warnings before relying on missing-clause statements.")
+                metadata["warnings"].append("Output was checked against the full stored-chunk clause map; review factual_warnings before relying on missing-clause statements.")
     result.metadata = metadata
     return result
 
