@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
 from pathlib import Path
-from collections import Counter, defaultdict
 from typing import Any
 
-from core.pii import detokenize_text, tokenize_text
+from core.pii import detokenize_text
 from core.tokenizer import count_tokens
 from features.files import service as files_service
 from features.files.schemas import FileItem
 from urllib.parse import unquote
-from features.rag.chunker import simple_word_chunker
-from features.rag.orchestrator import query_request
-from features.rag.schemas import QueryRequest
+from features.rag import chunk_store
+from features.rag.context_agent import build_context_bundle
 
 from .domain_packs import get_domain_workflow_spec
 from .legal_analysis import build_fact_map_source, normalize_contract_text
@@ -69,9 +66,9 @@ def _eval_fixture_path_from_file_id(file_id: str) -> Path | None:
 def _is_eval_fixture_file_id(file_id: str) -> bool:
     return _eval_fixture_path_from_file_id(file_id) is not None
 
-_ARTIFACT_VERSION = 1
-_ARTIFACT_NAME = "workflow_chunks.v1.json"
-_MAX_ARTIFACT_BYTES = 800_000
+_ARTIFACT_VERSION = chunk_store.ARTIFACT_VERSION
+_ARTIFACT_NAME = chunk_store.LEGACY_ARTIFACT_NAME
+_MAX_ARTIFACT_BYTES = chunk_store.DEFAULT_MAX_ARTIFACT_BYTES
 _MAX_GROUP_CHARS = 2400
 _MAX_COVERAGE_CHARS_PER_FILE = 8000
 _MAX_RETRIEVED_SOURCES = 4
@@ -125,25 +122,15 @@ def _is_legal_workflow(workflow_id: str) -> bool:
     spec = get_domain_workflow_spec(workflow_id)
     return bool(spec is not None and spec.pack_id == "legal")
 def _normalize_text(text: str) -> str:
-    text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    text = re.sub(r"[ \t]+", " ", text)
-    return text.strip()
+    return chunk_store.normalize_text(text)
 
 
 def chunk_artifact_path(file_id: str) -> str:
-    base = str(file_id or "").rsplit("/", 1)[0]
-    return f"{base}/{_ARTIFACT_NAME}" if base else _ARTIFACT_NAME
+    return chunk_store.legacy_artifact_path(file_id)
 
 
 def delete_chunk_artifact(uid: str, file_id: str) -> None:
-    try:
-        files_service._assert_user_owns(uid, file_id)  # type: ignore[attr-defined]
-        blob = files_service._bucket().blob(chunk_artifact_path(file_id))  # type: ignore[attr-defined]
-        if blob.exists():
-            blob.delete()
-    except Exception:
-        log.debug("workflow_chunk_artifact_delete_failed", uid=uid, file_id=file_id, exc_info=True)
+    chunk_store.delete_chunk_artifact(uid, file_id)
 
 
 def persist_chunk_artifact(
@@ -155,60 +142,21 @@ def persist_chunk_artifact(
     folder_path: str | None,
     content_type: str | None,
 ) -> dict[str, Any] | None:
-    normalized = _normalize_text(text)
-    if not normalized:
-        return None
-    chunks = simple_word_chunker(normalized)
-    if not chunks:
-        return None
-    payload = {
-        "version": _ARTIFACT_VERSION,
-        "file_id": file_id,
-        "name": name,
-        "folder_path": folder_path or None,
-        "content_type": content_type or None,
-        "full_text_chars": len(normalized),
-        "chunks": [
-            {
-                "chunk_id": chunk.get("chunk_id") or f"ch_{idx}",
-                "text": chunk.get("text") or "",
-                "span": chunk.get("span") or {},
-            }
-            for idx, chunk in enumerate(chunks)
-            if str(chunk.get("text") or "").strip()
-        ],
-    }
-    encoded = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    if len(encoded) > _MAX_ARTIFACT_BYTES:
-        log.info("workflow_chunk_artifact_skip_large", uid=uid, file_id=file_id, size=len(encoded))
-        return payload
-    if _is_eval_fixture_file_id(file_id):
-        return payload
-    try:
-        files_service._assert_user_owns(uid, file_id)  # type: ignore[attr-defined]
-        blob = files_service._bucket().blob(chunk_artifact_path(file_id))  # type: ignore[attr-defined]
-        blob.upload_from_string(encoded, content_type="application/json")
-    except Exception:
-        log.warning("workflow_chunk_artifact_store_failed", uid=uid, file_id=file_id, exc_info=True)
-    return payload
+    return chunk_store.persist_chunk_artifact(
+        uid,
+        file_id=file_id,
+        text=text,
+        name=name,
+        folder_path=folder_path,
+        content_type=content_type,
+        store=not _is_eval_fixture_file_id(file_id),
+    )
 
 
 def _load_chunk_artifact(uid: str, file_item: FileItem) -> dict[str, Any] | None:
     if _is_eval_fixture_file_id(file_item.id):
         return None
-    try:
-        files_service._assert_user_owns(uid, file_item.id)  # type: ignore[attr-defined]
-        blob = files_service._bucket().blob(chunk_artifact_path(file_item.id))  # type: ignore[attr-defined]
-        if not blob.exists():
-            return None
-        raw = blob.download_as_bytes()
-        payload = json.loads(raw.decode("utf-8"))
-        if not isinstance(payload, dict):
-            return None
-        return payload
-    except Exception:
-        log.debug("workflow_chunk_artifact_load_failed", uid=uid, file_id=file_item.id, exc_info=True)
-        return None
+    return chunk_store.load_chunk_artifact(uid, file_item)
 
 
 def _extract_text_on_demand(uid: str, file_item: FileItem) -> str | None:
@@ -397,75 +345,67 @@ def _dataset_for_file(uid: str, file_item: FileItem) -> str:
     return dataset or "default"
 
 
-def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str, focus: str) -> list[WorkflowSourceFile]:
+def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str, focus: str) -> tuple[list[WorkflowSourceFile], dict[str, Any]]:
     if not files:
-        return []
+        return [], {}
     query = _default_query(workflow_id, focus)
-    tokenized_query = tokenize_text(uid, query)
-    files_by_dataset: dict[str, list[FileItem]] = defaultdict(list)
-    for file_item in files:
-        files_by_dataset[_dataset_for_file(uid, file_item)].append(file_item)
+    profile = "legal" if _is_legal_workflow(workflow_id) else "workflow"
+    try:
+        bundle = build_context_bundle(uid=uid, files=files, query=query, profile=profile)
+    except Exception:
+        log.warning("workflow_adaptive_context_failed", uid=uid, workflow_id=workflow_id, exc_info=True)
+        return [], {}
 
-    gathered: list[tuple[float, WorkflowSourceFile]] = []
-    for dataset, dataset_files in files_by_dataset.items():
-        try:
-            resp = query_request(
-                QueryRequest(
-                    dataset=dataset,
-                    query=tokenized_query,
-                    k=_RETRIEVAL_K,
-                    with_sources=True,
-                    per_doc=False,
-                    doc_ids=[item.id for item in dataset_files],
-                ),
-                uid=uid,
-            )
-        except Exception:
-            log.warning("workflow_targeted_rag_failed", uid=uid, dataset=dataset, workflow_id=workflow_id, exc_info=True)
+    sources: list[WorkflowSourceFile] = []
+    for idx, chunk in enumerate(bundle.chunks):
+        meta = _detokenize_metadata(uid, chunk.metadata or {})
+        display_name = str(meta.get("display_name") or meta.get("filename") or chunk.file_id)
+        label = display_name.split("/")[-1] if "/" in display_name else display_name
+        suffix = "retrieved evidence" if chunk.source == "retrieved" else "context"
+        text = _normalize_text(detokenize_text(uid, str(chunk.text or "")))
+        if not text:
             continue
-        name_by_id = {item.id: item.original_name or item.name or item.id for item in dataset_files}
-        folder_by_id = {item.id: item.folder_path for item in dataset_files}
-        ctype_by_id = {item.id: item.content_type for item in dataset_files}
-        for source in resp.sources or []:
-            meta = _detokenize_metadata(uid, source.metadata or {})
-            file_id = str(meta.get("file_id") or source.doc_id or "")
-            display_name = str(meta.get("display_name") or meta.get("filename") or name_by_id.get(file_id) or file_id)
-            text = detokenize_text(uid, str(source.text or ""))
-            text = _normalize_text(text)
-            if not file_id or not text:
-                continue
-            score = float(source.score or 0.0)
-            label = display_name.split("/")[-1] if "/" in display_name else display_name
-            gathered.append(
-                (
-                    score,
-                    WorkflowSourceFile(
-                        file_id=file_id,
-                        name=f"{label} — retrieved evidence",
-                        folder_path=str(meta.get("folder_path") or folder_by_id.get(file_id) or "") or None,
-                        content_type=str(meta.get("content_type") or ctype_by_id.get(file_id) or "") or None,
-                        excerpt=text,
-                        full_text_chars=len(text),
-                        excerpt_chars=len(text),
-                        truncated=False,
-                        source_kind="retrieved",
-                        chunk_ids=[str(source.chunk_id or "")] if getattr(source, "chunk_id", None) else [],
-                        chunk_count=1,
-                    ),
-                )
+        sources.append(
+            WorkflowSourceFile(
+                file_id=chunk.file_id,
+                name=f"{label} — {suffix}",
+                folder_path=str(meta.get("folder_path") or "") or None,
+                content_type=str(meta.get("content_type") or "") or None,
+                excerpt=text,
+                full_text_chars=len(text),
+                excerpt_chars=len(text),
+                truncated=False,
+                source_kind="retrieved",
+                chunk_ids=[chunk.chunk_id] if chunk.chunk_id else [],
+                chunk_count=1,
             )
-    gathered.sort(key=lambda item: item[0], reverse=True)
-    deduped: list[WorkflowSourceFile] = []
-    seen: set[tuple[str, tuple[str, ...]]] = set()
-    for _, source in gathered:
-        key = (source.file_id, tuple(source.chunk_ids or []))
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(source)
-        if len(deduped) >= _MAX_RETRIEVED_SOURCES:
+        )
+        if len(sources) >= _MAX_RETRIEVED_SOURCES:
             break
-    return deduped
+
+    trace = [
+        {
+            "step": step.step,
+            "type": step.type,
+            "query": step.query,
+            "reason": step.reason,
+            "chunk_ids": step.chunk_ids,
+            "chunks_added": step.chunks_added,
+        }
+        for step in bundle.retrieval_trace
+    ]
+    stats = {
+        "adaptive_context": {
+            "profile": bundle.profile,
+            "sufficient": bundle.sufficient,
+            "selected_chunks": len(bundle.chunks),
+            "returned_sources": len(sources),
+            "coverage_notes": bundle.coverage_notes,
+            "missing_context": bundle.missing_context,
+            "retrieval_trace": trace,
+        }
+    }
+    return sources, stats
 
 
 def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: str = "") -> tuple[list[WorkflowSourceFile], dict[str, Any]]:
@@ -565,11 +505,14 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         )
 
     retrieved_sources: list[WorkflowSourceFile] = []
+    adaptive_context_stats: dict[str, Any] = {}
     if coverage_sources:
         should_retrieve = get_domain_workflow_spec(workflow_id) is not None or not _looks_broad_focus(focus) or workflow_id in {"create_action_plan", "extract_information", "compare_documents"}
         retrieval_files = [item for item in files if not _is_eval_fixture_file_id(item.id)]
         if should_retrieve and retrieval_files:
-            retrieved_sources = _retrieve_focus_chunks(uid, retrieval_files, workflow_id=workflow_id, focus=focus)
+            retrieved_sources, adaptive_context_stats = _retrieve_focus_chunks(uid, retrieval_files, workflow_id=workflow_id, focus=focus)
+        else:
+            adaptive_context_stats = {}
 
     # Put customer-visible source text before hidden fact-map support records so
     # final Sources used renders the selected contract, not the internal fact map.
@@ -602,6 +545,7 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         "chunks_seen": chunks_seen,
         "skipped_source_files": skipped_files,
         "max_full_contract_tokens": full_contract_max_tokens,
+        **adaptive_context_stats,
         "warnings": [
             "Legal workflow used full-contract source text where it fit the configured context budget." if full_contract_sources else "",
             "Legal workflow used a full-text contract fact map for clause coverage." if fact_map_sources else "",
