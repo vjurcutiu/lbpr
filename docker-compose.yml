@@ -64,7 +64,11 @@ services:
     networks: [appnet]
     volumes:
       - ./backend/lexbot-pro-firebase-adminsdk-fbsvc-40d434171d.json:/run/secrets/firebase_sa.json:ro
-      - ./backend/internal/evals:/app/internal/evals
+      # Do not bind-mount the whole internal eval package in prod-style stacks.
+      # The image owns the Python code; only mutable runtime artifacts live on the host.
+      - ./backend/internal/evals/jobs:/app/internal/evals/jobs
+      - ./backend/internal/evals/results:/app/internal/evals/results
+      - ./backend/internal/evals/reviews:/app/internal/evals/reviews
 
 networks:
   appnet:

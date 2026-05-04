@@ -27,6 +27,10 @@ echo "[deploy] API_TAG=$API_TAG"
 echo "[deploy] SPA_TAG=$SPA_TAG"
 echo "[deploy] SITE_TAG=$SITE_TAG"
 
+# Ensure host artifact directories exist for the narrow eval bind mounts.
+# The API image still owns /app/internal/evals Python modules.
+mkdir -p backend/internal/evals/jobs backend/internal/evals/results backend/internal/evals/reviews
+
 extract_static_assets() {
   local image_ref="$1"
   local container_name="$2"
