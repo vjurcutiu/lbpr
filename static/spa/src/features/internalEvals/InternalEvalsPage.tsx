@@ -541,17 +541,17 @@ export default function InternalEvalsPage() {
   }
 
   return (
-    <div className="h-full min-h-0 bg-background text-foreground overflow-hidden">
-      <div className="grid h-full min-h-0 grid-cols-[360px_minmax(0,1fr)] gap-0">
-        <aside className="min-h-0 border-r bg-muted/20 overflow-hidden">
-          <ScrollArea className="h-full">
-            <div className="space-y-4 p-4">
-              <div className="space-y-3">
+    <div className="h-full min-h-0 min-w-0 overflow-hidden bg-background text-foreground">
+      <div className="grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,360px)_minmax(0,1fr)] gap-0">
+        <aside className="min-h-0 min-w-0 border-r bg-muted/20 overflow-hidden">
+          <ScrollArea className="h-full min-w-0 overflow-hidden [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:min-w-0 [&_[data-slot=scroll-area-viewport]>div]:w-full">
+            <div className="w-full min-w-0 max-w-full space-y-4 p-4">
+              <div className="min-w-0 space-y-3">
                 <div>
                   <h1 className="text-xl font-semibold tracking-tight">Internal evals</h1>
                   <p className="text-sm text-muted-foreground">Run, compare, and review agent turns and workflow outputs.</p>
                 </div>
-                <div className="grid grid-cols-2 rounded-lg border bg-background p-1 text-sm">
+                <div className="grid min-w-0 grid-cols-2 rounded-lg border bg-background p-1 text-sm">
                   <button
                     type="button"
                     onClick={() => {
@@ -575,12 +575,12 @@ export default function InternalEvalsPage() {
                 </div>
               </div>
 
-              <Card>
+              <Card className="min-w-0 overflow-hidden">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">New run</CardTitle>
                   <CardDescription>Use a saved case with local fixture paths or uploaded app documents.</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-3">
+                <CardContent className="min-w-0 space-y-3">
                   <input
                     ref={filePickerRef}
                     type="file"
@@ -602,10 +602,10 @@ export default function InternalEvalsPage() {
                     }}
                   />
 
-                  <label className="block space-y-1 text-sm">
+                  <label className="block min-w-0 space-y-1 text-sm">
                     <span className="font-medium">Case</span>
                     <select
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                      className="h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
                       value={launcher.case_path}
                       onChange={(event) => setLauncher((prev) => ({ ...prev, case_path: event.target.value }))}
                     >
@@ -613,28 +613,28 @@ export default function InternalEvalsPage() {
                       {cases.map((item) => <option key={item.path} value={item.path}>{item.eval_id || item.path}</option>)}
                     </select>
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="block space-y-1 text-sm">
+                  <div className="grid min-w-0 grid-cols-2 gap-2">
+                    <label className="block min-w-0 space-y-1 text-sm">
                       <span className="font-medium">Mode</span>
                       <Input value={launcher.mode} onChange={(event) => setLauncher((prev) => ({ ...prev, mode: event.target.value }))} />
                     </label>
-                    <label className="block space-y-1 text-sm">
+                    <label className="block min-w-0 space-y-1 text-sm">
                       <span className="font-medium">Eval UID</span>
                       <Input placeholder="current user" value={launcher.uid} onChange={(event) => setLauncher((prev) => ({ ...prev, uid: event.target.value }))} />
                     </label>
                   </div>
-                  <label className="block space-y-1 text-sm">
+                  <label className="block min-w-0 space-y-1 text-sm">
                     <span className="font-medium">Prompt version</span>
                     <Input placeholder="legal-negotiation-v4" value={launcher.prompt_version} onChange={(event) => setLauncher((prev) => ({ ...prev, prompt_version: event.target.value }))} />
                   </label>
-                  <label className="block space-y-1 text-sm">
+                  <label className="block min-w-0 space-y-1 text-sm">
                     <span className="font-medium">Workflow version</span>
                     <Input placeholder="legal-workflows-v2" value={launcher.workflow_version} onChange={(event) => setLauncher((prev) => ({ ...prev, workflow_version: event.target.value }))} />
                   </label>
-                  <label className="block space-y-1 text-sm">
+                  <label className="block min-w-0 space-y-1 text-sm">
                     <span className="font-medium">Compare to</span>
                     <select
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                      className="h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
                       value={launcher.compare_to}
                       onChange={(event) => setLauncher((prev) => ({ ...prev, compare_to: event.target.value }))}
                     >
@@ -642,10 +642,10 @@ export default function InternalEvalsPage() {
                       {results.map((item) => <option key={item.id} value={item.id}>{item.eval_id} · {fmtDate(item.created_at)}</option>)}
                     </select>
                   </label>
-                  <div className="space-y-2 rounded-lg border bg-background p-3 text-sm">
+                  <div className="min-w-0 space-y-2 rounded-lg border bg-background p-3 text-sm">
                     <div>
                       <div className="font-medium">Document source</div>
-                      <div className="mt-2 grid grid-cols-2 rounded-lg border bg-muted/40 p-1 text-sm">
+                      <div className="mt-2 grid min-w-0 grid-cols-2 rounded-lg border bg-muted/40 p-1 text-sm">
                         <button
                           type="button"
                           onClick={() => setLauncher((prev) => ({ ...prev, document_source: "local" }))}
@@ -665,15 +665,15 @@ export default function InternalEvalsPage() {
                   </div>
 
                   {launcher.document_source === "local" ? (
-                    <div className="space-y-2 rounded-lg border bg-background p-3 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
+                    <div className="min-w-0 space-y-2 rounded-lg border bg-background p-3 text-sm">
+                      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
                           <div className="font-medium">Document manifest</div>
                           <div className="text-xs text-muted-foreground">
                             {manifestPaths.length ? `${manifestPaths.length} selected path${manifestPaths.length === 1 ? "" : "s"}` : "Browse files or folders to fill paths; matching uploaded files or bundled eval fixtures will be used."}
                           </div>
                         </div>
-                        <div className="flex shrink-0 gap-2">
+                        <div className="flex shrink-0 flex-wrap gap-2">
                           <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => filePickerRef.current?.click()}>
                             <FileSearch className="h-3.5 w-3.5" /> Files
                           </Button>
@@ -693,28 +693,31 @@ export default function InternalEvalsPage() {
                         </div>
                       </div>
                       <Textarea
+                        className="min-w-0"
                         rows={5}
                         value={launcher.manifest_paths}
                         placeholder={"contracts/nda/example.txt\ncontracts/msa_saas/example.txt"}
                         onChange={(event) => setLauncher((prev) => ({ ...prev, manifest_paths: event.target.value }))}
                       />
-                      <div className="space-y-2 text-xs text-muted-foreground">
-                        {manifestFolderPaths.length ? <div>Folders inferred for selection: {manifestFolderPaths.slice(0, 3).join(", ")}{manifestFolderPaths.length > 3 ? ` +${manifestFolderPaths.length - 3} more` : ""}</div> : null}
-                        <label className="flex items-center gap-2">
+                      <div className="min-w-0 space-y-2 text-xs text-muted-foreground">
+                        {manifestFolderPaths.length ? <div className="break-words">Folders inferred for selection: {manifestFolderPaths.slice(0, 3).join(", ")}{manifestFolderPaths.length > 3 ? ` +${manifestFolderPaths.length - 3} more` : ""}</div> : null}
+                        <label className="flex min-w-0 items-start gap-2">
                           <input
                             type="checkbox"
+                            className="shrink-0"
                             checked={launcher.apply_selection_to_workflows}
                             onChange={(event) => setLauncher((prev) => ({ ...prev, apply_selection_to_workflows: event.target.checked }))}
                           />
-                          <span>Apply this manifest to every workflow in the case</span>
+                          <span className="min-w-0 break-words">Apply this manifest to every workflow in the case</span>
                         </label>
-                        <label className="flex items-center gap-2">
+                        <label className="flex min-w-0 items-start gap-2">
                           <input
                             type="checkbox"
+                            className="shrink-0"
                             checked={launcher.remember_manifest_paths}
                             onChange={(event) => setLauncher((prev) => ({ ...prev, remember_manifest_paths: event.target.checked }))}
                           />
-                          <span>Remember these paths in this browser</span>
+                          <span className="min-w-0 break-words">Remember these paths in this browser</span>
                         </label>
                         {manifestPaths.length ? (
                           <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => setLauncher((prev) => ({ ...prev, manifest_paths: "" }))}>
@@ -724,9 +727,9 @@ export default function InternalEvalsPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-3 rounded-lg border bg-background p-3 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
+                    <div className="min-w-0 space-y-3 rounded-lg border bg-background p-3 text-sm">
+                      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
                           <div className="font-medium">Uploaded documents</div>
                           <div className="text-xs text-muted-foreground">{appSelectionSummary}</div>
                         </div>
@@ -738,12 +741,12 @@ export default function InternalEvalsPage() {
                       {selectionOptionsLoading ? <div className="text-xs text-muted-foreground">Loading uploaded documents…</div> : null}
 
                       {selectionOptions?.folders?.length ? (
-                        <div className="space-y-2">
+                        <div className="min-w-0 space-y-2">
                           <div className="text-xs font-medium text-muted-foreground">Folders</div>
                           <div className="max-h-28 space-y-1 overflow-auto rounded-md border p-2">
                             {selectionOptions.folders.map((folder) => (
-                              <label key={folder.path} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted">
-                                <input type="checkbox" checked={launcher.app_folder_paths.includes(folder.path)} onChange={() => toggleAppFolder(folder.path)} />
+                              <label key={folder.path} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted">
+                                <input type="checkbox" className="shrink-0" checked={launcher.app_folder_paths.includes(folder.path)} onChange={() => toggleAppFolder(folder.path)} />
                                 <span className="min-w-0 flex-1 truncate">{folder.path}</span>
                                 <span className="text-xs text-muted-foreground">{folder.recursive_file_count || 0}</span>
                               </label>
@@ -752,15 +755,15 @@ export default function InternalEvalsPage() {
                         </div>
                       ) : null}
 
-                      <div className="space-y-2">
+                      <div className="min-w-0 space-y-2">
                         <div className="text-xs font-medium text-muted-foreground">Files</div>
                         <div className="max-h-44 space-y-1 overflow-auto rounded-md border p-2">
                           {selectionOptions?.files?.length ? selectionOptions.files.map((file) => {
                             const fileId = getFileField(file, "id");
                             if (!fileId) return null;
                             return (
-                              <label key={fileId} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted">
-                                <input type="checkbox" checked={launcher.app_file_ids.includes(fileId)} onChange={() => toggleAppFile(fileId)} />
+                              <label key={fileId} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted">
+                                <input type="checkbox" className="shrink-0" checked={launcher.app_file_ids.includes(fileId)} onChange={() => toggleAppFile(fileId)} />
                                 <span className="min-w-0 flex-1 truncate">{fileDisplayPath(file)}</span>
                               </label>
                             );
@@ -768,13 +771,14 @@ export default function InternalEvalsPage() {
                         </div>
                       </div>
 
-                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <label className="flex min-w-0 items-start gap-2 text-xs text-muted-foreground">
                         <input
                           type="checkbox"
+                          className="shrink-0"
                           checked={launcher.apply_selection_to_workflows}
                           onChange={(event) => setLauncher((prev) => ({ ...prev, apply_selection_to_workflows: event.target.checked }))}
                         />
-                        <span>Apply this app document selection to every workflow in the case</span>
+                        <span className="min-w-0 break-words">Apply this app document selection to every workflow in the case</span>
                       </label>
                       {launcher.app_file_ids.length || launcher.app_folder_paths.length ? (
                         <button type="button" className="text-xs text-primary underline-offset-4 hover:underline" onClick={() => setLauncher((prev) => ({ ...prev, app_file_ids: [], app_folder_paths: [] }))}>
@@ -783,9 +787,9 @@ export default function InternalEvalsPage() {
                       ) : null}
                     </div>
                   )}
-                  <label className="block space-y-1 text-sm">
+                  <label className="block min-w-0 space-y-1 text-sm">
                     <span className="font-medium">Notes</span>
-                    <Textarea rows={3} value={launcher.notes} onChange={(event) => setLauncher((prev) => ({ ...prev, notes: event.target.value }))} />
+                    <Textarea className="min-w-0" rows={3} value={launcher.notes} onChange={(event) => setLauncher((prev) => ({ ...prev, notes: event.target.value }))} />
                   </label>
                   <Button className="w-full gap-2" onClick={onRunEval} disabled={busy || jobIsActive || !launcher.case_path}>
                     <Play className="h-4 w-4" /> {jobIsActive ? "Eval running" : "Run eval"}
@@ -794,17 +798,17 @@ export default function InternalEvalsPage() {
               </Card>
 
               {job ? (
-                <Card>
+                <Card className="min-w-0 overflow-hidden">
                   <CardHeader className="pb-3">
-                    <CardTitle className="flex items-center justify-between gap-3 text-base">
-                      <span>Current eval run</span>
-                      {statusBadge(job.status)}
+                    <CardTitle className="flex min-w-0 items-center justify-between gap-3 text-base">
+                      <span className="min-w-0 truncate">Current eval run</span>
+                      <span className="shrink-0">{statusBadge(job.status)}</span>
                     </CardTitle>
                     <CardDescription className="break-all">{job.id}</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4 text-sm">
+                  <CardContent className="min-w-0 space-y-4 text-sm">
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
                         <span>{jobCompletedCount(job)}/{job.total_runs || 0} workflow runs finished</span>
                         <span>{jobProgressPercent(job)}%</span>
                       </div>
@@ -813,7 +817,7 @@ export default function InternalEvalsPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div className="grid min-w-0 grid-cols-3 gap-2 text-center text-xs">
                       <div className="rounded-lg border bg-background p-2">
                         <div className="font-semibold text-emerald-600">{job.completed_runs || 0}</div>
                         <div className="text-muted-foreground">completed</div>
@@ -828,35 +832,35 @@ export default function InternalEvalsPage() {
                       </div>
                     </div>
 
-                    <div className="space-y-1 rounded-lg border bg-background p-3">
-                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <div className="min-w-0 space-y-1 rounded-lg border bg-background p-3">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                         <span>Runtime {jobRuntime(job)}</span>
-                        <span>{job.validation_error_count || 0} validation errors · {job.validation_warning_count || 0} warnings</span>
+                        <span className="break-words">{job.validation_error_count || 0} validation errors · {job.validation_warning_count || 0} warnings</span>
                       </div>
                       {job.current_label ? (
                         <div className="mt-2 text-sm">
                           <span className="text-muted-foreground">Running now: </span>
-                          <span className="font-medium">{job.current_label}</span>
+                          <span className="font-medium break-words">{job.current_label}</span>
                         </div>
                       ) : null}
-                      {job.last_message ? <div className="mt-2 text-xs text-muted-foreground">{job.last_message}</div> : null}
+                      {job.last_message ? <div className="mt-2 break-words text-xs text-muted-foreground">{job.last_message}</div> : null}
                     </div>
 
                     {job.export_path ? (
-                      <div className="space-y-1">
+                      <div className="min-w-0 space-y-1">
                         <div className="text-xs font-medium">Export</div>
                         <div className="break-all rounded-md bg-muted p-2 text-xs text-muted-foreground">{job.export_path}</div>
                       </div>
                     ) : null}
 
-                    {job.error ? <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">{job.error}</div> : null}
+                    {job.error ? <div className="break-words rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">{job.error}</div> : null}
 
                     {job.messages?.length ? (
-                      <div className="space-y-2">
+                      <div className="min-w-0 space-y-2">
                         <div className="text-xs font-medium">Run messages</div>
                         <div className="max-h-56 space-y-2 overflow-auto pr-1">
                           {job.messages.slice().reverse().slice(0, 12).map((message, index) => (
-                            <div key={`${message.at}-${index}`} className={`rounded-md border p-2 text-xs ${jobMessageClass(message.level)}`}>
+                            <div key={`${message.at}-${index}`} className={`break-words rounded-md border p-2 text-xs ${jobMessageClass(message.level)}`}>
                               <div>{message.message}</div>
                               <div className="mt-1 opacity-70">{fmtDate(message.at)}</div>
                             </div>
@@ -869,22 +873,22 @@ export default function InternalEvalsPage() {
               ) : null}
 
               {jobs.length > 1 ? (
-                <Card>
+                <Card className="min-w-0 overflow-hidden">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">Recent jobs</CardTitle>
                     <CardDescription>Use this to reopen a running or recent eval job after refresh.</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-2">
+                  <CardContent className="min-w-0 space-y-2">
                     {jobs.slice(0, 5).map((item) => (
                       <button
                         key={item.id}
                         type="button"
                         onClick={() => setJob(item)}
-                        className={`w-full rounded-lg border p-2 text-left text-xs transition hover:bg-muted ${job?.id === item.id ? "border-primary bg-primary/5" : "bg-background"}`}
+                        className={`w-full min-w-0 overflow-hidden rounded-lg border p-2 text-left text-xs transition hover:bg-muted ${job?.id === item.id ? "border-primary bg-primary/5" : "bg-background"}`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate font-medium">{item.id}</span>
-                          {statusBadge(item.status)}
+                        <div className="flex min-w-0 items-center justify-between gap-2">
+                          <span className="min-w-0 flex-1 truncate font-medium">{item.id}</span>
+                          <span className="shrink-0">{statusBadge(item.status)}</span>
                         </div>
                         <div className="mt-1 text-muted-foreground">
                           {jobCompletedCount(item)}/{item.total_runs || 0} runs · {fmtDate(item.created_at)}
@@ -895,27 +899,27 @@ export default function InternalEvalsPage() {
                 </Card>
               ) : null}
 
-              <Card>
+              <Card className="min-w-0 overflow-hidden">
                 <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center justify-between text-base">
+                  <CardTitle className="flex min-w-0 items-center justify-between text-base">
                     <span>Results</span>
                     <Button variant="ghost" size="icon" onClick={() => refreshAll()}><RefreshCcw className="h-4 w-4" /></Button>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2">
+                <CardContent className="min-w-0 space-y-2">
                   {results.map((item) => (
                     <button
                       key={item.id}
                       type="button"
                       onClick={() => onSelectResult(item.id)}
-                      className={`w-full rounded-lg border p-3 text-left transition hover:bg-muted ${selectedResultId === item.id ? "border-primary bg-primary/5" : "bg-background"}`}
+                      className={`w-full min-w-0 overflow-hidden rounded-lg border p-3 text-left transition hover:bg-muted ${selectedResultId === item.id ? "border-primary bg-primary/5" : "bg-background"}`}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="truncate font-medium">{item.eval_id}</div>
-                        {item.failed_count ? <Badge variant="destructive">{item.failed_count} failed</Badge> : <Badge variant="outline">{item.completed_count}/{item.run_count}</Badge>}
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1 truncate font-medium">{item.eval_id}</div>
+                        <span className="shrink-0">{item.failed_count ? <Badge variant="destructive">{item.failed_count} failed</Badge> : <Badge variant="outline">{item.completed_count}/{item.run_count}</Badge>}</span>
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">{fmtDate(item.created_at)}</div>
-                      <div className="mt-2 flex gap-2 text-xs text-muted-foreground">
+                      <div className="mt-2 flex min-w-0 flex-wrap gap-2 text-xs text-muted-foreground">
                         <span>{item.validation_error_count} errors</span>
                         <span>{item.validation_warning_count} warnings</span>
                         {item.has_review ? <span>reviewed</span> : null}
@@ -928,20 +932,20 @@ export default function InternalEvalsPage() {
           </ScrollArea>
         </aside>
 
-        <main className="min-h-0 overflow-hidden">
+        <main className="min-h-0 min-w-0 overflow-hidden">
           {!result ? (
-            <div className="grid h-full place-items-center text-sm text-muted-foreground">Select or run an eval to review results.</div>
+            <div className="grid h-full min-w-0 place-items-center text-sm text-muted-foreground">Select or run an eval to review results.</div>
           ) : (
-            <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-              <header className="border-b p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
+            <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+              <header className="min-w-0 border-b p-4">
+                <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 basis-0">
+                    <div className="flex min-w-0 items-center gap-2">
                       <Activity className="h-5 w-5 text-primary" />
-                      <h2 className="text-xl font-semibold tracking-tight">{result.eval_id}</h2>
+                      <h2 className="min-w-0 break-words text-xl font-semibold tracking-tight">{result.eval_id}</h2>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">{result.description || "No description provided."}</p>
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                    <p className="mt-1 break-words text-sm text-muted-foreground">{result.description || "No description provided."}</p>
+                    <div className="mt-2 flex min-w-0 flex-wrap gap-2 text-xs text-muted-foreground">
                       <span>Created {fmtDate(result.created_at)}</span>
                       <span>Mode {result.mode}</span>
                       <span>Commit {result.app_git_commit || "unknown"}</span>
@@ -951,11 +955,11 @@ export default function InternalEvalsPage() {
                       <span>{totalAgentTurns} agent turns</span>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex min-w-0 shrink-0 flex-wrap justify-end gap-2">
                     <a href={evalResultDownloadUrl(selectedResultId)} target="_blank" rel="noreferrer">
                       <Button variant="outline" className="gap-2"><Download className="h-4 w-4" /> JSON</Button>
                     </a>
-                    <select className="h-10 rounded-md border bg-background px-3 text-sm" value={compareBaseline} onChange={(event) => setCompareBaseline(event.target.value)}>
+                    <select className="h-10 min-w-0 max-w-[280px] rounded-md border bg-background px-3 text-sm" value={compareBaseline} onChange={(event) => setCompareBaseline(event.target.value)}>
                       <option value="">Baseline</option>
                       {results.filter((item) => item.id !== selectedResultId).map((item) => <option key={item.id} value={item.id}>{item.eval_id} · {fmtDate(item.created_at)}</option>)}
                     </select>
@@ -965,11 +969,11 @@ export default function InternalEvalsPage() {
                 </div>
               </header>
 
-              <div className="grid h-full min-h-0 grid-cols-[300px_minmax(0,1fr)] overflow-hidden">
-                <ScrollArea className="h-full min-h-0 border-r">
-                  <div className="space-y-2 p-3">
+              <div className="grid h-full min-h-0 min-w-0 grid-cols-[minmax(0,300px)_minmax(0,1fr)] overflow-hidden">
+                <ScrollArea className="h-full min-h-0 min-w-0 overflow-hidden border-r [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:min-w-0 [&_[data-slot=scroll-area-viewport]>div]:w-full">
+                  <div className="w-full min-w-0 max-w-full space-y-2 p-3">
                     {evalView === "agent" ? (
-                      <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+                      <div className="min-w-0 break-words rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
                         Select an agent trace to inspect retrieval turns, context coverage, and grounding separately from workflow output review.
                       </div>
                     ) : null}
@@ -984,18 +988,18 @@ export default function InternalEvalsPage() {
                             if (evalView === "agent") setActiveAgentRunKey(key);
                             else setActiveWorkflowRunKey(key);
                           }}
-                          className={`w-full rounded-lg border p-3 text-left transition hover:bg-muted ${activeRunKey === key ? "border-primary bg-primary/5" : "bg-background"}`}
+                          className={`w-full min-w-0 overflow-hidden rounded-lg border p-3 text-left transition hover:bg-muted ${activeRunKey === key ? "border-primary bg-primary/5" : "bg-background"}`}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="truncate font-medium">{run.label || run.title || run.workflow_id}</div>
-                            {evalView === "agent" ? agentContextBadge(agentContext) : statusBadge(run.status)}
+                          <div className="flex min-w-0 items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1 truncate font-medium">{run.label || run.title || run.workflow_id}</div>
+                            <span className="shrink-0">{evalView === "agent" ? agentContextBadge(agentContext) : statusBadge(run.status)}</span>
                           </div>
-                          <div className="mt-1 text-xs text-muted-foreground">{run.workflow_id}</div>
+                          <div className="mt-1 truncate text-xs text-muted-foreground">{run.workflow_id}</div>
                           {evalView === "agent" ? (
-                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                            <div className="mt-2 flex min-w-0 flex-wrap gap-2 text-xs text-muted-foreground">
                               <span>{agentContext?.retrieval_trace?.length || 0} turns</span>
                               <span>{agentContext?.selected_chunks || 0} chunks</span>
-                              <span>{agentContext?.profile || "no profile"}</span>
+                              <span className="min-w-0 max-w-full truncate">{agentContext?.profile || "no profile"}</span>
                             </div>
                           ) : (
                             <div className="mt-2 text-xs">{validationSummary(run)}</div>
@@ -1010,7 +1014,7 @@ export default function InternalEvalsPage() {
                   </div>
                 </ScrollArea>
 
-                <ScrollArea className="h-full min-h-0">
+                <ScrollArea className="h-full min-h-0 min-w-0 overflow-hidden [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:min-w-0 [&_[data-slot=scroll-area-viewport]>div]:w-full">
                   {activeRun ? (
                     <RunReviewPanel
                       run={activeRun}
@@ -1037,7 +1041,7 @@ export default function InternalEvalsPage() {
 function EvalViewerEmptyState({ view, hasRuns }: { view: EvalView; hasRuns: boolean }) {
   if (view === "agent") {
     return (
-      <div className="grid h-full min-h-[420px] place-items-center p-6">
+      <div className="grid h-full min-w-0 min-h-[420px] place-items-center p-6">
         <Card className="max-w-lg border-dashed text-center">
           <CardHeader>
             <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-muted">
@@ -1056,7 +1060,7 @@ function EvalViewerEmptyState({ view, hasRuns }: { view: EvalView; hasRuns: bool
   }
 
   return (
-    <div className="grid h-full min-h-[420px] place-items-center p-6">
+    <div className="grid h-full min-w-0 min-h-[420px] place-items-center p-6">
       <Card className="max-w-lg border-dashed text-center">
         <CardHeader>
           <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-muted">
@@ -1100,16 +1104,16 @@ function RunReviewPanel({
     );
   }
   return (
-    <div className="space-y-4 p-4">
-      <Card>
+    <div className="w-full min-w-0 max-w-full space-y-4 overflow-hidden p-4">
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle>{run.label || run.title || run.workflow_id}</CardTitle>
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <CardTitle className="min-w-0 break-words">{run.label || run.title || run.workflow_id}</CardTitle>
             {statusBadge(run.status)}
           </div>
-          <CardDescription>{run.workflow_id} · {fmtMs(run.duration_ms)} · {run.sources?.length || 0} sources</CardDescription>
+          <CardDescription className="break-words">{run.workflow_id} · {fmtMs(run.duration_ms)} · {run.sources?.length || 0} sources</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 text-sm md:grid-cols-2">
+        <CardContent className="grid min-w-0 gap-3 text-sm md:grid-cols-2">
           <div><span className="font-medium">Prompt version:</span> {run.prompt_version || "not set"}</div>
           <div><span className="font-medium">Workflow version:</span> {run.workflow_version || "not set"}</div>
           <div className="truncate"><span className="font-medium">Output:</span> {run.output_fingerprint?.slice(0, 16) || "—"}</div>
@@ -1118,22 +1122,22 @@ function RunReviewPanel({
       </Card>
 
       {run.error ? (
-        <Card className="border-destructive/40">
+        <Card className="min-w-0 overflow-hidden border-destructive/40">
           <CardHeader><CardTitle className="text-base text-destructive">Run error</CardTitle></CardHeader>
-          <CardContent className="whitespace-pre-wrap text-sm text-destructive">{run.error}</CardContent>
+          <CardContent className="whitespace-pre-wrap break-words text-sm text-destructive">{run.error}</CardContent>
         </Card>
       ) : null}
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex min-w-0 items-center gap-2 text-base">
             {issues.some((issue) => issue.severity === "error") ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
             Validation
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
+        <CardContent className="min-w-0 space-y-2 text-sm">
           {!issues.length ? <div className="text-muted-foreground">No validation issues.</div> : issues.map((issue, index) => (
-            <div key={`${issue.code}-${index}`} className="rounded-md border p-2">
+            <div key={`${issue.code}-${index}`} className="min-w-0 break-words rounded-md border p-2">
               <div className="font-medium">{issue.severity.toUpperCase()} · {issue.code}</div>
               <div className="text-muted-foreground">{issue.message}</div>
               {issue.path ? <div className="mt-1 text-xs text-muted-foreground">{issue.path}</div> : null}
@@ -1142,17 +1146,17 @@ function RunReviewPanel({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader>
           <CardTitle className="text-base">Rubric review</CardTitle>
           <CardDescription>Score criteria manually after reading the output.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="min-w-0 space-y-3">
           {run.criterion_scores?.length ? run.criterion_scores.map((criterion) => (
-            <div key={criterion.criterion_id} className="rounded-lg border p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="font-medium">{criterion.label}</div>
+            <div key={criterion.criterion_id} className="min-w-0 rounded-lg border p-3">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0 flex-1 basis-0">
+                  <div className="break-words font-medium">{criterion.label}</div>
                   <div className="text-xs text-muted-foreground">Weight {criterion.weight} · Max {criterion.max_score}</div>
                 </div>
                 <Input
@@ -1169,7 +1173,7 @@ function RunReviewPanel({
                 />
               </div>
               <Textarea
-                className="mt-3"
+                className="mt-3 min-w-0"
                 rows={2}
                 placeholder="Criterion notes"
                 value={draft.notes[criterion.criterion_id] || ""}
@@ -1192,18 +1196,18 @@ function RunReviewPanel({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader><CardTitle className="text-base">Output</CardTitle></CardHeader>
-        <CardContent className="prose prose-sm max-w-none dark:prose-invert">
+        <CardContent className="prose prose-sm max-w-none overflow-x-auto break-words dark:prose-invert [&_code]:break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_td]:break-words [&_th]:break-words">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{run.output_markdown || "_No output._"}</ReactMarkdown>
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader><CardTitle className="text-base">Sources</CardTitle></CardHeader>
         <CardContent className="space-y-2 text-sm">
           {run.sources?.length ? run.sources.map((source, index) => (
-            <div key={`${source.file_id || index}`} className="rounded-md border p-2">
+            <div key={`${source.file_id || index}`} className="min-w-0 break-words rounded-md border p-2">
               <div className="font-medium">{String(source.name || source.file_id || `Source ${index + 1}`)}</div>
               <div className="break-all text-xs text-muted-foreground">{String(source.file_id || "")}</div>
             </div>
@@ -1235,22 +1239,22 @@ function AgentRunReviewPanel({
   const neighborTurns = trace.filter((step) => step.type === "neighbor_expansion").length;
 
   return (
-    <div className="space-y-4 p-4">
-      <Card>
+    <div className="w-full min-w-0 max-w-full space-y-4 overflow-hidden p-4">
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle className="flex items-center gap-2">
-              <Bot className="h-5 w-5 text-primary" />
-              {run.label || run.title || run.workflow_id}
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex min-w-0 items-center gap-2 break-words">
+              <Bot className="h-5 w-5 shrink-0 text-primary" />
+              <span className="min-w-0 break-words">{run.label || run.title || run.workflow_id}</span>
             </CardTitle>
-            {agentContextBadge(context)}
+            <span className="shrink-0">{agentContextBadge(context)}</span>
           </div>
-          <CardDescription>{run.workflow_id} · {fmtMs(run.duration_ms)} · {trace.length} agent turn{trace.length === 1 ? "" : "s"}</CardDescription>
+          <CardDescription className="break-words">{run.workflow_id} · {fmtMs(run.duration_ms)} · {trace.length} agent turn{trace.length === 1 ? "" : "s"}</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 text-sm md:grid-cols-4">
+        <CardContent className="grid min-w-0 gap-3 text-sm md:grid-cols-4">
           <div className="rounded-lg border bg-background p-3">
             <div className="text-xs text-muted-foreground">Profile</div>
-            <div className="mt-1 font-semibold">{context?.profile || "—"}</div>
+            <div className="mt-1 truncate font-semibold">{context?.profile || "—"}</div>
           </div>
           <div className="rounded-lg border bg-background p-3">
             <div className="text-xs text-muted-foreground">Selected chunks</div>
@@ -1268,7 +1272,7 @@ function AgentRunReviewPanel({
       </Card>
 
       {!context ? (
-        <Card className="border-amber-500/30">
+        <Card className="min-w-0 overflow-hidden border-amber-500/30">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <AlertTriangle className="h-4 w-4 text-amber-600" /> No agent trace captured
@@ -1281,9 +1285,9 @@ function AgentRunReviewPanel({
         </Card>
       ) : null}
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex min-w-0 items-center gap-2 text-base">
             <Route className="h-4 w-4" /> Agent turn trace
           </CardTitle>
           <CardDescription>
@@ -1291,21 +1295,21 @@ function AgentRunReviewPanel({
             {workflowStrategy ? ` · ${workflowStrategy}` : ""}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3 text-sm">
+        <CardContent className="min-w-0 space-y-3 text-sm">
           {trace.length ? trace.map((step, index) => (
-            <div key={`${step.step || index}-${step.type || "turn"}`} className="rounded-lg border p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 font-medium">
-                  <Search className="h-4 w-4 text-muted-foreground" />
-                  Turn {step.step || index + 1}: {agentTurnLabel(step.type)}
+            <div key={`${step.step || index}-${step.type || "turn"}`} className="min-w-0 overflow-hidden rounded-lg border p-3">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-2 font-medium">
+                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 break-words">Turn {step.step || index + 1}: {agentTurnLabel(step.type)}</span>
                 </div>
-                <Badge variant="outline">+{step.chunks_added || 0} chunks</Badge>
+                <Badge variant="outline" className="shrink-0">+{step.chunks_added || 0} chunks</Badge>
               </div>
-              {step.query ? <div className="mt-2 rounded-md bg-muted p-2 text-xs text-muted-foreground">{step.query}</div> : null}
-              {step.reason ? <div className="mt-2 text-xs text-muted-foreground">{step.reason}</div> : null}
+              {step.query ? <div className="mt-2 break-words rounded-md bg-muted p-2 text-xs text-muted-foreground">{step.query}</div> : null}
+              {step.reason ? <div className="mt-2 break-words text-xs text-muted-foreground">{step.reason}</div> : null}
               {step.chunk_ids?.length ? (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {step.chunk_ids.slice(0, 10).map((chunkId) => <Badge key={chunkId} variant="secondary" className="max-w-[180px] truncate">{chunkId}</Badge>)}
+                <div className="mt-2 flex min-w-0 flex-wrap gap-1 overflow-hidden">
+                  {step.chunk_ids.slice(0, 10).map((chunkId) => <Badge key={chunkId} variant="secondary" className="max-w-full truncate sm:max-w-[180px]">{chunkId}</Badge>)}
                   {step.chunk_ids.length > 10 ? <Badge variant="secondary">+{step.chunk_ids.length - 10} more</Badge> : null}
                 </div>
               ) : null}
@@ -1314,37 +1318,37 @@ function AgentRunReviewPanel({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Coverage notes</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
+        <CardContent className="min-w-0 space-y-2 text-sm">
           {context?.coverage_notes?.length ? context.coverage_notes.map((note, index) => (
-            <div key={`${note}-${index}`} className="rounded-md border bg-muted/30 p-2">{note}</div>
+            <div key={`${note}-${index}`} className="break-words rounded-md border bg-muted/30 p-2">{note}</div>
           )) : <div className="text-muted-foreground">No coverage notes captured.</div>}
           {context?.missing_context?.length ? (
             <div className="space-y-2">
               <div className="text-xs font-medium text-amber-600">Missing or incomplete context</div>
               {context.missing_context.map((note, index) => (
-                <div key={`${note}-${index}`} className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">{note}</div>
+                <div key={`${note}-${index}`} className="break-words rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">{note}</div>
               ))}
             </div>
           ) : null}
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader>
           <CardTitle className="text-base">Agent review</CardTitle>
           <CardDescription>Score the retrieval decisions and whether the final output was grounded in the gathered context.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="min-w-0 space-y-3">
           {AGENT_REVIEW_CRITERIA.map((criterion) => (
-            <div key={criterion.id} className="rounded-lg border p-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="font-medium">{criterion.label}</div>
-                  <div className="text-xs text-muted-foreground">{criterion.helper}</div>
+            <div key={criterion.id} className="min-w-0 rounded-lg border p-3">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0 flex-1 basis-0">
+                  <div className="break-words font-medium">{criterion.label}</div>
+                  <div className="break-words text-xs text-muted-foreground">{criterion.helper}</div>
                 </div>
                 <Input
                   type="number"
@@ -1360,7 +1364,7 @@ function AgentRunReviewPanel({
                 />
               </div>
               <Textarea
-                className="mt-3"
+                className="mt-3 min-w-0"
                 rows={2}
                 placeholder="Agent review notes"
                 value={draft.notes[criterion.id] || ""}
@@ -1383,9 +1387,9 @@ function AgentRunReviewPanel({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader><CardTitle className="text-base">Eval output</CardTitle></CardHeader>
-        <CardContent className="prose prose-sm max-w-none dark:prose-invert">
+        <CardContent className="prose prose-sm max-w-none overflow-x-auto break-words dark:prose-invert [&_code]:break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_td]:break-words [&_th]:break-words">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{run.output_markdown || "_No output._"}</ReactMarkdown>
         </CardContent>
       </Card>
