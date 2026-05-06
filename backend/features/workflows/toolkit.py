@@ -356,6 +356,7 @@ def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str,
         return [], {}
 
     sources: list[WorkflowSourceFile] = []
+    evidence_chunks: list[dict[str, Any]] = []
     for idx, chunk in enumerate(bundle.chunks):
         meta = _detokenize_metadata(uid, chunk.metadata or {})
         display_name = str(meta.get("display_name") or meta.get("filename") or chunk.file_id)
@@ -364,23 +365,35 @@ def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str,
         text = _normalize_text(detokenize_text(uid, str(chunk.text or "")))
         if not text:
             continue
-        sources.append(
-            WorkflowSourceFile(
-                file_id=chunk.file_id,
-                name=f"{label} — {suffix}",
-                folder_path=str(meta.get("folder_path") or "") or None,
-                content_type=str(meta.get("content_type") or "") or None,
-                excerpt=text,
-                full_text_chars=len(text),
-                excerpt_chars=len(text),
-                truncated=False,
-                source_kind="retrieved",
-                chunk_ids=[chunk.chunk_id] if chunk.chunk_id else [],
-                chunk_count=1,
-            )
+        evidence_chunks.append(
+            {
+                "file_id": chunk.file_id,
+                "source_name": label,
+                "folder_path": str(meta.get("folder_path") or "") or None,
+                "chunk_id": chunk.chunk_id,
+                "chunk_index": chunk.chunk_index,
+                "source_kind": chunk.source,
+                "score": chunk.score,
+                "excerpt": text[:1200].strip(),
+            }
         )
-        if len(sources) >= _MAX_RETRIEVED_SOURCES:
-            break
+        if len(sources) < _MAX_RETRIEVED_SOURCES:
+            sources.append(
+                WorkflowSourceFile(
+                    file_id=chunk.file_id,
+                    name=f"{label} — {suffix}",
+                    folder_path=str(meta.get("folder_path") or "") or None,
+                    content_type=str(meta.get("content_type") or "") or None,
+                    excerpt=text,
+                    full_text_chars=len(text),
+                    excerpt_chars=len(text),
+                    truncated=False,
+                    source_kind="retrieved",
+                    chunk_ids=[chunk.chunk_id] if chunk.chunk_id else [],
+                    chunk_count=1,
+                )
+            )
+
 
     trace = [
         {
@@ -416,6 +429,7 @@ def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str,
             "missing_context": bundle.missing_context,
             "retrieval_trace": trace,
             "decision_trace": decision_trace,
+            "evidence_chunks": evidence_chunks,
         }
     }
     return sources, stats

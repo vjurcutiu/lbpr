@@ -477,6 +477,11 @@ def test_legal_metadata_normalizes_llm_output_and_synthesizes_fallback_items(aut
     assert risk['source_basis'] == 'Limitation of liability section'
     assert risk['recommended_change'] == 'Add a liability cap tied to fees paid in the prior 12 months.'
     assert risk['requires_human_review'] is True
+    assert risk['support_status'] == 'supported'
+    assert risk['source_support']
+    assert risk['source_support'][0]['source_name'] == 'msa.txt'
+    assert 'limitation of liability' in risk['source_support'][0]['excerpt'].lower()
+    assert metadata['source_support_summary']['risk_items_supported'] >= 1
 
     fallback_item = metadata['fallback_items'][0]
     assert fallback_item['clause_family'] == 'limitation_of_liability'

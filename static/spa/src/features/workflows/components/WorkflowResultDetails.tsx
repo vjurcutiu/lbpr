@@ -112,6 +112,40 @@ function metadataText(item: LegalMetadataItem, keys: string[], fallback = "") {
   return fallback;
 }
 
+function sourceSupportItems(item: LegalMetadataItem): LegalMetadataItem[] {
+  return asArray<LegalMetadataItem>(item.source_support).filter((entry) => entry && typeof entry === "object");
+}
+
+function SourceSupportList({ item }: { item: LegalMetadataItem }) {
+  const support = sourceSupportItems(item);
+  if (!support.length) {
+    const status = metadataText(item, ["support_status"]);
+    return status === "needs_review" ? <LegalParagraph label="Support" value="Needs source-level confirmation." /> : null;
+  }
+
+  return (
+    <div className="mt-2 min-w-0 space-y-2">
+      <div className="text-xs font-medium text-muted-foreground">Source support</div>
+      {support.slice(0, 2).map((entry, index) => {
+        const sourceName = metadataText(entry, ["source_name"], "Source");
+        const chunk = metadataText(entry, ["chunk_id"]);
+        const excerpt = metadataText(entry, ["excerpt"]);
+        const matched = metadataText(entry, ["matched_terms"]);
+        return (
+          <div key={`${sourceName}-${chunk || index}`} className="min-w-0 rounded-md border bg-muted/30 p-2 text-xs">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span className="min-w-0 break-words font-medium">{sourceName}</span>
+              {chunk ? <LegalBadge>{chunk}</LegalBadge> : null}
+            </div>
+            {excerpt ? <div className="mt-1 min-w-0 whitespace-pre-wrap break-words text-muted-foreground">{excerpt}</div> : null}
+            {matched ? <div className="mt-1 min-w-0 break-words text-muted-foreground">Matched: {matched}</div> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function humanizeMetadataValue(value: unknown) {
   const text = String(value || "").replace(/_/g, " ").replace(/\s+/g, " ").trim();
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Not specified";
@@ -385,6 +419,7 @@ function RiskItemsProse({ items }: { items: LegalMetadataItem[] }) {
               <LegalParagraph label="Impact" value={impact} />
               <LegalParagraph label="Fallback" value={fallback} />
               <LegalParagraph label="Source basis" value={source} />
+              <SourceSupportList item={item} />
               {humanReview ? <LegalParagraph label="Review" value="Needs approval before relying on this position." /> : null}
             </LegalDashboardRow>
           );
@@ -415,6 +450,7 @@ function ClauseItemsProse({ items }: { items: LegalMetadataItem[] }) {
               recommendation={recommendation || "Confirm preferred position."}
             >
               <LegalParagraph label="Source basis" value={source} />
+              <SourceSupportList item={item} />
               <LegalParagraph label="Confidence" value={confidence ? humanizeMetadataValue(confidence) : ""} />
             </LegalDashboardRow>
           );
@@ -444,6 +480,7 @@ function ObligationItemsProse({ items }: { items: LegalMetadataItem[] }) {
               recommendation={followUp}
             >
               <LegalParagraph label="Source basis" value={source} />
+              <SourceSupportList item={item} />
             </LegalDashboardRow>
           );
         })}
@@ -497,6 +534,7 @@ function FallbackItemsProse({ items }: { items: LegalMetadataItem[] }) {
               recommendation={rationale}
             >
               <LegalParagraph label="Source basis" value={source} />
+              <SourceSupportList item={item} />
               <LegalParagraph label="Confidence" value={humanizeMetadataValue(confidence)} />
             </LegalDashboardRow>
           );

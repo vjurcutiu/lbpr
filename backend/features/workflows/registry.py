@@ -204,6 +204,228 @@ def _without_single_source_evidence_labels(items: list[dict[str, Any]], sources:
     return cleaned_items
 
 
+_SUPPORT_STOPWORDS = _STOPWORDS | {
+    "agreement", "section", "clause", "contract", "review", "legal", "business", "source", "basis",
+    "current", "position", "recommended", "change", "fallback", "impact", "issue", "risk", "material",
+    "party", "parties", "shall", "will", "must", "may", "including", "include", "included", "reviewed",
+}
+
+
+def _support_terms_from_text(text: str, *, limit: int = 28) -> list[str]:
+    seen: set[str] = set()
+    terms: list[str] = []
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", text or ""):
+        lowered = token.lower().replace("_", " ").strip()
+        if lowered in _SUPPORT_STOPWORDS or len(lowered) < 3:
+            continue
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        terms.append(lowered)
+        if len(terms) >= limit:
+            break
+    return terms
+
+
+def _support_terms_for_item(item: dict[str, Any]) -> list[str]:
+    clause_family = _legal_clause_family(item.get("clause_family") or item.get("related_clause_family") or item.get("category") or item.get("clause"))
+    text_parts = [
+        str(item.get("issue") or item.get("risk") or item.get("title") or ""),
+        str(item.get("business_impact") or item.get("impact") or ""),
+        str(item.get("source_basis") or item.get("source") or item.get("evidence") or ""),
+        str(item.get("current_position") or item.get("position") or ""),
+        str(item.get("obligation") or item.get("duty") or ""),
+        str(item.get("recommended_change") or item.get("recommended_position") or item.get("recommendation") or ""),
+    ]
+    terms = _support_terms_from_text(" ".join(text_parts), limit=18)
+    for keyword in LEGAL_CLAUSE_FAMILY_KEYWORDS.get(clause_family, ()):
+        clean = keyword.lower().strip()
+        if clean and clean not in terms:
+            terms.append(clean)
+    return terms[:32]
+
+
+def _support_excerpt(text: str, matched_terms: list[str], *, limit: int = 420) -> str:
+    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not clean:
+        return ""
+    lowered = clean.lower()
+    first_match = min((lowered.find(term.lower()) for term in matched_terms if term and lowered.find(term.lower()) >= 0), default=-1)
+    if first_match >= 0:
+        start = max(0, first_match - limit // 3)
+        end = min(len(clean), start + limit)
+        excerpt = clean[start:end].strip()
+        if start > 0:
+            excerpt = "…" + excerpt
+        if end < len(clean):
+            excerpt += "…"
+        return excerpt
+    return clean[:limit].strip() + ("…" if len(clean) > limit else "")
+
+
+def _evidence_chunk_records(metadata: dict[str, Any], sources: list[WorkflowSourceFile]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    adaptive = metadata.get("adaptive_context") if isinstance(metadata.get("adaptive_context"), dict) else {}
+    for item in adaptive.get("evidence_chunks") or []:
+        if not isinstance(item, dict):
+            continue
+        excerpt = str(item.get("excerpt") or "").strip()
+        if not excerpt:
+            continue
+        file_id = str(item.get("file_id") or "").strip()
+        chunk_id = str(item.get("chunk_id") or "").strip()
+        source_name = str(item.get("source_name") or file_id or "Source").strip()
+        key = (file_id, chunk_id, excerpt[:80])
+        if key in seen:
+            continue
+        seen.add(key)
+        records.append(
+            {
+                "file_id": file_id,
+                "source_name": source_name.replace(" — retrieved evidence", "").replace(" — context", "").strip() or "Source",
+                "folder_path": item.get("folder_path"),
+                "chunk_id": chunk_id,
+                "chunk_index": item.get("chunk_index"),
+                "source_kind": item.get("source_kind") or "retrieved",
+                "score": item.get("score"),
+                "excerpt": excerpt,
+            }
+        )
+
+    for source in sources:
+        if source.source_kind in {"contract_fact_map", "contract_clause_map"}:
+            continue
+        excerpt = str(source.excerpt or "").strip()
+        if not excerpt:
+            continue
+        chunk_id = str((source.chunk_ids or [""])[0] or "").strip()
+        key = (source.file_id, chunk_id, excerpt[:80])
+        if key in seen:
+            continue
+        seen.add(key)
+        records.append(
+            {
+                "file_id": source.file_id,
+                "source_name": _display_source_label(source),
+                "folder_path": source.folder_path,
+                "chunk_id": chunk_id,
+                "chunk_index": None,
+                "source_kind": source.source_kind,
+                "score": None,
+                "excerpt": excerpt[:1600].strip(),
+            }
+        )
+
+    return records
+
+
+def _score_support_record(item: dict[str, Any], record: dict[str, Any]) -> tuple[int, list[str]]:
+    terms = _support_terms_for_item(item)
+    text = str(record.get("excerpt") or "").lower()
+    matched: list[str] = []
+    score = 0
+    for term in terms:
+        clean = term.lower().strip()
+        if not clean:
+            continue
+        present = clean in text if " " in clean else bool(re.search(rf"\b{re.escape(clean)}\b", text))
+        if not present:
+            continue
+        matched.append(clean)
+        score += 3 if " " in clean else 1
+    source_kind = str(record.get("source_kind") or "")
+    if source_kind == "retrieved":
+        score += 2
+    elif source_kind == "neighbor":
+        score += 1
+    return score, matched[:10]
+
+
+def _source_support_for_item(item: dict[str, Any], evidence_records: list[dict[str, Any]], *, limit: int = 3) -> list[dict[str, Any]]:
+    scored: list[tuple[int, int, dict[str, Any], list[str]]] = []
+    for index, record in enumerate(evidence_records):
+        score, matched = _score_support_record(item, record)
+        if score <= 0:
+            continue
+        scored.append((score, -index, record, matched))
+    scored.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
+
+    support: list[dict[str, Any]] = []
+    seen_chunks: set[tuple[str, str]] = set()
+    for score, _neg_index, record, matched in scored:
+        key = (str(record.get("file_id") or ""), str(record.get("chunk_id") or ""))
+        if key in seen_chunks:
+            continue
+        seen_chunks.add(key)
+        support.append(
+            {
+                "source_name": record.get("source_name") or "Source",
+                "file_id": record.get("file_id"),
+                "folder_path": record.get("folder_path"),
+                "chunk_id": record.get("chunk_id"),
+                "chunk_index": record.get("chunk_index"),
+                "source_kind": record.get("source_kind"),
+                "support_score": score,
+                "matched_terms": matched,
+                "excerpt": _support_excerpt(str(record.get("excerpt") or ""), matched),
+            }
+        )
+        if len(support) >= limit:
+            break
+    return support
+
+
+def attach_legal_source_support(metadata: dict[str, Any], sources: list[WorkflowSourceFile]) -> dict[str, Any]:
+    """Attach source-level support records to legal structured items.
+
+    This is an observable grounding aid for eval and review. It does not ask the
+    model for hidden reasoning; it links generated issues back to retrieved or
+    coverage excerpts using deterministic term overlap.
+    """
+    evidence_records = _evidence_chunk_records(metadata, sources)
+    if not evidence_records:
+        return metadata
+
+    support_summary: dict[str, Any] = {
+        "evidence_record_count": len(evidence_records),
+        "risk_items_supported": 0,
+        "risk_items_total": len(metadata.get("risk_items") or []) if isinstance(metadata.get("risk_items"), list) else 0,
+        "unsupported_risk_items": [],
+    }
+
+    for key in ("risk_items", "clause_items", "obligation_items", "fallback_items", "fields"):
+        items = metadata.get(key)
+        if not isinstance(items, list):
+            continue
+        enriched: list[Any] = []
+        for item in items:
+            if not isinstance(item, dict):
+                enriched.append(item)
+                continue
+            next_item = dict(item)
+            support = _source_support_for_item(next_item, evidence_records, limit=3 if key == "risk_items" else 2)
+            if support:
+                next_item["source_support"] = support
+                next_item["support_status"] = "supported"
+                if key == "risk_items":
+                    support_summary["risk_items_supported"] += 1
+            else:
+                next_item.setdefault("source_support", [])
+                next_item["support_status"] = "needs_review"
+                if key == "risk_items":
+                    support_summary["unsupported_risk_items"].append(str(next_item.get("issue") or "Risk item"))
+            enriched.append(next_item)
+        metadata[key] = enriched
+
+    metadata["source_support_summary"] = support_summary
+    adaptive = metadata.get("adaptive_context") if isinstance(metadata.get("adaptive_context"), dict) else None
+    if adaptive is not None:
+        adaptive["source_support_summary"] = support_summary
+    return metadata
+
+
 def _append_sources_used_section(text: str, sources: list[WorkflowSourceFile]) -> str:
     cleaned = _strip_markdown_source_sections(str(text or "").strip())
     visible_sources = _customer_visible_sources(sources)

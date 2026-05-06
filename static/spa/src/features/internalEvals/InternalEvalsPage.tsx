@@ -65,6 +65,23 @@ type AgentDecisionStep = {
   metadata?: Record<string, unknown>;
 };
 
+type SourceSupportRecord = {
+  source_name?: string;
+  file_id?: string;
+  chunk_id?: string;
+  excerpt?: string;
+  matched_terms?: string[];
+  support_score?: number;
+};
+
+type SupportedIssueRecord = {
+  issue: string;
+  severity?: string;
+  clause_family?: string;
+  support_status?: string;
+  source_support: SourceSupportRecord[];
+};
+
 type AgentContext = {
   profile?: string;
   sufficient?: boolean;
@@ -74,6 +91,7 @@ type AgentContext = {
   missing_context?: string[];
   retrieval_trace?: AgentTraceStep[];
   decision_trace?: AgentDecisionStep[];
+  source_support_summary?: Record<string, unknown>;
 };
 
 const AGENT_REVIEW_CRITERIA = [
@@ -179,6 +197,36 @@ function asDecisionSteps(value: unknown): AgentDecisionStep[] {
   });
 }
 
+function asSourceSupportRecords(value: unknown): SourceSupportRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    const record = asRecord(item) || {};
+    return {
+      source_name: typeof record.source_name === "string" ? record.source_name : undefined,
+      file_id: typeof record.file_id === "string" ? record.file_id : undefined,
+      chunk_id: typeof record.chunk_id === "string" ? record.chunk_id : undefined,
+      excerpt: typeof record.excerpt === "string" ? record.excerpt : undefined,
+      matched_terms: asStringArray(record.matched_terms),
+      support_score: Number(record.support_score || 0),
+    };
+  }).filter((item) => item.source_name || item.excerpt || item.chunk_id);
+}
+
+function getSupportedIssues(run?: EvalRunRecord | null): SupportedIssueRecord[] {
+  const structured = asRecord(run?.structured_metadata);
+  const riskItems = Array.isArray(structured?.risk_items) ? structured?.risk_items : [];
+  return riskItems.map((item) => {
+    const record = asRecord(item) || {};
+    return {
+      issue: String(record.issue || record.risk || record.title || "Risk item"),
+      severity: typeof record.severity === "string" ? record.severity : undefined,
+      clause_family: typeof record.clause_family === "string" ? record.clause_family : undefined,
+      support_status: typeof record.support_status === "string" ? record.support_status : undefined,
+      source_support: asSourceSupportRecords(record.source_support),
+    };
+  });
+}
+
 function getAgentContext(run?: EvalRunRecord | null): AgentContext | null {
   if (!run) return null;
   const structured = asRecord(run.structured_metadata);
@@ -193,6 +241,7 @@ function getAgentContext(run?: EvalRunRecord | null): AgentContext | null {
     missing_context: asStringArray(rawContext.missing_context),
     retrieval_trace: asTraceSteps(rawContext.retrieval_trace),
     decision_trace: asDecisionSteps(rawContext.decision_trace),
+    source_support_summary: asRecord(rawContext.source_support_summary) || asRecord(structured?.source_support_summary) || undefined,
   };
 }
 
@@ -1502,6 +1551,8 @@ function AgentRunReviewPanel({
   const trace = context?.retrieval_trace || [];
   const decisions = context?.decision_trace || [];
   const workflowStrategy = String(asRecord(run.structured_metadata)?.source_strategy || "");
+  const supportedIssues = getSupportedIssues(run);
+  const supportedIssueCount = supportedIssues.filter((item) => item.source_support.length).length;
   const totalAddedChunks = trace.reduce((total, step) => total + Number(step.chunks_added || 0), 0);
   const targetedTurns = trace.filter((step) => step.type === "targeted_query").length;
   const neighborTurns = trace.filter((step) => step.type === "neighbor_expansion").length;
@@ -1552,6 +1603,42 @@ function AgentRunReviewPanel({
           </CardContent>
         </Card>
       ) : null}
+
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex min-w-0 items-center gap-2 text-base">
+            <FileSearch className="h-4 w-4" /> Source support by issue
+          </CardTitle>
+          <CardDescription>{supportedIssueCount} of {supportedIssues.length} risk item{supportedIssues.length === 1 ? "" : "s"} have matched source support.</CardDescription>
+        </CardHeader>
+        <CardContent className="min-w-0 space-y-3 text-sm">
+          {supportedIssues.length ? supportedIssues.map((issue, index) => (
+            <div key={`${issue.issue}-${index}`} className="min-w-0 overflow-hidden rounded-lg border p-3">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0 flex-1 basis-0">
+                  <div className="break-words font-medium">{issue.issue}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{issue.clause_family || "general"}</div>
+                </div>
+                <Badge variant={issue.source_support.length ? "outline" : "secondary"}>{issue.source_support.length ? "Supported" : "Needs review"}</Badge>
+              </div>
+              {issue.source_support.length ? (
+                <div className="mt-2 space-y-2">
+                  {issue.source_support.slice(0, 2).map((support, supportIndex) => (
+                    <div key={`${support.source_name || "source"}-${support.chunk_id || supportIndex}`} className="min-w-0 rounded-md bg-muted p-2 text-xs">
+                      <div className="flex min-w-0 flex-wrap gap-1.5">
+                        <span className="break-words font-medium">{support.source_name || "Source"}</span>
+                        {support.chunk_id ? <Badge variant="secondary">{support.chunk_id}</Badge> : null}
+                      </div>
+                      {support.excerpt ? <div className="mt-1 break-words text-muted-foreground">{support.excerpt}</div> : null}
+                      {support.matched_terms?.length ? <div className="mt-1 break-words text-muted-foreground">Matched: {support.matched_terms.slice(0, 8).join(", ")}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : <div className="mt-2 text-xs text-muted-foreground">No direct source-support match was attached for this issue.</div>}
+            </div>
+          )) : <div className="text-muted-foreground">No structured risk items were available for source support review.</div>}
+        </CardContent>
+      </Card>
 
       <Card className="min-w-0 overflow-hidden">
         <CardHeader className="pb-3">

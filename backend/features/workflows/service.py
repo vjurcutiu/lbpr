@@ -52,7 +52,7 @@ from .models import (
     WorkflowSelectionIn,
     WorkflowSourceFile,
 )
-from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX, edit_workflow_section, refine_workflow_result
+from .registry import WORKFLOW_HANDLERS, WORKFLOW_INDEX, attach_legal_source_support, edit_workflow_section, refine_workflow_result
 from .exporting import ExportedArtifact, export_artifact, sanitize_export_markdown
 
 log = logging.getLogger("workflows.service")
@@ -1800,6 +1800,8 @@ def _augment_result_metadata(run: WorkflowRun, docs: list[WorkflowSourceFile], s
     metadata.setdefault("source_record_count", len(docs))
     metadata.setdefault("single_source_workflow", source_file_count == 1)
     metadata.update(stats)
+    if str(metadata.get("pack_id") or "").strip() == "legal":
+        metadata = attach_legal_source_support(metadata, docs)
     metadata["single_source_workflow"] = bool(metadata.get("single_source_workflow") or source_file_count == 1)
     warnings = [str(item) for item in metadata.get("warnings") or [] if str(item).strip()]
     run.result.metadata = metadata
