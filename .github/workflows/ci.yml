@@ -208,6 +208,9 @@ jobs:
           mkdir -p _deploy/ops/certs
           mkdir -p _deploy/ops/redis
           mkdir -p _deploy/backend
+          mkdir -p _deploy/backend/internal/evals/jobs
+          mkdir -p _deploy/backend/internal/evals/results
+          mkdir -p _deploy/backend/internal/evals/reviews
           mkdir -p _deploy/static
 
           cp docker-compose.yml _deploy/
