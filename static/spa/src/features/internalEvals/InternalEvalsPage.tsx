@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
-import { Activity, AlertTriangle, CheckCircle2, Download, FileSearch, FolderOpen, GitCompare, Play, RefreshCcw, Save } from "lucide-react";
+import { Activity, AlertTriangle, Bot, CheckCircle2, Download, FileSearch, FolderOpen, GitCompare, ListChecks, Play, RefreshCcw, Route, Save, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,33 @@ const INTERNAL_ADMIN_EMAILS = String(import.meta.env.VITE_INTERNAL_EVAL_ADMIN_EM
   .filter(Boolean);
 
 type ReviewDraft = Record<string, { scores: Record<string, number | null>; notes: Record<string, string>; summary: string }>;
+type EvalView = "workflows" | "agent";
+
+type AgentTraceStep = {
+  step?: number;
+  type?: string;
+  query?: string | null;
+  reason?: string | null;
+  chunk_ids?: string[];
+  chunks_added?: number;
+};
+
+type AgentContext = {
+  profile?: string;
+  sufficient?: boolean;
+  selected_chunks?: number;
+  returned_sources?: number;
+  coverage_notes?: string[];
+  missing_context?: string[];
+  retrieval_trace?: AgentTraceStep[];
+};
+
+const AGENT_REVIEW_CRITERIA = [
+  { id: "agent_context_sufficiency", label: "Context sufficiency", helper: "Did the agent gather enough evidence before the output was generated?" },
+  { id: "agent_retrieval_relevance", label: "Retrieval relevance", helper: "Were the retrieved chunks relevant to the workflow question or task?" },
+  { id: "agent_expansion_quality", label: "Expansion quality", helper: "Did neighbor and targeted-query turns expand context in the right direction?" },
+  { id: "agent_output_grounding", label: "Output grounding", helper: "Does the final output stay supported by the gathered context?" },
+];
 
 function fmtDate(value?: string | null) {
   if (!value) return "—";
@@ -86,6 +113,61 @@ function validationSummary(run: EvalRunRecord) {
   const warnings = issues.filter((issue) => issue.severity === "warning").length;
   if (!errors && !warnings) return <span className="text-emerald-600">passed</span>;
   return <span className={errors ? "text-destructive" : "text-amber-600"}>{errors} errors · {warnings} warnings</span>;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function asTraceSteps(value: unknown): AgentTraceStep[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, index) => {
+    const record = asRecord(item) || {};
+    return {
+      step: Number(record.step || index + 1),
+      type: String(record.type || "turn"),
+      query: typeof record.query === "string" ? record.query : null,
+      reason: typeof record.reason === "string" ? record.reason : null,
+      chunk_ids: asStringArray(record.chunk_ids),
+      chunks_added: Number(record.chunks_added || 0),
+    };
+  });
+}
+
+function getAgentContext(run?: EvalRunRecord | null): AgentContext | null {
+  if (!run) return null;
+  const structured = asRecord(run.structured_metadata);
+  const rawContext = asRecord(structured?.adaptive_context);
+  if (!rawContext) return null;
+  return {
+    profile: typeof rawContext.profile === "string" ? rawContext.profile : undefined,
+    sufficient: typeof rawContext.sufficient === "boolean" ? rawContext.sufficient : undefined,
+    selected_chunks: Number(rawContext.selected_chunks || 0),
+    returned_sources: Number(rawContext.returned_sources || 0),
+    coverage_notes: asStringArray(rawContext.coverage_notes),
+    missing_context: asStringArray(rawContext.missing_context),
+    retrieval_trace: asTraceSteps(rawContext.retrieval_trace),
+  };
+}
+
+function agentContextBadge(context: AgentContext | null) {
+  if (!context) return <Badge variant="secondary">No agent trace</Badge>;
+  if (context.sufficient) return <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Sufficient</Badge>;
+  return <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300">Needs review</Badge>;
+}
+
+function agentTurnLabel(type?: string): string {
+  return String(type || "turn")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function buildInitialReview(result: EvalResultDetail | null): ReviewDraft {
@@ -159,6 +241,7 @@ export default function InternalEvalsPage() {
   const [compareBaseline, setCompareBaseline] = useState("");
   const [reviewNotes, setReviewNotes] = useState("");
   const [reviewDraft, setReviewDraft] = useState<ReviewDraft>({});
+  const [evalView, setEvalView] = useState<EvalView>("workflows");
   const filePickerRef = useRef<HTMLInputElement | null>(null);
   const folderPickerRef = useRef<HTMLInputElement | null>(null);
   const [launcher, setLauncher] = useState({
@@ -343,6 +426,9 @@ export default function InternalEvalsPage() {
   }
 
   const activeRun = result?.runs.find((run) => (run.run_key || run.workflow_id) === activeRunKey) || result?.runs[0];
+  const agentTraceRuns = result?.runs.filter((run) => !!getAgentContext(run)) || [];
+  const sufficientAgentRuns = agentTraceRuns.filter((run) => getAgentContext(run)?.sufficient).length;
+  const totalAgentTurns = agentTraceRuns.reduce((total, run) => total + (getAgentContext(run)?.retrieval_trace?.length || 0), 0);
   const manifestPaths = parseManifestPaths(launcher.manifest_paths);
   const manifestFolderPaths = folderPathsFromManifest(manifestPaths);
   const jobIsActive = !!job && ["queued", "running"].includes(job.status);
@@ -374,9 +460,27 @@ export default function InternalEvalsPage() {
         <aside className="min-h-0 border-r bg-muted/20 overflow-hidden">
           <ScrollArea className="h-full">
             <div className="space-y-4 p-4">
-              <div>
-                <h1 className="text-xl font-semibold tracking-tight">Workflow evals</h1>
-                <p className="text-sm text-muted-foreground">Run, compare, and review internal workflow quality checks.</p>
+              <div className="space-y-3">
+                <div>
+                  <h1 className="text-xl font-semibold tracking-tight">Internal evals</h1>
+                  <p className="text-sm text-muted-foreground">Run, compare, and review agent turns and workflow outputs.</p>
+                </div>
+                <div className="grid grid-cols-2 rounded-lg border bg-background p-1 text-sm">
+                  <button
+                    type="button"
+                    onClick={() => setEvalView("agent")}
+                    className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 transition ${evalView === "agent" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"}`}
+                  >
+                    <Bot className="h-4 w-4" /> Agent
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEvalView("workflows")}
+                    className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 transition ${evalView === "workflows" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"}`}
+                  >
+                    <ListChecks className="h-4 w-4" /> Workflows
+                  </button>
+                </div>
               </div>
 
               <Card>
@@ -667,6 +771,9 @@ export default function InternalEvalsPage() {
                       <span>Mode {result.mode}</span>
                       <span>Commit {result.app_git_commit || "unknown"}</span>
                       <span className="truncate">Case {result.case_fingerprint?.slice(0, 12)}</span>
+                      <span>{agentTraceRuns.length} agent traces</span>
+                      <span>{sufficientAgentRuns}/{agentTraceRuns.length || 0} sufficient</span>
+                      <span>{totalAgentTurns} agent turns</span>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -688,6 +795,7 @@ export default function InternalEvalsPage() {
                   <div className="space-y-2 p-3">
                     {result.runs.map((run) => {
                       const key = run.run_key || run.workflow_id;
+                      const agentContext = getAgentContext(run);
                       return (
                         <button
                           key={key}
@@ -697,10 +805,18 @@ export default function InternalEvalsPage() {
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="truncate font-medium">{run.label || run.title || run.workflow_id}</div>
-                            {statusBadge(run.status)}
+                            {evalView === "agent" ? agentContextBadge(agentContext) : statusBadge(run.status)}
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">{run.workflow_id}</div>
-                          <div className="mt-2 text-xs">{validationSummary(run)}</div>
+                          {evalView === "agent" ? (
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                              <span>{agentContext?.retrieval_trace?.length || 0} turns</span>
+                              <span>{agentContext?.selected_chunks || 0} chunks</span>
+                              <span>{agentContext?.profile || "no profile"}</span>
+                            </div>
+                          ) : (
+                            <div className="mt-2 text-xs">{validationSummary(run)}</div>
+                          )}
                         </button>
                       );
                     })}
@@ -711,6 +827,7 @@ export default function InternalEvalsPage() {
                   {activeRun ? (
                     <RunReviewPanel
                       run={activeRun}
+                      view={evalView}
                       draft={reviewDraft[activeRun.run_key || activeRun.workflow_id] || { scores: {}, notes: {}, summary: "" }}
                       onDraftChange={(next) => setReviewDraft((prev) => ({ ...prev, [activeRun.run_key || activeRun.workflow_id]: next }))}
                       reviewNotes={reviewNotes}
@@ -729,18 +846,31 @@ export default function InternalEvalsPage() {
 
 function RunReviewPanel({
   run,
+  view,
   draft,
   onDraftChange,
   reviewNotes,
   setReviewNotes,
 }: {
   run: EvalRunRecord;
+  view: EvalView;
   draft: { scores: Record<string, number | null>; notes: Record<string, string>; summary: string };
   onDraftChange: (next: { scores: Record<string, number | null>; notes: Record<string, string>; summary: string }) => void;
   reviewNotes: string;
   setReviewNotes: (value: string) => void;
 }) {
   const issues = run.validation?.issues || [];
+  if (view === "agent") {
+    return (
+      <AgentRunReviewPanel
+        run={run}
+        draft={draft}
+        onDraftChange={onDraftChange}
+        reviewNotes={reviewNotes}
+        setReviewNotes={setReviewNotes}
+      />
+    );
+  }
   return (
     <div className="space-y-4 p-4">
       <Card>
@@ -850,6 +980,185 @@ function RunReviewPanel({
               <div className="break-all text-xs text-muted-foreground">{String(source.file_id || "")}</div>
             </div>
           )) : <div className="text-muted-foreground">No sources captured.</div>}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AgentRunReviewPanel({
+  run,
+  draft,
+  onDraftChange,
+  reviewNotes,
+  setReviewNotes,
+}: {
+  run: EvalRunRecord;
+  draft: { scores: Record<string, number | null>; notes: Record<string, string>; summary: string };
+  onDraftChange: (next: { scores: Record<string, number | null>; notes: Record<string, string>; summary: string }) => void;
+  reviewNotes: string;
+  setReviewNotes: (value: string) => void;
+}) {
+  const context = getAgentContext(run);
+  const trace = context?.retrieval_trace || [];
+  const workflowStrategy = String(asRecord(run.structured_metadata)?.source_strategy || "");
+  const totalAddedChunks = trace.reduce((total, step) => total + Number(step.chunks_added || 0), 0);
+  const targetedTurns = trace.filter((step) => step.type === "targeted_query").length;
+  const neighborTurns = trace.filter((step) => step.type === "neighbor_expansion").length;
+
+  return (
+    <div className="space-y-4 p-4">
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex items-center gap-2">
+              <Bot className="h-5 w-5 text-primary" />
+              {run.label || run.title || run.workflow_id}
+            </CardTitle>
+            {agentContextBadge(context)}
+          </div>
+          <CardDescription>{run.workflow_id} · {fmtMs(run.duration_ms)} · {trace.length} agent turn{trace.length === 1 ? "" : "s"}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm md:grid-cols-4">
+          <div className="rounded-lg border bg-background p-3">
+            <div className="text-xs text-muted-foreground">Profile</div>
+            <div className="mt-1 font-semibold">{context?.profile || "—"}</div>
+          </div>
+          <div className="rounded-lg border bg-background p-3">
+            <div className="text-xs text-muted-foreground">Selected chunks</div>
+            <div className="mt-1 font-semibold">{context?.selected_chunks || 0}</div>
+          </div>
+          <div className="rounded-lg border bg-background p-3">
+            <div className="text-xs text-muted-foreground">Returned sources</div>
+            <div className="mt-1 font-semibold">{context?.returned_sources || 0}</div>
+          </div>
+          <div className="rounded-lg border bg-background p-3">
+            <div className="text-xs text-muted-foreground">Chunks added by turns</div>
+            <div className="mt-1 font-semibold">{totalAddedChunks}</div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {!context ? (
+        <Card className="border-amber-500/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle className="h-4 w-4 text-amber-600" /> No agent trace captured
+            </CardTitle>
+            <CardDescription>This run did not include adaptive context metadata in the eval export.</CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            New eval exports will include the adaptive context trace when the workflow uses the context agent.
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Route className="h-4 w-4" /> Agent turn trace
+          </CardTitle>
+          <CardDescription>
+            {targetedTurns} targeted query turn{targetedTurns === 1 ? "" : "s"} · {neighborTurns} neighbor expansion turn{neighborTurns === 1 ? "" : "s"}
+            {workflowStrategy ? ` · ${workflowStrategy}` : ""}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          {trace.length ? trace.map((step, index) => (
+            <div key={`${step.step || index}-${step.type || "turn"}`} className="rounded-lg border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 font-medium">
+                  <Search className="h-4 w-4 text-muted-foreground" />
+                  Turn {step.step || index + 1}: {agentTurnLabel(step.type)}
+                </div>
+                <Badge variant="outline">+{step.chunks_added || 0} chunks</Badge>
+              </div>
+              {step.query ? <div className="mt-2 rounded-md bg-muted p-2 text-xs text-muted-foreground">{step.query}</div> : null}
+              {step.reason ? <div className="mt-2 text-xs text-muted-foreground">{step.reason}</div> : null}
+              {step.chunk_ids?.length ? (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {step.chunk_ids.slice(0, 10).map((chunkId) => <Badge key={chunkId} variant="secondary" className="max-w-[180px] truncate">{chunkId}</Badge>)}
+                  {step.chunk_ids.length > 10 ? <Badge variant="secondary">+{step.chunk_ids.length - 10} more</Badge> : null}
+                </div>
+              ) : null}
+            </div>
+          )) : <div className="text-muted-foreground">No retrieval turns captured for this run.</div>}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Coverage notes</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {context?.coverage_notes?.length ? context.coverage_notes.map((note, index) => (
+            <div key={`${note}-${index}`} className="rounded-md border bg-muted/30 p-2">{note}</div>
+          )) : <div className="text-muted-foreground">No coverage notes captured.</div>}
+          {context?.missing_context?.length ? (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-amber-600">Missing or incomplete context</div>
+              {context.missing_context.map((note, index) => (
+                <div key={`${note}-${index}`} className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">{note}</div>
+              ))}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Agent review</CardTitle>
+          <CardDescription>Score the retrieval decisions and whether the final output was grounded in the gathered context.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {AGENT_REVIEW_CRITERIA.map((criterion) => (
+            <div key={criterion.id} className="rounded-lg border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium">{criterion.label}</div>
+                  <div className="text-xs text-muted-foreground">{criterion.helper}</div>
+                </div>
+                <Input
+                  type="number"
+                  min={0}
+                  max={5}
+                  step={0.5}
+                  className="w-28"
+                  value={draft.scores[criterion.id] ?? ""}
+                  onChange={(event) => onDraftChange({
+                    ...draft,
+                    scores: { ...draft.scores, [criterion.id]: event.target.value === "" ? null : Number(event.target.value) },
+                  })}
+                />
+              </div>
+              <Textarea
+                className="mt-3"
+                rows={2}
+                placeholder="Agent review notes"
+                value={draft.notes[criterion.id] || ""}
+                onChange={(event) => onDraftChange({ ...draft, notes: { ...draft.notes, [criterion.id]: event.target.value } })}
+              />
+            </div>
+          ))}
+          <Textarea
+            rows={3}
+            placeholder="Run-level agent review summary"
+            value={draft.summary}
+            onChange={(event) => onDraftChange({ ...draft, summary: event.target.value })}
+          />
+          <Textarea
+            rows={3}
+            placeholder="Overall eval notes"
+            value={reviewNotes}
+            onChange={(event) => setReviewNotes(event.target.value)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Eval output</CardTitle></CardHeader>
+        <CardContent className="prose prose-sm max-w-none dark:prose-invert">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{run.output_markdown || "_No output._"}</ReactMarkdown>
         </CardContent>
       </Card>
     </div>

@@ -31,6 +31,8 @@ DEFAULT_RESULTS_DIR = Path(__file__).resolve().parent / "results"
 DEFAULT_RUBRICS_DIR = Path(__file__).resolve().parent / "rubrics"
 _STRUCTURED_METADATA_KEYS = {
     "workflow_profile",
+    "adaptive_context",
+    "source_strategy",
     "legal_profile",
     "risk_items",
     "clause_items",

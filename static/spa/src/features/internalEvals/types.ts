@@ -32,6 +32,12 @@ export type WorkflowSelectionInput = {
   current_folder?: string;
 };
 
+export type EvalSelectionOptions = {
+  uid: string;
+  files: Array<Record<string, unknown>>;
+  folders: Array<{ path: string; name: string; parent_path?: string | null; direct_file_count?: number; recursive_file_count?: number }>;
+};
+
 export type EvalRunRequest = {
   case_path: string;
   uid?: string | null;
@@ -111,6 +117,7 @@ export type EvalRunRecord = {
   output_markdown?: string;
   sources?: Array<Record<string, unknown>>;
   usage?: Record<string, unknown>;
+  structured_metadata?: Record<string, unknown>;
   prompt_version?: string | null;
   workflow_version?: string | null;
   rubric_id?: string | null;
