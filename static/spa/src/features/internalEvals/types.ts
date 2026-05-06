@@ -62,6 +62,9 @@ export type EvalRunRequest = {
   apply_selection_to_workflows?: boolean;
   workflow_id?: string | null;
   workflow_run_key?: string | null;
+  ad_hoc_workflow_id?: string | null;
+  ad_hoc_workflow_label?: string | null;
+  ad_hoc_workflow_inputs?: Record<string, unknown>;
 };
 
 export type EvalJobMessage = {

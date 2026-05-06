@@ -12,12 +12,13 @@ from fastapi import HTTPException
 from features.files import service as files_service
 from features.files.schemas import FileItem
 from features.rag import chunk_store
+from features.workflows import service as workflows_service
 from features.workflows.models import WorkflowSelectionIn
 
 from internal.evals.compare import compare_eval_exports, load_eval_export, write_comparison_export
 from internal.evals.export import slug, write_comparison_markdown, write_markdown_bundle
 from internal.evals.runner import DEFAULT_RESULTS_DIR, DEFAULT_RUBRICS_DIR, load_eval_case, run_eval_case, write_eval_export
-from internal.evals.schemas import WorkflowEvalExport
+from internal.evals.schemas import EvalWorkflowSpec, WorkflowEvalExport
 
 from .schemas import (
     InternalEvalCaseSummary,
@@ -590,16 +591,52 @@ def _filter_case_workflows(case, request: InternalEvalRunRequest):
     }
 
 
+def _replace_case_with_ad_hoc_workflow(case, request: InternalEvalRunRequest):
+    workflow_id = _workflow_filter_value(request.ad_hoc_workflow_id)
+    if not workflow_id:
+        return case, None
+
+    workflow = next((item for item in workflows_service.list_workflows() if item.workflow_id == workflow_id), None)
+    if workflow is None:
+        raise HTTPException(status_code=400, detail=f"Selected workflow type is not available: {workflow_id}")
+
+    label = str(request.ad_hoc_workflow_label or workflow.title or workflow.workflow_id).strip()
+    case.eval_id = f"agentic_{slug(workflow.workflow_id, fallback='workflow')}"
+    case.description = f"Agentic eval run for {workflow.title or workflow.workflow_id}"
+    case.default_inputs = {}
+    case.workflows = [
+        EvalWorkflowSpec(
+            workflow_id=workflow.workflow_id,
+            label=label or workflow.workflow_id,
+            inputs=dict(request.ad_hoc_workflow_inputs or {}),
+            modes=[],
+        )
+    ]
+    return case, {
+        "workflow_id": workflow.workflow_id,
+        "label": label or workflow.workflow_id,
+        "title": workflow.title,
+        "capability": workflow.capability,
+        "tier": workflow.tier,
+        "pack_id": workflow.pack_id,
+    }
+
+
 def _apply_request_overrides(case, request: InternalEvalRunRequest):
     if request.prompt_version:
         case.default_prompt_version = request.prompt_version
     if request.workflow_version:
         case.default_workflow_version = request.workflow_version
 
-    case, workflow_filter = _filter_case_workflows(case, request)
+    case, ad_hoc_workflow = _replace_case_with_ad_hoc_workflow(case, request)
+    workflow_filter = None
+    if not ad_hoc_workflow:
+        case, workflow_filter = _filter_case_workflows(case, request)
 
     metadata = dict(case.metadata or {})
     metadata["document_source"] = request.document_source
+    if ad_hoc_workflow:
+        metadata["ad_hoc_workflow"] = ad_hoc_workflow
     if workflow_filter:
         metadata["workflow_filter"] = workflow_filter
     if request.notes:
@@ -724,6 +761,8 @@ def create_job(request: InternalEvalRunRequest, *, uid: str, email: str | None) 
     _case_path(request.case_path)
     if request.compare_to:
         _result_path(request.compare_to)
+    if request.ad_hoc_workflow_id and request.workflow_run_key:
+        raise HTTPException(status_code=400, detail="Use either a workflow type or a saved case workflow, not both")
     if request.document_source == "app":
         _validate_app_document_selection(request, uid=request.uid or uid)
     job = InternalEvalJob(

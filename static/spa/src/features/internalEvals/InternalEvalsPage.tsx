@@ -25,7 +25,14 @@ import {
   listEvalSelectionOptions,
   saveEvalReview,
 } from "./api";
-import type { EvalCaseSummary, EvalCaseWorkflowSummary, EvalJob, EvalResultDetail, EvalResultSummary, EvalRunRecord, EvalSelectionOptions } from "./types";
+import type { FileItem } from "@/features/files/api";
+import { listWorkflows } from "@/features/workflows/api";
+import { LegalWorkflowLauncher } from "@/features/workflows/components/LegalWorkflowLauncher";
+import { WorkflowLauncher } from "@/features/workflows/components/WorkflowLauncher";
+import { buildProPackInputs, getVisibleProPackGroups } from "@/features/workflows/proPacks";
+import type { WorkflowManifest, WorkflowSelection } from "@/features/workflows/types";
+import { summarizeWorkflowSelection } from "@/features/workflows/utils/selection";
+import type { EvalCaseSummary, EvalJob, EvalResultDetail, EvalResultSummary, EvalRunRecord, EvalSelectionOptions } from "./types";
 
 const INTERNAL_UI_ENABLED = ["1", "true", "yes"].includes(String(import.meta.env.VITE_ENABLE_INTERNAL_EVAL_UI || "").toLowerCase());
 const INTERNAL_ADMIN_EMAILS = String(import.meta.env.VITE_INTERNAL_EVAL_ADMIN_EMAILS || "")
@@ -36,6 +43,7 @@ const INTERNAL_ADMIN_EMAILS = String(import.meta.env.VITE_INTERNAL_EVAL_ADMIN_EM
 type ReviewDraft = Record<string, { scores: Record<string, number | null>; notes: Record<string, string>; summary: string }>;
 type EvalView = "workflows" | "agent";
 type DocumentSource = "local" | "app";
+type WorkflowLibraryView = "core" | "pro";
 
 type AgentTraceStep = {
   step?: number;
@@ -244,6 +252,29 @@ function fileDisplayPath(file: Record<string, unknown>): string {
   return folder ? `${folder}/${name}` : name;
 }
 
+function toWorkflowFileItem(file: Record<string, unknown>): FileItem | null {
+  const id = getFileField(file, "id");
+  if (!id) return null;
+  return {
+    id,
+    name: getFileField(file, "name") || id,
+    original_name: getFileField(file, "original_name") || null,
+    folder_path: getFileField(file, "folder_path") || null,
+    content_type: getFileField(file, "content_type") || undefined,
+    created_at: getFileField(file, "created_at") || undefined,
+    size: Number(file.size || 0),
+  };
+}
+
+function isLegalWorkflow(workflow: WorkflowManifest | null): boolean {
+  if (!workflow) return false;
+  return workflow.pack_id === "legal" || workflow.workflow_id.startsWith("legal_");
+}
+
+function workflowSortKey(workflow: WorkflowManifest): string {
+  return `${String(workflow.pack_order || 0).padStart(4, "0")}:${String(workflow.workflow_order || 0).padStart(4, "0")}:${workflow.title.toLowerCase()}`;
+}
+
 function summarizeAppSelection(fileIds: string[], folderPaths: string[]): string {
   const total = fileIds.length + folderPaths.length;
   if (!total) return "Select uploaded files or folders from the app workspace.";
@@ -253,16 +284,12 @@ function summarizeAppSelection(fileIds: string[], folderPaths: string[]): string
   return parts.join(" · ");
 }
 
-function workflowOptionLabel(workflow: EvalCaseWorkflowSummary): string {
-  const label = workflow.label?.trim();
-  return label ? `${label} · ${workflow.workflow_id}` : workflow.workflow_id;
-}
-
 export default function InternalEvalsPage() {
   const { user, loading } = useAuthContext();
   const [statusChecked, setStatusChecked] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [cases, setCases] = useState<EvalCaseSummary[]>([]);
+  const [workflowCatalog, setWorkflowCatalog] = useState<WorkflowManifest[]>([]);
   const [results, setResults] = useState<EvalResultSummary[]>([]);
   const [selectionOptions, setSelectionOptions] = useState<EvalSelectionOptions | null>(null);
   const [selectionOptionsLoading, setSelectionOptionsLoading] = useState(false);
@@ -277,6 +304,11 @@ export default function InternalEvalsPage() {
   const [reviewNotes, setReviewNotes] = useState("");
   const [reviewDraft, setReviewDraft] = useState<ReviewDraft>({});
   const [evalView, setEvalView] = useState<EvalView>("workflows");
+  const [agentLibraryView, setAgentLibraryView] = useState<WorkflowLibraryView>("core");
+  const [agentLauncherOpen, setAgentLauncherOpen] = useState(false);
+  const [agentWorkflow, setAgentWorkflow] = useState<WorkflowManifest | null>(null);
+  const [agentInitialInputs, setAgentInitialInputs] = useState<Record<string, unknown>>({});
+  const [agentSubmitting, setAgentSubmitting] = useState(false);
   const filePickerRef = useRef<HTMLInputElement | null>(null);
   const folderPickerRef = useRef<HTMLInputElement | null>(null);
   const [launcher, setLauncher] = useState({
@@ -294,7 +326,6 @@ export default function InternalEvalsPage() {
     app_folder_paths: [] as string[],
     apply_selection_to_workflows: true,
     remember_manifest_paths: true,
-    agent_workflow_key: "",
   });
 
   const frontendAdminAllowed = useMemo(() => {
@@ -317,8 +348,14 @@ export default function InternalEvalsPage() {
   }
 
   async function refreshAll(nextResultId = selectedResultId) {
-    const [nextCases, nextResults, nextJobs] = await Promise.all([listEvalCases(), listEvalResults(75), listEvalJobs(25)]);
+    const [nextCases, nextWorkflowCatalog, nextResults, nextJobs] = await Promise.all([
+      listEvalCases(),
+      listWorkflows(),
+      listEvalResults(75),
+      listEvalJobs(25),
+    ]);
     setCases(nextCases);
+    setWorkflowCatalog(nextWorkflowCatalog || []);
     setResults(nextResults);
     setJobs(nextJobs);
     setJob((current) => {
@@ -439,11 +476,6 @@ export default function InternalEvalsPage() {
       toast.error("Select at least one uploaded app document or folder");
       return;
     }
-    const targetAgentWorkflow = evalView === "agent" ? selectedAgentWorkflow : null;
-    if (agentWorkflowSelectionRequired && !targetAgentWorkflow) {
-      toast.error("Select a workflow for the agent eval run");
-      return;
-    }
     setBusy(true);
     try {
       const response = await createEvalRun({
@@ -470,8 +502,6 @@ export default function InternalEvalsPage() {
               }
             : null,
         apply_selection_to_workflows: launcher.apply_selection_to_workflows,
-        workflow_run_key: targetAgentWorkflow?.key || null,
-        workflow_id: targetAgentWorkflow?.workflow_id || null,
       });
       setJob(response.job);
       toast.success("Eval run started");
@@ -479,6 +509,47 @@ export default function InternalEvalsPage() {
       toast.error(error instanceof Error ? error.message : "Could not start eval run");
     } finally {
       setBusy(false);
+    }
+  }
+
+  function openAgentWorkflowLauncher(workflow: WorkflowManifest, initialInputs: Record<string, unknown> = {}) {
+    setAgentWorkflow(workflow);
+    setAgentInitialInputs(initialInputs);
+    setAgentLauncherOpen(true);
+    if (!selectionOptions && !selectionOptionsLoading) {
+      void refreshAppSelectionOptions();
+    }
+  }
+
+  async function onRunAgentWorkflow(workflow: WorkflowManifest, inputs: Record<string, unknown>, selection: WorkflowSelection) {
+    setAgentSubmitting(true);
+    try {
+      const response = await createEvalRun({
+        case_path: launcher.case_path,
+        document_source: "app",
+        uid: launcher.uid.trim() || null,
+        mode: launcher.mode.trim() || null,
+        compare_to: launcher.compare_to.trim() || null,
+        prompt_version: launcher.prompt_version.trim() || null,
+        workflow_version: launcher.workflow_version.trim() || null,
+        notes: launcher.notes,
+        markdown: launcher.markdown,
+        selection,
+        manifest_paths: [],
+        apply_selection_to_workflows: true,
+        ad_hoc_workflow_id: workflow.workflow_id,
+        ad_hoc_workflow_label: workflow.title,
+        ad_hoc_workflow_inputs: inputs,
+      });
+      setJob(response.job);
+      setAgentLauncherOpen(false);
+      setAgentWorkflow(null);
+      setAgentInitialInputs({});
+      toast.success(`${workflow.title} eval started`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `Could not start ${workflow.title} eval`);
+    } finally {
+      setAgentSubmitting(false);
     }
   }
 
@@ -521,10 +592,17 @@ export default function InternalEvalsPage() {
     }
   }
 
-  const selectedCase = cases.find((item) => item.path === launcher.case_path) || null;
-  const selectedCaseWorkflows = selectedCase?.workflows || [];
-  const selectedAgentWorkflow = selectedCaseWorkflows.find((workflow) => workflow.key === launcher.agent_workflow_key) || null;
-  const agentWorkflowSelectionRequired = evalView === "agent" && selectedCaseWorkflows.length > 0;
+  const coreAgentWorkflows = workflowCatalog
+    .filter((workflow) => (workflow.tier || "core") === "core")
+    .slice()
+    .sort((a, b) => workflowSortKey(a).localeCompare(workflowSortKey(b)));
+  const visibleProPackGroups = getVisibleProPackGroups().map((group) => ({
+    ...group,
+    packs: group.packs.filter((pack) => workflowCatalog.some((workflow) => workflow.workflow_id === pack.workflow_id)),
+  })).filter((group) => group.packs.length > 0);
+  const workflowById = new Map(workflowCatalog.map((workflow) => [workflow.workflow_id, workflow] as const));
+  const agentFiles = (selectionOptions?.files || []).map((file) => toWorkflowFileItem(file)).filter((file): file is FileItem => !!file);
+  const emptyAgentSelection = useMemo(() => summarizeWorkflowSelection({ file_ids: [], folder_paths: [], current_folder: "" }), []);
   const agentTraceRuns = result?.runs.filter((run) => !!getAgentContext(run)) || [];
   const visibleRuns = evalView === "agent" ? agentTraceRuns : (result?.runs || []);
   const activeRunKey = evalView === "agent" ? activeAgentRunKey : activeWorkflowRunKey;
@@ -624,31 +702,12 @@ export default function InternalEvalsPage() {
                     <select
                       className="h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
                       value={launcher.case_path}
-                      onChange={(event) => setLauncher((prev) => ({ ...prev, case_path: event.target.value, agent_workflow_key: "" }))}
+                      onChange={(event) => setLauncher((prev) => ({ ...prev, case_path: event.target.value }))}
                     >
                       <option value={launcher.case_path}>{launcher.case_path}</option>
                       {cases.map((item) => <option key={item.path} value={item.path}>{item.eval_id || item.path}</option>)}
                     </select>
                   </label>
-                  {evalView === "agent" ? (
-                    <label className="block min-w-0 space-y-1 text-sm">
-                      <span className="font-medium">Agent workflow</span>
-                      <select
-                        className="h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
-                        value={launcher.agent_workflow_key}
-                        onChange={(event) => setLauncher((prev) => ({ ...prev, agent_workflow_key: event.target.value }))}
-                        disabled={!selectedCaseWorkflows.length}
-                      >
-                        <option value="">{selectedCaseWorkflows.length ? "Select workflow" : "No workflows found in selected case"}</option>
-                        {selectedCaseWorkflows.map((workflow) => (
-                          <option key={workflow.key} value={workflow.key}>{workflowOptionLabel(workflow)}</option>
-                        ))}
-                      </select>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {selectedAgentWorkflow ? `${selectedAgentWorkflow.modes?.join(", ") || "all modes"} · case item ${selectedAgentWorkflow.index}` : "Runs only the selected workflow so the agent trace starts clean."}
-                      </span>
-                    </label>
-                  ) : null}
                   <div className="grid min-w-0 grid-cols-2 gap-2">
                     <label className="block min-w-0 space-y-1 text-sm">
                       <span className="font-medium">Mode</span>
@@ -678,6 +737,76 @@ export default function InternalEvalsPage() {
                       {results.map((item) => <option key={item.id} value={item.id}>{item.eval_id} · {fmtDate(item.created_at)}</option>)}
                     </select>
                   </label>
+                  {evalView === "agent" ? (
+                    <div className="min-w-0 space-y-3 rounded-lg border bg-background p-3 text-sm">
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium">Workflow type</div>
+                          <div className="text-xs text-muted-foreground">Choose the workflow, then select source files and instructions in the launcher.</div>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" onClick={() => refreshAppSelectionOptions()} disabled={selectionOptionsLoading}>
+                          <RefreshCcw className="mr-1 h-3.5 w-3.5" /> Files
+                        </Button>
+                      </div>
+
+                      <div className="grid min-w-0 grid-cols-2 rounded-lg border bg-muted/40 p-1 text-sm">
+                        <button
+                          type="button"
+                          onClick={() => setAgentLibraryView("core")}
+                          className={`rounded-md px-3 py-2 transition ${agentLibraryView === "core" ? "bg-background shadow-sm" : "text-muted-foreground hover:bg-background/70"}`}
+                        >
+                          Core
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAgentLibraryView("pro")}
+                          className={`rounded-md px-3 py-2 transition ${agentLibraryView === "pro" ? "bg-background shadow-sm" : "text-muted-foreground hover:bg-background/70"}`}
+                        >
+                          Pro
+                        </button>
+                      </div>
+
+                      {agentLibraryView === "core" ? (
+                        <div className="max-h-72 space-y-1.5 overflow-auto rounded-md border p-2">
+                          {coreAgentWorkflows.length ? coreAgentWorkflows.map((workflow) => (
+                            <button
+                              key={workflow.workflow_id}
+                              type="button"
+                              onClick={() => openAgentWorkflowLauncher(workflow)}
+                              className="w-full rounded-lg px-3 py-2 text-left transition hover:bg-primary/5"
+                            >
+                              <span className="block truncate font-medium">{workflow.title}</span>
+                              <span className="mt-1 block text-xs leading-5 text-muted-foreground">{workflow.description}</span>
+                            </button>
+                          )) : <div className="p-3 text-xs text-muted-foreground">No core workflows are available.</div>}
+                        </div>
+                      ) : (
+                        <div className="max-h-72 space-y-3 overflow-auto rounded-md border p-2">
+                          {visibleProPackGroups.length ? visibleProPackGroups.map((group) => (
+                            <div key={group.id} className="space-y-1.5">
+                              {visibleProPackGroups.length > 1 ? <div className="px-2 text-xs font-medium text-muted-foreground">{group.title}</div> : null}
+                              {group.packs.map((pack) => {
+                                const workflow = workflowById.get(pack.workflow_id);
+                                return (
+                                  <button
+                                    key={pack.id}
+                                    type="button"
+                                    disabled={!workflow}
+                                    onClick={() => workflow && openAgentWorkflowLauncher(workflow, buildProPackInputs(group, pack))}
+                                    className="w-full rounded-lg px-3 py-2 text-left transition hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    <span className="block truncate font-medium">{pack.title}</span>
+                                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">{pack.description}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )) : <div className="p-3 text-xs text-muted-foreground">No pro workflows are available.</div>}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <>
                   <div className="min-w-0 space-y-2 rounded-lg border bg-background p-3 text-sm">
                     <div>
                       <div className="font-medium">Document source</div>
@@ -823,13 +952,21 @@ export default function InternalEvalsPage() {
                       ) : null}
                     </div>
                   )}
+                    </>
+                  )}
                   <label className="block min-w-0 space-y-1 text-sm">
                     <span className="font-medium">Notes</span>
                     <Textarea className="min-w-0" rows={3} value={launcher.notes} onChange={(event) => setLauncher((prev) => ({ ...prev, notes: event.target.value }))} />
                   </label>
-                  <Button className="w-full gap-2" onClick={onRunEval} disabled={busy || jobIsActive || !launcher.case_path || (agentWorkflowSelectionRequired && !selectedAgentWorkflow)}>
-                    <Play className="h-4 w-4" /> {jobIsActive ? "Eval running" : "Run eval"}
-                  </Button>
+                  {evalView === "workflows" ? (
+                    <Button className="w-full gap-2" onClick={onRunEval} disabled={busy || jobIsActive || !launcher.case_path}>
+                      <Play className="h-4 w-4" /> {jobIsActive ? "Eval running" : "Run eval"}
+                    </Button>
+                  ) : (
+                    <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                      Select a workflow type above to open the file and instruction launcher.
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -1069,6 +1206,46 @@ export default function InternalEvalsPage() {
           )}
         </main>
       </div>
+
+      {isLegalWorkflow(agentWorkflow) ? (
+        <LegalWorkflowLauncher
+          open={agentLauncherOpen}
+          workflow={agentWorkflow}
+          selection={emptyAgentSelection}
+          selectionMode="picker"
+          availableFiles={agentFiles}
+          filesLoading={selectionOptionsLoading}
+          submitting={agentSubmitting || jobIsActive}
+          initialInputs={agentInitialInputs}
+          onOpenChange={(open) => {
+            setAgentLauncherOpen(open);
+            if (!open) {
+              setAgentWorkflow(null);
+              setAgentInitialInputs({});
+            }
+          }}
+          onRun={onRunAgentWorkflow}
+        />
+      ) : (
+        <WorkflowLauncher
+          open={agentLauncherOpen}
+          workflow={agentWorkflow}
+          selection={emptyAgentSelection}
+          selectionMode="picker"
+          availableFiles={agentFiles}
+          filesLoading={selectionOptionsLoading}
+          submitting={agentSubmitting || jobIsActive}
+          initialInputs={agentInitialInputs}
+          onOpenChange={(open) => {
+            setAgentLauncherOpen(open);
+            if (!open) {
+              setAgentWorkflow(null);
+              setAgentInitialInputs({});
+            }
+          }}
+          onRun={onRunAgentWorkflow}
+        />
+      )}
     </div>
   );
 }

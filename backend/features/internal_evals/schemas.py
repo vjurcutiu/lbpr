@@ -78,6 +78,9 @@ class InternalEvalRunRequest(BaseModel):
     apply_selection_to_workflows: bool = True
     workflow_id: str | None = None
     workflow_run_key: str | None = None
+    ad_hoc_workflow_id: str | None = None
+    ad_hoc_workflow_label: str | None = None
+    ad_hoc_workflow_inputs: dict[str, Any] = Field(default_factory=dict)
 
 
 class InternalEvalJobMessage(BaseModel):
