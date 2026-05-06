@@ -190,10 +190,20 @@ Each run includes:
 - inputs used for the workflow
 - summary, bullets, next actions, and full markdown output
 - structured metadata such as legal risks, clauses, obligations, approval notes, open questions, evidence highlights, and suggested actions when available
+- adaptive context metadata when the workflow uses the context agent, including `retrieval_trace` and `decision_trace`
 - source file metadata
 - rubric criteria placeholders
 - validation issues for missing sections, sources, or structured metadata
 - usage accounting estimates with `billing_skipped: true`
+
+## Agent decision traces
+
+The eval UI shows two separate agent trace views:
+
+- `retrieval_trace`: the observable turns the context agent took, such as initial search, neighbor expansion, and targeted follow-up queries.
+- `decision_trace`: the decision rationale for those turns, including the stage, decision, action, observation, outcome, and compact metadata.
+
+This is not raw hidden chain-of-thought. It is a structured, reviewable audit trail of the agent's external decisions so eval reviewers can understand why it searched, expanded, stopped, or marked context incomplete.
 
 ## Baseline comparison
 

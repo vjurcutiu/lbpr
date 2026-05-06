@@ -54,6 +54,17 @@ type AgentTraceStep = {
   chunks_added?: number;
 };
 
+type AgentDecisionStep = {
+  step?: number;
+  stage?: string;
+  decision?: string;
+  rationale?: string;
+  action?: string;
+  observation?: string | null;
+  outcome?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
 type AgentContext = {
   profile?: string;
   sufficient?: boolean;
@@ -62,6 +73,7 @@ type AgentContext = {
   coverage_notes?: string[];
   missing_context?: string[];
   retrieval_trace?: AgentTraceStep[];
+  decision_trace?: AgentDecisionStep[];
 };
 
 const AGENT_REVIEW_CRITERIA = [
@@ -150,6 +162,23 @@ function asTraceSteps(value: unknown): AgentTraceStep[] {
   });
 }
 
+function asDecisionSteps(value: unknown): AgentDecisionStep[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, index) => {
+    const record = asRecord(item) || {};
+    return {
+      step: Number(record.step || index + 1),
+      stage: typeof record.stage === "string" ? record.stage : "decision",
+      decision: typeof record.decision === "string" ? record.decision : "Agent decision",
+      rationale: typeof record.rationale === "string" ? record.rationale : "",
+      action: typeof record.action === "string" ? record.action : "",
+      observation: typeof record.observation === "string" ? record.observation : null,
+      outcome: typeof record.outcome === "string" ? record.outcome : null,
+      metadata: asRecord(record.metadata) || {},
+    };
+  });
+}
+
 function getAgentContext(run?: EvalRunRecord | null): AgentContext | null {
   if (!run) return null;
   const structured = asRecord(run.structured_metadata);
@@ -163,6 +192,7 @@ function getAgentContext(run?: EvalRunRecord | null): AgentContext | null {
     coverage_notes: asStringArray(rawContext.coverage_notes),
     missing_context: asStringArray(rawContext.missing_context),
     retrieval_trace: asTraceSteps(rawContext.retrieval_trace),
+    decision_trace: asDecisionSteps(rawContext.decision_trace),
   };
 }
 
@@ -178,6 +208,23 @@ function agentTurnLabel(type?: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function agentStageLabel(stage?: string): string {
+  return String(stage || "decision")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatMetadataPreview(metadata?: Record<string, unknown>): string {
+  if (!metadata || !Object.keys(metadata).length) return "";
+  try {
+    return JSON.stringify(metadata, null, 2);
+  } catch {
+    return "";
+  }
 }
 
 function buildInitialReview(result: EvalResultDetail | null): ReviewDraft {
@@ -611,6 +658,7 @@ export default function InternalEvalsPage() {
   const activeRun = selectedRun || (visibleRuns.length === 1 ? visibleRuns[0] : null);
   const sufficientAgentRuns = agentTraceRuns.filter((run) => getAgentContext(run)?.sufficient).length;
   const totalAgentTurns = agentTraceRuns.reduce((total, run) => total + (getAgentContext(run)?.retrieval_trace?.length || 0), 0);
+  const totalAgentDecisions = agentTraceRuns.reduce((total, run) => total + (getAgentContext(run)?.decision_trace?.length || 0), 0);
   const manifestPaths = parseManifestPaths(launcher.manifest_paths);
   const manifestFolderPaths = folderPathsFromManifest(manifestPaths);
   const appSelectionSummary = summarizeAppSelection(launcher.app_file_ids, launcher.app_folder_paths);
@@ -1128,6 +1176,7 @@ export default function InternalEvalsPage() {
                       <span>{agentTraceRuns.length} agent traces</span>
                       <span>{sufficientAgentRuns}/{agentTraceRuns.length || 0} sufficient</span>
                       <span>{totalAgentTurns} agent turns</span>
+                      <span>{totalAgentDecisions} decision steps</span>
                     </div>
                   </div>
                   <div className="flex min-w-0 shrink-0 flex-wrap justify-end gap-2">
@@ -1175,6 +1224,7 @@ export default function InternalEvalsPage() {
                           {evalView === "agent" ? (
                             <div className="mt-2 flex min-w-0 flex-wrap gap-2 text-xs text-muted-foreground">
                               <span>{agentContext?.retrieval_trace?.length || 0} turns</span>
+                              <span>{agentContext?.decision_trace?.length || 0} decisions</span>
                               <span>{agentContext?.selected_chunks || 0} chunks</span>
                               <span className="min-w-0 max-w-full truncate">{agentContext?.profile || "no profile"}</span>
                             </div>
@@ -1450,6 +1500,7 @@ function AgentRunReviewPanel({
 }) {
   const context = getAgentContext(run);
   const trace = context?.retrieval_trace || [];
+  const decisions = context?.decision_trace || [];
   const workflowStrategy = String(asRecord(run.structured_metadata)?.source_strategy || "");
   const totalAddedChunks = trace.reduce((total, step) => total + Number(step.chunks_added || 0), 0);
   const targetedTurns = trace.filter((step) => step.type === "targeted_query").length;
@@ -1466,7 +1517,7 @@ function AgentRunReviewPanel({
             </CardTitle>
             <span className="shrink-0">{agentContextBadge(context)}</span>
           </div>
-          <CardDescription className="break-words">{run.workflow_id} · {fmtMs(run.duration_ms)} · {trace.length} agent turn{trace.length === 1 ? "" : "s"}</CardDescription>
+          <CardDescription className="break-words">{run.workflow_id} · {fmtMs(run.duration_ms)} · {trace.length} agent turn{trace.length === 1 ? "" : "s"} · {decisions.length} decision step{decisions.length === 1 ? "" : "s"}</CardDescription>
         </CardHeader>
         <CardContent className="grid min-w-0 gap-3 text-sm md:grid-cols-4">
           <div className="rounded-lg border bg-background p-3">
@@ -1501,6 +1552,39 @@ function AgentRunReviewPanel({
           </CardContent>
         </Card>
       ) : null}
+
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex min-w-0 items-center gap-2 text-base">
+            <Bot className="h-4 w-4" /> Decision rationale
+          </CardTitle>
+          <CardDescription>Observable decisions the context agent made while preparing evidence for the workflow output.</CardDescription>
+        </CardHeader>
+        <CardContent className="min-w-0 space-y-3 text-sm">
+          {decisions.length ? decisions.map((decision, index) => {
+            const metadataPreview = formatMetadataPreview(decision.metadata);
+            return (
+              <div key={`${decision.step || index}-${decision.stage || "decision"}`} className="min-w-0 overflow-hidden rounded-lg border p-3">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1 basis-0">
+                    <div className="break-words font-medium">Decision {decision.step || index + 1}: {decision.decision || "Agent decision"}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{agentStageLabel(decision.stage)}</div>
+                  </div>
+                  {decision.action ? <Badge variant="outline" className="max-w-full truncate">{decision.action}</Badge> : null}
+                </div>
+                {decision.rationale ? (
+                  <div className="mt-2 break-words rounded-md bg-muted p-2 text-xs">
+                    <span className="font-medium">Why: </span>{decision.rationale}
+                  </div>
+                ) : null}
+                {decision.observation ? <div className="mt-2 break-words text-xs text-muted-foreground"><span className="font-medium">Observed: </span>{decision.observation}</div> : null}
+                {decision.outcome ? <div className="mt-1 break-words text-xs text-muted-foreground"><span className="font-medium">Outcome: </span>{decision.outcome}</div> : null}
+                {metadataPreview ? <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-muted p-2 text-[11px] text-muted-foreground">{metadataPreview}</pre> : null}
+              </div>
+            );
+          }) : <div className="text-muted-foreground">No decision rationale was captured for this run.</div>}
+        </CardContent>
+      </Card>
 
       <Card className="min-w-0 overflow-hidden">
         <CardHeader className="pb-3">

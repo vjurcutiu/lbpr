@@ -393,6 +393,19 @@ def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str,
         }
         for step in bundle.retrieval_trace
     ]
+    decision_trace = [
+        {
+            "step": decision.step,
+            "stage": decision.stage,
+            "decision": decision.decision,
+            "rationale": decision.rationale,
+            "action": decision.action,
+            "observation": decision.observation,
+            "outcome": decision.outcome,
+            "metadata": decision.metadata,
+        }
+        for decision in bundle.decision_trace
+    ]
     stats = {
         "adaptive_context": {
             "profile": bundle.profile,
@@ -402,6 +415,7 @@ def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str,
             "coverage_notes": bundle.coverage_notes,
             "missing_context": bundle.missing_context,
             "retrieval_trace": trace,
+            "decision_trace": decision_trace,
         }
     }
     return sources, stats
