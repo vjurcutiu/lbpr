@@ -13,6 +13,14 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class InternalEvalCaseWorkflowSummary(BaseModel):
+    key: str
+    index: int
+    workflow_id: str
+    label: str | None = None
+    modes: list[str] = Field(default_factory=list)
+
+
 class InternalEvalCaseSummary(BaseModel):
     id: str
     path: str
@@ -20,6 +28,7 @@ class InternalEvalCaseSummary(BaseModel):
     description: str = ""
     workflow_count: int = 0
     mode: str | None = None
+    workflows: list[InternalEvalCaseWorkflowSummary] = Field(default_factory=list)
     modified_at: datetime | None = None
 
 
@@ -67,6 +76,8 @@ class InternalEvalRunRequest(BaseModel):
     selection: WorkflowSelectionIn | None = None
     manifest_paths: list[str] = Field(default_factory=list)
     apply_selection_to_workflows: bool = True
+    workflow_id: str | None = None
+    workflow_run_key: str | None = None
 
 
 class InternalEvalJobMessage(BaseModel):

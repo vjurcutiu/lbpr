@@ -21,6 +21,7 @@ from internal.evals.schemas import WorkflowEvalExport
 
 from .schemas import (
     InternalEvalCaseSummary,
+    InternalEvalCaseWorkflowSummary,
     InternalEvalCompareRequest,
     InternalEvalCompareResponse,
     InternalEvalFolderOption,
@@ -272,6 +273,40 @@ def _record_job_progress(job: InternalEvalJob, payload: dict[str, Any]) -> None:
         )
 
 
+
+def _case_workflow_key_from_values(workflow_id: str, label: str | None, index: int) -> str:
+    label_slug = slug(str(label or "")) if label else str(index)
+    return f"{workflow_id}::{label_slug}"
+
+
+def _case_workflow_key(workflow: Any, index: int) -> str:
+    return _case_workflow_key_from_values(
+        str(getattr(workflow, "workflow_id", "") or "").strip(),
+        str(getattr(workflow, "label", "") or "") or None,
+        index,
+    )
+
+
+def _case_workflow_summaries(raw_workflows: list[Any]) -> list[InternalEvalCaseWorkflowSummary]:
+    summaries: list[InternalEvalCaseWorkflowSummary] = []
+    for index, workflow in enumerate(raw_workflows or [], start=1):
+        if not isinstance(workflow, dict):
+            continue
+        workflow_id = str(workflow.get("workflow_id") or "").strip()
+        if not workflow_id:
+            continue
+        label = workflow.get("label")
+        summaries.append(
+            InternalEvalCaseWorkflowSummary(
+                key=_case_workflow_key_from_values(workflow_id, str(label) if label else None, index),
+                index=index,
+                workflow_id=workflow_id,
+                label=str(label) if label else None,
+                modes=[str(item) for item in workflow.get("modes") or [] if str(item or "").strip()],
+            )
+        )
+    return summaries
+
 def _summarize_case(path: Path) -> InternalEvalCaseSummary:
     raw: dict[str, Any] = {}
     try:
@@ -279,13 +314,15 @@ def _summarize_case(path: Path) -> InternalEvalCaseSummary:
     except Exception:
         raw = {}
     stat = path.stat()
+    raw_workflows = raw.get("workflows") if isinstance(raw.get("workflows"), list) else []
     return InternalEvalCaseSummary(
         id=_relative(path),
         path=_relative(path),
         eval_id=raw.get("eval_id"),
         description=str(raw.get("description") or ""),
-        workflow_count=len(raw.get("workflows") or []),
+        workflow_count=len(raw_workflows),
         mode=raw.get("mode"),
+        workflows=_case_workflow_summaries(raw_workflows),
         modified_at=datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
     )
 
@@ -523,14 +560,48 @@ def _validate_app_document_selection(request: InternalEvalRunRequest, *, uid: st
 
 
 
+
+def _workflow_filter_value(value: str | None) -> str:
+    return str(value or "").strip()
+
+
+def _filter_case_workflows(case, request: InternalEvalRunRequest):
+    workflow_run_key = _workflow_filter_value(request.workflow_run_key)
+    workflow_id = _workflow_filter_value(request.workflow_id)
+    if not workflow_run_key and not workflow_id:
+        return case, None
+
+    original_workflows = list(case.workflows or [])
+    if workflow_run_key:
+        selected = [workflow for index, workflow in enumerate(original_workflows, start=1) if _case_workflow_key(workflow, index) == workflow_run_key]
+    else:
+        selected = [workflow for workflow in original_workflows if str(getattr(workflow, "workflow_id", "") or "").strip() == workflow_id]
+
+    if not selected:
+        target = workflow_run_key or workflow_id
+        raise HTTPException(status_code=400, detail=f"Selected workflow was not found in this eval case: {target}")
+
+    case.workflows = selected
+    return case, {
+        "workflow_id": workflow_id or None,
+        "workflow_run_key": workflow_run_key or None,
+        "matched_count": len(selected),
+        "available_count": len(original_workflows),
+    }
+
+
 def _apply_request_overrides(case, request: InternalEvalRunRequest):
     if request.prompt_version:
         case.default_prompt_version = request.prompt_version
     if request.workflow_version:
         case.default_workflow_version = request.workflow_version
 
+    case, workflow_filter = _filter_case_workflows(case, request)
+
     metadata = dict(case.metadata or {})
     metadata["document_source"] = request.document_source
+    if workflow_filter:
+        metadata["workflow_filter"] = workflow_filter
     if request.notes:
         metadata["run_notes"] = request.notes
 

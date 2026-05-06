@@ -1,3 +1,11 @@
+export type EvalCaseWorkflowSummary = {
+  key: string;
+  index: number;
+  workflow_id: string;
+  label?: string | null;
+  modes?: string[];
+};
+
 export type EvalCaseSummary = {
   id: string;
   path: string;
@@ -5,6 +13,7 @@ export type EvalCaseSummary = {
   description: string;
   workflow_count: number;
   mode?: string | null;
+  workflows?: EvalCaseWorkflowSummary[];
   modified_at?: string | null;
 };
 
@@ -51,6 +60,8 @@ export type EvalRunRequest = {
   selection?: WorkflowSelectionInput | null;
   manifest_paths?: string[];
   apply_selection_to_workflows?: boolean;
+  workflow_id?: string | null;
+  workflow_run_key?: string | null;
 };
 
 export type EvalJobMessage = {

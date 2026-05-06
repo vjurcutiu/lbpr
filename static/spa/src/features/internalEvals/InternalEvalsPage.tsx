@@ -25,7 +25,7 @@ import {
   listEvalSelectionOptions,
   saveEvalReview,
 } from "./api";
-import type { EvalCaseSummary, EvalJob, EvalResultDetail, EvalResultSummary, EvalRunRecord, EvalSelectionOptions } from "./types";
+import type { EvalCaseSummary, EvalCaseWorkflowSummary, EvalJob, EvalResultDetail, EvalResultSummary, EvalRunRecord, EvalSelectionOptions } from "./types";
 
 const INTERNAL_UI_ENABLED = ["1", "true", "yes"].includes(String(import.meta.env.VITE_ENABLE_INTERNAL_EVAL_UI || "").toLowerCase());
 const INTERNAL_ADMIN_EMAILS = String(import.meta.env.VITE_INTERNAL_EVAL_ADMIN_EMAILS || "")
@@ -253,6 +253,11 @@ function summarizeAppSelection(fileIds: string[], folderPaths: string[]): string
   return parts.join(" · ");
 }
 
+function workflowOptionLabel(workflow: EvalCaseWorkflowSummary): string {
+  const label = workflow.label?.trim();
+  return label ? `${label} · ${workflow.workflow_id}` : workflow.workflow_id;
+}
+
 export default function InternalEvalsPage() {
   const { user, loading } = useAuthContext();
   const [statusChecked, setStatusChecked] = useState(false);
@@ -289,6 +294,7 @@ export default function InternalEvalsPage() {
     app_folder_paths: [] as string[],
     apply_selection_to_workflows: true,
     remember_manifest_paths: true,
+    agent_workflow_key: "",
   });
 
   const frontendAdminAllowed = useMemo(() => {
@@ -433,6 +439,11 @@ export default function InternalEvalsPage() {
       toast.error("Select at least one uploaded app document or folder");
       return;
     }
+    const targetAgentWorkflow = evalView === "agent" ? selectedAgentWorkflow : null;
+    if (agentWorkflowSelectionRequired && !targetAgentWorkflow) {
+      toast.error("Select a workflow for the agent eval run");
+      return;
+    }
     setBusy(true);
     try {
       const response = await createEvalRun({
@@ -459,6 +470,8 @@ export default function InternalEvalsPage() {
               }
             : null,
         apply_selection_to_workflows: launcher.apply_selection_to_workflows,
+        workflow_run_key: targetAgentWorkflow?.key || null,
+        workflow_id: targetAgentWorkflow?.workflow_id || null,
       });
       setJob(response.job);
       toast.success("Eval run started");
@@ -508,6 +521,10 @@ export default function InternalEvalsPage() {
     }
   }
 
+  const selectedCase = cases.find((item) => item.path === launcher.case_path) || null;
+  const selectedCaseWorkflows = selectedCase?.workflows || [];
+  const selectedAgentWorkflow = selectedCaseWorkflows.find((workflow) => workflow.key === launcher.agent_workflow_key) || null;
+  const agentWorkflowSelectionRequired = evalView === "agent" && selectedCaseWorkflows.length > 0;
   const agentTraceRuns = result?.runs.filter((run) => !!getAgentContext(run)) || [];
   const visibleRuns = evalView === "agent" ? agentTraceRuns : (result?.runs || []);
   const activeRunKey = evalView === "agent" ? activeAgentRunKey : activeWorkflowRunKey;
@@ -607,12 +624,31 @@ export default function InternalEvalsPage() {
                     <select
                       className="h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
                       value={launcher.case_path}
-                      onChange={(event) => setLauncher((prev) => ({ ...prev, case_path: event.target.value }))}
+                      onChange={(event) => setLauncher((prev) => ({ ...prev, case_path: event.target.value, agent_workflow_key: "" }))}
                     >
                       <option value={launcher.case_path}>{launcher.case_path}</option>
                       {cases.map((item) => <option key={item.path} value={item.path}>{item.eval_id || item.path}</option>)}
                     </select>
                   </label>
+                  {evalView === "agent" ? (
+                    <label className="block min-w-0 space-y-1 text-sm">
+                      <span className="font-medium">Agent workflow</span>
+                      <select
+                        className="h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
+                        value={launcher.agent_workflow_key}
+                        onChange={(event) => setLauncher((prev) => ({ ...prev, agent_workflow_key: event.target.value }))}
+                        disabled={!selectedCaseWorkflows.length}
+                      >
+                        <option value="">{selectedCaseWorkflows.length ? "Select workflow" : "No workflows found in selected case"}</option>
+                        {selectedCaseWorkflows.map((workflow) => (
+                          <option key={workflow.key} value={workflow.key}>{workflowOptionLabel(workflow)}</option>
+                        ))}
+                      </select>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {selectedAgentWorkflow ? `${selectedAgentWorkflow.modes?.join(", ") || "all modes"} · case item ${selectedAgentWorkflow.index}` : "Runs only the selected workflow so the agent trace starts clean."}
+                      </span>
+                    </label>
+                  ) : null}
                   <div className="grid min-w-0 grid-cols-2 gap-2">
                     <label className="block min-w-0 space-y-1 text-sm">
                       <span className="font-medium">Mode</span>
@@ -791,7 +827,7 @@ export default function InternalEvalsPage() {
                     <span className="font-medium">Notes</span>
                     <Textarea className="min-w-0" rows={3} value={launcher.notes} onChange={(event) => setLauncher((prev) => ({ ...prev, notes: event.target.value }))} />
                   </label>
-                  <Button className="w-full gap-2" onClick={onRunEval} disabled={busy || jobIsActive || !launcher.case_path}>
+                  <Button className="w-full gap-2" onClick={onRunEval} disabled={busy || jobIsActive || !launcher.case_path || (agentWorkflowSelectionRequired && !selectedAgentWorkflow)}>
                     <Play className="h-4 w-4" /> {jobIsActive ? "Eval running" : "Run eval"}
                   </Button>
                 </CardContent>
