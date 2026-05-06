@@ -603,10 +603,12 @@ export default function InternalEvalsPage() {
   const workflowById = new Map(workflowCatalog.map((workflow) => [workflow.workflow_id, workflow] as const));
   const agentFiles = (selectionOptions?.files || []).map((file) => toWorkflowFileItem(file)).filter((file): file is FileItem => !!file);
   const emptyAgentSelection = useMemo(() => summarizeWorkflowSelection({ file_ids: [], folder_paths: [], current_folder: "" }), []);
-  const agentTraceRuns = result?.runs.filter((run) => !!getAgentContext(run)) || [];
-  const visibleRuns = evalView === "agent" ? agentTraceRuns : (result?.runs || []);
+  const allResultRuns = result?.runs || [];
+  const agentTraceRuns = allResultRuns.filter((run) => !!getAgentContext(run));
+  const visibleRuns = allResultRuns;
   const activeRunKey = evalView === "agent" ? activeAgentRunKey : activeWorkflowRunKey;
-  const activeRun = visibleRuns.find((run) => (run.run_key || run.workflow_id) === activeRunKey) || null;
+  const selectedRun = visibleRuns.find((run) => (run.run_key || run.workflow_id) === activeRunKey) || null;
+  const activeRun = selectedRun || (visibleRuns.length === 1 ? visibleRuns[0] : null);
   const sufficientAgentRuns = agentTraceRuns.filter((run) => getAgentContext(run)?.sufficient).length;
   const totalAgentTurns = agentTraceRuns.reduce((total, run) => total + (getAgentContext(run)?.retrieval_trace?.length || 0), 0);
   const manifestPaths = parseManifestPaths(launcher.manifest_paths);
@@ -1147,7 +1149,9 @@ export default function InternalEvalsPage() {
                   <div className="w-full min-w-0 max-w-full space-y-2 p-3">
                     {evalView === "agent" ? (
                       <div className="min-w-0 break-words rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
-                        Select an agent trace to inspect retrieval turns, context coverage, and grounding separately from workflow output review.
+                        {agentTraceRuns.length
+                          ? "Select a run to inspect retrieval turns, context coverage, and grounding separately from workflow output review."
+                          : "This result has workflow output but no agent trace metadata. Select the run to review the output and confirm why no trace was captured."}
                       </div>
                     ) : null}
                     {visibleRuns.length ? visibleRuns.map((run) => {
@@ -1181,7 +1185,7 @@ export default function InternalEvalsPage() {
                       );
                     }) : (
                       <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                        {evalView === "agent" ? "No agent traces were captured for this eval result." : "No workflow runs were captured for this eval result."}
+                        {evalView === "agent" ? "No eval runs were captured for this result." : "No workflow runs were captured for this eval result."}
                       </div>
                     )}
                   </div>
@@ -1263,8 +1267,8 @@ function EvalViewerEmptyState({ view, hasRuns }: { view: EvalView; hasRuns: bool
             <CardTitle>Agent eval viewer</CardTitle>
             <CardDescription>
               {hasRuns
-                ? "Select an agent trace from the left to review retrieval turns, context coverage, and grounding."
-                : "This eval result does not include agent trace metadata yet."}
+                ? "Select a run from the left. Runs without trace metadata can still be reviewed for workflow output."
+                : "This eval result does not include runs yet."}
             </CardDescription>
           </CardHeader>
         </Card>
