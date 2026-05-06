@@ -234,7 +234,8 @@ export default function InternalEvalsPage() {
   const [results, setResults] = useState<EvalResultSummary[]>([]);
   const [selectedResultId, setSelectedResultId] = useState<string>("");
   const [result, setResult] = useState<EvalResultDetail | null>(null);
-  const [activeRunKey, setActiveRunKey] = useState<string>("");
+  const [activeWorkflowRunKey, setActiveWorkflowRunKey] = useState<string>("");
+  const [activeAgentRunKey, setActiveAgentRunKey] = useState<string>("");
   const [job, setJob] = useState<EvalJob | null>(null);
   const [jobs, setJobs] = useState<EvalJob[]>([]);
   const [busy, setBusy] = useState(false);
@@ -283,7 +284,8 @@ export default function InternalEvalsPage() {
   async function loadResult(resultId: string) {
     const detail = await getEvalResult(resultId);
     setResult(detail);
-    setActiveRunKey(detail.runs[0]?.run_key || detail.runs[0]?.workflow_id || "");
+    setActiveWorkflowRunKey(detail.runs[0]?.run_key || detail.runs[0]?.workflow_id || "");
+    setActiveAgentRunKey("");
     setReviewNotes(detail._internal?.review?.reviewer_notes || "");
     setReviewDraft(buildInitialReview(detail));
   }
@@ -425,8 +427,10 @@ export default function InternalEvalsPage() {
     }
   }
 
-  const activeRun = result?.runs.find((run) => (run.run_key || run.workflow_id) === activeRunKey) || result?.runs[0];
   const agentTraceRuns = result?.runs.filter((run) => !!getAgentContext(run)) || [];
+  const visibleRuns = evalView === "agent" ? agentTraceRuns : (result?.runs || []);
+  const activeRunKey = evalView === "agent" ? activeAgentRunKey : activeWorkflowRunKey;
+  const activeRun = visibleRuns.find((run) => (run.run_key || run.workflow_id) === activeRunKey) || null;
   const sufficientAgentRuns = agentTraceRuns.filter((run) => getAgentContext(run)?.sufficient).length;
   const totalAgentTurns = agentTraceRuns.reduce((total, run) => total + (getAgentContext(run)?.retrieval_trace?.length || 0), 0);
   const manifestPaths = parseManifestPaths(launcher.manifest_paths);
@@ -468,14 +472,20 @@ export default function InternalEvalsPage() {
                 <div className="grid grid-cols-2 rounded-lg border bg-background p-1 text-sm">
                   <button
                     type="button"
-                    onClick={() => setEvalView("agent")}
+                    onClick={() => {
+                      setEvalView("agent");
+                      setActiveAgentRunKey("");
+                    }}
                     className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 transition ${evalView === "agent" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"}`}
                   >
                     <Bot className="h-4 w-4" /> Agent
                   </button>
                   <button
                     type="button"
-                    onClick={() => setEvalView("workflows")}
+                    onClick={() => {
+                      setEvalView("workflows");
+                      setActiveAgentRunKey("");
+                    }}
                     className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 transition ${evalView === "workflows" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"}`}
                   >
                     <ListChecks className="h-4 w-4" /> Workflows
@@ -793,14 +803,22 @@ export default function InternalEvalsPage() {
               <div className="grid h-full min-h-0 grid-cols-[300px_minmax(0,1fr)] overflow-hidden">
                 <ScrollArea className="h-full min-h-0 border-r">
                   <div className="space-y-2 p-3">
-                    {result.runs.map((run) => {
+                    {evalView === "agent" ? (
+                      <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+                        Select an agent trace to inspect retrieval turns, context coverage, and grounding separately from workflow output review.
+                      </div>
+                    ) : null}
+                    {visibleRuns.length ? visibleRuns.map((run) => {
                       const key = run.run_key || run.workflow_id;
                       const agentContext = getAgentContext(run);
                       return (
                         <button
                           key={key}
                           type="button"
-                          onClick={() => setActiveRunKey(key)}
+                          onClick={() => {
+                            if (evalView === "agent") setActiveAgentRunKey(key);
+                            else setActiveWorkflowRunKey(key);
+                          }}
                           className={`w-full rounded-lg border p-3 text-left transition hover:bg-muted ${activeRunKey === key ? "border-primary bg-primary/5" : "bg-background"}`}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -819,7 +837,11 @@ export default function InternalEvalsPage() {
                           )}
                         </button>
                       );
-                    })}
+                    }) : (
+                      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                        {evalView === "agent" ? "No agent traces were captured for this eval result." : "No workflow runs were captured for this eval result."}
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
 
@@ -833,13 +855,54 @@ export default function InternalEvalsPage() {
                       reviewNotes={reviewNotes}
                       setReviewNotes={setReviewNotes}
                     />
-                  ) : null}
+                  ) : (
+                    <EvalViewerEmptyState view={evalView} hasRuns={visibleRuns.length > 0} />
+                  )}
                 </ScrollArea>
               </div>
             </div>
           )}
         </main>
       </div>
+    </div>
+  );
+}
+
+
+function EvalViewerEmptyState({ view, hasRuns }: { view: EvalView; hasRuns: boolean }) {
+  if (view === "agent") {
+    return (
+      <div className="grid h-full min-h-[420px] place-items-center p-6">
+        <Card className="max-w-lg border-dashed text-center">
+          <CardHeader>
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-muted">
+              <Bot className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <CardTitle>Agent eval viewer</CardTitle>
+            <CardDescription>
+              {hasRuns
+                ? "Select an agent trace from the left to review retrieval turns, context coverage, and grounding."
+                : "This eval result does not include agent trace metadata yet."}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid h-full min-h-[420px] place-items-center p-6">
+      <Card className="max-w-lg border-dashed text-center">
+        <CardHeader>
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-muted">
+            <ListChecks className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <CardTitle>Workflow eval viewer</CardTitle>
+          <CardDescription>
+            {hasRuns ? "Select a workflow run from the left to review output quality and validation issues." : "This eval result does not include workflow runs."}
+          </CardDescription>
+        </CardHeader>
+      </Card>
     </div>
   );
 }
