@@ -8,9 +8,11 @@ from features.workflows import service as workflow_service
 from features.workflows.models import WorkflowSourceFile
 from internal.evals.compare import compare_eval_exports
 from features.internal_evals.schemas import InternalEvalRunRequest
-from features.internal_evals.service import _apply_request_overrides
+from features.internal_evals.service import _apply_request_overrides, _validate_app_document_selection
 from internal.evals.runner import run_eval_case, write_eval_export
 from internal.evals.schemas import EvalDocumentSet, EvalRubric, EvalRubricCriterion, EvalWorkflowSpec, WorkflowEvalCase
+from features.files.schemas import FileItem
+from fastapi import HTTPException
 
 
 def _fake_source_loader(uid, selection, **kwargs):
@@ -155,6 +157,59 @@ def test_internal_eval_comparison_tracks_output_and_status_changes(monkeypatch):
     assert comparison.summary["output_changes"] == 1
     assert comparison.runs[0].output_changed is True
     assert comparison.runs[0].output_similarity is not None
+
+
+def test_internal_eval_app_document_source_records_metadata():
+    case = WorkflowEvalCase(
+        eval_id="app_docs_source_test",
+        document_set=EvalDocumentSet(name="contracts_batch", selection={"file_ids": ["old-file"]}),
+        workflows=[EvalWorkflowSpec(workflow_id="legal_contract_review", label="Review")],
+    )
+    request = InternalEvalRunRequest(
+        document_source="app",
+        selection={"file_ids": ["uploaded-file"], "folder_paths": [], "current_folder": ""},
+        apply_selection_to_workflows=True,
+    )
+
+    updated = _apply_request_overrides(case, request)
+
+    assert updated.metadata["document_source"] == "app"
+    assert updated.document_set.selection.file_ids == ["uploaded-file"]
+    assert updated.workflows[0].selection is not None
+    assert updated.workflows[0].selection.file_ids == ["uploaded-file"]
+
+
+def test_internal_eval_app_document_source_requires_chunk_artifacts(monkeypatch):
+    from features.internal_evals import service as internal_eval_service
+
+    monkeypatch.setattr(
+        internal_eval_service.files_service,
+        "list_files",
+        lambda uid: [
+            FileItem(
+                id="file-1",
+                name="contract.txt",
+                size=100,
+                content_type="text/plain",
+                folder_path="contracts",
+                original_name="contract.txt",
+            )
+        ],
+    )
+    monkeypatch.setattr(internal_eval_service.chunk_store, "load_chunk_artifact", lambda uid, file_item: None)
+
+    request = InternalEvalRunRequest(
+        document_source="app",
+        selection={"file_ids": ["file-1"], "folder_paths": [], "current_folder": ""},
+    )
+
+    try:
+        _validate_app_document_selection(request, uid="u_eval")
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert "Missing chunk artifacts" in str(exc.detail)
+    else:
+        raise AssertionError("Expected app document validation to reject files without chunk artifacts")
 
 
 def test_internal_eval_request_selection_override_applies_to_case_and_workflows():

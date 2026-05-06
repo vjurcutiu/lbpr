@@ -22,9 +22,10 @@ import {
   listEvalCases,
   listEvalJobs,
   listEvalResults,
+  listEvalSelectionOptions,
   saveEvalReview,
 } from "./api";
-import type { EvalCaseSummary, EvalJob, EvalResultDetail, EvalResultSummary, EvalRunRecord } from "./types";
+import type { EvalCaseSummary, EvalJob, EvalResultDetail, EvalResultSummary, EvalRunRecord, EvalSelectionOptions } from "./types";
 
 const INTERNAL_UI_ENABLED = ["1", "true", "yes"].includes(String(import.meta.env.VITE_ENABLE_INTERNAL_EVAL_UI || "").toLowerCase());
 const INTERNAL_ADMIN_EMAILS = String(import.meta.env.VITE_INTERNAL_EVAL_ADMIN_EMAILS || "")
@@ -34,6 +35,7 @@ const INTERNAL_ADMIN_EMAILS = String(import.meta.env.VITE_INTERNAL_EVAL_ADMIN_EM
 
 type ReviewDraft = Record<string, { scores: Record<string, number | null>; notes: Record<string, string>; summary: string }>;
 type EvalView = "workflows" | "agent";
+type DocumentSource = "local" | "app";
 
 type AgentTraceStep = {
   step?: number;
@@ -226,12 +228,39 @@ function folderPathsFromManifest(paths: string[]): string[] {
   return Array.from(folders).sort();
 }
 
+
+function getFileField(file: Record<string, unknown>, key: string): string {
+  const value = file[key];
+  return typeof value === "string" ? value : "";
+}
+
+function fileDisplayName(file: Record<string, unknown>): string {
+  return getFileField(file, "original_name") || getFileField(file, "name") || getFileField(file, "id");
+}
+
+function fileDisplayPath(file: Record<string, unknown>): string {
+  const folder = getFileField(file, "folder_path").replace(/^\/+|\/+$/g, "");
+  const name = fileDisplayName(file);
+  return folder ? `${folder}/${name}` : name;
+}
+
+function summarizeAppSelection(fileIds: string[], folderPaths: string[]): string {
+  const total = fileIds.length + folderPaths.length;
+  if (!total) return "Select uploaded files or folders from the app workspace.";
+  const parts: string[] = [];
+  if (fileIds.length) parts.push(`${fileIds.length} file${fileIds.length === 1 ? "" : "s"}`);
+  if (folderPaths.length) parts.push(`${folderPaths.length} folder${folderPaths.length === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
 export default function InternalEvalsPage() {
   const { user, loading } = useAuthContext();
   const [statusChecked, setStatusChecked] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [cases, setCases] = useState<EvalCaseSummary[]>([]);
   const [results, setResults] = useState<EvalResultSummary[]>([]);
+  const [selectionOptions, setSelectionOptions] = useState<EvalSelectionOptions | null>(null);
+  const [selectionOptionsLoading, setSelectionOptionsLoading] = useState(false);
   const [selectedResultId, setSelectedResultId] = useState<string>("");
   const [result, setResult] = useState<EvalResultDetail | null>(null);
   const [activeWorkflowRunKey, setActiveWorkflowRunKey] = useState<string>("");
@@ -246,6 +275,7 @@ export default function InternalEvalsPage() {
   const filePickerRef = useRef<HTMLInputElement | null>(null);
   const folderPickerRef = useRef<HTMLInputElement | null>(null);
   const [launcher, setLauncher] = useState({
+    document_source: "local" as DocumentSource,
     case_path: "internal/evals/cases/legal_pro_public_contracts_v2_regression.example.json",
     uid: "",
     mode: "smoke",
@@ -255,6 +285,8 @@ export default function InternalEvalsPage() {
     notes: "",
     markdown: true,
     manifest_paths: "",
+    app_file_ids: [] as string[],
+    app_folder_paths: [] as string[],
     apply_selection_to_workflows: true,
     remember_manifest_paths: true,
   });
@@ -264,6 +296,19 @@ export default function InternalEvalsPage() {
     if (!INTERNAL_ADMIN_EMAILS.length) return true;
     return !!user?.email && INTERNAL_ADMIN_EMAILS.includes(user.email.toLowerCase());
   }, [user?.email]);
+
+  async function refreshAppSelectionOptions() {
+    const targetUid = launcher.uid.trim() || null;
+    setSelectionOptionsLoading(true);
+    try {
+      const next = await listEvalSelectionOptions(targetUid);
+      setSelectionOptions(next);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not load uploaded app documents");
+    } finally {
+      setSelectionOptionsLoading(false);
+    }
+  }
 
   async function refreshAll(nextResultId = selectedResultId) {
     const [nextCases, nextResults, nextJobs] = await Promise.all([listEvalCases(), listEvalResults(75), listEvalJobs(25)]);
@@ -341,6 +386,12 @@ export default function InternalEvalsPage() {
   }, []);
 
   useEffect(() => {
+    if (launcher.document_source !== "app" || selectionOptions || selectionOptionsLoading) return;
+    void refreshAppSelectionOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launcher.document_source]);
+
+  useEffect(() => {
     if (!launcher.remember_manifest_paths) return;
     try {
       window.localStorage.setItem("lbpr.internalEvals.manifestPaths", launcher.manifest_paths || "");
@@ -356,13 +407,37 @@ export default function InternalEvalsPage() {
     toast.success(`Added ${nextPaths.length} path${nextPaths.length === 1 ? "" : "s"} to the manifest`);
   }
 
+  function toggleAppFile(fileId: string) {
+    setLauncher((prev) => {
+      const selected = new Set(prev.app_file_ids);
+      if (selected.has(fileId)) selected.delete(fileId);
+      else selected.add(fileId);
+      return { ...prev, app_file_ids: Array.from(selected) };
+    });
+  }
+
+  function toggleAppFolder(folderPath: string) {
+    setLauncher((prev) => {
+      const selected = new Set(prev.app_folder_paths);
+      if (selected.has(folderPath)) selected.delete(folderPath);
+      else selected.add(folderPath);
+      return { ...prev, app_folder_paths: Array.from(selected) };
+    });
+  }
+
   async function onRunEval() {
     const manifestPaths = parseManifestPaths(launcher.manifest_paths);
     const folderPaths = folderPathsFromManifest(manifestPaths);
+    const isAppSource = launcher.document_source === "app";
+    if (isAppSource && !launcher.app_file_ids.length && !launcher.app_folder_paths.length) {
+      toast.error("Select at least one uploaded app document or folder");
+      return;
+    }
     setBusy(true);
     try {
       const response = await createEvalRun({
         case_path: launcher.case_path,
+        document_source: launcher.document_source,
         uid: launcher.uid.trim() || null,
         mode: launcher.mode.trim() || null,
         compare_to: launcher.compare_to.trim() || null,
@@ -370,13 +445,19 @@ export default function InternalEvalsPage() {
         workflow_version: launcher.workflow_version.trim() || null,
         notes: launcher.notes,
         markdown: launcher.markdown,
-        manifest_paths: manifestPaths,
-        selection: manifestPaths.length
+        manifest_paths: isAppSource ? [] : manifestPaths,
+        selection: isAppSource
           ? {
-              file_paths: manifestPaths,
-              current_folder: folderPaths[0] || "",
+              file_ids: launcher.app_file_ids,
+              folder_paths: launcher.app_folder_paths,
+              current_folder: launcher.app_folder_paths[0] || "",
             }
-          : null,
+          : manifestPaths.length
+            ? {
+                file_paths: manifestPaths,
+                current_folder: folderPaths[0] || "",
+              }
+            : null,
         apply_selection_to_workflows: launcher.apply_selection_to_workflows,
       });
       setJob(response.job);
@@ -435,6 +516,7 @@ export default function InternalEvalsPage() {
   const totalAgentTurns = agentTraceRuns.reduce((total, run) => total + (getAgentContext(run)?.retrieval_trace?.length || 0), 0);
   const manifestPaths = parseManifestPaths(launcher.manifest_paths);
   const manifestFolderPaths = folderPathsFromManifest(manifestPaths);
+  const appSelectionSummary = summarizeAppSelection(launcher.app_file_ids, launcher.app_folder_paths);
   const jobIsActive = !!job && ["queued", "running"].includes(job.status);
 
   if (loading) {
@@ -496,7 +578,7 @@ export default function InternalEvalsPage() {
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">New run</CardTitle>
-                  <CardDescription>Use a saved case and optional version labels.</CardDescription>
+                  <CardDescription>Use a saved case with local fixture paths or uploaded app documents.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <input
@@ -561,63 +643,146 @@ export default function InternalEvalsPage() {
                     </select>
                   </label>
                   <div className="space-y-2 rounded-lg border bg-background p-3 text-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <div className="font-medium">Document manifest</div>
-                        <div className="text-xs text-muted-foreground">
-                          {manifestPaths.length ? `${manifestPaths.length} selected path${manifestPaths.length === 1 ? "" : "s"}` : "Browse files or folders to fill paths; matching uploaded files or bundled eval fixtures will be used."}
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => filePickerRef.current?.click()}>
-                          <FileSearch className="h-3.5 w-3.5" /> Files
-                        </Button>
-                        <Button
+                    <div>
+                      <div className="font-medium">Document source</div>
+                      <div className="mt-2 grid grid-cols-2 rounded-lg border bg-muted/40 p-1 text-sm">
+                        <button
                           type="button"
-                          variant="outline"
-                          size="sm"
-                          className="gap-1"
-                          onClick={() => {
-                            folderPickerRef.current?.setAttribute("webkitdirectory", "");
-                            folderPickerRef.current?.setAttribute("directory", "");
-                            folderPickerRef.current?.click();
-                          }}
+                          onClick={() => setLauncher((prev) => ({ ...prev, document_source: "local" }))}
+                          className={`rounded-md px-3 py-2 transition ${launcher.document_source === "local" ? "bg-background shadow-sm" : "text-muted-foreground hover:bg-background/70"}`}
                         >
-                          <FolderOpen className="h-3.5 w-3.5" /> Folder
-                        </Button>
+                          Local docs
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLauncher((prev) => ({ ...prev, document_source: "app" }))}
+                          className={`rounded-md px-3 py-2 transition ${launcher.document_source === "app" ? "bg-background shadow-sm" : "text-muted-foreground hover:bg-background/70"}`}
+                        >
+                          In-app docs
+                        </button>
                       </div>
                     </div>
-                    <Textarea
-                      rows={5}
-                      value={launcher.manifest_paths}
-                      placeholder={"contracts/nda/example.txt\ncontracts/msa_saas/example.txt"}
-                      onChange={(event) => setLauncher((prev) => ({ ...prev, manifest_paths: event.target.value }))}
-                    />
-                    <div className="space-y-2 text-xs text-muted-foreground">
-                      {manifestFolderPaths.length ? <div>Folders inferred for selection: {manifestFolderPaths.slice(0, 3).join(", ")}{manifestFolderPaths.length > 3 ? ` +${manifestFolderPaths.length - 3} more` : ""}</div> : null}
-                      <label className="flex items-center gap-2">
+                  </div>
+
+                  {launcher.document_source === "local" ? (
+                    <div className="space-y-2 rounded-lg border bg-background p-3 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-medium">Document manifest</div>
+                          <div className="text-xs text-muted-foreground">
+                            {manifestPaths.length ? `${manifestPaths.length} selected path${manifestPaths.length === 1 ? "" : "s"}` : "Browse files or folders to fill paths; matching uploaded files or bundled eval fixtures will be used."}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => filePickerRef.current?.click()}>
+                            <FileSearch className="h-3.5 w-3.5" /> Files
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() => {
+                              folderPickerRef.current?.setAttribute("webkitdirectory", "");
+                              folderPickerRef.current?.setAttribute("directory", "");
+                              folderPickerRef.current?.click();
+                            }}
+                          >
+                            <FolderOpen className="h-3.5 w-3.5" /> Folder
+                          </Button>
+                        </div>
+                      </div>
+                      <Textarea
+                        rows={5}
+                        value={launcher.manifest_paths}
+                        placeholder={"contracts/nda/example.txt\ncontracts/msa_saas/example.txt"}
+                        onChange={(event) => setLauncher((prev) => ({ ...prev, manifest_paths: event.target.value }))}
+                      />
+                      <div className="space-y-2 text-xs text-muted-foreground">
+                        {manifestFolderPaths.length ? <div>Folders inferred for selection: {manifestFolderPaths.slice(0, 3).join(", ")}{manifestFolderPaths.length > 3 ? ` +${manifestFolderPaths.length - 3} more` : ""}</div> : null}
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={launcher.apply_selection_to_workflows}
+                            onChange={(event) => setLauncher((prev) => ({ ...prev, apply_selection_to_workflows: event.target.checked }))}
+                          />
+                          <span>Apply this manifest to every workflow in the case</span>
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={launcher.remember_manifest_paths}
+                            onChange={(event) => setLauncher((prev) => ({ ...prev, remember_manifest_paths: event.target.checked }))}
+                          />
+                          <span>Remember these paths in this browser</span>
+                        </label>
+                        {manifestPaths.length ? (
+                          <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => setLauncher((prev) => ({ ...prev, manifest_paths: "" }))}>
+                            Clear manifest paths
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 rounded-lg border bg-background p-3 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="font-medium">Uploaded documents</div>
+                          <div className="text-xs text-muted-foreground">{appSelectionSummary}</div>
+                        </div>
+                        <Button type="button" variant="outline" size="sm" className="gap-1" onClick={refreshAppSelectionOptions} disabled={selectionOptionsLoading}>
+                          <RefreshCcw className="h-3.5 w-3.5" /> Refresh
+                        </Button>
+                      </div>
+
+                      {selectionOptionsLoading ? <div className="text-xs text-muted-foreground">Loading uploaded documents…</div> : null}
+
+                      {selectionOptions?.folders?.length ? (
+                        <div className="space-y-2">
+                          <div className="text-xs font-medium text-muted-foreground">Folders</div>
+                          <div className="max-h-28 space-y-1 overflow-auto rounded-md border p-2">
+                            {selectionOptions.folders.map((folder) => (
+                              <label key={folder.path} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted">
+                                <input type="checkbox" checked={launcher.app_folder_paths.includes(folder.path)} onChange={() => toggleAppFolder(folder.path)} />
+                                <span className="min-w-0 flex-1 truncate">{folder.path}</span>
+                                <span className="text-xs text-muted-foreground">{folder.recursive_file_count || 0}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium text-muted-foreground">Files</div>
+                        <div className="max-h-44 space-y-1 overflow-auto rounded-md border p-2">
+                          {selectionOptions?.files?.length ? selectionOptions.files.map((file) => {
+                            const fileId = getFileField(file, "id");
+                            if (!fileId) return null;
+                            return (
+                              <label key={fileId} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-muted">
+                                <input type="checkbox" checked={launcher.app_file_ids.includes(fileId)} onChange={() => toggleAppFile(fileId)} />
+                                <span className="min-w-0 flex-1 truncate">{fileDisplayPath(file)}</span>
+                              </label>
+                            );
+                          }) : <div className="p-2 text-xs text-muted-foreground">No uploaded documents found for this UID.</div>}
+                        </div>
+                      </div>
+
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
                         <input
                           type="checkbox"
                           checked={launcher.apply_selection_to_workflows}
                           onChange={(event) => setLauncher((prev) => ({ ...prev, apply_selection_to_workflows: event.target.checked }))}
                         />
-                        <span>Apply this manifest to every workflow in the case</span>
+                        <span>Apply this app document selection to every workflow in the case</span>
                       </label>
-                      <label className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={launcher.remember_manifest_paths}
-                          onChange={(event) => setLauncher((prev) => ({ ...prev, remember_manifest_paths: event.target.checked }))}
-                        />
-                        <span>Remember these paths in this browser</span>
-                      </label>
-                      {manifestPaths.length ? (
-                        <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => setLauncher((prev) => ({ ...prev, manifest_paths: "" }))}>
-                          Clear manifest paths
+                      {launcher.app_file_ids.length || launcher.app_folder_paths.length ? (
+                        <button type="button" className="text-xs text-primary underline-offset-4 hover:underline" onClick={() => setLauncher((prev) => ({ ...prev, app_file_ids: [], app_folder_paths: [] }))}>
+                          Clear app document selection
                         </button>
                       ) : null}
                     </div>
-                  </div>
+                  )}
                   <label className="block space-y-1 text-sm">
                     <span className="font-medium">Notes</span>
                     <Textarea rows={3} value={launcher.notes} onChange={(event) => setLauncher((prev) => ({ ...prev, notes: event.target.value }))} />

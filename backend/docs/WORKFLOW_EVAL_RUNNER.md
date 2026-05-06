@@ -270,8 +270,18 @@ For local dev only, if `INTERNAL_EVAL_ADMIN_EMAILS` is empty and `ENV=dev`, any 
 - Save manual review scores to `backend/internal/evals/reviews`
 - Compare a current result against a baseline result
 - Download the JSON export
+- Switch a run between local fixture/manifest docs and uploaded in-app docs
 
-The UI calls the existing eval runner/service path. It does not create a separate workflow execution implementation.
+The UI calls the existing eval runner/service path. It does not create a separate workflow execution implementation or a separate eval-run URL. Both document modes submit to `POST /v1/internal/evals/runs`.
+
+### Document source modes
+
+The new-run card has a document source switch:
+
+- `Local docs` keeps the existing manifest-path behavior. Paths can resolve against uploaded app files first and then safe bundled eval fixtures.
+- `In-app docs` lists files and folders from the selected eval UID and sends their `file_ids` / `folder_paths` as the workflow selection. This is for documents that were uploaded through the app and processed by the normal upload/chunk/upsert flow.
+
+For `In-app docs`, job creation validates that every selected uploaded file has a stored workflow chunk artifact. This prevents the eval runner from silently falling back to ad-hoc extraction for documents that have not finished app upload processing yet.
 
 ### Local file manifest picker
 

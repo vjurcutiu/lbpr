@@ -10,6 +10,8 @@ from typing import Any
 from fastapi import HTTPException
 
 from features.files import service as files_service
+from features.files.schemas import FileItem
+from features.rag import chunk_store
 from features.workflows.models import WorkflowSelectionIn
 
 from internal.evals.compare import compare_eval_exports, load_eval_export, write_comparison_export
@@ -447,6 +449,79 @@ def _selection_with_manifest_paths(request: InternalEvalRunRequest) -> WorkflowS
     )
 
 
+def _file_item_display_path(file_item: FileItem) -> str:
+    name = str(file_item.original_name or file_item.name or file_item.id.rsplit("/", 1)[-1]).strip()
+    folder = _normalize_folder_path(file_item.folder_path)
+    return f"{folder}/{name}" if folder else name
+
+
+def _selection_app_files(uid: str, selection: WorkflowSelectionIn | None) -> list[FileItem]:
+    if selection is None:
+        return []
+
+    all_files = files_service.list_files(uid)
+    by_id = {item.id: item for item in all_files}
+    by_path: dict[str, list[FileItem]] = {}
+    selected: list[FileItem] = []
+
+    for item in all_files:
+        display_path = _clean_manifest_paths([_file_item_display_path(item)])
+        if display_path:
+            by_path.setdefault(display_path[0].lower(), []).append(item)
+
+    for file_id in selection.file_ids:
+        item = by_id.get(str(file_id or ""))
+        if item is not None:
+            selected.append(item)
+
+    for folder_path in selection.folder_paths:
+        normalized = _normalize_folder_path(folder_path)
+        if not normalized:
+            continue
+        selected.extend(item for item in all_files if _is_within_folder_path(item.folder_path, normalized))
+
+    for file_path in selection.file_paths:
+        normalized = _clean_manifest_paths([file_path])
+        if not normalized:
+            continue
+        selected.extend(by_path.get(normalized[0].lower()) or [])
+
+    return _dedupe_app_files(selected)
+
+
+def _dedupe_app_files(files: list[FileItem]) -> list[FileItem]:
+    seen: set[str] = set()
+    out: list[FileItem] = []
+    for item in files:
+        if item.id in seen:
+            continue
+        seen.add(item.id)
+        out.append(item)
+    return out
+
+
+def _validate_app_document_selection(request: InternalEvalRunRequest, *, uid: str) -> None:
+    selection = _selection_with_manifest_paths(request)
+    selected_files = _selection_app_files(uid, selection)
+    if not selected_files:
+        raise HTTPException(status_code=400, detail="Select at least one uploaded app document or folder for this eval run")
+
+    missing_chunks: list[str] = []
+    for file_item in selected_files:
+        payload = chunk_store.load_chunk_artifact(uid, file_item)
+        chunks = payload.get("chunks") if isinstance(payload, dict) else None
+        if not isinstance(chunks, list) or not chunks:
+            missing_chunks.append(_file_item_display_path(file_item) or file_item.id)
+
+    if missing_chunks:
+        preview = ", ".join(missing_chunks[:5])
+        suffix = f" and {len(missing_chunks) - 5} more" if len(missing_chunks) > 5 else ""
+        raise HTTPException(
+            status_code=400,
+            detail=f"Selected app documents must finish upload processing before eval. Missing chunk artifacts: {preview}{suffix}",
+        )
+
+
 
 def _apply_request_overrides(case, request: InternalEvalRunRequest):
     if request.prompt_version:
@@ -455,6 +530,7 @@ def _apply_request_overrides(case, request: InternalEvalRunRequest):
         case.default_workflow_version = request.workflow_version
 
     metadata = dict(case.metadata or {})
+    metadata["document_source"] = request.document_source
     if request.notes:
         metadata["run_notes"] = request.notes
 
@@ -577,6 +653,8 @@ def create_job(request: InternalEvalRunRequest, *, uid: str, email: str | None) 
     _case_path(request.case_path)
     if request.compare_to:
         _result_path(request.compare_to)
+    if request.document_source == "app":
+        _validate_app_document_selection(request, uid=request.uid or uid)
     job = InternalEvalJob(
         id=f"eval_{uuid.uuid4().hex[:12]}",
         status="queued",

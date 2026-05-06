@@ -40,6 +40,7 @@ export type EvalSelectionOptions = {
 
 export type EvalRunRequest = {
   case_path: string;
+  document_source?: "local" | "app";
   uid?: string | null;
   mode?: string | null;
   markdown?: boolean;
