@@ -93,6 +93,25 @@ class ContextBundle:
         return "\n\n".join(parts).strip()
 
 
+@dataclass(frozen=True)
+class ContextTopic:
+    key: str
+    label: str
+    terms: tuple[str, ...]
+    expansion_query: str
+
+
+@dataclass(frozen=True)
+class ContextSearchPlan:
+    original_query: str
+    search_query: str
+    sufficiency_query: str
+    question_type: str
+    required_topics: tuple[ContextTopic, ...] = ()
+    min_required_topics: int = 0
+    user_signal: str = ""
+
+
 _STOPWORDS = {
     "about", "after", "again", "against", "also", "between", "could", "first", "from", "have", "into",
     "just", "more", "most", "other", "over", "same", "should", "that", "their", "there", "these", "this",
@@ -113,9 +132,183 @@ _QUERY_EXPANSIONS: list[tuple[tuple[str, ...], str]] = [
     (("governing law", "venue", "jurisdiction", "dispute"), "governing law jurisdiction venue dispute resolution arbitration courts injunctive relief"),
 ]
 
+_LEGAL_CONTRACT_REVIEW_TOPICS: tuple[ContextTopic, ...] = (
+    ContextTopic(
+        key="term_termination_renewal",
+        label="term, termination, and renewal",
+        terms=("term", "termination", "terminate", "renewal", "expiration", "cure", "notice period"),
+        expansion_query="term termination renewal expiration cure period notice post termination survival transition assistance",
+    ),
+    ContextTopic(
+        key="payment_commercial_terms",
+        label="payment and commercial terms",
+        terms=("payment", "fees", "invoice", "invoices", "tax", "billing", "charges", "expenses"),
+        expansion_query="payment fees invoices taxes billing disputed charges expenses payment terms",
+    ),
+    ContextTopic(
+        key="confidentiality_data_security",
+        label="confidentiality, data protection, and security",
+        terms=("confidential", "confidentiality", "data", "security", "privacy", "encryption", "breach", "personal information"),
+        expansion_query="confidentiality data protection privacy security encryption breach incident notice personal information protected data",
+    ),
+    ContextTopic(
+        key="liability_indemnity",
+        label="liability, damages, and indemnity",
+        terms=("liability", "damages", "consequential", "indemnity", "indemnification", "indemnify", "hold harmless", "cap"),
+        expansion_query="limitation of liability damages cap consequential damages indemnity indemnification defend hold harmless carveouts",
+    ),
+    ContextTopic(
+        key="ip_ownership_license",
+        label="IP ownership and license rights",
+        terms=("intellectual property", "ip", "ownership", "work product", "deliverables", "license", "materials"),
+        expansion_query="intellectual property IP ownership work product deliverables license background materials third party materials",
+    ),
+    ContextTopic(
+        key="performance_warranties_slas",
+        label="performance, warranties, and service levels",
+        terms=("warranty", "warranties", "service level", "sla", "performance", "acceptance", "deficiency", "remedy"),
+        expansion_query="warranties service levels SLA performance acceptance testing deficiencies remedies service credits",
+    ),
+    ContextTopic(
+        key="audit_insurance_compliance",
+        label="audit, insurance, and compliance controls",
+        terms=("audit", "inspect", "records", "insurance", "coverage", "compliance", "certification", "certificate"),
+        expansion_query="audit inspection records insurance coverage certificates compliance security audit certification",
+    ),
+    ContextTopic(
+        key="assignment_change_control",
+        label="assignment, subcontracting, and change control",
+        terms=("assignment", "assign", "subcontract", "subcontractor", "change control", "change of control", "consent"),
+        expansion_query="assignment change of control subcontractor subcontracting consent third party access change control approval",
+    ),
+    ContextTopic(
+        key="dispute_law_notices",
+        label="dispute resolution, governing law, and notices",
+        terms=("dispute", "arbitration", "governing law", "jurisdiction", "venue", "notices", "notice", "injunctive"),
+        expansion_query="dispute resolution arbitration governing law jurisdiction venue notices notice injunctive relief courts",
+    ),
+)
+
+_LEGAL_WORKFLOW_TOPICS: dict[str, tuple[ContextTopic, ...]] = {
+    "legal_contract_review": _LEGAL_CONTRACT_REVIEW_TOPICS,
+    "legal_msa_review": _LEGAL_CONTRACT_REVIEW_TOPICS,
+    "legal_contract_risk_matrix": tuple(
+        topic for topic in _LEGAL_CONTRACT_REVIEW_TOPICS
+        if topic.key in {"term_termination_renewal", "confidentiality_data_security", "liability_indemnity", "payment_commercial_terms", "performance_warranties_slas"}
+    ),
+}
+
+_LEGAL_WORKFLOW_SEARCH_QUERIES: dict[str, str] = {
+    "legal_contract_review": (
+        "contract review key terms obligations risks missing protections approval issues "
+        "liability indemnity termination renewal confidentiality data security payment fees IP ownership "
+        "audit insurance assignment subcontracting warranties service levels dispute resolution governing law notices"
+    ),
+    "legal_contract_risk_matrix": (
+        "contract risk matrix severity business impact approval exceptions liability indemnity termination data security "
+        "payment obligations warranties service levels recommended fixes fallback positions"
+    ),
+    "legal_nda_review": (
+        "NDA review confidentiality scope exclusions residual knowledge term return destruction remedies injunctive relief "
+        "mutuality non solicit non compete assignment governing law disclosure obligations"
+    ),
+    "legal_msa_review": (
+        "MSA services agreement review scope SOW payment fees liability indemnity IP ownership data protection security "
+        "SLAs warranties service levels termination renewal audit insurance assignment dispute resolution"
+    ),
+    "legal_clause_extraction": (
+        "contract clause extraction confidentiality indemnity limitation liability termination renewal IP ownership data protection "
+        "payment assignment audit insurance warranties dispute resolution notices obligations deadlines"
+    ),
+    "legal_fallback_language": (
+        "fallback clause language target issue preferred position negotiation comment liability indemnity confidentiality data security "
+        "termination payment IP ownership fallback ladder"
+    ),
+    "legal_negotiation_brief": (
+        "negotiation brief must have changes nice to have changes acceptable fallbacks escalation issues liability indemnity "
+        "termination data security payment IP ownership suggested comments"
+    ),
+    "legal_obligation_tracker": (
+        "contract obligations tracker responsible party deadlines triggers renewal notice payment reporting data security audit "
+        "subcontractor compliance termination post signature obligations"
+    ),
+    "legal_matter_handoff": (
+        "matter handoff contract status key decisions open issues risks deadlines approvals next steps legal business context"
+    ),
+}
+
+_WORKFLOW_SETTINGS_RE = re.compile(r"(?:^|\n)\s*Workflow settings:\s*.*?(?=\n\s*\n|\Z)", re.IGNORECASE | re.DOTALL)
+_USER_FOCUS_PREFIX_RE = re.compile(r"^\s*(?:Matter context|Review focus|Matrix focus|Instructions|User focus):\s*", re.IGNORECASE)
+
 
 def get_profile(name: str | None) -> ContextAgentProfile:
     return PROFILES.get(str(name or "").strip().lower() or "default", PROFILES["default"])
+
+
+def _meaningful_query_fragment(query: str) -> str:
+    """Keep user-supplied retrieval signal while dropping launcher bookkeeping."""
+    clean = str(query or "").strip()
+    if not clean:
+        return ""
+    clean = _WORKFLOW_SETTINGS_RE.sub("\n", clean)
+    fragments: list[str] = []
+    for part in re.split(r"\n\s*\n|\n", clean):
+        fragment = _USER_FOCUS_PREFIX_RE.sub("", part).strip(" .\t")
+        if not fragment:
+            continue
+        lowered = fragment.lower()
+        if lowered.startswith("workflow settings:"):
+            continue
+        fragments.append(fragment)
+    return " ".join(fragments).strip()
+
+
+def _dedupe_query_terms(text: str) -> str:
+    # Preserve original order but avoid repeating the same term-heavy workflow defaults.
+    seen: set[str] = set()
+    out: list[str] = []
+    for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]*", text or ""):
+        key = token.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(token)
+    return " ".join(out)
+
+
+def _build_search_plan(query: str, *, profile: ContextAgentProfile, workflow_id: str | None = None) -> ContextSearchPlan:
+    original_query = str(query or "").strip()
+    workflow_key = str(workflow_id or "").strip()
+    user_signal = _meaningful_query_fragment(original_query)
+    workflow_query = _LEGAL_WORKFLOW_SEARCH_QUERIES.get(workflow_key, "") if profile.name == "legal" else ""
+
+    if workflow_query:
+        combined = f"{workflow_query} {user_signal}" if user_signal else workflow_query
+        search_query = _dedupe_query_terms(combined)
+        topics = _LEGAL_WORKFLOW_TOPICS.get(workflow_key, ())
+        min_topics = 0
+        if topics:
+            # Broad legal reviews do not need every topic to be present, but they should
+            # show coverage across several substantive legal areas before stopping.
+            min_topics = min(len(topics), 5 if workflow_key == "legal_contract_risk_matrix" else 6)
+        return ContextSearchPlan(
+            original_query=original_query,
+            search_query=search_query,
+            sufficiency_query=workflow_query,
+            question_type=workflow_key or "legal_workflow",
+            required_topics=topics,
+            min_required_topics=min_topics,
+            user_signal=user_signal,
+        )
+
+    fallback_query = user_signal or original_query
+    return ContextSearchPlan(
+        original_query=original_query,
+        search_query=fallback_query,
+        sufficiency_query=fallback_query,
+        question_type=workflow_key or profile.name,
+        user_signal=user_signal,
+    )
 
 
 def _dataset_for_file(uid: str, file_item: FileItem) -> str:
@@ -228,9 +421,57 @@ def _direct_signal_snapshot(query: str, chunks: list[ContextChunk]) -> dict[str,
     }
 
 
-def _expansion_queries(query: str, existing: list[str]) -> list[str]:
+def _term_present(term: str, text: str) -> bool:
+    clean = str(term or "").strip().lower()
+    if not clean:
+        return False
+    if " " in clean:
+        return clean in text
+    return re.search(rf"\b{re.escape(clean)}\b", text) is not None
+
+
+def _topic_coverage_snapshot(plan: ContextSearchPlan, chunks: list[ContextChunk]) -> dict[str, Any]:
+    if not plan.required_topics:
+        return _direct_signal_snapshot(plan.sufficiency_query, chunks)
+
+    joined = "\n".join(chunk.text.lower() for chunk in chunks)
+    covered: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for topic in plan.required_topics:
+        matched_terms = [term for term in topic.terms if _term_present(term, joined)]
+        record = {
+            "key": topic.key,
+            "label": topic.label,
+            "matched_terms": matched_terms[:8],
+            "expansion_query": topic.expansion_query,
+        }
+        if matched_terms:
+            covered.append(record)
+        else:
+            missing.append(record)
+
+    min_required = plan.min_required_topics or len(plan.required_topics)
+    sufficient = len(covered) >= min_required
+    return {
+        "coverage_mode": "legal_topics",
+        "question_type": plan.question_type,
+        "topics_checked": [topic.label for topic in plan.required_topics],
+        "covered_topics": covered,
+        "missing_topics": missing,
+        "covered_count": len(covered),
+        "missing_count": len(missing),
+        "threshold": min_required,
+        "sufficient": sufficient,
+    }
+
+
+def _expansion_queries(query: str, existing: list[str], *, missing_topics: list[dict[str, Any]] | None = None) -> list[str]:
     lowered = (query or "").lower()
     expansions: list[str] = []
+    for topic in missing_topics or []:
+        expansion_query = str(topic.get("expansion_query") or "").strip()
+        if expansion_query:
+            expansions.append(expansion_query)
     for triggers, expansion in _QUERY_EXPANSIONS:
         if any(trigger in lowered for trigger in triggers):
             expansions.append(expansion)
@@ -331,6 +572,7 @@ def build_context_bundle(
     files: list[FileItem],
     query: str,
     profile: str = "default",
+    workflow_id: str | None = None,
 ) -> ContextBundle:
     """Build an adaptive source context bundle.
 
@@ -344,6 +586,7 @@ def build_context_bundle(
     """
     active_profile = get_profile(profile)
     clean_query = str(query or "").strip()
+    plan = _build_search_plan(clean_query, profile=active_profile, workflow_id=workflow_id)
     decisions: list[ContextDecision] = []
 
     def add_decision(
@@ -385,17 +628,36 @@ def build_context_bundle(
         },
     )
 
-    if not clean_query or not files:
+    if plan.search_query != plan.original_query:
+        add_decision(
+            stage="planning",
+            decision="Rewrite the retrieval query for the workflow",
+            rationale="Launcher settings are useful generation context, but semantic retrieval needs substantive evidence terms for the workflow.",
+            action="Use a workflow-aware search query before the initial retrieval",
+            observation="Workflow-specific legal terms were used instead of raw launcher settings.",
+            outcome="Initial search will target contract-review evidence rather than UI configuration text.",
+            metadata={
+                "workflow_id": workflow_id,
+                "original_query": plan.original_query,
+                "search_query": plan.search_query,
+                "user_signal": plan.user_signal,
+                "question_type": plan.question_type,
+                "required_topics": [topic.label for topic in plan.required_topics],
+                "min_required_topics": plan.min_required_topics,
+            },
+        )
+
+    if not plan.search_query or not files:
         add_decision(
             stage="planning",
             decision="Stop before retrieval",
             rationale="Adaptive retrieval requires both a non-empty query and at least one selected file.",
             action="Return an empty context bundle",
-            observation=f"query_present={bool(clean_query)}; file_count={len(files)}",
+            observation=f"query_present={bool(plan.search_query)}; file_count={len(files)}",
             outcome="No context was selected.",
         )
         return ContextBundle(
-            query=clean_query,
+            query=plan.search_query,
             profile=active_profile.name,
             sufficient=False,
             chunks=[],
@@ -421,11 +683,11 @@ def build_context_bundle(
     selected: list[ContextChunk] = []
     seen: set[tuple[str, str]] = set()
     trace: list[RetrievalStep] = []
-    queried = [clean_query]
+    queried = [plan.search_query]
 
-    initial = _retrieve(uid, files_by_dataset=files_by_dataset, query=clean_query, k=active_profile.initial_k)
+    initial = _retrieve(uid, files_by_dataset=files_by_dataset, query=plan.search_query, k=active_profile.initial_k)
     added = _add_chunks(selected, seen, initial, max_chunks=active_profile.max_chunks)
-    trace.append(RetrievalStep(step=1, type="initial_search", query=clean_query, chunk_ids=[item.chunk_id for item in added], chunks_added=len(added)))
+    trace.append(RetrievalStep(step=1, type="initial_search", query=plan.search_query, chunk_ids=[item.chunk_id for item in added], chunks_added=len(added)))
     add_decision(
         stage="initial_search",
         decision="Search for the first evidence set",
@@ -433,7 +695,7 @@ def build_context_bundle(
         action="Run semantic search for the initial query",
         observation=f"Requested up to {active_profile.initial_k} hit(s) per dataset.",
         outcome=f"Added {len(added)} new chunk(s).",
-        metadata={"query": clean_query, "chunk_ids": [item.chunk_id for item in added], "candidate_count": len(initial)},
+        metadata={"query": plan.search_query, "original_query": plan.original_query, "chunk_ids": [item.chunk_id for item in added], "candidate_count": len(initial)},
     )
 
     # Always expand direct neighbors once, because legal and business clauses often span chunk boundaries.
@@ -451,14 +713,18 @@ def build_context_bundle(
         metadata={"chunk_ids": [item.chunk_id for item in added_neighbors], "candidate_count": len(neighbors)},
     )
 
-    signal = _direct_signal_snapshot(clean_query, selected)
+    signal = _topic_coverage_snapshot(plan, selected)
     sufficient = bool(signal.get("sufficient"))
     add_decision(
         stage="sufficiency_check",
-        decision="Check whether selected context directly matches the task",
-        rationale="The agent only stops early when the gathered context contains enough direct signal for the query.",
-        action="Compare query terms against the selected context",
-        observation=f"Matched {signal.get('hit_count', 0)} of {len(signal.get('terms_checked', []))} checked term(s); threshold {signal.get('threshold', 0)}.",
+        decision="Check whether selected context covers the required evidence",
+        rationale="The agent only stops early when the gathered context contains enough substantive signal for the workflow.",
+        action="Evaluate selected chunks against the planned sufficiency criteria",
+        observation=(
+            f"Covered {signal.get('covered_count', signal.get('hit_count', 0))} "
+            f"of {len(signal.get('topics_checked', signal.get('terms_checked', [])))} checked item(s); "
+            f"threshold {signal.get('threshold', 0)}."
+        ),
         outcome="Context marked sufficient." if sufficient else "Context marked incomplete; expansion may be needed.",
         metadata=signal,
     )
@@ -466,7 +732,8 @@ def build_context_bundle(
     round_no = 0
     while not sufficient and round_no < active_profile.max_rounds and len(selected) < active_profile.max_chunks:
         round_no += 1
-        expansions = _expansion_queries(clean_query, queried)
+        missing_topics = signal.get("missing_topics") if isinstance(signal.get("missing_topics"), list) else None
+        expansions = _expansion_queries(plan.search_query, queried, missing_topics=missing_topics)
         if not expansions:
             add_decision(
                 stage="expansion",
@@ -483,11 +750,11 @@ def build_context_bundle(
             added_candidates = _add_chunks(selected, seen, candidates, max_chunks=active_profile.max_chunks)
             if added_candidates:
                 any_added = True
-            trace.append(RetrievalStep(step=len(trace) + 1, type="targeted_query", query=expansion_query, reason="Initial context did not contain enough direct signal", chunk_ids=[item.chunk_id for item in added_candidates], chunks_added=len(added_candidates)))
+            trace.append(RetrievalStep(step=len(trace) + 1, type="targeted_query", query=expansion_query, reason="Selected context did not cover enough planned evidence areas", chunk_ids=[item.chunk_id for item in added_candidates], chunks_added=len(added_candidates)))
             add_decision(
                 stage="targeted_query",
                 decision="Search for missing related evidence",
-                rationale="The first sufficiency check did not find enough direct signal, so the agent used domain expansion terms tied to the task.",
+                rationale="The sufficiency check found missing evidence areas, so the agent used targeted domain terms tied to those gaps.",
                 action="Run targeted semantic search",
                 observation=f"Expansion round {round_no}; requested up to {active_profile.followup_k} hit(s) per dataset.",
                 outcome=f"Added {len(added_candidates)} new chunk(s).",
@@ -510,14 +777,18 @@ def build_context_bundle(
                 metadata={"chunk_ids": [item.chunk_id for item in added_neighbors], "candidate_count": len(neighbors)},
             )
 
-        signal = _direct_signal_snapshot(clean_query, selected)
+        signal = _topic_coverage_snapshot(plan, selected)
         sufficient = bool(signal.get("sufficient"))
         add_decision(
             stage="sufficiency_check",
             decision="Re-check context sufficiency after expansion",
-            rationale="The agent should stop expanding once it has enough direct evidence or when expansion stops producing useful new chunks.",
+            rationale="The agent should stop expanding once it has enough topic coverage or when expansion stops producing useful new chunks.",
             action="Evaluate selected chunks after expansion",
-            observation=f"Matched {signal.get('hit_count', 0)} of {len(signal.get('terms_checked', []))} checked term(s); threshold {signal.get('threshold', 0)}.",
+            observation=(
+                f"Covered {signal.get('covered_count', signal.get('hit_count', 0))} "
+                f"of {len(signal.get('topics_checked', signal.get('terms_checked', [])))} checked item(s); "
+                f"threshold {signal.get('threshold', 0)}."
+            ),
             outcome="Context marked sufficient." if sufficient else "Context still marked incomplete.",
             metadata=signal,
         )
@@ -550,6 +821,11 @@ def build_context_bundle(
         coverage_notes.append(f"Adaptive context selected {len(selected)} chunk(s) using profile '{active_profile.name}'.")
     else:
         coverage_notes.append("Adaptive context retrieval found no matching chunks.")
+    if signal.get("coverage_mode") == "legal_topics":
+        coverage_notes.append(
+            f"Legal topic coverage: {signal.get('covered_count', 0)}/{len(signal.get('topics_checked', []))} "
+            f"topic(s) met; threshold {signal.get('threshold', 0)}."
+        )
     if len(selected) >= active_profile.max_chunks:
         coverage_notes.append("Context selection reached the configured chunk limit.")
 
@@ -568,9 +844,10 @@ def build_context_bundle(
         metadata={"sufficient": sufficient, "selected_chunks": len(selected), "retrieval_turns": len(trace)},
     )
 
-    missing_context = [] if sufficient else [stop_reason]
+    missing_topic_labels = [str(item.get("label")) for item in signal.get("missing_topics", [])] if isinstance(signal.get("missing_topics"), list) else []
+    missing_context = [] if sufficient else [stop_reason, *missing_topic_labels[:6]]
     return ContextBundle(
-        query=clean_query,
+        query=plan.search_query,
         profile=active_profile.name,
         sufficient=sufficient,
         chunks=selected,

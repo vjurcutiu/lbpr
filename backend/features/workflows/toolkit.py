@@ -350,7 +350,7 @@ def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str,
     query = _default_query(workflow_id, focus)
     profile = "legal" if _is_legal_workflow(workflow_id) else "workflow"
     try:
-        bundle = build_context_bundle(uid=uid, files=files, query=query, profile=profile)
+        bundle = build_context_bundle(uid=uid, files=files, query=query, profile=profile, workflow_id=workflow_id)
     except Exception:
         log.warning("workflow_adaptive_context_failed", uid=uid, workflow_id=workflow_id, exc_info=True)
         return [], {}
