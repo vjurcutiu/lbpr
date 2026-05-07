@@ -259,8 +259,13 @@ async def _process_upload_job_async(
         if text:
             try:
                 from features.workflows import toolkit as workflow_toolkit
+                from features.workflows.legal_clause_map import (
+                    CLAUSE_MAP_INGEST_ENABLED_ENV,
+                    load_or_build_clause_map,
+                )
+                from features.rag import chunk_store
 
-                workflow_toolkit.persist_chunk_artifact(
+                chunk_payload = workflow_toolkit.persist_chunk_artifact(
                     uid,
                     file_id=object_name,
                     text=text,
@@ -268,8 +273,24 @@ async def _process_upload_job_async(
                     folder_path=folder_path,
                     content_type=content_type or "application/octet-stream",
                 )
+                ingest_clause_map_enabled = str(os.getenv(CLAUSE_MAP_INGEST_ENABLED_ENV, "1")).strip().lower() not in {"0", "false", "no", "off"}
+                if ingest_clause_map_enabled and chunk_payload:
+                    stored_chunks = chunk_store.chunks_from_payload(chunk_payload)
+                    if stored_chunks:
+                        load_or_build_clause_map(
+                            uid=uid,
+                            file_id=object_name,
+                            name=filename,
+                            folder_path=folder_path,
+                            content_type=content_type or "application/octet-stream",
+                            chunks=stored_chunks,
+                            workflow_id="ingest",
+                            store=True,
+                            prefer_llm=True,
+                        )
+                        log.info("upload_clause_map_ok", object=object_name, chunks=len(stored_chunks))
             except Exception as e:
-                log.debug("workflow_chunk_artifact_upload_failed", uid=uid, object=object_name, error=str(e))
+                log.debug("workflow_chunk_or_clause_map_artifact_upload_failed", uid=uid, object=object_name, error=str(e))
 
         try:
             try:

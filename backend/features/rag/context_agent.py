@@ -110,6 +110,7 @@ class ContextSearchPlan:
     required_topics: tuple[ContextTopic, ...] = ()
     min_required_topics: int = 0
     user_signal: str = ""
+    planning_mode: str = "query_first"
 
 
 _STOPWORDS = {
@@ -365,6 +366,129 @@ def _stored_to_context_chunk(stored: chunk_store.StoredChunk, *, source: str = "
     )
 
 
+def _entry_display_text(entry: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("title", "normalized_type", "summary", "source_excerpt"):
+        value = entry.get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value.strip())
+    for key in ("key_terms", "obligations", "risk_signals", "cross_references"):
+        values = entry.get(key)
+        if isinstance(values, list):
+            parts.extend(str(item).strip() for item in values if str(item).strip())
+    return "\n".join(parts)
+
+
+def _selected_clause_entry_records(clause_map_entries: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for entry in clause_map_entries or []:
+        if not isinstance(entry, dict):
+            continue
+        records.append({
+            "clause_map_id": entry.get("clause_map_id"),
+            "entry_id": entry.get("entry_id"),
+            "entry_kind": entry.get("entry_kind"),
+            "source_file_id": entry.get("source_file_id"),
+            "source_name": entry.get("source_name"),
+            "title": entry.get("title"),
+            "normalized_type": entry.get("normalized_type"),
+            "clause_family": entry.get("clause_family"),
+            "status": entry.get("status"),
+            "confidence": entry.get("confidence"),
+            "summary": entry.get("summary"),
+            "key_terms": entry.get("key_terms") or [],
+            "obligations": entry.get("obligations") or [],
+            "risk_signals": entry.get("risk_signals") or [],
+            "cross_references": entry.get("cross_references") or [],
+            "source_spans": entry.get("source_spans") or [],
+        })
+    return records
+
+
+def _chunks_from_clause_map_entries(
+    uid: str,
+    *,
+    entries: list[dict[str, Any]],
+    files_by_id: dict[str, FileItem],
+) -> list[ContextChunk]:
+    by_file: dict[str, set[str]] = defaultdict(set)
+    entry_by_chunk: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        for span in entry.get("source_spans") or []:
+            if not isinstance(span, dict):
+                continue
+            file_id = str(span.get("file_id") or entry.get("source_file_id") or "").strip()
+            chunk_id = str(span.get("chunk_id") or "").strip()
+            if not file_id or not chunk_id:
+                continue
+            by_file[file_id].add(chunk_id)
+            entry_by_chunk[(file_id, chunk_id)].append(entry)
+
+    chunks: list[ContextChunk] = []
+    for file_id, chunk_ids in by_file.items():
+        file_item = files_by_id.get(file_id)
+        if file_item is None:
+            continue
+        for stored in chunk_store.get_chunks_by_ids(uid, file_item, chunk_ids):
+            entries_for_chunk = entry_by_chunk.get((file_id, stored.chunk_id), [])
+            metadata = dict(stored.metadata or {})
+            if file_item.original_name or file_item.name:
+                metadata.setdefault("display_name", file_item.original_name or file_item.name)
+            metadata["clause_map_entries"] = [
+                {
+                    "entry_id": item.get("entry_id"),
+                    "title": item.get("title"),
+                    "normalized_type": item.get("normalized_type"),
+                    "clause_family": item.get("clause_family"),
+                }
+                for item in entries_for_chunk
+            ]
+            chunks.append(ContextChunk(
+                file_id=file_id,
+                chunk_id=stored.chunk_id,
+                chunk_index=stored.chunk_index,
+                text=stored.text,
+                score=1.0,
+                source="clause_map",
+                metadata=metadata,
+            ))
+    chunks.sort(key=lambda item: (item.file_id, item.chunk_index if item.chunk_index is not None else 10**9))
+    return chunks
+
+
+def _reference_queries_from_entries(entries: list[dict[str, Any]], chunks: list[ContextChunk]) -> list[str]:
+    text = "\n".join([_entry_display_text(entry) for entry in entries] + [chunk.text for chunk in chunks])
+    queries: list[str] = []
+    refs = re.findall(r"\b(?:Section|Sections|Article|Articles|Exhibit|Schedule|Appendix)\s+[A-Z0-9][A-Z0-9.\-]*\b", text, flags=re.IGNORECASE)
+    for ref in refs:
+        clean = re.sub(r"\s+", " ", ref).strip()
+        if clean and clean.lower() not in {q.lower() for q in queries}:
+            queries.append(clean)
+    lowered = text.lower()
+    if any(term in lowered for term in ("defined in", "as defined", "definition of")):
+        queries.append("definitions defined terms")
+    if any(term in lowered for term in ("subject to", "except as provided", "as set forth")):
+        queries.append("cross reference subject to except as provided as set forth")
+    return queries[:4]
+
+
+def _clause_map_signal_snapshot(entries: list[dict[str, Any]], chunks: list[ContextChunk]) -> dict[str, Any]:
+    selected = _selected_clause_entry_records(entries)
+    entries_with_spans = [entry for entry in selected if entry.get("source_spans")]
+    chunk_ids = {chunk.chunk_id for chunk in chunks if chunk.source in {"clause_map", "neighbor", "reference"}}
+    sufficient = bool(entries_with_spans and chunk_ids)
+    return {
+        "coverage_mode": "clause_map",
+        "selected_entry_count": len(selected),
+        "selected_entries_with_spans": len(entries_with_spans),
+        "selected_entries": selected,
+        "selected_chunk_count": len(chunk_ids),
+        "sufficient": sufficient,
+    }
+
+
 def _add_chunks(selected: list[ContextChunk], seen: set[tuple[str, str]], candidates: Iterable[ContextChunk], *, max_chunks: int) -> list[ContextChunk]:
     added: list[ContextChunk] = []
     for chunk in candidates:
@@ -494,8 +618,9 @@ def _trim_to_token_budget(chunks: list[ContextChunk], max_tokens: int) -> list[C
         return chunks
     kept: list[ContextChunk] = []
     total = 0
-    # Preserve original order while preferring retrieved chunks before neighbors when trimming.
-    ranked = sorted(enumerate(chunks), key=lambda item: (item[1].source != "retrieved", -item[1].score, item[0]))
+    # Preserve original order while preferring clause-map anchors, then retrieved chunks, then neighbors/references.
+    priority = {"clause_map": 0, "retrieved": 1, "reference": 2, "neighbor": 3}
+    ranked = sorted(enumerate(chunks), key=lambda item: (priority.get(item[1].source, 9), -item[1].score, item[0]))
     selected_indices: set[int] = set()
     for idx, chunk in ranked:
         cost = max(1, count_tokens(chunk.text))
@@ -571,8 +696,10 @@ def build_context_bundle(
     uid: str,
     files: list[FileItem],
     query: str,
-    profile: str = "default",
+    profile: str | ContextAgentProfile = "default",
     workflow_id: str | None = None,
+    clause_map_entries: list[dict[str, Any]] | None = None,
+    clause_map_selection: dict[str, Any] | None = None,
 ) -> ContextBundle:
     """Build an adaptive source context bundle.
 
@@ -584,7 +711,7 @@ def build_context_bundle(
     rationale log. It explains what the context agent did and why without
     attempting to expose hidden model chain-of-thought.
     """
-    active_profile = get_profile(profile)
+    active_profile = profile if isinstance(profile, ContextAgentProfile) else get_profile(profile)
     clean_query = str(query or "").strip()
     plan = _build_search_plan(clean_query, profile=active_profile, workflow_id=workflow_id)
     decisions: list[ContextDecision] = []
@@ -628,7 +755,7 @@ def build_context_bundle(
         },
     )
 
-    if plan.search_query != plan.original_query:
+    if plan.search_query != plan.original_query and not clause_map_entries:
         add_decision(
             stage="planning",
             decision="Rewrite the retrieval query for the workflow",
@@ -644,6 +771,22 @@ def build_context_bundle(
                 "question_type": plan.question_type,
                 "required_topics": [topic.label for topic in plan.required_topics],
                 "min_required_topics": plan.min_required_topics,
+                "fallback_query_prepared": True,
+            },
+        )
+    elif plan.search_query != plan.original_query and clause_map_entries:
+        add_decision(
+            stage="planning",
+            decision="Prepare semantic fallback query",
+            rationale="Predefined workflow terms are retained only as fallback when clause-map selection cannot provide enough anchored context.",
+            action="Keep fallback query available without using it first",
+            observation="Clause-map entries are available, so semantic search is not the primary context plan.",
+            outcome="The agent will start from selected clause-map spans.",
+            metadata={
+                "workflow_id": workflow_id,
+                "original_query": plan.original_query,
+                "fallback_search_query": plan.search_query,
+                "fallback_query_prepared": True,
             },
         )
 
@@ -683,46 +826,106 @@ def build_context_bundle(
     selected: list[ContextChunk] = []
     seen: set[tuple[str, str]] = set()
     trace: list[RetrievalStep] = []
-    queried = [plan.search_query]
+    queried: list[str] = []
+    using_clause_map = active_profile.name == "legal" and bool(clause_map_entries)
 
-    initial = _retrieve(uid, files_by_dataset=files_by_dataset, query=plan.search_query, k=active_profile.initial_k)
-    added = _add_chunks(selected, seen, initial, max_chunks=active_profile.max_chunks)
-    trace.append(RetrievalStep(step=1, type="initial_search", query=plan.search_query, chunk_ids=[item.chunk_id for item in added], chunks_added=len(added)))
-    add_decision(
-        stage="initial_search",
-        decision="Search for the first evidence set",
-        rationale="Start with the user/workflow query rather than loading all chunks, so simple questions stay small and reviewable.",
-        action="Run semantic search for the initial query",
-        observation=f"Requested up to {active_profile.initial_k} hit(s) per dataset.",
-        outcome=f"Added {len(added)} new chunk(s).",
-        metadata={"query": plan.search_query, "original_query": plan.original_query, "chunk_ids": [item.chunk_id for item in added], "candidate_count": len(initial)},
-    )
+    if using_clause_map:
+        selection_meta = dict(clause_map_selection or {})
+        source_chunks = _chunks_from_clause_map_entries(uid, entries=clause_map_entries or [], files_by_id=files_by_id)
+        added = _add_chunks(selected, seen, source_chunks, max_chunks=active_profile.max_chunks)
+        trace.append(RetrievalStep(step=1, type="clause_map_source_fetch", reason="Clause-map selected source spans", chunk_ids=[item.chunk_id for item in added], chunks_added=len(added)))
+        add_decision(
+            stage="clause_map_selection",
+            decision="Use clause map as the primary context plan",
+            rationale="The clause map already contains discovered contract structure and chunk/span anchors, so the agent starts from those entries instead of predefined search terms.",
+            action="Fetch exact chunks cited by selected clause-map entries",
+            observation=f"{selection_meta.get('selected_entry_count', len(clause_map_entries or []))} clause-map entrie(s) selected by {selection_meta.get('method') or 'unknown'}.",
+            outcome=f"Added {len(added)} exact clause chunk(s).",
+            metadata={
+                "selection_method": selection_meta.get("method"),
+                "selection_model": selection_meta.get("model"),
+                "selection_reason": selection_meta.get("reason"),
+                "available_entry_count": selection_meta.get("available_entry_count"),
+                "selected_entry_count": selection_meta.get("selected_entry_count", len(clause_map_entries or [])),
+                "selected_entries": _selected_clause_entry_records(clause_map_entries or []),
+                "chunk_ids": [item.chunk_id for item in added],
+            },
+        )
 
-    # Always expand direct neighbors once, because legal and business clauses often span chunk boundaries.
-    neighbors = _neighbor_expansion(uid, selected=selected, files_by_id=files_by_id, profile=active_profile)
-    added_neighbors = _add_chunks(selected, seen, neighbors, max_chunks=active_profile.max_chunks)
-    if added_neighbors:
-        trace.append(RetrievalStep(step=len(trace) + 1, type="neighbor_expansion", reason="Adjacent chunks around retrieved hits", chunk_ids=[item.chunk_id for item in added_neighbors], chunks_added=len(added_neighbors)))
-    add_decision(
-        stage="neighbor_expansion",
-        decision="Pull adjacent context around initial hits",
-        rationale="Important contract language often starts before a matching chunk or continues after it.",
-        action="Fetch neighboring chunks around retrieved hits",
-        observation=f"Neighbor window: {active_profile.neighbor_before} before / {active_profile.neighbor_after} after.",
-        outcome=f"Added {len(added_neighbors)} adjacent chunk(s).",
-        metadata={"chunk_ids": [item.chunk_id for item in added_neighbors], "candidate_count": len(neighbors)},
-    )
+        neighbors = _neighbor_expansion(uid, selected=selected, files_by_id=files_by_id, profile=active_profile)
+        added_neighbors = _add_chunks(selected, seen, neighbors, max_chunks=active_profile.max_chunks)
+        if added_neighbors:
+            trace.append(RetrievalStep(step=len(trace) + 1, type="neighbor_expansion", reason="Adjacent chunks around clause-map spans", chunk_ids=[item.chunk_id for item in added_neighbors], chunks_added=len(added_neighbors)))
+        add_decision(
+            stage="neighbor_expansion",
+            decision="Pull adjacent context around clause-map spans",
+            rationale="The exact mapped span can start before or continue after a chunk boundary.",
+            action="Fetch neighboring chunks around clause-map source spans",
+            observation=f"Neighbor window: {active_profile.neighbor_before} before / {active_profile.neighbor_after} after.",
+            outcome=f"Added {len(added_neighbors)} adjacent chunk(s).",
+            metadata={"chunk_ids": [item.chunk_id for item in added_neighbors], "candidate_count": len(neighbors)},
+        )
 
-    signal = _topic_coverage_snapshot(plan, selected)
-    sufficient = bool(signal.get("sufficient"))
+        reference_queries = _reference_queries_from_entries(clause_map_entries or [], selected)
+        for reference_query in reference_queries:
+            candidates = _retrieve(uid, files_by_dataset=files_by_dataset, query=reference_query, k=min(3, active_profile.followup_k))
+            # These RAG calls are constrained to references/definitions/exhibits from the clause map.
+            for candidate in candidates:
+                candidate.source = "reference"
+            added_ref = _add_chunks(selected, seen, candidates, max_chunks=active_profile.max_chunks)
+            trace.append(RetrievalStep(step=len(trace) + 1, type="reference_query", query=reference_query, reason="Clause-map cross-reference or definition lookup", chunk_ids=[item.chunk_id for item in added_ref], chunks_added=len(added_ref)))
+            add_decision(
+                stage="reference_fetch",
+                decision="Fetch referenced definitions, sections, or exhibits",
+                rationale="RAG is used after clause-map selection only to pull referenced context that may live outside the selected clause span.",
+                action="Run constrained reference query",
+                observation=f"Reference query: {reference_query}",
+                outcome=f"Added {len(added_ref)} reference chunk(s).",
+                metadata={"query": reference_query, "chunk_ids": [item.chunk_id for item in added_ref], "candidate_count": len(candidates)},
+            )
+
+        signal = _clause_map_signal_snapshot(clause_map_entries or [], selected)
+        sufficient = bool(signal.get("sufficient"))
+    else:
+        queried = [plan.search_query]
+        initial = _retrieve(uid, files_by_dataset=files_by_dataset, query=plan.search_query, k=active_profile.initial_k)
+        added = _add_chunks(selected, seen, initial, max_chunks=active_profile.max_chunks)
+        trace.append(RetrievalStep(step=1, type="initial_search", query=plan.search_query, chunk_ids=[item.chunk_id for item in added], chunks_added=len(added)))
+        add_decision(
+            stage="initial_search",
+            decision="Search for the first evidence set",
+            rationale="Clause-map selection was unavailable, so the agent falls back to workflow-aware semantic search.",
+            action="Run semantic search for the initial query",
+            observation=f"Requested up to {active_profile.initial_k} hit(s) per dataset.",
+            outcome=f"Added {len(added)} new chunk(s).",
+            metadata={"query": plan.search_query, "original_query": plan.original_query, "fallback_used": True, "chunk_ids": [item.chunk_id for item in added], "candidate_count": len(initial)},
+        )
+
+        # Always expand direct neighbors once, because legal and business clauses often span chunk boundaries.
+        neighbors = _neighbor_expansion(uid, selected=selected, files_by_id=files_by_id, profile=active_profile)
+        added_neighbors = _add_chunks(selected, seen, neighbors, max_chunks=active_profile.max_chunks)
+        if added_neighbors:
+            trace.append(RetrievalStep(step=len(trace) + 1, type="neighbor_expansion", reason="Adjacent chunks around retrieved hits", chunk_ids=[item.chunk_id for item in added_neighbors], chunks_added=len(added_neighbors)))
+        add_decision(
+            stage="neighbor_expansion",
+            decision="Pull adjacent context around initial hits",
+            rationale="Important contract language often starts before a matching chunk or continues after it.",
+            action="Fetch neighboring chunks around retrieved hits",
+            observation=f"Neighbor window: {active_profile.neighbor_before} before / {active_profile.neighbor_after} after.",
+            outcome=f"Added {len(added_neighbors)} adjacent chunk(s).",
+            metadata={"chunk_ids": [item.chunk_id for item in added_neighbors], "candidate_count": len(neighbors)},
+        )
+
+        signal = _topic_coverage_snapshot(plan, selected)
+        sufficient = bool(signal.get("sufficient"))
     add_decision(
         stage="sufficiency_check",
         decision="Check whether selected context covers the required evidence",
         rationale="The agent only stops early when the gathered context contains enough substantive signal for the workflow.",
         action="Evaluate selected chunks against the planned sufficiency criteria",
         observation=(
-            f"Covered {signal.get('covered_count', signal.get('hit_count', 0))} "
-            f"of {len(signal.get('topics_checked', signal.get('terms_checked', [])))} checked item(s); "
+            f"Clause-map entries {signal.get('selected_entry_count', signal.get('covered_count', signal.get('hit_count', 0)))}; "
+            f"chunks {signal.get('selected_chunk_count', len(selected))}; "
             f"threshold {signal.get('threshold', 0)}."
         ),
         outcome="Context marked sufficient." if sufficient else "Context marked incomplete; expansion may be needed.",
@@ -821,7 +1024,12 @@ def build_context_bundle(
         coverage_notes.append(f"Adaptive context selected {len(selected)} chunk(s) using profile '{active_profile.name}'.")
     else:
         coverage_notes.append("Adaptive context retrieval found no matching chunks.")
-    if signal.get("coverage_mode") == "legal_topics":
+    if signal.get("coverage_mode") == "clause_map":
+        coverage_notes.append(
+            f"Clause-map-first context: {signal.get('selected_entry_count', 0)} selected entrie(s), "
+            f"{signal.get('selected_chunk_count', len(selected))} anchored chunk(s)."
+        )
+    elif signal.get("coverage_mode") == "legal_topics":
         coverage_notes.append(
             f"Legal topic coverage: {signal.get('covered_count', 0)}/{len(signal.get('topics_checked', []))} "
             f"topic(s) met; threshold {signal.get('threshold', 0)}."

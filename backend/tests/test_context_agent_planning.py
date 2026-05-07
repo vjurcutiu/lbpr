@@ -3,6 +3,7 @@ from __future__ import annotations
 from features.rag.context_agent import (
     ContextChunk,
     _build_search_plan,
+    _clause_map_signal_snapshot,
     _topic_coverage_snapshot,
     get_profile,
 )
@@ -63,3 +64,21 @@ def test_legal_topic_coverage_marks_broad_contract_evidence_sufficient():
 
     assert signal["sufficient"] is True
     assert signal["covered_count"] >= plan.min_required_topics
+
+
+def test_clause_map_signal_is_sufficient_when_entries_have_anchored_chunks():
+    entries = [
+        {
+            "entry_id": "limitation_of_liability",
+            "title": "Limitation of Liability",
+            "source_spans": [{"file_id": "f", "chunk_id": "ch_1", "chunk_index": 1}],
+        }
+    ]
+    chunks = [ContextChunk(file_id="f", chunk_id="ch_1", chunk_index=1, text="Liability is capped at amounts paid.", source="clause_map")]
+
+    signal = _clause_map_signal_snapshot(entries, chunks)
+
+    assert signal["coverage_mode"] == "clause_map"
+    assert signal["sufficient"] is True
+    assert signal["selected_entry_count"] == 1
+    assert signal["selected_chunk_count"] == 1

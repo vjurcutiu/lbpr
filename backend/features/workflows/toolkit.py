@@ -15,7 +15,13 @@ from features.rag import chunk_store
 from features.rag.context_agent import build_context_bundle
 
 from .domain_packs import get_domain_workflow_spec
-from .legal_clause_map import build_clause_map_source, normalize_contract_text
+from .legal_clause_map import (
+    build_clause_map_source,
+    compact_clause_map_for_eval,
+    normalize_contract_text,
+    parse_clause_map_from_text,
+    select_clause_map_entries_for_workflow,
+)
 from .models import WorkflowSourceFile
 
 log = logging.getLogger("workflows.toolkit")
@@ -344,13 +350,45 @@ def _dataset_for_file(uid: str, file_item: FileItem) -> str:
     return dataset or "default"
 
 
-def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str, focus: str) -> tuple[list[WorkflowSourceFile], dict[str, Any]]:
+def _retrieve_focus_chunks(
+    uid: str,
+    files: list[FileItem],
+    *,
+    workflow_id: str,
+    focus: str,
+    clause_maps: list[dict[str, Any]] | None = None,
+) -> tuple[list[WorkflowSourceFile], dict[str, Any]]:
     if not files:
         return [], {}
     query = _default_query(workflow_id, focus)
     profile = "legal" if _is_legal_workflow(workflow_id) else "workflow"
+    clause_map_selection: dict[str, Any] | None = None
+    selected_clause_entries: list[dict[str, Any]] = []
+    if profile == "legal" and clause_maps:
+        try:
+            clause_map_selection = select_clause_map_entries_for_workflow(
+                clause_maps=clause_maps,
+                workflow_id=workflow_id,
+                focus=focus,
+            )
+            selected_clause_entries = [
+                item for item in (clause_map_selection.get("selected_entries") or [])
+                if isinstance(item, dict)
+            ]
+        except Exception:
+            log.warning("workflow_clause_map_selection_failed", uid=uid, workflow_id=workflow_id, exc_info=True)
+            clause_map_selection = None
+            selected_clause_entries = []
     try:
-        bundle = build_context_bundle(uid=uid, files=files, query=query, profile=profile, workflow_id=workflow_id)
+        bundle = build_context_bundle(
+            uid=uid,
+            files=files,
+            query=query,
+            profile=profile,
+            workflow_id=workflow_id,
+            clause_map_entries=selected_clause_entries,
+            clause_map_selection=clause_map_selection,
+        )
     except Exception:
         log.warning("workflow_adaptive_context_failed", uid=uid, workflow_id=workflow_id, exc_info=True)
         return [], {}
@@ -430,6 +468,30 @@ def _retrieve_focus_chunks(uid: str, files: list[FileItem], *, workflow_id: str,
             "retrieval_trace": trace,
             "decision_trace": decision_trace,
             "evidence_chunks": evidence_chunks,
+            "context_source_mode": "clause_map_first" if any(step.type == "clause_map_source_fetch" for step in bundle.retrieval_trace) else "rag_first",
+            "clause_map_selection": {
+                key: value
+                for key, value in (clause_map_selection or {}).items()
+                if key != "selected_entries"
+            } if clause_map_selection else {},
+            "selected_clause_map_entries": [
+                {
+                    "clause_map_id": entry.get("clause_map_id"),
+                    "entry_id": entry.get("entry_id"),
+                    "entry_kind": entry.get("entry_kind"),
+                    "source_file_id": entry.get("source_file_id"),
+                    "source_name": entry.get("source_name"),
+                    "title": entry.get("title"),
+                    "normalized_type": entry.get("normalized_type"),
+                    "clause_family": entry.get("clause_family"),
+                    "status": entry.get("status"),
+                    "confidence": entry.get("confidence"),
+                    "summary": entry.get("summary"),
+                    "source_spans": entry.get("source_spans") or [],
+                    "cross_references": entry.get("cross_references") or [],
+                }
+                for entry in selected_clause_entries
+            ],
         }
     }
     return sources, stats
@@ -443,6 +505,8 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
     chunks_seen = 0
     full_contract_sources = 0
     clause_maps_created = 0
+    clause_map_eval_records: list[dict[str, Any]] = []
+    clause_maps_for_agent: list[dict[str, Any]] = []
     legal_workflow = _is_legal_workflow(workflow_id)
     full_contract_max_tokens = _full_contract_max_tokens()
 
@@ -469,18 +533,22 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         if legal_workflow and raw_chunks:
             try:
                 stored_chunks = chunk_store.chunks_from_payload(materialized)
-                clause_map_sources.append(
-                    build_clause_map_source(
-                        uid=uid,
-                        file_id=file_item.id,
-                        name=display_name,
-                        folder_path=file_item.folder_path,
-                        content_type=file_item.content_type,
-                        chunks=stored_chunks,
-                        workflow_id=workflow_id,
-                        store=not _is_eval_fixture_file_id(file_item.id),
-                    )
+                clause_map_source = build_clause_map_source(
+                    uid=uid,
+                    file_id=file_item.id,
+                    name=display_name,
+                    folder_path=file_item.folder_path,
+                    content_type=file_item.content_type,
+                    chunks=stored_chunks,
+                    workflow_id=workflow_id,
+                    store=not _is_eval_fixture_file_id(file_item.id),
+                    prefer_llm=True,
                 )
+                clause_map_sources.append(clause_map_source)
+                parsed_clause_map = parse_clause_map_from_text(clause_map_source.excerpt)
+                if parsed_clause_map:
+                    clause_maps_for_agent.append(parsed_clause_map)
+                    clause_map_eval_records.append(compact_clause_map_for_eval(parsed_clause_map))
                 clause_maps_created += 1
             except Exception:
                 log.warning("workflow_contract_clause_map_failed", uid=uid, file_id=file_item.id, workflow_id=workflow_id, exc_info=True)
@@ -541,7 +609,7 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         should_retrieve = get_domain_workflow_spec(workflow_id) is not None or not _looks_broad_focus(focus) or workflow_id in {"create_action_plan", "extract_information", "compare_documents"}
         retrieval_files = [item for item in files if not _is_eval_fixture_file_id(item.id)]
         if should_retrieve and retrieval_files:
-            retrieved_sources, adaptive_context_stats = _retrieve_focus_chunks(uid, retrieval_files, workflow_id=workflow_id, focus=focus)
+            retrieved_sources, adaptive_context_stats = _retrieve_focus_chunks(uid, retrieval_files, workflow_id=workflow_id, focus=focus, clause_maps=clause_maps_for_agent)
         else:
             adaptive_context_stats = {}
 
@@ -563,14 +631,19 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         strategy = "coverage_plus_clause_map"
     elif clause_map_sources:
         strategy = "clause_map"
+    adaptive_context = adaptive_context_stats.get("adaptive_context") if isinstance(adaptive_context_stats.get("adaptive_context"), dict) else {}
     if retrieved_sources:
-        strategy = f"{strategy}_plus_targeted_rag"
+        if adaptive_context.get("context_source_mode") == "clause_map_first":
+            strategy = f"{strategy}_plus_clause_map_context"
+        else:
+            strategy = f"{strategy}_plus_targeted_rag"
 
     stats = {
         "source_strategy": strategy,
         "coverage_source_files": len([source for source in coverage_sources if source.source_kind == "coverage"]),
         "full_contract_source_files": full_contract_sources,
         "contract_clause_map_files": clause_maps_created,
+        "contract_clause_maps": clause_map_eval_records,
         "retrieved_source_files": len(retrieved_sources),
         "chunk_artifacts_used": artifacts_used,
         "chunks_seen": chunks_seen,
@@ -581,7 +654,8 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
             "Legal workflow used full-contract source text where it fit the configured context budget." if full_contract_sources else "",
             "Legal workflow used a full stored-chunk clause map for clause coverage." if clause_map_sources else "",
             "Workflow sources use condensed chunk coverage for source text that exceeds the full-contract budget." if coverage_sources and not full_contract_sources else "",
-            "Targeted retrieval was added for workflow-specific evidence." if retrieved_sources else "",
+            "Clause-map-selected source chunks were added for workflow-specific evidence." if retrieved_sources and adaptive_context.get("context_source_mode") == "clause_map_first" else "",
+            "Targeted retrieval was added for workflow-specific evidence." if retrieved_sources and adaptive_context.get("context_source_mode") != "clause_map_first" else "",
         ],
     }
     stats["warnings"] = [item for item in stats["warnings"] if item]

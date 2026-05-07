@@ -74,6 +74,29 @@ type SourceSupportRecord = {
   support_score?: number;
 };
 
+type ClauseMapSpan = {
+  file_id?: string;
+  chunk_id?: string;
+  chunk_index?: number | null;
+  span?: Record<string, unknown>;
+};
+
+type ClauseMapEntry = {
+  clause_map_id?: string;
+  entry_id?: string;
+  entry_kind?: string;
+  source_file_id?: string;
+  source_name?: string;
+  title?: string;
+  normalized_type?: string;
+  clause_family?: string;
+  status?: string;
+  confidence?: string;
+  summary?: string;
+  source_spans?: ClauseMapSpan[];
+  cross_references?: string[];
+};
+
 type SupportedIssueRecord = {
   issue: string;
   severity?: string;
@@ -92,6 +115,8 @@ type AgentContext = {
   retrieval_trace?: AgentTraceStep[];
   decision_trace?: AgentDecisionStep[];
   source_support_summary?: Record<string, unknown>;
+  clause_map_selection?: Record<string, unknown>;
+  selected_clause_map_entries?: ClauseMapEntry[];
 };
 
 const AGENT_REVIEW_CRITERIA = [
@@ -212,6 +237,40 @@ function asSourceSupportRecords(value: unknown): SourceSupportRecord[] {
   }).filter((item) => item.source_name || item.excerpt || item.chunk_id);
 }
 
+function asClauseMapSpan(value: unknown): ClauseMapSpan | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const chunkIndex = typeof record.chunk_index === "number" ? record.chunk_index : Number.isFinite(Number(record.chunk_index)) ? Number(record.chunk_index) : null;
+  return {
+    file_id: typeof record.file_id === "string" ? record.file_id : undefined,
+    chunk_id: typeof record.chunk_id === "string" ? record.chunk_id : undefined,
+    chunk_index: chunkIndex,
+    span: asRecord(record.span) || undefined,
+  };
+}
+
+function asClauseMapEntries(value: unknown): ClauseMapEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    const record = asRecord(item) || {};
+    return {
+      clause_map_id: typeof record.clause_map_id === "string" ? record.clause_map_id : undefined,
+      entry_id: typeof record.entry_id === "string" ? record.entry_id : undefined,
+      entry_kind: typeof record.entry_kind === "string" ? record.entry_kind : undefined,
+      source_file_id: typeof record.source_file_id === "string" ? record.source_file_id : undefined,
+      source_name: typeof record.source_name === "string" ? record.source_name : undefined,
+      title: typeof record.title === "string" ? record.title : undefined,
+      normalized_type: typeof record.normalized_type === "string" ? record.normalized_type : undefined,
+      clause_family: typeof record.clause_family === "string" ? record.clause_family : undefined,
+      status: typeof record.status === "string" ? record.status : undefined,
+      confidence: typeof record.confidence === "string" ? record.confidence : undefined,
+      summary: typeof record.summary === "string" ? record.summary : undefined,
+      source_spans: Array.isArray(record.source_spans) ? record.source_spans.map(asClauseMapSpan).filter(Boolean) as ClauseMapSpan[] : [],
+      cross_references: asStringArray(record.cross_references),
+    };
+  }).filter((entry) => entry.entry_id || entry.title || entry.source_spans?.length);
+}
+
 function getSupportedIssues(run?: EvalRunRecord | null): SupportedIssueRecord[] {
   const structured = asRecord(run?.structured_metadata);
   const riskItems = Array.isArray(structured?.risk_items) ? structured?.risk_items : [];
@@ -242,6 +301,8 @@ function getAgentContext(run?: EvalRunRecord | null): AgentContext | null {
     retrieval_trace: asTraceSteps(rawContext.retrieval_trace),
     decision_trace: asDecisionSteps(rawContext.decision_trace),
     source_support_summary: asRecord(rawContext.source_support_summary) || asRecord(structured?.source_support_summary) || undefined,
+    clause_map_selection: asRecord(rawContext.clause_map_selection) || undefined,
+    selected_clause_map_entries: asClauseMapEntries(rawContext.selected_clause_map_entries),
   };
 }
 
@@ -1553,6 +1614,8 @@ function AgentRunReviewPanel({
   const workflowStrategy = String(asRecord(run.structured_metadata)?.source_strategy || "");
   const supportedIssues = getSupportedIssues(run);
   const supportedIssueCount = supportedIssues.filter((item) => item.source_support.length).length;
+  const selectedClauseEntries = context?.selected_clause_map_entries || [];
+  const clauseSelection = context?.clause_map_selection || {};
   const totalAddedChunks = trace.reduce((total, step) => total + Number(step.chunks_added || 0), 0);
   const targetedTurns = trace.filter((step) => step.type === "targeted_query").length;
   const neighborTurns = trace.filter((step) => step.type === "neighbor_expansion").length;
@@ -1603,6 +1666,45 @@ function AgentRunReviewPanel({
           </CardContent>
         </Card>
       ) : null}
+
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex min-w-0 items-center gap-2 text-base">
+            <FileSearch className="h-4 w-4" /> Clause map selection
+          </CardTitle>
+          <CardDescription>
+            {selectedClauseEntries.length} selected clause-map entr{selectedClauseEntries.length === 1 ? "y" : "ies"}
+            {typeof clauseSelection.method === "string" ? ` · ${clauseSelection.method}` : ""}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="min-w-0 space-y-3 text-sm">
+          {selectedClauseEntries.length ? selectedClauseEntries.slice(0, 12).map((entry, index) => (
+            <div key={`${entry.entry_id || entry.title || "entry"}-${index}`} className="min-w-0 overflow-hidden rounded-lg border p-3">
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0 flex-1 basis-0">
+                  <div className="break-words font-medium">{entry.title || entry.normalized_type || entry.entry_id || "Clause map entry"}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{entry.normalized_type || entry.clause_family || entry.entry_kind || "clause"}</div>
+                </div>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                  {entry.status ? <Badge variant="outline">{entry.status}</Badge> : null}
+                  {entry.confidence ? <Badge variant="secondary">{entry.confidence}</Badge> : null}
+                </div>
+              </div>
+              {entry.summary ? <div className="mt-2 break-words rounded-md bg-muted p-2 text-xs text-muted-foreground">{entry.summary}</div> : null}
+              {entry.source_spans?.length ? (
+                <div className="mt-2 flex min-w-0 flex-wrap gap-1.5">
+                  {entry.source_spans.slice(0, 6).map((span, spanIndex) => (
+                    <Badge key={`${span.chunk_id || spanIndex}`} variant="secondary" className="max-w-full truncate">
+                      {span.chunk_id || "chunk"}{typeof span.chunk_index === "number" ? ` · #${span.chunk_index}` : ""}
+                    </Badge>
+                  ))}
+                </div>
+              ) : <div className="mt-2 text-xs text-muted-foreground">No chunk/span anchors attached.</div>}
+              {entry.cross_references?.length ? <div className="mt-2 break-words text-xs text-muted-foreground">Refs: {entry.cross_references.slice(0, 6).join(", ")}</div> : null}
+            </div>
+          )) : <div className="text-muted-foreground">No clause-map selection metadata was captured for this run.</div>}
+        </CardContent>
+      </Card>
 
       <Card className="min-w-0 overflow-hidden">
         <CardHeader className="pb-3">

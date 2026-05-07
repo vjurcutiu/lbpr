@@ -336,7 +336,9 @@ def _score_support_record(item: dict[str, Any], record: dict[str, Any]) -> tuple
         matched.append(clean)
         score += 3 if " " in clean else 1
     source_kind = str(record.get("source_kind") or "")
-    if source_kind == "retrieved":
+    if source_kind == "clause_map":
+        score += 4
+    elif source_kind in {"retrieved", "reference"}:
         score += 2
     elif source_kind == "neighbor":
         score += 1
