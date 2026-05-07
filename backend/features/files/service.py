@@ -261,7 +261,7 @@ async def _process_upload_job_async(
                 from features.workflows import toolkit as workflow_toolkit
                 from features.workflows.legal_clause_map import (
                     clause_map_ingest_enabled,
-                    load_or_build_clause_map,
+                    load_or_build_clause_map_with_status,
                 )
                 from features.rag import chunk_store
 
@@ -276,7 +276,8 @@ async def _process_upload_job_async(
                 if clause_map_ingest_enabled() and chunk_payload:
                     stored_chunks = chunk_store.chunks_from_payload(chunk_payload)
                     if stored_chunks:
-                        load_or_build_clause_map(
+                        log.info("upload_clause_map_started", uid=uid, object=object_name, chunks=len(stored_chunks))
+                        _clause_map, clause_map_status = load_or_build_clause_map_with_status(
                             uid=uid,
                             file_id=object_name,
                             name=filename,
@@ -286,10 +287,30 @@ async def _process_upload_job_async(
                             workflow_id="ingest",
                             store=True,
                             prefer_llm=True,
+                            generation_context="ingest",
                         )
-                        log.info("upload_clause_map_ok", object=object_name, chunks=len(stored_chunks))
+                        status = clause_map_status.get("status")
+                        if status in {"generated_at_ingest", "found"}:
+                            log.info(
+                                "upload_clause_map_ok",
+                                uid=uid,
+                                object=object_name,
+                                status=status,
+                                chunks=len(stored_chunks),
+                                discovered_clause_count=clause_map_status.get("discovered_clause_count"),
+                                artifact_path=clause_map_status.get("artifact_path"),
+                            )
+                        else:
+                            log.warning(
+                                "upload_clause_map_failed",
+                                uid=uid,
+                                object=object_name,
+                                status=status,
+                                detail=clause_map_status.get("detail"),
+                                error=clause_map_status.get("error"),
+                            )
             except Exception as e:
-                log.debug("workflow_chunk_or_clause_map_artifact_upload_failed", uid=uid, object=object_name, error=str(e))
+                log.warning("workflow_chunk_or_clause_map_artifact_upload_failed", uid=uid, object=object_name, error=str(e), exc_info=True)
 
         try:
             try:

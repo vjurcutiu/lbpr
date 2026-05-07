@@ -16,7 +16,8 @@ from features.rag.context_agent import build_context_bundle
 
 from .domain_packs import get_domain_workflow_spec
 from .legal_clause_map import (
-    build_clause_map_source,
+    build_clause_map_source_with_status,
+    clause_map_status_record,
     compact_clause_map_for_eval,
     normalize_contract_text,
     parse_clause_map_from_text,
@@ -506,6 +507,7 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
     full_contract_sources = 0
     clause_maps_created = 0
     clause_map_eval_records: list[dict[str, Any]] = []
+    clause_map_status_records: list[dict[str, Any]] = []
     clause_maps_for_agent: list[dict[str, Any]] = []
     legal_workflow = _is_legal_workflow(workflow_id)
     full_contract_max_tokens = _full_contract_max_tokens()
@@ -533,7 +535,7 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         if legal_workflow and raw_chunks:
             try:
                 stored_chunks = chunk_store.chunks_from_payload(materialized)
-                clause_map_source = build_clause_map_source(
+                clause_map_source, clause_map_status = build_clause_map_source_with_status(
                     uid=uid,
                     file_id=file_item.id,
                     name=display_name,
@@ -543,15 +545,38 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
                     workflow_id=workflow_id,
                     store=not _is_eval_fixture_file_id(file_item.id),
                     prefer_llm=True,
+                    generation_context="workflow_fallback",
                 )
-                clause_map_sources.append(clause_map_source)
-                parsed_clause_map = parse_clause_map_from_text(clause_map_source.excerpt)
-                if parsed_clause_map:
-                    clause_maps_for_agent.append(parsed_clause_map)
-                    clause_map_eval_records.append(compact_clause_map_for_eval(parsed_clause_map))
-                clause_maps_created += 1
-            except Exception:
+                clause_map_status_records.append(clause_map_status)
+                if clause_map_source is not None:
+                    clause_map_sources.append(clause_map_source)
+                    parsed_clause_map = parse_clause_map_from_text(clause_map_source.excerpt)
+                    if parsed_clause_map:
+                        clause_maps_for_agent.append(parsed_clause_map)
+                        clause_map_eval_records.append(compact_clause_map_for_eval(parsed_clause_map))
+                    clause_maps_created += 1
+                else:
+                    log.warning(
+                        "workflow_contract_clause_map_unavailable",
+                        uid=uid,
+                        file_id=file_item.id,
+                        workflow_id=workflow_id,
+                        status=clause_map_status.get("status"),
+                        detail=clause_map_status.get("detail"),
+                    )
+            except Exception as exc:
                 log.warning("workflow_contract_clause_map_failed", uid=uid, file_id=file_item.id, workflow_id=workflow_id, exc_info=True)
+                clause_map_status_records.append(
+                    clause_map_status_record(
+                        file_id=file_item.id,
+                        name=display_name,
+                        folder_path=file_item.folder_path,
+                        content_type=file_item.content_type,
+                        status="error",
+                        detail="Unexpected workflow clause-map error.",
+                        error=str(exc),
+                    )
+                )
 
             if full_contract_max_tokens > 0 and full_text and len(full_text) >= _MIN_FULL_CONTRACT_CHARS:
                 try:
@@ -644,6 +669,8 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         "full_contract_source_files": full_contract_sources,
         "contract_clause_map_files": clause_maps_created,
         "contract_clause_maps": clause_map_eval_records,
+        "clause_map_status": clause_map_status_records,
+        "contract_clause_map_statuses": clause_map_status_records,
         "retrieved_source_files": len(retrieved_sources),
         "chunk_artifacts_used": artifacts_used,
         "chunks_seen": chunks_seen,

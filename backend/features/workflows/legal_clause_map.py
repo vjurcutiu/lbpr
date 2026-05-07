@@ -35,6 +35,22 @@ DEFAULT_CLAUSE_MAP_INGEST_ENABLED = True
 DEFAULT_CLAUSE_MAP_LLM_ENABLED = True
 DEFAULT_CLAUSE_MAP_NANO_MODEL = "gpt-5-nano"
 DEFAULT_CLAUSE_MAP_SELECTION_MODEL = DEFAULT_CLAUSE_MAP_NANO_MODEL
+
+CLAUSE_MAP_STATUS_FOUND = "found"
+CLAUSE_MAP_STATUS_GENERATED_AT_INGEST = "generated_at_ingest"
+CLAUSE_MAP_STATUS_GENERATED_AT_WORKFLOW_FALLBACK = "generated_at_workflow_fallback"
+CLAUSE_MAP_STATUS_MISSING = "missing"
+CLAUSE_MAP_STATUS_FAILED = "failed"
+CLAUSE_MAP_STATUS_ERROR = "error"
+CLAUSE_MAP_STATUSES = {
+    CLAUSE_MAP_STATUS_FOUND,
+    CLAUSE_MAP_STATUS_GENERATED_AT_INGEST,
+    CLAUSE_MAP_STATUS_GENERATED_AT_WORKFLOW_FALLBACK,
+    CLAUSE_MAP_STATUS_MISSING,
+    CLAUSE_MAP_STATUS_FAILED,
+    CLAUSE_MAP_STATUS_ERROR,
+}
+
 MAX_LLM_CHUNKS = 80
 MAX_CHARS_PER_LLM_CHUNK = 6500
 
@@ -205,20 +221,32 @@ def chunk_fingerprint(chunks: Iterable[chunk_store.StoredChunk]) -> str:
 
 
 def _load_stored_clause_map(uid: str, file_id: str, fingerprint: str) -> dict[str, Any] | None:
+    path = clause_map_artifact_path(file_id)
     try:
         files_service._assert_user_owns(uid, file_id)  # type: ignore[attr-defined]
-        blob = _bucket_blob(clause_map_artifact_path(file_id))
+        blob = _bucket_blob(path)
         if not blob.exists():
+            log.info("legal_clause_map_missing", uid=uid, file_id=file_id, artifact_path=path)
             return None
         payload = json.loads(blob.download_as_bytes().decode("utf-8"))
         if not isinstance(payload, dict):
+            log.warning("legal_clause_map_load_failed", uid=uid, file_id=file_id, artifact_path=path, reason="invalid_payload_type")
             return None
         source = payload.get("source_file") if isinstance(payload.get("source_file"), dict) else {}
         if source.get("chunk_fingerprint") != fingerprint:
+            log.warning("legal_clause_map_load_failed", uid=uid, file_id=file_id, artifact_path=path, reason="fingerprint_mismatch")
             return None
+        log.info(
+            "legal_clause_map_load_ok",
+            uid=uid,
+            file_id=file_id,
+            artifact_path=path,
+            generation_context=(payload.get("generation") or {}).get("context") if isinstance(payload.get("generation"), dict) else None,
+            discovered_clause_count=len(payload.get("discovered_clauses") or []),
+        )
         return payload
     except Exception:
-        log.debug("legal_clause_map_load_failed", uid=uid, file_id=file_id, exc_info=True)
+        log.warning("legal_clause_map_load_failed", uid=uid, file_id=file_id, artifact_path=path, exc_info=True)
         return None
 
 
@@ -230,10 +258,82 @@ def _persist_clause_map(uid: str, file_id: str, payload: dict[str, Any]) -> str 
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
             content_type="application/json",
         )
+        log.info(
+            "legal_clause_map_store_ok",
+            uid=uid,
+            file_id=file_id,
+            artifact_path=path,
+            generation_context=(payload.get("generation") or {}).get("context") if isinstance(payload.get("generation"), dict) else None,
+            coverage_method=payload.get("coverage_method"),
+            discovered_clause_count=len(payload.get("discovered_clauses") or []),
+        )
         return path
     except Exception:
         log.warning("legal_clause_map_store_failed", uid=uid, file_id=file_id, exc_info=True)
         return None
+
+
+
+def _clause_map_status_from_context(context: str, *, generated_now: bool = False) -> str:
+    clean = str(context or "").strip().lower()
+    if clean == "ingest":
+        return CLAUSE_MAP_STATUS_GENERATED_AT_INGEST
+    if generated_now:
+        return CLAUSE_MAP_STATUS_GENERATED_AT_WORKFLOW_FALLBACK
+    return CLAUSE_MAP_STATUS_FOUND
+
+
+def clause_map_status_record(
+    *,
+    file_id: str,
+    name: str | None = None,
+    folder_path: str | None = None,
+    content_type: str | None = None,
+    status: str,
+    detail: str = "",
+    clause_map: dict[str, Any] | None = None,
+    chunks: list[chunk_store.StoredChunk] | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
+    if status not in CLAUSE_MAP_STATUSES:
+        status = CLAUSE_MAP_STATUS_ERROR
+    source = clause_map.get("source_file") if isinstance(clause_map, dict) and isinstance(clause_map.get("source_file"), dict) else {}
+    generation = clause_map.get("generation") if isinstance(clause_map, dict) and isinstance(clause_map.get("generation"), dict) else {}
+    discovered = clause_map.get("discovered_clauses") if isinstance(clause_map, dict) and isinstance(clause_map.get("discovered_clauses"), list) else []
+    inventory = clause_map.get("clause_inventory") if isinstance(clause_map, dict) and isinstance(clause_map.get("clause_inventory"), list) else []
+    record = {
+        "file_id": file_id,
+        "name": name or source.get("name"),
+        "folder_path": folder_path if folder_path is not None else source.get("folder_path"),
+        "content_type": content_type if content_type is not None else source.get("content_type"),
+        "status": status,
+        "detail": detail,
+        "artifact_path": clause_map.get("artifact_path") if isinstance(clause_map, dict) else clause_map_artifact_path(file_id),
+        "clause_map_id": clause_map.get("clause_map_id") if isinstance(clause_map, dict) else None,
+        "coverage_method": clause_map.get("coverage_method") if isinstance(clause_map, dict) else None,
+        "coverage_status": clause_map.get("coverage_status") if isinstance(clause_map, dict) else None,
+        "generation_method": generation.get("method"),
+        "generation_context": generation.get("context"),
+        "generated_at": generation.get("generated_at"),
+        "model": generation.get("model"),
+        "chunk_count": int(source.get("chunk_count") or (len(chunks or []))),
+        "chunk_fingerprint": source.get("chunk_fingerprint"),
+        "discovered_clause_count": len(discovered),
+        "inventory_clause_count": len(inventory),
+        "found_clause_families": clause_map.get("found_clause_families") if isinstance(clause_map, dict) else [],
+        "not_found_clause_families": clause_map.get("not_found_clause_families") if isinstance(clause_map, dict) else [],
+        "uncertain_clause_families": clause_map.get("uncertain_clause_families") if isinstance(clause_map, dict) else [],
+    }
+    if error:
+        record["error"] = str(error)[:500]
+    return record
+
+
+def _set_generation_context(payload: dict[str, Any], context: str) -> dict[str, Any]:
+    generation = payload.setdefault("generation", {})
+    if isinstance(generation, dict):
+        generation.setdefault("context", context)
+    return payload
 
 
 def _line_shape(text: str) -> tuple[int, int]:
@@ -439,6 +539,7 @@ def _base_clause_map(
     chunks: list[chunk_store.StoredChunk],
     workflow_id: str,
     artifact_path: str | None = None,
+    generation_context: str = "workflow_fallback",
 ) -> dict[str, Any]:
     families = tuple(LEGAL_CLAUSE_FAMILY_LABELS.keys())
     fingerprint = chunk_fingerprint(chunks)
@@ -472,6 +573,7 @@ def _base_clause_map(
         "discovered_clauses": [],
         "generation": {
             "method": "deterministic",
+            "context": generation_context,
             "generated_at": _now_iso(),
         },
     }
@@ -649,6 +751,7 @@ def _build_nano_clause_map(base: dict[str, Any], *, chunks: list[chunk_store.Sto
         ensure_ascii=False,
     )
     try:
+        log.info("legal_clause_map_nano_generation_started", file_id=source.get("file_id"), model=model_name, chunk_count=len(chunks))
         response = OpenAIChat(model=model_name).generate_with_usage(system=system, user=user)
         payload = _json_from_model_text(response.text)
         if not payload:
@@ -660,8 +763,10 @@ def _build_nano_clause_map(base: dict[str, Any], *, chunks: list[chunk_store.Sto
         next_map["coverage_method"] = "nano_model_clause_map_v1"
         next_map["coverage_status"] = "nano_clause_map_with_source_spans"
         next_map["discovered_clauses"] = clauses
+        previous_context = (base.get("generation") or {}).get("context") if isinstance(base.get("generation"), dict) else "workflow_fallback"
         next_map["generation"] = {
             "method": "nano_model",
+            "context": previous_context or "workflow_fallback",
             "model": model_name,
             "operation": response.operation,
             "generated_at": _now_iso(),
@@ -671,6 +776,13 @@ def _build_nano_clause_map(base: dict[str, Any], *, chunks: list[chunk_store.Sto
             "usage_approximate": response.usage.approximate,
             "fallback_inventory_method": "deterministic_full_stored_chunk_clause_scan_v1",
         }
+        log.info(
+            "legal_clause_map_nano_generation_ok",
+            file_id=source.get("file_id"),
+            model=model_name,
+            discovered_clause_count=len(clauses),
+            total_tokens=response.usage.total_tokens,
+        )
         return next_map
     except Exception:
         log.warning("legal_clause_map_nano_generation_failed", file_id=source.get("file_id"), model=model_name, exc_info=True)
@@ -687,6 +799,7 @@ def build_clause_map(
     workflow_id: str,
     artifact_path: str | None = None,
     prefer_llm: bool | None = None,
+    generation_context: str = "workflow_fallback",
 ) -> dict[str, Any]:
     base = _base_clause_map(
         file_id=file_id,
@@ -696,7 +809,7 @@ def build_clause_map(
         chunks=chunks,
         workflow_id=workflow_id,
         artifact_path=artifact_path,
-        prefer_llm=prefer_llm,
+        generation_context=generation_context,
     )
     if prefer_llm is None:
         prefer_llm = clause_map_llm_enabled()
@@ -705,6 +818,153 @@ def build_clause_map(
         if generated is not None:
             return generated
     return base
+
+
+def load_or_build_clause_map_with_status(
+    *,
+    uid: str,
+    file_id: str,
+    name: str,
+    folder_path: str | None,
+    content_type: str | None,
+    chunks: list[chunk_store.StoredChunk],
+    workflow_id: str,
+    store: bool = True,
+    prefer_llm: bool | None = None,
+    generation_context: str = "workflow_fallback",
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Load or build a clause map and return eval/log-friendly status.
+
+    Status values are intentionally stable because the internal eval UI uses
+    them to explain why clause-map-first context did or did not activate.
+    """
+    try:
+        fingerprint = chunk_fingerprint(chunks)
+        if store:
+            existing = _load_stored_clause_map(uid, file_id, fingerprint)
+            if existing is not None:
+                existing.setdefault("workflow_id", workflow_id)
+                existing.setdefault("required_clause_families", list(required_clause_families(workflow_id)))
+                generation = existing.get("generation") if isinstance(existing.get("generation"), dict) else {}
+                existing_context = str(generation.get("context") or "").strip()
+                has_discovered = bool(existing.get("discovered_clauses"))
+                wants_llm = clause_map_llm_enabled() if prefer_llm is None else bool(prefer_llm)
+                if not wants_llm or has_discovered:
+                    status = _clause_map_status_from_context(existing_context, generated_now=False)
+                    detail = "Stored clause map loaded."
+                    if status == CLAUSE_MAP_STATUS_GENERATED_AT_INGEST:
+                        detail = "Stored clause map generated during file ingest and loaded for workflow."
+                    return existing, clause_map_status_record(
+                        file_id=file_id,
+                        name=name,
+                        folder_path=folder_path,
+                        content_type=content_type,
+                        status=status,
+                        detail=detail,
+                        clause_map=existing,
+                        chunks=chunks,
+                    )
+                log.info("legal_clause_map_upgrade_started", uid=uid, file_id=file_id, workflow_id=workflow_id)
+                upgraded = _build_nano_clause_map(_set_generation_context(existing, generation_context), chunks=chunks)
+                if upgraded is not None:
+                    stored_path = _persist_clause_map(uid, file_id, upgraded)
+                    if stored_path:
+                        upgraded["artifact_path"] = stored_path
+                    status = _clause_map_status_from_context(generation_context, generated_now=True)
+                    return upgraded, clause_map_status_record(
+                        file_id=file_id,
+                        name=name,
+                        folder_path=folder_path,
+                        content_type=content_type,
+                        status=status,
+                        detail="Stored deterministic clause map was upgraded with nano model clauses.",
+                        clause_map=upgraded,
+                        chunks=chunks,
+                    )
+                log.warning("legal_clause_map_upgrade_failed", uid=uid, file_id=file_id, workflow_id=workflow_id)
+                return existing, clause_map_status_record(
+                    file_id=file_id,
+                    name=name,
+                    folder_path=folder_path,
+                    content_type=content_type,
+                    status=CLAUSE_MAP_STATUS_FOUND,
+                    detail="Stored clause map loaded, but nano-model upgrade failed; using stored map.",
+                    clause_map=existing,
+                    chunks=chunks,
+                )
+
+        artifact_path = clause_map_artifact_path(file_id) if store else None
+        log.info(
+            "legal_clause_map_generation_started",
+            uid=uid,
+            file_id=file_id,
+            workflow_id=workflow_id,
+            generation_context=generation_context,
+            store=store,
+            prefer_llm=clause_map_llm_enabled() if prefer_llm is None else bool(prefer_llm),
+            chunk_count=len(chunks),
+        )
+        payload = build_clause_map(
+            file_id=file_id,
+            name=name,
+            folder_path=folder_path,
+            content_type=content_type,
+            chunks=chunks,
+            workflow_id=workflow_id,
+            artifact_path=artifact_path,
+            prefer_llm=prefer_llm,
+            generation_context=generation_context,
+        )
+        if not payload:
+            log.warning("legal_clause_map_generation_failed", uid=uid, file_id=file_id, workflow_id=workflow_id, reason="empty_payload")
+            return None, clause_map_status_record(
+                file_id=file_id,
+                name=name,
+                folder_path=folder_path,
+                content_type=content_type,
+                status=CLAUSE_MAP_STATUS_FAILED,
+                detail="Clause-map generation returned no usable payload.",
+                chunks=chunks,
+            )
+        _set_generation_context(payload, generation_context)
+        if store:
+            stored_path = _persist_clause_map(uid, file_id, payload)
+            if stored_path:
+                payload["artifact_path"] = stored_path
+            else:
+                log.warning("legal_clause_map_generation_store_failed", uid=uid, file_id=file_id, workflow_id=workflow_id)
+        status = _clause_map_status_from_context(generation_context, generated_now=True)
+        log.info(
+            "legal_clause_map_generation_ok",
+            uid=uid,
+            file_id=file_id,
+            workflow_id=workflow_id,
+            status=status,
+            coverage_method=payload.get("coverage_method"),
+            discovered_clause_count=len(payload.get("discovered_clauses") or []),
+        )
+        return payload, clause_map_status_record(
+            file_id=file_id,
+            name=name,
+            folder_path=folder_path,
+            content_type=content_type,
+            status=status,
+            detail="Clause map generated successfully.",
+            clause_map=payload,
+            chunks=chunks,
+        )
+    except Exception as exc:
+        log.warning("legal_clause_map_error", uid=uid, file_id=file_id, workflow_id=workflow_id, exc_info=True)
+        return None, clause_map_status_record(
+            file_id=file_id,
+            name=name,
+            folder_path=folder_path,
+            content_type=content_type,
+            status=CLAUSE_MAP_STATUS_ERROR,
+            detail="Unexpected clause-map error.",
+            chunks=chunks,
+            error=str(exc),
+        )
 
 
 def load_or_build_clause_map(
@@ -719,38 +979,20 @@ def load_or_build_clause_map(
     store: bool = True,
     prefer_llm: bool | None = None,
 ) -> dict[str, Any]:
-    fingerprint = chunk_fingerprint(chunks)
-    if store:
-        existing = _load_stored_clause_map(uid, file_id, fingerprint)
-        if existing is not None:
-            existing.setdefault("workflow_id", workflow_id)
-            existing.setdefault("required_clause_families", list(required_clause_families(workflow_id)))
-            has_discovered = bool(existing.get("discovered_clauses"))
-            wants_llm = clause_map_llm_enabled() if prefer_llm is None else bool(prefer_llm)
-            if not wants_llm or has_discovered:
-                return existing
-            upgraded = _build_nano_clause_map(existing, chunks=chunks)
-            if upgraded is not None:
-                stored_path = _persist_clause_map(uid, file_id, upgraded)
-                if stored_path:
-                    upgraded["artifact_path"] = stored_path
-                return upgraded
-            return existing
-    artifact_path = clause_map_artifact_path(file_id) if store else None
-    payload = build_clause_map(
+    payload, _status = load_or_build_clause_map_with_status(
+        uid=uid,
         file_id=file_id,
         name=name,
         folder_path=folder_path,
         content_type=content_type,
         chunks=chunks,
         workflow_id=workflow_id,
-        artifact_path=artifact_path,
+        store=store,
         prefer_llm=prefer_llm,
+        generation_context="workflow_fallback",
     )
-    if store:
-        stored_path = _persist_clause_map(uid, file_id, payload)
-        if stored_path:
-            payload["artifact_path"] = stored_path
+    if payload is None:
+        raise RuntimeError(f"Clause map unavailable for {file_id}")
     return payload
 
 
@@ -1058,7 +1300,8 @@ def select_clause_map_entries_for_workflow(
         "available_entry_count": len(catalog),
     }
 
-def build_clause_map_source(
+
+def build_clause_map_source_with_status(
     *,
     uid: str,
     file_id: str,
@@ -1069,8 +1312,9 @@ def build_clause_map_source(
     workflow_id: str,
     store: bool = True,
     prefer_llm: bool | None = None,
-) -> WorkflowSourceFile:
-    clause_map = load_or_build_clause_map(
+    generation_context: str = "workflow_fallback",
+) -> tuple[WorkflowSourceFile | None, dict[str, Any]]:
+    clause_map, status = load_or_build_clause_map_with_status(
         uid=uid,
         file_id=file_id,
         name=name,
@@ -1080,7 +1324,10 @@ def build_clause_map_source(
         workflow_id=workflow_id,
         store=store,
         prefer_llm=prefer_llm,
+        generation_context=generation_context,
     )
+    if clause_map is None:
+        return None, status
     rendered = render_clause_map_summary(clause_map)
     source = clause_map.get("source_file") if isinstance(clause_map.get("source_file"), dict) else {}
     return WorkflowSourceFile(
@@ -1095,4 +1342,33 @@ def build_clause_map_source(
         source_kind="contract_clause_map",
         chunk_ids=[],
         chunk_count=len(chunks),
+    ), status
+
+
+def build_clause_map_source(
+    *,
+    uid: str,
+    file_id: str,
+    name: str,
+    folder_path: str | None,
+    content_type: str | None,
+    chunks: list[chunk_store.StoredChunk],
+    workflow_id: str,
+    store: bool = True,
+    prefer_llm: bool | None = None,
+) -> WorkflowSourceFile:
+    source, status = build_clause_map_source_with_status(
+        uid=uid,
+        file_id=file_id,
+        name=name,
+        folder_path=folder_path,
+        content_type=content_type,
+        chunks=chunks,
+        workflow_id=workflow_id,
+        store=store,
+        prefer_llm=prefer_llm,
+        generation_context="workflow_fallback",
     )
+    if source is None:
+        raise RuntimeError(status.get("detail") or f"Clause map unavailable for {file_id}")
+    return source

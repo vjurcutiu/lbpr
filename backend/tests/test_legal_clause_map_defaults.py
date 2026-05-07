@@ -43,3 +43,32 @@ def test_clause_map_env_overrides_still_work(monkeypatch):
     assert clause_map_ingest_enabled() is False
     assert clause_map_llm_enabled() is False
     assert clause_map_selection_model() == "selection-model"
+
+
+def test_clause_map_status_record_has_expected_shape():
+    from features.workflows.legal_clause_map import clause_map_status_record
+
+    record = clause_map_status_record(
+        file_id="u:test/uploads/file/content",
+        name="contract.txt",
+        folder_path="law",
+        content_type="text/plain",
+        status="generated_at_ingest",
+        detail="Generated during ingest.",
+        clause_map={
+            "clause_map_id": "contract_clause_map.v1:abc",
+            "artifact_path": "u:test/uploads/file/contract_clause_map.v1.json",
+            "coverage_method": "nano_model_clause_map_v1",
+            "coverage_status": "nano_clause_map_with_source_spans",
+            "source_file": {"chunk_count": 3, "chunk_fingerprint": "fingerprint"},
+            "generation": {"method": "nano_model", "context": "ingest", "model": "gpt-5-nano", "generated_at": "2026-01-01T00:00:00Z"},
+            "discovered_clauses": [{"title": "Confidentiality"}],
+            "clause_inventory": [{"clause_family": "confidentiality"}],
+        },
+    )
+
+    assert record["status"] == "generated_at_ingest"
+    assert record["generation_context"] == "ingest"
+    assert record["generation_method"] == "nano_model"
+    assert record["discovered_clause_count"] == 1
+    assert record["inventory_clause_count"] == 1
