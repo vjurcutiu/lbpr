@@ -25,9 +25,16 @@ CLAUSE_MAP_ARTIFACT_NAME = "contract_clause_map.v1.json"
 CLAUSE_MAP_JSON_START = "CONTRACT_CLAUSE_MAP_JSON_START"
 CLAUSE_MAP_JSON_END = "CONTRACT_CLAUSE_MAP_JSON_END"
 CLAUSE_MAP_NANO_MODEL_ENV = "LEGAL_CLAUSE_MAP_NANO_MODEL"
+CLAUSE_MAP_SELECTION_MODEL_ENV = "LEGAL_CLAUSE_MAP_SELECTION_MODEL"
 CLAUSE_MAP_INGEST_ENABLED_ENV = "LEGAL_CLAUSE_MAP_INGEST_ENABLED"
 CLAUSE_MAP_LLM_ENABLED_ENV = "LEGAL_CLAUSE_MAP_LLM_ENABLED"
+
+# Defaults are intentionally code-level defaults so these do not need to be
+# populated in Doppler. Set the env vars only when you need an override.
+DEFAULT_CLAUSE_MAP_INGEST_ENABLED = True
+DEFAULT_CLAUSE_MAP_LLM_ENABLED = True
 DEFAULT_CLAUSE_MAP_NANO_MODEL = "gpt-5-nano"
+DEFAULT_CLAUSE_MAP_SELECTION_MODEL = DEFAULT_CLAUSE_MAP_NANO_MODEL
 MAX_LLM_CHUNKS = 80
 MAX_CHARS_PER_LLM_CHUNK = 6500
 
@@ -399,6 +406,26 @@ def _env_enabled(name: str, default: bool = True) -> bool:
     return str(raw).strip().lower() not in {"0", "false", "no", "off"}
 
 
+def clause_map_ingest_enabled() -> bool:
+    return _env_enabled(CLAUSE_MAP_INGEST_ENABLED_ENV, DEFAULT_CLAUSE_MAP_INGEST_ENABLED)
+
+
+def clause_map_llm_enabled() -> bool:
+    return _env_enabled(CLAUSE_MAP_LLM_ENABLED_ENV, DEFAULT_CLAUSE_MAP_LLM_ENABLED)
+
+
+def clause_map_nano_model() -> str:
+    return (os.getenv(CLAUSE_MAP_NANO_MODEL_ENV) or DEFAULT_CLAUSE_MAP_NANO_MODEL).strip() or DEFAULT_CLAUSE_MAP_NANO_MODEL
+
+
+def clause_map_selection_model() -> str:
+    return (
+        os.getenv(CLAUSE_MAP_SELECTION_MODEL_ENV)
+        or os.getenv(CLAUSE_MAP_NANO_MODEL_ENV)
+        or DEFAULT_CLAUSE_MAP_SELECTION_MODEL
+    ).strip() or DEFAULT_CLAUSE_MAP_SELECTION_MODEL
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -582,9 +609,9 @@ def _chunks_for_llm(chunks: list[chunk_store.StoredChunk]) -> list[dict[str, Any
 
 
 def _build_nano_clause_map(base: dict[str, Any], *, chunks: list[chunk_store.StoredChunk]) -> dict[str, Any] | None:
-    if OpenAIChat is None or not _env_enabled(CLAUSE_MAP_LLM_ENABLED_ENV, True):
+    if OpenAIChat is None or not clause_map_llm_enabled():
         return None
-    model_name = os.getenv(CLAUSE_MAP_NANO_MODEL_ENV, DEFAULT_CLAUSE_MAP_NANO_MODEL).strip() or DEFAULT_CLAUSE_MAP_NANO_MODEL
+    model_name = clause_map_nano_model()
     source = base.get("source_file") if isinstance(base.get("source_file"), dict) else {}
     system = (
         "You create source-grounded contract clause maps. Return JSON only. "
@@ -672,7 +699,7 @@ def build_clause_map(
         prefer_llm=prefer_llm,
     )
     if prefer_llm is None:
-        prefer_llm = _env_enabled(CLAUSE_MAP_LLM_ENABLED_ENV, True)
+        prefer_llm = clause_map_llm_enabled()
     if prefer_llm:
         generated = _build_nano_clause_map(base, chunks=chunks)
         if generated is not None:
@@ -699,7 +726,7 @@ def load_or_build_clause_map(
             existing.setdefault("workflow_id", workflow_id)
             existing.setdefault("required_clause_families", list(required_clause_families(workflow_id)))
             has_discovered = bool(existing.get("discovered_clauses"))
-            wants_llm = _env_enabled(CLAUSE_MAP_LLM_ENABLED_ENV, True) if prefer_llm is None else bool(prefer_llm)
+            wants_llm = clause_map_llm_enabled() if prefer_llm is None else bool(prefer_llm)
             if not wants_llm or has_discovered:
                 return existing
             upgraded = _build_nano_clause_map(existing, chunks=chunks)
@@ -984,11 +1011,11 @@ def select_clause_map_entries_for_workflow(
     if not catalog:
         return {"method": "none", "selected_entries": [], "reason": "No clause-map entries were available."}
 
-    model_name = os.getenv("LEGAL_CLAUSE_MAP_SELECTION_MODEL", os.getenv(CLAUSE_MAP_NANO_MODEL_ENV, DEFAULT_CLAUSE_MAP_NANO_MODEL)).strip() or DEFAULT_CLAUSE_MAP_NANO_MODEL
+    model_name = clause_map_selection_model()
     selected_ids: list[str] = []
     reason = ""
     method = "fallback"
-    if OpenAIChat is not None and _env_enabled(CLAUSE_MAP_LLM_ENABLED_ENV, True):
+    if OpenAIChat is not None and clause_map_llm_enabled():
         system = (
             "Select source-grounded clause-map entries for a legal workflow. Return JSON only. "
             "Do not use hidden reasoning. Select by entry_id. Prefer entries with source_spans. "

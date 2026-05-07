@@ -260,7 +260,7 @@ async def _process_upload_job_async(
             try:
                 from features.workflows import toolkit as workflow_toolkit
                 from features.workflows.legal_clause_map import (
-                    CLAUSE_MAP_INGEST_ENABLED_ENV,
+                    clause_map_ingest_enabled,
                     load_or_build_clause_map,
                 )
                 from features.rag import chunk_store
@@ -273,8 +273,7 @@ async def _process_upload_job_async(
                     folder_path=folder_path,
                     content_type=content_type or "application/octet-stream",
                 )
-                ingest_clause_map_enabled = str(os.getenv(CLAUSE_MAP_INGEST_ENABLED_ENV, "1")).strip().lower() not in {"0", "false", "no", "off"}
-                if ingest_clause_map_enabled and chunk_payload:
+                if clause_map_ingest_enabled() and chunk_payload:
                     stored_chunks = chunk_store.chunks_from_payload(chunk_payload)
                     if stored_chunks:
                         load_or_build_clause_map(
