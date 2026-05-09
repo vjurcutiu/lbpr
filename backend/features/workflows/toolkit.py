@@ -471,6 +471,7 @@ def _retrieve_focus_chunks(
             "retrieval_trace": trace,
             "decision_trace": decision_trace,
             "evidence_chunks": evidence_chunks,
+            "coverage_ledger": bundle.coverage_ledger,
             "context_source_mode": "clause_map_first" if any(step.type == "clause_map_source_fetch" for step in bundle.retrieval_trace) else "rag_first",
             "clause_map_selection": {
                 key: value

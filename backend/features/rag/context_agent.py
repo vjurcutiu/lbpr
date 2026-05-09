@@ -13,6 +13,9 @@ from features.files.schemas import FileItem
 from features.rag import chunk_store
 from features.rag.orchestrator import query_request
 from features.rag.schemas import QueryRequest, Source
+from features.context_engine.ledger import CoverageLedger
+from features.context_engine.schemas import EvidenceRecord
+from features.domains.legal.context_adapter import LegalClauseMapAdapter
 
 log = logging.getLogger("rag.context_agent")
 
@@ -84,6 +87,7 @@ class ContextBundle:
     decision_trace: list[ContextDecision] = field(default_factory=list)
     coverage_notes: list[str] = field(default_factory=list)
     missing_context: list[str] = field(default_factory=list)
+    coverage_ledger: dict[str, Any] = field(default_factory=dict)
 
     def combined_text(self) -> str:
         parts: list[str] = []
@@ -458,6 +462,69 @@ def _chunks_from_clause_map_entries(
     return chunks
 
 
+def _chunk_target_ids(chunk: ContextChunk) -> tuple[str, ...]:
+    entries = chunk.metadata.get("clause_map_entries") if isinstance(chunk.metadata, dict) else None
+    out: list[str] = []
+    if isinstance(entries, list):
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            target_id = str(entry.get("entry_id") or entry.get("clause_family") or entry.get("normalized_type") or "").strip()
+            if target_id and target_id not in out:
+                out.append(target_id)
+    return tuple(out)
+
+
+def _evidence_record_from_chunk(
+    chunk: ContextChunk,
+    *,
+    verdict: str = "accepted",
+    reason: str = "",
+    target_ids: Iterable[str] | None = None,
+) -> EvidenceRecord:
+    return EvidenceRecord(
+        file_id=chunk.file_id,
+        chunk_id=chunk.chunk_id,
+        chunk_index=chunk.chunk_index,
+        source_kind=chunk.source,
+        score=chunk.score,
+        target_ids=tuple(str(item) for item in (target_ids if target_ids is not None else _chunk_target_ids(chunk)) if str(item).strip()),
+        verdict=verdict,  # type: ignore[arg-type]
+        reason=reason,
+    )
+
+
+def _evidence_records_from_chunks(
+    chunks: Iterable[ContextChunk],
+    *,
+    verdict: str = "accepted",
+    reason: str = "",
+    target_ids: Iterable[str] | None = None,
+) -> list[EvidenceRecord]:
+    return [_evidence_record_from_chunk(chunk, verdict=verdict, reason=reason, target_ids=target_ids) for chunk in chunks]
+
+
+def _target_ids_from_clause_entries(entries: Iterable[dict[str, Any]]) -> list[str]:
+    out: list[str] = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        target_id = str(entry.get("entry_id") or entry.get("clause_family") or entry.get("normalized_type") or "").strip()
+        if target_id and target_id not in out:
+            out.append(target_id)
+    return out
+
+
+def _unaccepted_chunks(candidates: Iterable[ContextChunk], accepted: Iterable[ContextChunk]) -> list[ContextChunk]:
+    accepted_keys = {chunk.key for chunk in accepted}
+    return [chunk for chunk in candidates if chunk.key not in accepted_keys]
+
+
+def _reference_target_id(query: str) -> str:
+    clean = re.sub(r"[^A-Za-z0-9]+", "_", str(query or "").strip()).strip("_").lower()
+    return f"reference:{clean or 'unknown'}"
+
+
 def _reference_queries_from_entries(entries: list[dict[str, Any]], chunks: list[ContextChunk]) -> list[str]:
     text = "\n".join([_entry_display_text(entry) for entry in entries] + [chunk.text for chunk in chunks])
     queries: list[str] = []
@@ -807,6 +874,7 @@ def build_context_bundle(
             retrieval_trace=[],
             decision_trace=decisions,
             missing_context=["No query or files provided."],
+            coverage_ledger={},
         )
 
     files_by_dataset: dict[str, list[FileItem]] = defaultdict(list)
@@ -827,12 +895,34 @@ def build_context_bundle(
     seen: set[tuple[str, str]] = set()
     trace: list[RetrievalStep] = []
     queried: list[str] = []
+    coverage_ledger: CoverageLedger | None = None
     using_clause_map = active_profile.name == "legal" and bool(clause_map_entries)
 
     if using_clause_map:
         selection_meta = dict(clause_map_selection or {})
+        adapter = LegalClauseMapAdapter.from_selection(entries=clause_map_entries or [], selection=selection_meta)
+        coverage_ledger = CoverageLedger.from_entries(
+            domain=adapter.domain_id,
+            workflow_id=workflow_id,
+            entries=adapter.map_entries(),
+            source_map_kind=adapter.source_map_kind,
+            max_chunks_per_pass=active_profile.max_chunks,
+            source_map_summary=adapter.source_map_summary(),
+        )
         source_chunks = _chunks_from_clause_map_entries(uid, entries=clause_map_entries or [], files_by_id=files_by_id)
         added = _add_chunks(selected, seen, source_chunks, max_chunks=active_profile.max_chunks)
+        rejected_source_chunks = _unaccepted_chunks(source_chunks, added)
+        target_ids = _target_ids_from_clause_entries(clause_map_entries or [])
+        coverage_ledger.record_pass(
+            pass_type="source_map_fetch",
+            frontier_target_ids=target_ids,
+            candidates=_evidence_records_from_chunks(source_chunks, reason="Source-map candidate span"),
+            accepted=_evidence_records_from_chunks(added, reason="Accepted source-map anchored chunk"),
+            rejected=_evidence_records_from_chunks(rejected_source_chunks, verdict="rejected", reason="Not accepted because of dedupe or per-pass chunk budget"),
+            decision="continue" if rejected_source_chunks else "covered",
+            reason="Fetched exact chunks cited by selected source-map entries.",
+            metadata={"selected_entry_count": len(target_ids), "max_chunks_per_pass": active_profile.max_chunks},
+        )
         trace.append(RetrievalStep(step=1, type="clause_map_source_fetch", reason="Clause-map selected source spans", chunk_ids=[item.chunk_id for item in added], chunks_added=len(added)))
         add_decision(
             stage="clause_map_selection",
@@ -866,6 +956,17 @@ def build_context_bundle(
             outcome=f"Added {len(added_neighbors)} adjacent chunk(s).",
             metadata={"chunk_ids": [item.chunk_id for item in added_neighbors], "candidate_count": len(neighbors)},
         )
+        if coverage_ledger is not None:
+            coverage_ledger.record_pass(
+                pass_type="neighbor_expansion",
+                frontier_target_ids=[],
+                candidates=_evidence_records_from_chunks(neighbors, reason="Neighbor candidate around accepted evidence"),
+                accepted=_evidence_records_from_chunks(added_neighbors, reason="Accepted neighbor chunk"),
+                rejected=_evidence_records_from_chunks(_unaccepted_chunks(neighbors, added_neighbors), verdict="rejected", reason="Neighbor duplicate or outside remaining per-pass budget"),
+                decision="continue",
+                reason="Expanded adjacent context around accepted source-map chunks.",
+                metadata={"candidate_count": len(neighbors), "max_chunks_per_pass": active_profile.max_chunks},
+            )
 
         reference_queries = _reference_queries_from_entries(clause_map_entries or [], selected)
         for reference_query in reference_queries:
@@ -874,6 +975,23 @@ def build_context_bundle(
             for candidate in candidates:
                 candidate.source = "reference"
             added_ref = _add_chunks(selected, seen, candidates, max_chunks=active_profile.max_chunks)
+            if coverage_ledger is not None:
+                ref_target = _reference_target_id(reference_query)
+                coverage_ledger.add_target(target_id=ref_target, target_type="cross_reference", label=reference_query, priority="normal")
+                rejected_refs = _unaccepted_chunks(candidates, added_ref)
+                coverage_ledger.record_pass(
+                    pass_type="reference_fetch",
+                    query=reference_query,
+                    frontier_target_ids=[ref_target],
+                    candidates=_evidence_records_from_chunks(candidates, reason="Reference query candidate", target_ids=[ref_target]),
+                    accepted=_evidence_records_from_chunks(added_ref, reason="Accepted reference chunk", target_ids=[ref_target]),
+                    rejected=_evidence_records_from_chunks(rejected_refs, verdict="rejected", reason="Reference candidate duplicate, low value, or outside remaining per-pass budget", target_ids=[ref_target]),
+                    decision="covered" if added_ref else "unresolved",
+                    reason="Fetched referenced definitions, sections, exhibits, or schedules." if added_ref else "No new reference evidence was accepted for this query.",
+                    metadata={"candidate_count": len(candidates), "chunks_added": len(added_ref)},
+                )
+                if not added_ref:
+                    coverage_ledger.mark_partial([ref_target], reason="Reference was queried but no new evidence was accepted.")
             trace.append(RetrievalStep(step=len(trace) + 1, type="reference_query", query=reference_query, reason="Clause-map cross-reference or definition lookup", chunk_ids=[item.chunk_id for item in added_ref], chunks_added=len(added_ref)))
             add_decision(
                 stage="reference_fetch",
@@ -889,8 +1007,20 @@ def build_context_bundle(
         sufficient = bool(signal.get("sufficient"))
     else:
         queried = [plan.search_query]
+        coverage_ledger = CoverageLedger(domain=active_profile.name, workflow_id=workflow_id, source_map_kind="semantic_query", max_chunks_per_pass=active_profile.max_chunks, source_map_summary={"query": plan.search_query})
+        coverage_ledger.add_target(target_id="initial_query", target_type="semantic_query", label=plan.search_query, priority="high")
         initial = _retrieve(uid, files_by_dataset=files_by_dataset, query=plan.search_query, k=active_profile.initial_k)
         added = _add_chunks(selected, seen, initial, max_chunks=active_profile.max_chunks)
+        coverage_ledger.record_pass(
+            pass_type="semantic_search",
+            query=plan.search_query,
+            frontier_target_ids=["initial_query"],
+            candidates=_evidence_records_from_chunks(initial, reason="Initial semantic search candidate", target_ids=["initial_query"]),
+            accepted=_evidence_records_from_chunks(added, reason="Accepted initial semantic evidence", target_ids=["initial_query"]),
+            rejected=_evidence_records_from_chunks(_unaccepted_chunks(initial, added), verdict="rejected", reason="Initial candidate duplicate or outside remaining per-pass budget", target_ids=["initial_query"]),
+            decision="covered" if added else "unresolved",
+            reason="Initial semantic search pass.",
+        )
         trace.append(RetrievalStep(step=1, type="initial_search", query=plan.search_query, chunk_ids=[item.chunk_id for item in added], chunks_added=len(added)))
         add_decision(
             stage="initial_search",
@@ -916,6 +1046,17 @@ def build_context_bundle(
             outcome=f"Added {len(added_neighbors)} adjacent chunk(s).",
             metadata={"chunk_ids": [item.chunk_id for item in added_neighbors], "candidate_count": len(neighbors)},
         )
+        if coverage_ledger is not None:
+            coverage_ledger.record_pass(
+                pass_type="neighbor_expansion",
+                frontier_target_ids=["initial_query"],
+                candidates=_evidence_records_from_chunks(neighbors, reason="Neighbor candidate around semantic search", target_ids=["initial_query"]),
+                accepted=_evidence_records_from_chunks(added_neighbors, reason="Accepted neighbor evidence", target_ids=["initial_query"]),
+                rejected=_evidence_records_from_chunks(_unaccepted_chunks(neighbors, added_neighbors), verdict="rejected", reason="Neighbor duplicate or outside remaining per-pass budget", target_ids=["initial_query"]),
+                decision="continue",
+                reason="Expanded adjacent context around initial semantic hits.",
+                metadata={"candidate_count": len(neighbors)},
+            )
 
         signal = _topic_coverage_snapshot(plan, selected)
         sufficient = bool(signal.get("sufficient"))
@@ -954,6 +1095,22 @@ def build_context_bundle(
             added_candidates = _add_chunks(selected, seen, candidates, max_chunks=active_profile.max_chunks)
             if added_candidates:
                 any_added = True
+            if coverage_ledger is not None:
+                target_id = f"expansion:{round_no}:{len(queried)}"
+                coverage_ledger.add_target(target_id=target_id, target_type="expansion_query", label=expansion_query, priority="normal")
+                coverage_ledger.record_pass(
+                    pass_type="targeted_query",
+                    query=expansion_query,
+                    frontier_target_ids=[target_id],
+                    candidates=_evidence_records_from_chunks(candidates, reason="Targeted query candidate", target_ids=[target_id]),
+                    accepted=_evidence_records_from_chunks(added_candidates, reason="Accepted targeted query evidence", target_ids=[target_id]),
+                    rejected=_evidence_records_from_chunks(_unaccepted_chunks(candidates, added_candidates), verdict="rejected", reason="Targeted candidate duplicate or outside remaining per-pass budget", target_ids=[target_id]),
+                    decision="covered" if added_candidates else "unresolved",
+                    reason="Targeted expansion query over unresolved evidence areas.",
+                    metadata={"round": round_no, "candidate_count": len(candidates)},
+                )
+                if not added_candidates:
+                    coverage_ledger.mark_partial([target_id], reason="Targeted query did not add new evidence.")
             trace.append(RetrievalStep(step=len(trace) + 1, type="targeted_query", query=expansion_query, reason="Selected context did not cover enough planned evidence areas", chunk_ids=[item.chunk_id for item in added_candidates], chunks_added=len(added_candidates)))
             add_decision(
                 stage="targeted_query",
@@ -1053,6 +1210,13 @@ def build_context_bundle(
         metadata={"sufficient": sufficient, "selected_chunks": len(selected), "retrieval_turns": len(trace)},
     )
 
+    if coverage_ledger is not None:
+        if len(selected) >= active_profile.max_chunks:
+            coverage_ledger.add_note("Per-pass chunk budget was reached; unresolved frontier may require another abstract pass.")
+        if not sufficient:
+            coverage_ledger.add_note(stop_reason)
+    ledger_snapshot = coverage_ledger.to_dict() if coverage_ledger is not None else {}
+
     missing_topic_labels = [str(item.get("label")) for item in signal.get("missing_topics", [])] if isinstance(signal.get("missing_topics"), list) else []
     missing_context = [] if sufficient else [stop_reason, *missing_topic_labels[:6]]
     return ContextBundle(
@@ -1064,4 +1228,5 @@ def build_context_bundle(
         decision_trace=decisions,
         coverage_notes=coverage_notes,
         missing_context=missing_context,
+        coverage_ledger=ledger_snapshot,
     )
