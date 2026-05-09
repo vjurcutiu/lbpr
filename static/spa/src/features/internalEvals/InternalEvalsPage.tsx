@@ -97,6 +97,88 @@ type ClauseMapEntry = {
   cross_references?: string[];
 };
 
+type CoverageEvidence = {
+  file_id?: string;
+  chunk_id?: string;
+  chunk_index?: number | null;
+  source_kind?: string;
+  score?: number | null;
+  target_ids?: string[];
+  verdict?: string;
+  reason?: string;
+  quality?: string;
+  relevance_score?: number | null;
+  matched_signals?: string[];
+};
+
+type CoverageTarget = {
+  target_id?: string;
+  target_type?: string;
+  label?: string;
+  priority?: string;
+  status?: string;
+  accepted_evidence?: string[];
+  partial_evidence?: string[];
+  rejected_evidence?: string[];
+  deferred_evidence?: string[];
+  missing_evidence?: string[];
+  attempts?: number;
+  exhausted?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+type CoverageFrontierItem = {
+  target_id?: string;
+  target_type?: string;
+  label?: string;
+  priority?: string;
+  status?: string;
+  attempts?: number;
+  missing_evidence?: string[];
+};
+
+type CoveragePass = {
+  pass_index?: number;
+  pass_type?: string;
+  query?: string | null;
+  frontier_target_ids?: string[];
+  candidate_count?: number;
+  accepted_count?: number;
+  partial_count?: number;
+  rejected_count?: number;
+  duplicate_count?: number;
+  deferred_count?: number;
+  accepted_evidence?: string[];
+  partial_evidence?: string[];
+  rejected_evidence?: string[];
+  deferred_evidence?: string[];
+  decision?: string;
+  reason?: string;
+  useful_evidence_count?: number;
+  quality_summary?: Record<string, number>;
+  metadata?: Record<string, unknown>;
+};
+
+type CoverageLedger = {
+  schema_version?: number;
+  domain?: string;
+  workflow_id?: string | null;
+  source_map_kind?: string | null;
+  source_map_summary?: Record<string, unknown>;
+  max_chunks_per_pass?: number;
+  pass_count?: number;
+  status?: string;
+  sufficient?: boolean;
+  unresolved_target_count?: number;
+  exhausted_target_count?: number;
+  targets?: Record<string, CoverageTarget>;
+  frontier?: CoverageFrontierItem[];
+  passes?: CoveragePass[];
+  evidence?: Record<string, CoverageEvidence>;
+  notes?: string[];
+  convergence?: Record<string, unknown>;
+};
+
 type SupportedIssueRecord = {
   issue: string;
   severity?: string;
@@ -117,10 +199,12 @@ type AgentContext = {
   source_support_summary?: Record<string, unknown>;
   clause_map_selection?: Record<string, unknown>;
   selected_clause_map_entries?: ClauseMapEntry[];
+  coverage_ledger?: CoverageLedger;
 };
 
 const AGENT_REVIEW_CRITERIA = [
   { id: "agent_context_sufficiency", label: "Context sufficiency", helper: "Did the agent gather enough evidence before the output was generated?" },
+  { id: "agent_ledger_behavior", label: "Ledger behavior", helper: "Did the coverage ledger continue, stop, and mark unresolved targets for the right reasons?" },
   { id: "agent_retrieval_relevance", label: "Retrieval relevance", helper: "Were the retrieved chunks relevant to the workflow question or task?" },
   { id: "agent_expansion_quality", label: "Expansion quality", helper: "Did neighbor and targeted-query turns expand context in the right direction?" },
   { id: "agent_output_grounding", label: "Output grounding", helper: "Does the final output stay supported by the gathered context?" },
@@ -271,6 +355,176 @@ function asClauseMapEntries(value: unknown): ClauseMapEntry[] {
   }).filter((entry) => entry.entry_id || entry.title || entry.source_spans?.length);
 }
 
+function asNumber(value: unknown, fallback = 0): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function asOptionalNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function asCoverageEvidence(value: unknown): CoverageEvidence | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  return {
+    file_id: typeof record.file_id === "string" ? record.file_id : undefined,
+    chunk_id: typeof record.chunk_id === "string" ? record.chunk_id : undefined,
+    chunk_index: asOptionalNumber(record.chunk_index),
+    source_kind: typeof record.source_kind === "string" ? record.source_kind : undefined,
+    score: asOptionalNumber(record.score),
+    target_ids: asStringArray(record.target_ids),
+    verdict: typeof record.verdict === "string" ? record.verdict : undefined,
+    reason: typeof record.reason === "string" ? record.reason : undefined,
+    quality: typeof record.quality === "string" ? record.quality : undefined,
+    relevance_score: asOptionalNumber(record.relevance_score),
+    matched_signals: asStringArray(record.matched_signals),
+  };
+}
+
+function asCoverageTarget(value: unknown): CoverageTarget | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  return {
+    target_id: typeof record.target_id === "string" ? record.target_id : undefined,
+    target_type: typeof record.target_type === "string" ? record.target_type : undefined,
+    label: typeof record.label === "string" ? record.label : undefined,
+    priority: typeof record.priority === "string" ? record.priority : undefined,
+    status: typeof record.status === "string" ? record.status : undefined,
+    accepted_evidence: asStringArray(record.accepted_evidence),
+    partial_evidence: asStringArray(record.partial_evidence),
+    rejected_evidence: asStringArray(record.rejected_evidence),
+    deferred_evidence: asStringArray(record.deferred_evidence),
+    missing_evidence: asStringArray(record.missing_evidence),
+    attempts: asNumber(record.attempts),
+    exhausted: Boolean(record.exhausted),
+    metadata: asRecord(record.metadata) || undefined,
+  };
+}
+
+function asCoverageFrontierItem(value: unknown): CoverageFrontierItem | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  return {
+    target_id: typeof record.target_id === "string" ? record.target_id : undefined,
+    target_type: typeof record.target_type === "string" ? record.target_type : undefined,
+    label: typeof record.label === "string" ? record.label : undefined,
+    priority: typeof record.priority === "string" ? record.priority : undefined,
+    status: typeof record.status === "string" ? record.status : undefined,
+    attempts: asNumber(record.attempts),
+    missing_evidence: asStringArray(record.missing_evidence),
+  };
+}
+
+function asQualitySummary(value: unknown): Record<string, number> {
+  const record = asRecord(value);
+  if (!record) return {};
+  return Object.fromEntries(Object.entries(record).map(([key, raw]) => [key, asNumber(raw)]));
+}
+
+function asCoveragePass(value: unknown): CoveragePass | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  return {
+    pass_index: asNumber(record.pass_index),
+    pass_type: typeof record.pass_type === "string" ? record.pass_type : undefined,
+    query: typeof record.query === "string" ? record.query : null,
+    frontier_target_ids: asStringArray(record.frontier_target_ids),
+    candidate_count: asNumber(record.candidate_count),
+    accepted_count: asNumber(record.accepted_count),
+    partial_count: asNumber(record.partial_count),
+    rejected_count: asNumber(record.rejected_count),
+    duplicate_count: asNumber(record.duplicate_count),
+    deferred_count: asNumber(record.deferred_count),
+    accepted_evidence: asStringArray(record.accepted_evidence),
+    partial_evidence: asStringArray(record.partial_evidence),
+    rejected_evidence: asStringArray(record.rejected_evidence),
+    deferred_evidence: asStringArray(record.deferred_evidence),
+    decision: typeof record.decision === "string" ? record.decision : undefined,
+    reason: typeof record.reason === "string" ? record.reason : undefined,
+    useful_evidence_count: asNumber(record.useful_evidence_count),
+    quality_summary: asQualitySummary(record.quality_summary),
+    metadata: asRecord(record.metadata) || undefined,
+  };
+}
+
+function asCoverageLedger(value: unknown): CoverageLedger | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const rawTargets = asRecord(record.targets) || {};
+  const targets: Record<string, CoverageTarget> = {};
+  for (const [key, rawTarget] of Object.entries(rawTargets)) {
+    const target = asCoverageTarget(rawTarget);
+    if (target) targets[key] = target;
+  }
+  const rawEvidence = asRecord(record.evidence) || {};
+  const evidence: Record<string, CoverageEvidence> = {};
+  for (const [key, rawItem] of Object.entries(rawEvidence)) {
+    const item = asCoverageEvidence(rawItem);
+    if (item) evidence[key] = item;
+  }
+  return {
+    schema_version: asNumber(record.schema_version),
+    domain: typeof record.domain === "string" ? record.domain : undefined,
+    workflow_id: typeof record.workflow_id === "string" ? record.workflow_id : null,
+    source_map_kind: typeof record.source_map_kind === "string" ? record.source_map_kind : null,
+    source_map_summary: asRecord(record.source_map_summary) || undefined,
+    max_chunks_per_pass: asNumber(record.max_chunks_per_pass),
+    pass_count: asNumber(record.pass_count),
+    status: typeof record.status === "string" ? record.status : undefined,
+    sufficient: typeof record.sufficient === "boolean" ? record.sufficient : undefined,
+    unresolved_target_count: asNumber(record.unresolved_target_count),
+    exhausted_target_count: asNumber(record.exhausted_target_count),
+    targets,
+    frontier: Array.isArray(record.frontier) ? record.frontier.map(asCoverageFrontierItem).filter(Boolean) as CoverageFrontierItem[] : [],
+    passes: Array.isArray(record.passes) ? record.passes.map(asCoveragePass).filter(Boolean) as CoveragePass[] : [],
+    evidence,
+    notes: asStringArray(record.notes),
+    convergence: asRecord(record.convergence) || undefined,
+  };
+}
+
+function humanizeKey(value?: string | null): string {
+  return String(value || "—")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function ledgerStatusBadge(ledger?: CoverageLedger) {
+  if (!ledger) return <Badge variant="secondary">No ledger</Badge>;
+  if (ledger.sufficient || ledger.status === "sufficient") return <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Ledger sufficient</Badge>;
+  return <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300">Ledger needs context</Badge>;
+}
+
+function ledgerTargetBadge(status?: string) {
+  if (["covered", "negative_supported", "not_applicable"].includes(status || "")) return <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">{humanizeKey(status)}</Badge>;
+  if (["partial", "weak", "missing", "unvisited"].includes(status || "")) return <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300">{humanizeKey(status)}</Badge>;
+  if (status === "exhausted") return <Badge variant="outline">Exhausted</Badge>;
+  return <Badge variant="secondary">{humanizeKey(status)}</Badge>;
+}
+
+function mergeQualityCounts(...rows: Array<Record<string, number> | undefined>): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const row of rows) {
+    for (const [key, value] of Object.entries(row || {})) {
+      merged[key] = (merged[key] || 0) + Number(value || 0);
+    }
+  }
+  return merged;
+}
+
+function evidenceQualityCounts(ledger?: CoverageLedger): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const evidence of Object.values(ledger?.evidence || {})) {
+    const key = evidence.quality || evidence.verdict || "unknown";
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  return counts;
+}
+
 function getSupportedIssues(run?: EvalRunRecord | null): SupportedIssueRecord[] {
   const structured = asRecord(run?.structured_metadata);
   const riskItems = Array.isArray(structured?.risk_items) ? structured?.risk_items : [];
@@ -303,6 +557,7 @@ function getAgentContext(run?: EvalRunRecord | null): AgentContext | null {
     source_support_summary: asRecord(rawContext.source_support_summary) || asRecord(structured?.source_support_summary) || undefined,
     clause_map_selection: asRecord(rawContext.clause_map_selection) || undefined,
     selected_clause_map_entries: asClauseMapEntries(rawContext.selected_clause_map_entries),
+    coverage_ledger: asCoverageLedger(rawContext.coverage_ledger),
   };
 }
 
@@ -1644,6 +1899,20 @@ function AgentRunReviewPanel({
   ].filter(([, value]) => value && (value as ReturnType<typeof groupSupportSummary>)!.total > 0) as [string, NonNullable<ReturnType<typeof groupSupportSummary>>][];
   const selectedClauseEntries = context?.selected_clause_map_entries || [];
   const clauseSelection = context?.clause_map_selection || {};
+  const ledger = context?.coverage_ledger;
+  const ledgerTargets = Object.values(ledger?.targets || {});
+  const ledgerPasses = ledger?.passes || [];
+  const ledgerFrontier = ledger?.frontier || [];
+  const ledgerConvergence = ledger?.convergence || {};
+  const ledgerEvidenceCounts = evidenceQualityCounts(ledger);
+  const ledgerPassQualityCounts = mergeQualityCounts(...ledgerPasses.map((item) => item.quality_summary));
+  const ledgerQualityCounts = Object.keys(ledgerEvidenceCounts).length ? ledgerEvidenceCounts : ledgerPassQualityCounts;
+  const ledgerProblemTargets = ledgerTargets
+    .filter((target) => ["unvisited", "partial", "weak", "missing", "exhausted"].includes(target.status || "") || target.exhausted)
+    .sort((a, b) => {
+      const priorityOrder: Record<string, number> = { high: 0, normal: 1, medium: 2, low: 3 };
+      return (priorityOrder[a.priority || "normal"] ?? 1) - (priorityOrder[b.priority || "normal"] ?? 1);
+    });
   const totalAddedChunks = trace.reduce((total, step) => total + Number(step.chunks_added || 0), 0);
   const targetedTurns = trace.filter((step) => step.type === "targeted_query").length;
   const neighborTurns = trace.filter((step) => step.type === "neighbor_expansion").length;
@@ -1694,6 +1963,171 @@ function AgentRunReviewPanel({
           </CardContent>
         </Card>
       ) : null}
+
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="pb-3">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+            <CardTitle className="flex min-w-0 items-center gap-2 text-base">
+              <ListChecks className="h-4 w-4" /> Coverage ledger
+            </CardTitle>
+            {ledgerStatusBadge(ledger)}
+          </div>
+          <CardDescription>Internal multipass completeness tracking for bounded context retrieval.</CardDescription>
+        </CardHeader>
+        <CardContent className="min-w-0 space-y-4 text-sm">
+          {ledger ? (
+            <>
+              <div className="grid min-w-0 gap-3 md:grid-cols-5">
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Domain</div>
+                  <div className="mt-1 truncate font-semibold">{ledger.domain || "—"}</div>
+                </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Passes</div>
+                  <div className="mt-1 font-semibold">{ledger.pass_count || ledgerPasses.length}</div>
+                </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Chunks / pass</div>
+                  <div className="mt-1 font-semibold">{ledger.max_chunks_per_pass || "—"}</div>
+                </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Unresolved</div>
+                  <div className="mt-1 font-semibold">{ledger.unresolved_target_count || 0}</div>
+                </div>
+                <div className="rounded-lg border bg-background p-3">
+                  <div className="text-xs text-muted-foreground">Exhausted</div>
+                  <div className="mt-1 font-semibold">{ledger.exhausted_target_count || 0}</div>
+                </div>
+              </div>
+
+              <div className="grid min-w-0 gap-3 md:grid-cols-3">
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-xs font-medium text-muted-foreground">Stop reason</div>
+                  <div className="mt-1 break-words text-xs">{String(ledgerConvergence.last_stop_reason || "No stop reason captured.")}</div>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-xs font-medium text-muted-foreground">Frontier open</div>
+                  <div className="mt-1 text-xs">{ledgerConvergence.frontier_open ? "Yes" : "No"}</div>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-xs font-medium text-muted-foreground">Last pass useful evidence</div>
+                  <div className="mt-1 text-xs">{String(ledgerConvergence.last_pass_useful_evidence_count ?? "—")}</div>
+                </div>
+              </div>
+
+              {Object.keys(ledgerQualityCounts).length ? (
+                <div className="min-w-0 rounded-lg border p-3">
+                  <div className="mb-2 text-xs font-medium text-muted-foreground">Evidence quality</div>
+                  <div className="flex min-w-0 flex-wrap gap-2">
+                    {Object.entries(ledgerQualityCounts).sort(([a], [b]) => a.localeCompare(b)).map(([quality, count]) => (
+                      <Badge key={quality} variant={quality === "strong" || quality === "partial" ? "outline" : "secondary"}>
+                        {humanizeKey(quality)}: {count}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {ledgerPasses.length ? (
+                <div className="overflow-x-auto rounded-lg border">
+                  <table className="w-full min-w-[920px] text-left text-xs">
+                    <thead className="bg-muted/40 text-muted-foreground">
+                      <tr>
+                        <th className="px-2 py-2 font-medium">Pass</th>
+                        <th className="px-2 py-2 font-medium">Type / query</th>
+                        <th className="px-2 py-2 font-medium">Frontier</th>
+                        <th className="px-2 py-2 font-medium">Candidates</th>
+                        <th className="px-2 py-2 font-medium">Accepted</th>
+                        <th className="px-2 py-2 font-medium">Partial</th>
+                        <th className="px-2 py-2 font-medium">Rejected</th>
+                        <th className="px-2 py-2 font-medium">Duplicate</th>
+                        <th className="px-2 py-2 font-medium">Useful</th>
+                        <th className="px-2 py-2 font-medium">Decision</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledgerPasses.map((pass, index) => (
+                        <tr key={`${pass.pass_index || index}-${pass.pass_type || "pass"}`} className="border-t align-top">
+                          <td className="px-2 py-2 font-medium">{pass.pass_index || index + 1}</td>
+                          <td className="px-2 py-2">
+                            <div className="font-medium">{humanizeKey(pass.pass_type)}</div>
+                            {pass.query ? <div className="mt-1 max-w-[260px] break-words text-muted-foreground">{pass.query}</div> : null}
+                          </td>
+                          <td className="px-2 py-2">{pass.frontier_target_ids?.length || 0}</td>
+                          <td className="px-2 py-2">{pass.candidate_count || 0}</td>
+                          <td className="px-2 py-2">{pass.accepted_count || 0}</td>
+                          <td className="px-2 py-2">{pass.partial_count || 0}</td>
+                          <td className="px-2 py-2">{pass.rejected_count || 0}</td>
+                          <td className="px-2 py-2">{pass.duplicate_count || 0}</td>
+                          <td className="px-2 py-2">{pass.useful_evidence_count || 0}</td>
+                          <td className="px-2 py-2">
+                            <div className="font-medium">{humanizeKey(pass.decision)}</div>
+                            {pass.reason ? <div className="mt-1 max-w-[260px] break-words text-muted-foreground">{pass.reason}</div> : null}
+                            {pass.quality_summary && Object.keys(pass.quality_summary).length ? (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {Object.entries(pass.quality_summary).map(([quality, count]) => (
+                                  <Badge key={quality} variant="secondary">{humanizeKey(quality)} {count}</Badge>
+                                ))}
+                              </div>
+                            ) : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <div className="text-muted-foreground">No ledger passes were captured.</div>}
+
+              <div className="grid min-w-0 gap-3 lg:grid-cols-2">
+                <div className="min-w-0 rounded-lg border p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-xs font-medium text-muted-foreground">Active frontier</div>
+                    <Badge variant="outline">{ledgerFrontier.length}</Badge>
+                  </div>
+                  {ledgerFrontier.length ? ledgerFrontier.slice(0, 8).map((target, index) => (
+                    <div key={`${target.target_id || index}`} className="border-t py-2 first:border-t-0 first:pt-0">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1 basis-0 break-words font-medium">{target.label || target.target_id || "Frontier target"}</div>
+                        {ledgerTargetBadge(target.status)}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">{target.target_type || "target"} · attempts {target.attempts || 0} · priority {target.priority || "normal"}</div>
+                      {target.missing_evidence?.length ? <div className="mt-1 break-words text-xs text-muted-foreground">Missing: {target.missing_evidence.slice(0, 3).join("; ")}</div> : null}
+                    </div>
+                  )) : <div className="text-xs text-muted-foreground">No open frontier. The ledger considers the context resolved or exhausted.</div>}
+                </div>
+
+                <div className="min-w-0 rounded-lg border p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-xs font-medium text-muted-foreground">Unresolved / exhausted targets</div>
+                    <Badge variant="outline">{ledgerProblemTargets.length}</Badge>
+                  </div>
+                  {ledgerProblemTargets.length ? ledgerProblemTargets.slice(0, 8).map((target, index) => (
+                    <div key={`${target.target_id || index}`} className="border-t py-2 first:border-t-0 first:pt-0">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1 basis-0 break-words font-medium">{target.label || target.target_id || "Target"}</div>
+                        {ledgerTargetBadge(target.status)}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        accepted {target.accepted_evidence?.length || 0} · partial {target.partial_evidence?.length || 0} · rejected {target.rejected_evidence?.length || 0} · attempts {target.attempts || 0}
+                      </div>
+                      {target.missing_evidence?.length ? <div className="mt-1 break-words text-xs text-muted-foreground">Notes: {target.missing_evidence.slice(0, 3).join("; ")}</div> : null}
+                    </div>
+                  )) : <div className="text-xs text-muted-foreground">No unresolved or exhausted targets.</div>}
+                </div>
+              </div>
+
+              {ledger.notes?.length ? (
+                <div className="space-y-2">
+                  <div className="text-xs font-medium text-muted-foreground">Ledger notes</div>
+                  {ledger.notes.map((note, index) => (
+                    <div key={`${note}-${index}`} className="break-words rounded-md border bg-muted/30 p-2 text-xs">{note}</div>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : <div className="text-muted-foreground">No coverage ledger was captured for this run. New multipass agent runs should include adaptive_context.coverage_ledger.</div>}
+        </CardContent>
+      </Card>
 
       <Card className="min-w-0 overflow-hidden">
         <CardHeader className="pb-3">
