@@ -572,6 +572,53 @@ def _add_chunks(selected: list[ContextChunk], seen: set[tuple[str, str]], candid
     return added
 
 
+def _add_chunks_for_pass(
+    selected: list[ContextChunk],
+    seen: set[tuple[str, str]],
+    candidates: Iterable[ContextChunk],
+    *,
+    per_pass_limit: int,
+) -> list[ContextChunk]:
+    """Add up to ``per_pass_limit`` unique chunks for the current abstract pass.
+
+    Unlike ``_add_chunks``, this treats the configured chunk limit as a
+    per-pass working memory limit rather than a total workflow context cap.
+    The final context is still trimmed later by the token budget.
+    """
+    added: list[ContextChunk] = []
+    for chunk in candidates:
+        if len(added) >= per_pass_limit:
+            break
+        if not chunk.text.strip():
+            continue
+        key = chunk.key
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(chunk)
+        added.append(chunk)
+    return added
+
+
+def _chunk_batches(chunks: list[ContextChunk], *, batch_size: int) -> list[list[ContextChunk]]:
+    if batch_size <= 0:
+        return [chunks]
+    return [chunks[idx: idx + batch_size] for idx in range(0, len(chunks), batch_size)]
+
+
+def _chunk_ids(chunks: Iterable[ContextChunk]) -> list[str]:
+    return [item.chunk_id for item in chunks if item.chunk_id]
+
+
+def _target_ids_from_chunks(chunks: Iterable[ContextChunk]) -> list[str]:
+    out: list[str] = []
+    for chunk in chunks:
+        for target_id in _chunk_target_ids(chunk):
+            if target_id and target_id not in out:
+                out.append(target_id)
+    return out
+
+
 def _token_terms(text: str) -> list[str]:
     terms: list[str] = []
     for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", text or ""):
@@ -910,27 +957,68 @@ def build_context_bundle(
             source_map_summary=adapter.source_map_summary(),
         )
         source_chunks = _chunks_from_clause_map_entries(uid, entries=clause_map_entries or [], files_by_id=files_by_id)
-        added = _add_chunks(selected, seen, source_chunks, max_chunks=active_profile.max_chunks)
-        rejected_source_chunks = _unaccepted_chunks(source_chunks, added)
         target_ids = _target_ids_from_clause_entries(clause_map_entries or [])
-        coverage_ledger.record_pass(
-            pass_type="source_map_fetch",
-            frontier_target_ids=target_ids,
-            candidates=_evidence_records_from_chunks(source_chunks, reason="Source-map candidate span"),
-            accepted=_evidence_records_from_chunks(added, reason="Accepted source-map anchored chunk"),
-            rejected=_evidence_records_from_chunks(rejected_source_chunks, verdict="rejected", reason="Not accepted because of dedupe or per-pass chunk budget"),
-            decision="continue" if rejected_source_chunks else "covered",
-            reason="Fetched exact chunks cited by selected source-map entries.",
-            metadata={"selected_entry_count": len(target_ids), "max_chunks_per_pass": active_profile.max_chunks},
-        )
-        trace.append(RetrievalStep(step=1, type="clause_map_source_fetch", reason="Clause-map selected source spans", chunk_ids=[item.chunk_id for item in added], chunks_added=len(added)))
+        source_batches = _chunk_batches(source_chunks, batch_size=active_profile.max_chunks)
+        total_added_source: list[ContextChunk] = []
+        total_rejected_source: list[ContextChunk] = []
+        for batch_index, batch in enumerate(source_batches, start=1):
+            added = _add_chunks_for_pass(selected, seen, batch, per_pass_limit=active_profile.max_chunks)
+            rejected_source_chunks = _unaccepted_chunks(batch, added)
+            total_added_source.extend(added)
+            total_rejected_source.extend(rejected_source_chunks)
+            pass_target_ids = _target_ids_from_chunks(batch) or target_ids
+            coverage_ledger.record_pass(
+                pass_type="source_map_frontier",
+                frontier_target_ids=pass_target_ids,
+                candidates=_evidence_records_from_chunks(batch, reason="Source-map candidate span"),
+                accepted=_evidence_records_from_chunks(added, reason="Accepted source-map anchored chunk"),
+                rejected=_evidence_records_from_chunks(rejected_source_chunks, verdict="rejected", reason="Source-map candidate was duplicate, empty, or not useful for this pass"),
+                decision="continue" if batch_index < len(source_batches) else "covered",
+                reason="Abstract coverage pass over unresolved source-map spans.",
+                metadata={
+                    "abstract_pass": batch_index,
+                    "frontier_kind": "source_map_entries",
+                    "batch_size": len(batch),
+                    "remaining_source_chunks": max(0, len(source_chunks) - batch_index * active_profile.max_chunks),
+                    "max_chunks_per_pass": active_profile.max_chunks,
+                },
+            )
+            trace.append(RetrievalStep(
+                step=len(trace) + 1,
+                type="clause_map_source_fetch",
+                reason="Abstract coverage pass over selected clause-map spans",
+                chunk_ids=_chunk_ids(added),
+                chunks_added=len(added),
+            ))
+            if batch_index > 1:
+                add_decision(
+                    stage="coverage_pass",
+                    decision="Continue source-map coverage in another bounded pass",
+                    rationale="The first bounded pass did not cover all selected source-map spans, so the ledger kept the unresolved frontier open.",
+                    action="Fetch the next batch of exact chunks cited by selected map entries",
+                    observation=f"Source-map coverage pass {batch_index}/{len(source_batches)}.",
+                    outcome=f"Added {len(added)} additional exact chunk(s).",
+                    metadata={
+                        "abstract_pass": batch_index,
+                        "chunk_ids": _chunk_ids(added),
+                        "remaining_source_chunks": max(0, len(source_chunks) - batch_index * active_profile.max_chunks),
+                    },
+                )
+
+        # Entries with no retrievable source span should not keep the ledger open forever.
+        span_target_ids = set(_target_ids_from_chunks(source_chunks))
+        no_source_targets = [target_id for target_id in target_ids if target_id not in span_target_ids]
+        if no_source_targets:
+            coverage_ledger.mark_exhausted(no_source_targets, reason="No retrievable source span was available for this selected map entry.")
+
+        trace_chunk_ids = _chunk_ids(total_added_source)
         add_decision(
             stage="clause_map_selection",
             decision="Use clause map as the primary context plan",
             rationale="The clause map already contains discovered contract structure and chunk/span anchors, so the agent starts from those entries instead of predefined search terms.",
-            action="Fetch exact chunks cited by selected clause-map entries",
+            action="Fetch exact chunks cited by selected clause-map entries in bounded abstract passes",
             observation=f"{selection_meta.get('selected_entry_count', len(clause_map_entries or []))} clause-map entrie(s) selected by {selection_meta.get('method') or 'unknown'}.",
-            outcome=f"Added {len(added)} exact clause chunk(s).",
+            outcome=f"Added {len(total_added_source)} exact clause chunk(s) across {max(1, len(source_batches))} pass(es).",
             metadata={
                 "selection_method": selection_meta.get("method"),
                 "selection_model": selection_meta.get("model"),
@@ -939,68 +1027,135 @@ def build_context_bundle(
                 "available_entry_count": selection_meta.get("available_entry_count"),
                 "selected_entry_count": selection_meta.get("selected_entry_count", len(clause_map_entries or [])),
                 "selected_entries": _selected_clause_entry_records(clause_map_entries or []),
-                "chunk_ids": [item.chunk_id for item in added],
+                "chunk_ids": trace_chunk_ids,
+                "abstract_passes": len(source_batches),
+                "max_chunks_per_pass": active_profile.max_chunks,
+                "deferred_or_rejected_source_chunks": len(total_rejected_source),
             },
         )
 
         neighbors = _neighbor_expansion(uid, selected=selected, files_by_id=files_by_id, profile=active_profile)
-        added_neighbors = _add_chunks(selected, seen, neighbors, max_chunks=active_profile.max_chunks)
-        if added_neighbors:
-            trace.append(RetrievalStep(step=len(trace) + 1, type="neighbor_expansion", reason="Adjacent chunks around clause-map spans", chunk_ids=[item.chunk_id for item in added_neighbors], chunks_added=len(added_neighbors)))
+        added_neighbors_all: list[ContextChunk] = []
+        rejected_neighbors_all: list[ContextChunk] = []
+        for batch_index, batch in enumerate(_chunk_batches(neighbors, batch_size=active_profile.max_chunks), start=1):
+            added_neighbors = _add_chunks_for_pass(selected, seen, batch, per_pass_limit=active_profile.max_chunks)
+            rejected_neighbors = _unaccepted_chunks(batch, added_neighbors)
+            added_neighbors_all.extend(added_neighbors)
+            rejected_neighbors_all.extend(rejected_neighbors)
+            if coverage_ledger is not None:
+                coverage_ledger.record_pass(
+                    pass_type="neighbor_frontier",
+                    frontier_target_ids=_target_ids_from_chunks(batch),
+                    candidates=_evidence_records_from_chunks(batch, reason="Neighbor candidate around accepted evidence"),
+                    accepted=_evidence_records_from_chunks(added_neighbors, reason="Accepted neighbor chunk"),
+                    rejected=_evidence_records_from_chunks(rejected_neighbors, verdict="rejected", reason="Neighbor candidate duplicate, empty, or not useful for this pass"),
+                    decision="continue" if batch_index * active_profile.max_chunks < len(neighbors) else "covered",
+                    reason="Abstract coverage pass over adjacent chunks around accepted source-map evidence.",
+                    metadata={
+                        "abstract_pass": batch_index,
+                        "frontier_kind": "neighbors",
+                        "candidate_count": len(batch),
+                        "remaining_neighbor_chunks": max(0, len(neighbors) - batch_index * active_profile.max_chunks),
+                        "max_chunks_per_pass": active_profile.max_chunks,
+                    },
+                )
+            if added_neighbors:
+                trace.append(RetrievalStep(
+                    step=len(trace) + 1,
+                    type="neighbor_expansion",
+                    reason="Adjacent chunks around clause-map spans",
+                    chunk_ids=_chunk_ids(added_neighbors),
+                    chunks_added=len(added_neighbors),
+                ))
         add_decision(
             stage="neighbor_expansion",
             decision="Pull adjacent context around clause-map spans",
             rationale="The exact mapped span can start before or continue after a chunk boundary.",
-            action="Fetch neighboring chunks around clause-map source spans",
+            action="Fetch neighboring chunks around clause-map source spans using bounded passes",
             observation=f"Neighbor window: {active_profile.neighbor_before} before / {active_profile.neighbor_after} after.",
-            outcome=f"Added {len(added_neighbors)} adjacent chunk(s).",
-            metadata={"chunk_ids": [item.chunk_id for item in added_neighbors], "candidate_count": len(neighbors)},
+            outcome=f"Added {len(added_neighbors_all)} adjacent chunk(s).",
+            metadata={
+                "chunk_ids": _chunk_ids(added_neighbors_all),
+                "candidate_count": len(neighbors),
+                "abstract_passes": len(_chunk_batches(neighbors, batch_size=active_profile.max_chunks)),
+                "rejected_or_duplicate_neighbors": len(rejected_neighbors_all),
+            },
         )
-        if coverage_ledger is not None:
-            coverage_ledger.record_pass(
-                pass_type="neighbor_expansion",
-                frontier_target_ids=[],
-                candidates=_evidence_records_from_chunks(neighbors, reason="Neighbor candidate around accepted evidence"),
-                accepted=_evidence_records_from_chunks(added_neighbors, reason="Accepted neighbor chunk"),
-                rejected=_evidence_records_from_chunks(_unaccepted_chunks(neighbors, added_neighbors), verdict="rejected", reason="Neighbor duplicate or outside remaining per-pass budget"),
-                decision="continue",
-                reason="Expanded adjacent context around accepted source-map chunks.",
-                metadata={"candidate_count": len(neighbors), "max_chunks_per_pass": active_profile.max_chunks},
-            )
 
         reference_queries = _reference_queries_from_entries(clause_map_entries or [], selected)
         for reference_query in reference_queries:
-            candidates = _retrieve(uid, files_by_dataset=files_by_dataset, query=reference_query, k=min(3, active_profile.followup_k))
-            # These RAG calls are constrained to references/definitions/exhibits from the clause map.
+            candidates = _retrieve(uid, files_by_dataset=files_by_dataset, query=reference_query, k=active_profile.max_chunks)
+            before_reference_seen = set(seen)
+            # These RAG calls are constrained to references/definitions/exhibits from the source map.
             for candidate in candidates:
                 candidate.source = "reference"
-            added_ref = _add_chunks(selected, seen, candidates, max_chunks=active_profile.max_chunks)
-            if coverage_ledger is not None:
-                ref_target = _reference_target_id(reference_query)
-                coverage_ledger.add_target(target_id=ref_target, target_type="cross_reference", label=reference_query, priority="normal")
-                rejected_refs = _unaccepted_chunks(candidates, added_ref)
+            added_ref_all: list[ContextChunk] = []
+            rejected_ref_all: list[ContextChunk] = []
+            ref_target = _reference_target_id(reference_query)
+            coverage_ledger.add_target(target_id=ref_target, target_type="cross_reference", label=reference_query, priority="normal")
+            for batch_index, batch in enumerate(_chunk_batches(candidates, batch_size=active_profile.max_chunks), start=1):
+                added_ref = _add_chunks_for_pass(selected, seen, batch, per_pass_limit=active_profile.max_chunks)
+                rejected_refs = _unaccepted_chunks(batch, added_ref)
+                added_ref_all.extend(added_ref)
+                rejected_ref_all.extend(rejected_refs)
                 coverage_ledger.record_pass(
-                    pass_type="reference_fetch",
+                    pass_type="reference_frontier",
                     query=reference_query,
                     frontier_target_ids=[ref_target],
-                    candidates=_evidence_records_from_chunks(candidates, reason="Reference query candidate", target_ids=[ref_target]),
+                    candidates=_evidence_records_from_chunks(batch, reason="Reference query candidate", target_ids=[ref_target]),
                     accepted=_evidence_records_from_chunks(added_ref, reason="Accepted reference chunk", target_ids=[ref_target]),
-                    rejected=_evidence_records_from_chunks(rejected_refs, verdict="rejected", reason="Reference candidate duplicate, low value, or outside remaining per-pass budget", target_ids=[ref_target]),
+                    rejected=_evidence_records_from_chunks(rejected_refs, verdict="rejected", reason="Reference candidate duplicate, low value, or not useful for this pass", target_ids=[ref_target]),
                     decision="covered" if added_ref else "unresolved",
-                    reason="Fetched referenced definitions, sections, exhibits, or schedules." if added_ref else "No new reference evidence was accepted for this query.",
-                    metadata={"candidate_count": len(candidates), "chunks_added": len(added_ref)},
+                    reason="Abstract coverage pass over a referenced definition, section, exhibit, or schedule.",
+                    metadata={
+                        "abstract_pass": batch_index,
+                        "query": reference_query,
+                        "candidate_count": len(batch),
+                        "remaining_reference_candidates": max(0, len(candidates) - batch_index * active_profile.max_chunks),
+                        "max_chunks_per_pass": active_profile.max_chunks,
+                    },
                 )
-                if not added_ref:
-                    coverage_ledger.mark_partial([ref_target], reason="Reference was queried but no new evidence was accepted.")
-            trace.append(RetrievalStep(step=len(trace) + 1, type="reference_query", query=reference_query, reason="Clause-map cross-reference or definition lookup", chunk_ids=[item.chunk_id for item in added_ref], chunks_added=len(added_ref)))
+            if not candidates:
+                coverage_ledger.record_pass(
+                    pass_type="reference_frontier",
+                    query=reference_query,
+                    frontier_target_ids=[ref_target],
+                    candidates=[],
+                    accepted=[],
+                    rejected=[],
+                    decision="exhausted",
+                    reason="Reference query returned no candidate chunks.",
+                    metadata={"query": reference_query, "candidate_count": 0},
+                )
+                coverage_ledger.mark_exhausted([ref_target], reason="Reference was not visible in the reviewed material.")
+            elif not added_ref_all and any(candidate.key in before_reference_seen for candidate in candidates):
+                coverage_ledger.mark_covered([ref_target], reason="Reference candidates were already present in accepted context.")
+            elif not added_ref_all:
+                coverage_ledger.mark_exhausted([ref_target], reason="Reference candidates were not useful; treat as not visible in reviewed material.")
+            else:
+                coverage_ledger.mark_covered([ref_target], reason="Reference evidence was accepted.")
+            trace.append(RetrievalStep(
+                step=len(trace) + 1,
+                type="reference_query",
+                query=reference_query,
+                reason="Source-map cross-reference or definition lookup",
+                chunk_ids=_chunk_ids(added_ref_all),
+                chunks_added=len(added_ref_all),
+            ))
             add_decision(
                 stage="reference_fetch",
                 decision="Fetch referenced definitions, sections, or exhibits",
-                rationale="RAG is used after clause-map selection only to pull referenced context that may live outside the selected clause span.",
-                action="Run constrained reference query",
+                rationale="RAG is used after source-map selection only to pull referenced context that may live outside the selected source span.",
+                action="Run constrained reference query as an abstract frontier pass",
                 observation=f"Reference query: {reference_query}",
-                outcome=f"Added {len(added_ref)} reference chunk(s).",
-                metadata={"query": reference_query, "chunk_ids": [item.chunk_id for item in added_ref], "candidate_count": len(candidates)},
+                outcome=f"Added {len(added_ref_all)} reference chunk(s).",
+                metadata={
+                    "query": reference_query,
+                    "chunk_ids": _chunk_ids(added_ref_all),
+                    "candidate_count": len(candidates),
+                    "rejected_or_duplicate_candidates": len(rejected_ref_all),
+                    "rejection_reason": "no_candidates" if not candidates else ("already_selected" if (not added_ref_all and any(candidate.key in before_reference_seen for candidate in candidates)) else ("not_useful" if not added_ref_all else None)),
+                },
             )
 
         signal = _clause_map_signal_snapshot(clause_map_entries or [], selected)

@@ -13,7 +13,7 @@ CoverageStatus = Literal[
     "negative_supported",
     "exhausted",
 ]
-EvidenceVerdict = Literal["accepted", "partial", "rejected", "duplicate", "not_retrieved"]
+EvidenceVerdict = Literal["accepted", "partial", "rejected", "deferred", "duplicate", "not_retrieved"]
 
 
 @dataclass(frozen=True)
@@ -109,6 +109,7 @@ class CoverageTargetSnapshot(TypedDict, total=False):
     accepted_evidence: list[str]
     partial_evidence: list[str]
     rejected_evidence: list[str]
+    deferred_evidence: list[str]
     missing_evidence: list[str]
     attempts: int
     exhausted: bool
@@ -124,8 +125,10 @@ class CoveragePassSnapshot(TypedDict, total=False):
     accepted_count: int
     rejected_count: int
     duplicate_count: int
+    deferred_count: int
     accepted_evidence: list[str]
     rejected_evidence: list[str]
+    deferred_evidence: list[str]
     decision: str
     reason: str
     metadata: dict[str, Any]

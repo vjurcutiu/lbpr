@@ -31,6 +31,7 @@ class _TargetState:
     accepted_evidence: list[str] = field(default_factory=list)
     partial_evidence: list[str] = field(default_factory=list)
     rejected_evidence: list[str] = field(default_factory=list)
+    deferred_evidence: list[str] = field(default_factory=list)
     missing_evidence: list[str] = field(default_factory=list)
     attempts: int = 0
     exhausted: bool = False
@@ -46,6 +47,7 @@ class _TargetState:
             "accepted_evidence": self.accepted_evidence,
             "partial_evidence": self.partial_evidence,
             "rejected_evidence": self.rejected_evidence,
+            "deferred_evidence": self.deferred_evidence,
             "missing_evidence": self.missing_evidence,
             "attempts": self.attempts,
             "exhausted": self.exhausted,
@@ -148,6 +150,7 @@ class CoverageLedger:
         accepted: Iterable[EvidenceRecord] = (),
         rejected: Iterable[EvidenceRecord] = (),
         duplicates: Iterable[EvidenceRecord] = (),
+        deferred: Iterable[EvidenceRecord] = (),
         decision: str = "continue",
         reason: str = "",
         metadata: dict[str, Any] | None = None,
@@ -157,6 +160,7 @@ class CoverageLedger:
         accepted_list = list(accepted)
         rejected_list = list(rejected)
         duplicate_list = list(duplicates)
+        deferred_list = list(deferred)
 
         for target_id in frontier:
             self._ensure_target(target_id).attempts += 1
@@ -181,6 +185,16 @@ class CoverageLedger:
                 if target.status == "unvisited":
                     target.status = "weak"
 
+        for record in deferred_list:
+            self.evidence[record.key] = record
+            target_ids = list(record.target_ids) or frontier
+            for target_id in target_ids:
+                target = self._ensure_target(target_id)
+                if record.key not in target.deferred_evidence:
+                    target.deferred_evidence.append(record.key)
+                if target.status == "unvisited":
+                    target.status = "partial"
+
         for record in duplicate_list:
             self.evidence[record.key] = record
 
@@ -199,13 +213,32 @@ class CoverageLedger:
                 "accepted_count": len(accepted_list),
                 "rejected_count": len(rejected_list),
                 "duplicate_count": len(duplicate_list),
+                "deferred_count": len(deferred_list),
                 "accepted_evidence": [item.key for item in accepted_list],
                 "rejected_evidence": [item.key for item in rejected_list],
+                "deferred_evidence": [item.key for item in deferred_list],
                 "decision": decision,
                 "reason": reason,
                 "metadata": metadata or {},
             }
         )
+
+    def mark_covered(self, target_ids: Iterable[str], *, reason: str = "") -> None:
+        for target_id in target_ids:
+            target = self._ensure_target(target_id)
+            target.status = "covered"
+            target.exhausted = False
+            if reason and reason not in target.missing_evidence:
+                target.missing_evidence.append(reason)
+
+    def target_status_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for target in self.targets.values():
+            counts[target.status] = counts.get(target.status, 0) + 1
+        return counts
+
+    def unresolved_target_ids(self) -> list[str]:
+        return [item["target_id"] for item in self.frontier()]
 
     def mark_exhausted(self, target_ids: Iterable[str], *, reason: str = "") -> None:
         for target_id in target_ids:

@@ -65,3 +65,38 @@ def test_legal_adapter_maps_clause_entries_into_domain_map_entries():
     assert adapter.domain_id == "legal"
     assert adapter.source_map_summary()["map_type"] == "clause_map"
     assert adapter.source_map_summary()["available_entry_count"] == 20
+
+
+def test_coverage_ledger_tracks_deferred_frontier_for_later_passes():
+    ledger = CoverageLedger.from_entries(
+        domain="test_domain",
+        workflow_id="test_workflow",
+        entries=[DomainMapEntry(entry_id="target_b", entry_type="generic_entry", title="Target B")],
+        source_map_kind="test_map",
+        max_chunks_per_pass=1,
+    )
+
+    deferred = EvidenceRecord(
+        file_id="f",
+        chunk_id="ch_99",
+        chunk_index=99,
+        target_ids=("target_b",),
+        source_kind="map",
+        verdict="deferred",
+        reason="per-pass budget",
+    )
+    ledger.record_pass(
+        pass_type="source_map_frontier",
+        frontier_target_ids=["target_b"],
+        candidates=[deferred],
+        accepted=[],
+        deferred=[deferred],
+        decision="continue",
+        reason="not enough pass budget",
+    )
+
+    payload = ledger.to_dict()
+    assert payload["targets"]["target_b"]["status"] == "partial"
+    assert "f:ch_99" in payload["targets"]["target_b"]["deferred_evidence"]
+    assert payload["frontier"][0]["target_id"] == "target_b"
+    assert payload["passes"][0]["deferred_count"] == 1
