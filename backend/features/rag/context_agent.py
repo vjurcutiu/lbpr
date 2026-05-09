@@ -845,6 +845,7 @@ def build_context_bundle(
                 "selection_method": selection_meta.get("method"),
                 "selection_model": selection_meta.get("model"),
                 "selection_reason": selection_meta.get("reason"),
+                "selection_lens": selection_meta.get("selection_lens") or {},
                 "available_entry_count": selection_meta.get("available_entry_count"),
                 "selected_entry_count": selection_meta.get("selected_entry_count", len(clause_map_entries or [])),
                 "selected_entries": _selected_clause_entry_records(clause_map_entries or []),

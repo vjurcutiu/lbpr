@@ -76,8 +76,7 @@ def _source_manifest_lines(sources: list[WorkflowSourceFile]) -> list[str]:
     lines: list[str] = []
     for source in sources:
         suffix = f" ({source.folder_path})" if source.folder_path else ""
-        trunc = " — excerpt truncated" if source.truncated else ""
-        lines.append(f"- {_display_source_label(source)}{suffix}{trunc}")
+        lines.append(f"- {_display_source_label(source)}{suffix}")
     return lines
 
 
@@ -182,6 +181,39 @@ def _strip_single_source_list(items: list[str], sources: list[WorkflowSourceFile
     return [item for item in (_strip_single_source_text(str(item), sources) for item in items) if item]
 
 
+_INTERNAL_OUTPUT_PATTERNS = (
+    r"(?im)^\s*#+\s*preview notes\s*$.*?(?=^\s*#+\s+|\Z)",
+    r"(?im)^\s*#+\s*clause map(?:\s+coverage|\s+selection)?\s*$.*?(?=^\s*#+\s+|\Z)",
+    r"(?im)^\s*#+\s*agent(?:\s+audit|\s+trace|\s+selection)?\s*$.*?(?=^\s*#+\s+|\Z)",
+)
+
+
+def _strip_internal_workflow_copy(text: str) -> str:
+    cleaned = str(text or "")
+    for pattern in _INTERNAL_OUTPUT_PATTERNS:
+        cleaned = re.sub(pattern, "", cleaned)
+    replacements = {
+        "full stored-chunk clause map": "reviewed material",
+        "stored-chunk clause map": "reviewed material",
+        "full stored chunk scan": "reviewed material",
+        "clause coverage map": "reviewed material",
+        "clause-map coverage": "reviewed material",
+        "clause map": "reviewed material",
+        "clause-map": "reviewed material",
+        "fact map": "reviewed material",
+        "contract fact map": "reviewed material",
+    }
+    for needle, replacement in replacements.items():
+        cleaned = re.sub(re.escape(needle), replacement, cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"(?im)^\s*This review is based on the reviewed material and the reviewed material\.?\s*$", "", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _strip_internal_list_copy(items: list[str]) -> list[str]:
+    return [clean for clean in (_strip_internal_workflow_copy(str(item)) for item in items) if clean]
+
+
 def _without_single_source_evidence_labels(items: list[dict[str, Any]], sources: list[WorkflowSourceFile]) -> list[dict[str, Any]]:
     if not _is_single_source_output(sources):
         return items
@@ -212,6 +244,8 @@ _SUPPORT_STOPWORDS = _STOPWORDS | {
     "party", "parties", "shall", "will", "must", "may", "including", "include", "includes", "included", "reviewed",
     "found", "not", "uncertain", "present", "term", "terms", "service", "services", "document", "documents",
     "workable", "confirm", "acceptable", "needed", "relevant", "applicable", "specified", "certain", "general",
+    "are", "is", "was", "were", "be", "been", "being", "connection", "provide", "provided", "required",
+    "rights", "obligations", "standards", "maintain", "agreed", "period", "timing", "deadline", "owner",
 }
 
 _SUPPORT_ANCHORS: dict[str, tuple[str, ...]] = {
@@ -327,7 +361,6 @@ _ENTRY_FAMILY_ALIASES: tuple[tuple[str, str], ...] = (
     ("assign", "assignment"),
     ("subcontract", "change_control"),
     ("change control", "change_control"),
-    ("modification", "change_control"),
     ("notice", "notices"),
     ("non-solicit", "non_solicit"),
     ("non solicit", "non_solicit"),
@@ -719,17 +752,21 @@ def _support_from_selected_clause_map_entries(
                 record = by_chunk.get(chunk_id)
             excerpt = str((record or {}).get("excerpt") or entry.get("source_excerpt") or entry.get("summary") or "").strip()
             source_name = (record or {}).get("source_name") or entry.get("source_name") or "Clause map"
-            record_text = " ".join([entry_text, excerpt])
-            matched = _anchor_hits_for_family(family, record_text)
+            matched_in_excerpt = _anchor_hits_for_family(family, excerpt)
+            matched_in_entry = _anchor_hits_for_family(family, entry_text)
+            matched = matched_in_excerpt or matched_in_entry
             if not matched:
-                # Same-family selected clause-map entries are still useful anchors,
-                # but mark them partial if they do not contain exact family anchor phrases.
+                # Same-family selected clause-map entries are useful, but should not
+                # look source-proven unless the source excerpt itself contains an anchor.
                 matched = [family]
                 support_status = "partial"
                 support_score = 70
-            else:
+            elif matched_in_excerpt:
                 support_status = "strong"
-                support_score = 120 + (5 * len(matched))
+                support_score = 120 + (5 * len(matched_in_excerpt))
+            else:
+                support_status = "partial"
+                support_score = 85 + (3 * len(matched_in_entry))
             key = (file_id, chunk_id, str(entry.get("entry_id") or ""))
             if key in seen_chunks:
                 continue
@@ -751,7 +788,7 @@ def _support_from_selected_clause_map_entries(
                     "clause_map_entry_id": entry.get("entry_id"),
                     "clause_map_entry_title": entry.get("title") or entry.get("normalized_type"),
                     "support_reason": "Selected clause-map entry for the same clause family.",
-                    "excerpt": _support_excerpt(excerpt, matched) if excerpt else str(entry.get("summary") or "").strip(),
+                    "excerpt": _support_excerpt(excerpt, matched_in_excerpt or matched) if excerpt else str(entry.get("summary") or "").strip(),
                 }
             )
             if len(support) >= limit:
@@ -776,6 +813,41 @@ def _is_counted_supported(status: str) -> bool:
     return status in {"strong", "partial", "negative_scan_supported"}
 
 
+def _source_support_group_summary(items: list[Any], *, label_key: str) -> dict[str, Any]:
+    summary = {
+        "total": 0,
+        "supported": 0,
+        "strong": 0,
+        "partial": 0,
+        "weak": 0,
+        "unsupported": 0,
+        "negative_scan_supported": 0,
+        "unsupported_items": [],
+        "weak_items": [],
+    }
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        summary["total"] += 1
+        status = str(item.get("support_status") or "unsupported").strip() or "unsupported"
+        if _is_counted_supported(status):
+            summary["supported"] += 1
+            if status == "strong":
+                summary["strong"] += 1
+            elif status == "negative_scan_supported":
+                summary["negative_scan_supported"] += 1
+                summary["partial"] += 1
+            else:
+                summary["partial"] += 1
+        elif status == "weak":
+            summary["weak"] += 1
+            summary["weak_items"].append(str(item.get(label_key) or item.get("issue") or item.get("clause_family") or "Item"))
+        else:
+            summary["unsupported"] += 1
+            summary["unsupported_items"].append(str(item.get(label_key) or item.get("issue") or item.get("clause_family") or "Item"))
+    return summary
+
+
 def attach_legal_source_support(metadata: dict[str, Any], sources: list[WorkflowSourceFile]) -> dict[str, Any]:
     """Attach source-level support records to legal structured items.
 
@@ -790,16 +862,8 @@ def attach_legal_source_support(metadata: dict[str, Any], sources: list[Workflow
     if not evidence_records and not clause_entries_by_family and not scan_findings_by_family:
         return metadata
 
-    risk_items = metadata.get("risk_items") if isinstance(metadata.get("risk_items"), list) else []
     support_summary: dict[str, Any] = {
         "evidence_record_count": len(evidence_records),
-        "risk_items_supported": 0,
-        "risk_items_strong": 0,
-        "risk_items_partial": 0,
-        "risk_items_weak": 0,
-        "risk_items_unsupported": 0,
-        "risk_items_total": len(risk_items),
-        "unsupported_risk_items": [],
     }
 
     for key in ("risk_items", "clause_items", "obligation_items", "fallback_items", "fields"):
@@ -841,21 +905,32 @@ def attach_legal_source_support(metadata: dict[str, Any], sources: list[Workflow
             status = _combined_support_status(support)
             next_item["source_support"] = support
             next_item["support_status"] = status
-            if key == "risk_items":
-                if _is_counted_supported(status):
-                    support_summary["risk_items_supported"] += 1
-                    if status == "strong":
-                        support_summary["risk_items_strong"] += 1
-                    elif status in {"partial", "negative_scan_supported"}:
-                        support_summary["risk_items_partial"] += 1
-                elif status == "weak":
-                    support_summary["risk_items_weak"] += 1
-                    support_summary["unsupported_risk_items"].append(str(next_item.get("issue") or "Risk item"))
-                else:
-                    support_summary["risk_items_unsupported"] += 1
-                    support_summary["unsupported_risk_items"].append(str(next_item.get("issue") or "Risk item"))
             enriched.append(next_item)
         metadata[key] = enriched
+
+    group_label_keys = {
+        "risk_items": "issue",
+        "clause_items": "clause_family",
+        "obligation_items": "obligation",
+        "fallback_items": "clause_family",
+        "fields": "field",
+    }
+    for key, label_key in group_label_keys.items():
+        items = metadata.get(key) if isinstance(metadata.get(key), list) else []
+        support_summary[key] = _source_support_group_summary(items, label_key=label_key)
+
+    risk_group = support_summary.get("risk_items", {}) if isinstance(support_summary.get("risk_items"), dict) else {}
+    # Backward-compatible flattened risk counters used by the eval UI and tests.
+    support_summary["risk_items_supported"] = risk_group.get("supported", 0)
+    support_summary["risk_items_strong"] = risk_group.get("strong", 0)
+    support_summary["risk_items_partial"] = risk_group.get("partial", 0)
+    support_summary["risk_items_weak"] = risk_group.get("weak", 0)
+    support_summary["risk_items_unsupported"] = risk_group.get("unsupported", 0)
+    support_summary["risk_items_total"] = risk_group.get("total", 0)
+    support_summary["unsupported_risk_items"] = [
+        *(risk_group.get("unsupported_items") or []),
+        *(risk_group.get("weak_items") or []),
+    ]
 
     metadata["source_support_summary"] = support_summary
     adaptive = metadata.get("adaptive_context") if isinstance(metadata.get("adaptive_context"), dict) else None
@@ -898,10 +973,10 @@ def _result(
     preview_markdown: str = "",
     metadata: dict[str, Any] | None = None,
 ) -> WorkflowResult:
-    cleaned_summary = _strip_single_source_text((summary or "").strip() or f"Generated output for {run.title}.", sources)
-    cleaned_bullets = _strip_single_source_list([str(item).strip() for item in bullets if str(item).strip()], sources)
-    cleaned_actions = _strip_single_source_list([str(item).strip() for item in next_actions if str(item).strip()], sources)
-    raw_preview = (preview_markdown or "").strip()
+    cleaned_summary = _strip_internal_workflow_copy(_strip_single_source_text((summary or "").strip() or f"Generated output for {run.title}.", sources))
+    cleaned_bullets = _strip_internal_list_copy(_strip_single_source_list([str(item).strip() for item in bullets if str(item).strip()], sources))
+    cleaned_actions = _strip_internal_list_copy(_strip_single_source_list([str(item).strip() for item in next_actions if str(item).strip()], sources))
+    raw_preview = _strip_internal_workflow_copy((preview_markdown or "").strip())
     preview = (
         _append_sources_used_section(_strip_single_source_text(raw_preview, sources), sources)
         if raw_preview
@@ -1795,6 +1870,8 @@ def _legal_profile_from_run(run: WorkflowRun) -> dict[str, Any]:
     review_mode = _clean_choice(run.inputs.get("review_mode"), "business_risk")
     counterparty_position = _clean_choice(run.inputs.get("counterparty_position"), "unknown")
     risk_tolerance = _clean_choice(run.inputs.get("risk_tolerance"), "balanced")
+    deal_stage = _clean_choice(run.inputs.get("deal_stage"), "not_specified")
+    review_audience = _clean_choice(run.inputs.get("review_audience"), "not_specified")
     return {
         "document_type": document_type,
         "document_type_label": _humanize_choice(document_type),
@@ -1804,6 +1881,10 @@ def _legal_profile_from_run(run: WorkflowRun) -> dict[str, Any]:
         "counterparty_position_label": _humanize_choice(counterparty_position),
         "risk_tolerance": risk_tolerance,
         "risk_tolerance_label": _humanize_choice(risk_tolerance),
+        "deal_stage": deal_stage,
+        "deal_stage_label": _humanize_choice(deal_stage),
+        "review_audience": review_audience,
+        "review_audience_label": _humanize_choice(review_audience),
         "clause_families": list(LEGAL_CLAUSE_FAMILIES),
         "risk_levels": list(LEGAL_RISK_LEVELS),
         "house_position_summary": LEGAL_HOUSE_POSITION_SUMMARY,
@@ -1818,9 +1899,58 @@ def _legal_context_for_prompt(profile: dict[str, Any]) -> str:
         - Review mode: {profile.get('review_mode_label')}
         - Counterparty: {profile.get('counterparty_position_label')}
         - Risk tolerance: {profile.get('risk_tolerance_label')}
+        - Deal stage: {profile.get('deal_stage_label')}
+        - Audience: {profile.get('review_audience_label')}
         - Clause families: {', '.join(LEGAL_CLAUSE_FAMILIES)}
         - Risk levels: {', '.join(LEGAL_RISK_LEVELS)}
         - Default house positions: {LEGAL_HOUSE_POSITION_SUMMARY}
+        """
+    ).strip()
+
+
+def _legal_profile_output_rules(profile: dict[str, Any]) -> str:
+    review_mode = str(profile.get("review_mode") or "").strip().lower()
+    audience = str(profile.get("review_audience") or "").strip().lower()
+    base = [
+        "Separate contract facts from business/legal interpretation in structured risk_items.",
+        "Do not mention internal retrieval, clause-map, fact-map, source-map, chunk, span, or agent implementation details in customer-facing fields.",
+        "If a schedule, exhibit, or price term is referenced but not visible, say the commercial detail is not visible in the reviewed material and identify the document/schedule to confirm.",
+    ]
+    if review_mode == "business_risk" or audience == "business_owner":
+        base.extend(
+            [
+                "For business risk, prioritize money impact, operational burden, renewal/lock-in risk, service continuity, data/security exposure, approval friction, and commercial uncertainty.",
+                "Use practical business-owner language; avoid redline-style legalese unless necessary for a recommendation.",
+            ]
+        )
+    elif review_mode in {"legal_review", "legal", "clause_review"}:
+        base.extend(
+            [
+                "For legal review, prioritize enforceability, drafting ambiguity, carveouts, notice/cure mechanics, indemnity/liability interaction, governing law, venue, and missing protections.",
+                "Distinguish current contract language from preferred negotiating position.",
+            ]
+        )
+    elif review_mode in {"negotiation", "negotiation_brief"}:
+        base.extend(
+            [
+                "For negotiation, prioritize must-have changes, nice-to-have changes, acceptable fallbacks, escalation issues, and comment-ready positions.",
+                "Clearly separate the preferred ask from acceptable fallback language.",
+            ]
+        )
+    return "\n".join(f"- {item}" for item in base)
+
+
+def _legal_structured_schema_instruction(spec) -> str:
+    if spec.pack_id != "legal":
+        return ""
+    return textwrap.dedent(
+        """
+        For legal workflow metadata, use these structured fields where relevant:
+        - risk_items[]: issue, severity, clause_family, contract_fact, business_risk_interpretation, business_impact, source_basis, recommended_change, fallback_position, requires_human_review.
+        - contract_fact must state what the reviewed material says. business_risk_interpretation/business_impact must state why that fact matters under the selected review mode.
+        - clause_items[]: clause_family, current_position, source_basis, concern, recommended_position.
+        - obligation_items[]: obligation, responsible_party, trigger_or_deadline, source_basis, follow_up.
+        Keep internal evidence/debug details out of preview_markdown, summary, bullets, and next_actions.
         """
     ).strip()
 
@@ -2162,9 +2292,9 @@ def _fallback_target_markdown(fallback_items: list[dict[str, Any]], requested: l
 def _risk_markdown_table(risk_items: list[dict[str, Any]]) -> str:
     if not risk_items:
         return "- No structured risk items were generated."
-    rows = ["| Issue | Severity | Business Impact | Recommendation |", "|---|---:|---|---|"]
+    rows = ["| Issue | Severity | Contract Fact | Business Impact | Recommendation |", "|---|---:|---|---|---|"]
     for item in risk_items[:10]:
-        rows.append("| " + " | ".join(_safe_markdown_text(value) for value in (item.get("issue"), item.get("severity"), item.get("business_impact"), item.get("recommended_change"))) + " |")
+        rows.append("| " + " | ".join(_safe_markdown_text(value) for value in (item.get("issue"), item.get("severity"), item.get("contract_fact") or item.get("source_basis"), item.get("business_risk_interpretation") or item.get("business_impact"), item.get("recommended_change"))) + " |")
     return "\n".join(rows)
 
 
@@ -2217,7 +2347,7 @@ def _ensure_legal_preview_sections(result: WorkflowResult, run: WorkflowRun, spe
                 status = "covered" if canonical in existing else "needs manual confirmation"
                 coverage_lines.append(f"- {label}: {status}")
             markdown = _append_section(markdown, "Targeted Clause Coverage", "\n".join(coverage_lines))
-    result.preview_markdown = markdown.strip()
+    result.preview_markdown = _strip_internal_workflow_copy(markdown).strip()
 
 def _normalize_legal_risk_items(value: Any) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
@@ -2241,18 +2371,27 @@ def _normalize_legal_risk_items(value: Any) -> list[dict[str, Any]]:
             if isinstance(requires_human_review_raw, bool)
             else severity in {"high", "critical"}
         )
+        source_basis = _metadata_first_text(item, ("source_basis", "source", "evidence"), "Not available")
+        contract_fact = _metadata_first_text(
+            item,
+            ("contract_fact", "source_fact", "extracted_fact", "current_position", "source_basis", "source", "evidence"),
+            source_basis,
+        )
+        business_interpretation = _metadata_first_text(
+            item,
+            ("business_risk_interpretation", "risk_interpretation", "business_impact", "impact", "commercial_impact"),
+            "Could affect approval, negotiation posture, or operational execution.",
+        )
         normalized.append(
             {
                 **item,
                 "issue": issue,
                 "severity": severity,
                 "clause_family": clause_family,
-                "business_impact": _metadata_first_text(
-                    item,
-                    ("business_impact", "impact", "commercial_impact"),
-                    "Could affect approval, negotiation posture, or operational execution.",
-                ),
-                "source_basis": _metadata_first_text(item, ("source_basis", "source", "evidence"), "Not available"),
+                "contract_fact": contract_fact,
+                "business_risk_interpretation": business_interpretation,
+                "business_impact": business_interpretation,
+                "source_basis": source_basis,
                 "recommended_change": recommended_change,
                 "fallback_position": fallback_position,
                 "requires_human_review": requires_human_review,
@@ -2568,9 +2707,9 @@ def _legal_fallback_payload(spec, run: WorkflowRun, sources: list[WorkflowSource
         - Risk tolerance: {profile.get('risk_tolerance_label')}
 
         ## Risk matrix
-        | Issue | Severity | Business impact | Recommended change |
-        | --- | --- | --- | --- |
-        {chr(10).join(f"| {item['issue']} | {item['severity']} | {item['business_impact']} | {item['recommended_change']} |" for item in risk_items)}
+        | Issue | Severity | Contract fact | Business impact | Recommended change |
+        | --- | --- | --- | --- | --- |
+        {chr(10).join(f"| {item['issue']} | {item['severity']} | {item.get('contract_fact') or item.get('source_basis')} | {item.get('business_risk_interpretation') or item.get('business_impact')} | {item['recommended_change']} |" for item in risk_items)}
 
         ## Clause notes
         {chr(10).join(f"- **{item['clause_family']}**: {item['concern']} Recommended position: {item['recommended_position']}" for item in clause_items)}
@@ -2834,6 +2973,8 @@ def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile])
         )
 
     legal_context = _legal_context_for_prompt(legal_profile) if legal_profile else ""
+    legal_output_rules = _legal_profile_output_rules(legal_profile) if legal_profile else ""
+    legal_schema_instruction = _legal_structured_schema_instruction(spec) if is_legal else ""
     legal_coverage = build_legal_coverage_metadata(sources) if is_legal else {}
     legal_coverage_instruction = (
         " Full stored-chunk clause-map coverage is available; use it to avoid false missing-clause findings. "
@@ -2848,12 +2989,15 @@ def domain_workflow_handler(run: WorkflowRun, sources: list[WorkflowSourceFile])
         task_brief=(
             f"{spec.task_brief} Focus the output on {focus}. "
             f"{legal_context + ' ' if legal_context else ''}"
-            "Use practical business language and stay grounded in the selected source excerpts."
-            f"{legal_coverage_instruction}"
+            + (f"Profile-specific output rules:\n{legal_output_rules}\n" if legal_output_rules else "")
+            + "Use practical business language and stay grounded in the selected source excerpts."
+            + f"{legal_coverage_instruction}"
         ),
         output_requirements=(
             f"{spec.output_requirements} Keep the output usable as a finished workflow artifact. "
+            f"{legal_schema_instruction + ' ' if legal_schema_instruction else ''}"
             "Avoid legal, HR, accounting, compliance, or procurement disclaimers unless the user explicitly asks for them. "
+            "Do not mention internal retrieval, clause maps, fact maps, chunks, spans, or agent logic in customer-facing output. "
             "Do not include a Sources used section; the application adds it separately. "
             "Include metadata.workflow_profile with tier, pack_id, pack_label, workflow_id, and title."
         ),

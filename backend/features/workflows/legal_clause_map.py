@@ -1247,6 +1247,7 @@ def select_clause_map_entries_for_workflow(
     clause_maps: list[dict[str, Any]],
     workflow_id: str,
     focus: str = "",
+    workflow_inputs: dict[str, Any] | None = None,
     max_entries: int = 12,
 ) -> dict[str, Any]:
     catalog = _selection_catalog(clause_maps)
@@ -1267,9 +1268,17 @@ def select_clause_map_entries_for_workflow(
             {
                 "workflow_id": workflow_id,
                 "focus": focus,
+                "workflow_inputs": workflow_inputs or {},
+                "selection_lens": {
+                    "review_mode": (workflow_inputs or {}).get("review_mode"),
+                    "risk_tolerance": (workflow_inputs or {}).get("risk_tolerance"),
+                    "counterparty_position": (workflow_inputs or {}).get("counterparty_position"),
+                    "deal_stage": (workflow_inputs or {}).get("deal_stage"),
+                    "review_audience": (workflow_inputs or {}).get("review_audience"),
+                },
                 "max_entries": max_entries,
-                "selection_goal": "Choose the clause-map entries needed to build the workflow output; RAG will fetch exact chunks and neighbors from these spans.",
-                "schema": {"selected_entry_ids": ["entry_id"], "reason": "short user-safe rationale"},
+                "selection_goal": "Choose the clause-map entries needed to build the workflow output under the selected workflow lens; RAG will fetch exact chunks and neighbors from these spans.",
+                "schema": {"selected_entry_ids": ["entry_id"], "reason": "short internal eval rationale"},
                 "entries": catalog,
             },
             ensure_ascii=False,
@@ -1291,10 +1300,17 @@ def select_clause_map_entries_for_workflow(
         method = "fallback"
         reason = reason or "Model selection was unavailable or returned no usable source-anchored entries; used deterministic fallback over the clause map."
 
+    selection_lens = {
+        key: value
+        for key, value in (workflow_inputs or {}).items()
+        if key in {"document_type", "review_mode", "counterparty_position", "risk_tolerance", "deal_stage", "review_audience"}
+        and value not in (None, "")
+    }
     return {
         "method": method,
         "model": model_name if method == "nano_model" else None,
         "reason": reason,
+        "selection_lens": selection_lens,
         "selected_entries": selected,
         "selected_entry_count": len(selected),
         "available_entry_count": len(catalog),

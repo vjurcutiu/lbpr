@@ -1721,6 +1721,7 @@ def _load_source_documents(
         usable_files,
         workflow_id=workflow_id,
         focus=focus,
+        workflow_inputs=dict(inputs or {}),
     )
     if not documents:
         raise HTTPException(

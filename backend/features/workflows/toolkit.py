@@ -357,6 +357,7 @@ def _retrieve_focus_chunks(
     *,
     workflow_id: str,
     focus: str,
+    workflow_inputs: dict[str, Any] | None = None,
     clause_maps: list[dict[str, Any]] | None = None,
 ) -> tuple[list[WorkflowSourceFile], dict[str, Any]]:
     if not files:
@@ -498,7 +499,7 @@ def _retrieve_focus_chunks(
     return sources, stats
 
 
-def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: str = "") -> tuple[list[WorkflowSourceFile], dict[str, Any]]:
+def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: str = "", workflow_inputs: dict[str, Any] | None = None) -> tuple[list[WorkflowSourceFile], dict[str, Any]]:
     coverage_sources: list[WorkflowSourceFile] = []
     clause_map_sources: list[WorkflowSourceFile] = []
     skipped_files: list[str] = []
@@ -634,7 +635,7 @@ def build_sources(uid: str, files: list[FileItem], *, workflow_id: str, focus: s
         should_retrieve = get_domain_workflow_spec(workflow_id) is not None or not _looks_broad_focus(focus) or workflow_id in {"create_action_plan", "extract_information", "compare_documents"}
         retrieval_files = [item for item in files if not _is_eval_fixture_file_id(item.id)]
         if should_retrieve and retrieval_files:
-            retrieved_sources, adaptive_context_stats = _retrieve_focus_chunks(uid, retrieval_files, workflow_id=workflow_id, focus=focus, clause_maps=clause_maps_for_agent)
+            retrieved_sources, adaptive_context_stats = _retrieve_focus_chunks(uid, retrieval_files, workflow_id=workflow_id, focus=focus, workflow_inputs=workflow_inputs or {}, clause_maps=clause_maps_for_agent)
         else:
             adaptive_context_stats = {}
 

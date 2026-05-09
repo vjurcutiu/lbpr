@@ -1623,6 +1623,25 @@ function AgentRunReviewPanel({
     return hasSupport ? "Supported" : "Needs review";
   };
   const supportedIssueCount = supportedIssues.filter(isSupportedIssue).length;
+  const groupSupportSummary = (key: string) => {
+    const group = asRecord(context?.source_support_summary?.[key]);
+    if (!group) return null;
+    return {
+      total: Number(group.total || 0),
+      supported: Number(group.supported || 0),
+      strong: Number(group.strong || 0),
+      partial: Number(group.partial || 0),
+      weak: Number(group.weak || 0),
+      unsupported: Number(group.unsupported || 0),
+    };
+  };
+  const supportSummaryRows = [
+    ["Risks", groupSupportSummary("risk_items")],
+    ["Clauses", groupSupportSummary("clause_items")],
+    ["Obligations", groupSupportSummary("obligation_items")],
+    ["Fallbacks", groupSupportSummary("fallback_items")],
+    ["Fields", groupSupportSummary("fields")],
+  ].filter(([, value]) => value && (value as ReturnType<typeof groupSupportSummary>)!.total > 0) as [string, NonNullable<ReturnType<typeof groupSupportSummary>>][];
   const selectedClauseEntries = context?.selected_clause_map_entries || [];
   const clauseSelection = context?.clause_map_selection || {};
   const totalAddedChunks = trace.reduce((total, step) => total + Number(step.chunks_added || 0), 0);
@@ -1714,6 +1733,43 @@ function AgentRunReviewPanel({
           )) : <div className="text-muted-foreground">No clause-map selection metadata was captured for this run.</div>}
         </CardContent>
       </Card>
+
+      {supportSummaryRows.length ? (
+        <Card className="min-w-0 overflow-hidden">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex min-w-0 items-center gap-2 text-base">
+              <FileSearch className="h-4 w-4" /> Source support summary
+            </CardTitle>
+            <CardDescription>Internal eval coverage across structured output groups. Weak support is not counted as supported.</CardDescription>
+          </CardHeader>
+          <CardContent className="overflow-x-auto text-sm">
+            <table className="w-full min-w-[560px] text-left text-xs">
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th className="px-2 py-1 font-medium">Group</th>
+                  <th className="px-2 py-1 font-medium">Supported</th>
+                  <th className="px-2 py-1 font-medium">Strong</th>
+                  <th className="px-2 py-1 font-medium">Partial</th>
+                  <th className="px-2 py-1 font-medium">Weak</th>
+                  <th className="px-2 py-1 font-medium">Unsupported</th>
+                </tr>
+              </thead>
+              <tbody>
+                {supportSummaryRows.map(([label, row]) => (
+                  <tr key={label} className="border-t">
+                    <td className="px-2 py-1 font-medium">{label}</td>
+                    <td className="px-2 py-1">{row.supported}/{row.total}</td>
+                    <td className="px-2 py-1">{row.strong}</td>
+                    <td className="px-2 py-1">{row.partial}</td>
+                    <td className="px-2 py-1">{row.weak}</td>
+                    <td className="px-2 py-1">{row.unsupported}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card className="min-w-0 overflow-hidden">
         <CardHeader className="pb-3">
