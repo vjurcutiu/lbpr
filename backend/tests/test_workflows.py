@@ -1233,3 +1233,95 @@ def test_legal_source_support_does_not_count_weak_text_overlap_as_supported():
     assert risk['source_support'] == []
     assert enriched['source_support_summary']['risk_items_supported'] == 0
     assert enriched['source_support_summary']['risk_items_unsupported'] == 1
+
+
+def test_legal_source_support_infers_obligation_family_from_text():
+    metadata = {
+        'adaptive_context': {
+            'selected_clause_map_entries': [
+                {
+                    'clause_map_id': 'cm-1',
+                    'entry_id': 'invoicing_and_payment_audit',
+                    'entry_kind': 'discovered_clause',
+                    'source_file_id': 'file-1',
+                    'source_name': 'msa.txt',
+                    'title': 'Invoicing and Payment; Audit',
+                    'normalized_type': 'financial_and_availability_audit',
+                    'status': 'found',
+                    'summary': 'Defines Fees, invoices, payment terms, audit rights, and billing records.',
+                    'source_spans': [{'file_id': 'file-1', 'chunk_id': 'ch_4', 'chunk_index': 4}],
+                }
+            ],
+            'evidence_chunks': [
+                {
+                    'file_id': 'file-1',
+                    'source_name': 'msa.txt',
+                    'chunk_id': 'ch_4',
+                    'chunk_index': 4,
+                    'source_kind': 'clause_map',
+                    'excerpt': 'Fees and Expenses shall be invoiced under the payment process. Castlight shall retain billing records and support audits.',
+                }
+            ],
+        },
+        'obligation_items': [
+            {
+                'obligation': 'Invoice Anthem for fees and expenses using the required invoicing process.',
+                'responsible_party': 'Castlight',
+                'source_basis': 'Payment and invoicing provisions in the reviewed material.',
+            }
+        ],
+    }
+
+    enriched = workflow_registry.attach_legal_source_support(metadata, [])
+    obligation = enriched['obligation_items'][0]
+
+    assert obligation['support_status'] in {'strong', 'partial'}
+    assert obligation['source_support']
+    assert obligation['source_support'][0]['clause_family'] == 'payment'
+    assert enriched['source_support_summary']['obligation_items']['supported'] == 1
+    assert enriched['source_support_summary']['obligation_items']['weak'] == 0
+
+
+def test_legal_source_support_centers_excerpt_on_best_anchor():
+    metadata = {
+        'adaptive_context': {
+            'selected_clause_map_entries': [
+                {
+                    'clause_map_id': 'cm-1',
+                    'entry_id': 'miscellaneous_provisions',
+                    'entry_kind': 'discovered_clause',
+                    'source_file_id': 'file-1',
+                    'source_name': 'msa.txt',
+                    'title': 'Miscellaneous',
+                    'normalized_type': 'miscellaneous_and_governing_law',
+                    'status': 'found',
+                    'summary': 'Addresses notices and formal communications.',
+                    'source_spans': [{'file_id': 'file-1', 'chunk_id': 'ch_14', 'chunk_index': 14}],
+                }
+            ],
+            'evidence_chunks': [
+                {
+                    'file_id': 'file-1',
+                    'source_name': 'msa.txt',
+                    'chunk_id': 'ch_14',
+                    'chunk_index': 14,
+                    'source_kind': 'clause_map',
+                    'excerpt': 'Intro text. ' + ('unrelated words ' * 80) + 'All notices must be in writing and delivered to the attention of the general counsel.',
+                }
+            ],
+        },
+        'obligation_items': [
+            {
+                'obligation': 'Comply with the applicable notice procedures for formal communications.',
+                'responsible_party': 'Both parties',
+                'source_basis': 'Notice provisions in the reviewed material.',
+            }
+        ],
+    }
+
+    enriched = workflow_registry.attach_legal_source_support(metadata, [])
+    support = enriched['obligation_items'][0]['source_support'][0]
+
+    assert support['clause_family'] == 'notices'
+    assert 'notices must be in writing' in support['excerpt'].lower()
+    assert support['excerpt'].startswith('…')

@@ -285,16 +285,17 @@ _SUPPORT_ANCHORS: dict[str, tuple[str, ...]] = {
         "tribunals", "ucita",
     ),
     "payment": (
-        "payment of fees", "payment", "invoice", "invoices", "net fifty", "net 50", "fees", "expenses",
+        "payment of fees", "payment", "invoice", "invoices", "invoicing", "net fifty", "net 50", "fees", "expenses",
         "$500,000", "rate increase", "ninety (90) days", "undisputed invoice", "disputed charges",
+        "billing cycle", "order schedule", "required invoicing process",
     ),
     "assignment": (
         "assignment", "assign", "may assign", "prior written consent", "merger or acquisition", "successors",
         "permitted assigns", "affiliate",
     ),
     "audit": (
-        "audit", "audits", "record retention", "billing audits", "ssae", "soc 2", "soc 1", "inspect",
-        "assessment questionnaire", "penetration testing", "books and records", "ten business days",
+        "audit", "audits", "record retention", "billing records", "billing audits", "ssae", "soc 2", "soc 1", "inspect",
+        "assessment questionnaire", "penetration testing", "books and records", "ten business days", "audit review",
     ),
     "insurance": (
         "insurance", "insured", "coverage", "policy", "certificate", "certificates of insurance",
@@ -311,6 +312,8 @@ _SUPPORT_ANCHORS: dict[str, tuple[str, ...]] = {
     "warranties": (
         "representations", "warranties", "covenants", "warrant", "service levels", "service level", "uptime",
         "performance guarantee", "mttr", "no material defects", "conformity", "remedy", "accessibility",
+        "technical support", "training", "acceptance testing", "implementation workplan",
+        "business continuity", "disaster recovery", "flip-over", "flip over", "outages",
     ),
     "dispute_resolution": (
         "dispute resolution", "informal dispute", "good faith efforts", "escalation to executives", "court",
@@ -321,8 +324,8 @@ _SUPPORT_ANCHORS: dict[str, tuple[str, ...]] = {
         "change order", "change request", "emergency maintenance", "material customize", "material changes",
     ),
     "notices": (
-        "notices", "notice", "written notice", "in writing", "facsimile", "courier", "certified mail",
-        "return receipt", "attention", "general counsel", "notice will be effective",
+        "notices", "notice", "written notice", "in writing", "formal communications", "facsimile", "courier", "certified mail",
+        "return receipt", "attention", "general counsel", "notice will be effective", "notice procedures",
     ),
 }
 
@@ -346,6 +349,10 @@ _ENTRY_FAMILY_ALIASES: tuple[tuple[str, str], ...] = (
     ("warrant", "warranties"),
     ("service level", "warranties"),
     ("sla", "warranties"),
+    ("technical support", "warranties"),
+    ("training", "warranties"),
+    ("business continuity", "warranties"),
+    ("disaster recovery", "warranties"),
     ("payment", "payment"),
     ("fees", "payment"),
     ("invoice", "payment"),
@@ -404,7 +411,7 @@ def _support_terms_from_text(text: str, *, limit: int = 28) -> list[str]:
 
 
 def _support_terms_for_item(item: dict[str, Any]) -> list[str]:
-    clause_family = _legal_clause_family(item.get("clause_family") or item.get("related_clause_family") or item.get("category") or item.get("clause"))
+    clause_family = _item_clause_family(item)
     text_parts = [
         str(item.get("issue") or item.get("risk") or item.get("title") or ""),
         str(item.get("business_impact") or item.get("impact") or ""),
@@ -427,7 +434,12 @@ def _support_excerpt(text: str, matched_terms: list[str], *, limit: int = 420) -
         return ""
     lowered = clean.lower()
     meaningful = [term for term in matched_terms if term and term.lower() not in _SUPPORT_STOPWORDS]
-    first_match = min((lowered.find(term.lower()) for term in meaningful if lowered.find(term.lower()) >= 0), default=-1)
+    first_match = -1
+    for term in meaningful:
+        idx = lowered.find(term.lower())
+        if idx >= 0:
+            first_match = idx
+            break
     if first_match >= 0:
         start = max(0, first_match - limit // 3)
         end = min(len(clean), start + limit)
@@ -508,6 +520,95 @@ def _text_contains(text: str, term: str) -> bool:
     return bool(re.search(rf"\b{re.escape(clean)}\b", lowered))
 
 
+_ITEM_FAMILY_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("invoice",), "payment"),
+    (("invoicing",), "payment"),
+    (("payment",), "payment"),
+    (("fees",), "payment"),
+    (("expenses",), "payment"),
+    (("billing records",), "audit"),
+    (("books and records",), "audit"),
+    (("audit",), "audit"),
+    (("security controls",), "data_protection"),
+    (("incident response",), "data_protection"),
+    (("breach notice",), "data_protection"),
+    (("encryption",), "data_protection"),
+    (("confidential information",), "confidentiality"),
+    (("business continuity",), "warranties"),
+    (("disaster recovery",), "warranties"),
+    (("flip-over",), "warranties"),
+    (("flip over",), "warranties"),
+    (("outage",), "warranties"),
+    (("technical support",), "warranties"),
+    (("training",), "warranties"),
+    (("acceptance testing",), "warranties"),
+    (("implementation workplan",), "warranties"),
+    (("insurance",), "insurance"),
+    (("coverage", "cancellation"), "insurance"),
+    (("formal communications",), "notices"),
+    (("notice procedures",), "notices"),
+    (("written notice",), "notices"),
+    (("subcontract",), "change_control"),
+    (("third-party access",), "change_control"),
+    (("third party access",), "change_control"),
+    (("change request",), "change_control"),
+    (("change-control",), "change_control"),
+    (("renewal",), "renewal"),
+    (("non-renewal",), "renewal"),
+    (("termination",), "termination"),
+    (("assignment",), "assignment"),
+    (("governing law",), "governing_law"),
+    (("dispute",), "dispute_resolution"),
+    (("non-solicit",), "non_solicit"),
+    (("non solicit",), "non_solicit"),
+    (("exclusivity",), "exclusivity"),
+    (("nonexclusive",), "exclusivity"),
+)
+
+
+def _item_text_for_family(item: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in (
+        "clause_family", "related_clause_family", "category", "clause",
+        "issue", "risk", "title", "business_impact", "impact",
+        "source_basis", "source", "evidence", "current_position", "position",
+        "obligation", "duty", "trigger_or_deadline", "follow_up",
+        "recommended_change", "recommended_position", "recommendation", "concern",
+        "contract_fact", "business_risk_interpretation",
+    ):
+        parts.append(str(item.get(key) or ""))
+    return re.sub(r"\s+", " ", " ".join(parts).replace("_", " ").lower()).strip()
+
+
+def _item_clause_family(item: dict[str, Any], fallback: str = "general_contract") -> str:
+    explicit = (
+        item.get("clause_family")
+        or item.get("related_clause_family")
+        or item.get("category")
+        or item.get("clause")
+    )
+    family = _legal_clause_family(explicit, fallback="")
+    if family:
+        return family
+    text = _item_text_for_family(item)
+    for needles, hinted_family in _ITEM_FAMILY_HINTS:
+        if all(needle in text for needle in needles):
+            return hinted_family
+    return fallback
+
+
+def _excerpt_terms_for_item(item: dict[str, Any], family: str, excerpt: str, matched_terms: list[str]) -> list[str]:
+    candidates: list[str] = []
+    for term in [*matched_terms, *_SUPPORT_ANCHORS.get(family, ()), *_support_terms_for_item(item)]:
+        clean = str(term or "").lower().strip()
+        if not clean or clean in _SUPPORT_STOPWORDS or clean in candidates:
+            continue
+        if _text_contains(excerpt, clean):
+            candidates.append(clean)
+    candidates.sort(key=lambda term: (" " in term, len(term)), reverse=True)
+    return candidates[:12]
+
+
 def _anchor_hits_for_family(family: str, text: str) -> list[str]:
     hits: list[str] = []
     for anchor in _SUPPORT_ANCHORS.get(family, ()):
@@ -518,7 +619,7 @@ def _anchor_hits_for_family(family: str, text: str) -> list[str]:
 
 
 def _score_support_record(item: dict[str, Any], record: dict[str, Any]) -> tuple[int, list[str], str]:
-    family = _legal_clause_family(item.get("clause_family") or item.get("related_clause_family") or item.get("category") or item.get("clause"))
+    family = _item_clause_family(item)
     terms = _support_terms_for_item(item)
     text = str(record.get("excerpt") or "")
     anchor_hits = _anchor_hits_for_family(family, text)
@@ -584,7 +685,10 @@ def _source_support_for_item(item: dict[str, Any], evidence_records: list[dict[s
                 "support_status": support_level,
                 "support_score": score,
                 "matched_terms": matched,
-                "excerpt": _support_excerpt(str(record.get("excerpt") or ""), matched),
+                "excerpt": _support_excerpt(
+                    str(record.get("excerpt") or ""),
+                    _excerpt_terms_for_item(item, _item_clause_family(item), str(record.get("excerpt") or ""), matched) or matched,
+                ),
             }
         )
         if len(support) >= limit:
@@ -788,7 +892,10 @@ def _support_from_selected_clause_map_entries(
                     "clause_map_entry_id": entry.get("entry_id"),
                     "clause_map_entry_title": entry.get("title") or entry.get("normalized_type"),
                     "support_reason": "Selected clause-map entry for the same clause family.",
-                    "excerpt": _support_excerpt(excerpt, matched_in_excerpt or matched) if excerpt else str(entry.get("summary") or "").strip(),
+                    "excerpt": _support_excerpt(
+                        excerpt,
+                        _excerpt_terms_for_item(item, family, excerpt, matched_in_excerpt or matched) or matched_in_excerpt or matched,
+                    ) if excerpt else str(entry.get("summary") or "").strip(),
                 }
             )
             if len(support) >= limit:
@@ -876,13 +983,7 @@ def attach_legal_source_support(metadata: dict[str, Any], sources: list[Workflow
                 enriched.append(item)
                 continue
             next_item = dict(item)
-            family = _legal_clause_family(
-                next_item.get("clause_family")
-                or next_item.get("related_clause_family")
-                or next_item.get("category")
-                or next_item.get("clause"),
-                fallback="",
-            )
+            family = _item_clause_family(next_item, fallback="")
             support: list[dict[str, Any]] = []
 
             if family and _is_negative_or_uncertain_item(next_item):

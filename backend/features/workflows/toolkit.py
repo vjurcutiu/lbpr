@@ -372,6 +372,7 @@ def _retrieve_focus_chunks(
                 clause_maps=clause_maps,
                 workflow_id=workflow_id,
                 focus=focus,
+                workflow_inputs=workflow_inputs or {},
             )
             selected_clause_entries = [
                 item for item in (clause_map_selection.get("selected_entries") or [])
