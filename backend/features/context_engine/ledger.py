@@ -73,6 +73,8 @@ class CoverageLedger:
     evidence: dict[str, EvidenceRecord] = field(default_factory=dict)
     passes: list[CoveragePassSnapshot] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    no_progress_passes: int = 0
+    last_stop_reason: str = ""
 
     @classmethod
     def from_entries(
@@ -148,6 +150,7 @@ class CoverageLedger:
         frontier_target_ids: Iterable[str] = (),
         candidates: Iterable[EvidenceRecord] = (),
         accepted: Iterable[EvidenceRecord] = (),
+        partial: Iterable[EvidenceRecord] = (),
         rejected: Iterable[EvidenceRecord] = (),
         duplicates: Iterable[EvidenceRecord] = (),
         deferred: Iterable[EvidenceRecord] = (),
@@ -158,6 +161,7 @@ class CoverageLedger:
         frontier = [_clean_id(item) for item in frontier_target_ids if str(item or "").strip()]
         candidate_list = list(candidates)
         accepted_list = list(accepted)
+        partial_list = list(partial)
         rejected_list = list(rejected)
         duplicate_list = list(duplicates)
         deferred_list = list(deferred)
@@ -173,6 +177,17 @@ class CoverageLedger:
                 if record.key not in target.accepted_evidence:
                     target.accepted_evidence.append(record.key)
                 target.status = "covered"
+                target.exhausted = False
+
+        for record in partial_list:
+            self.evidence[record.key] = record
+            target_ids = list(record.target_ids) or frontier
+            for target_id in target_ids:
+                target = self._ensure_target(target_id)
+                if record.key not in target.partial_evidence:
+                    target.partial_evidence.append(record.key)
+                if target.status not in _FINAL_STATUSES and target.status != "covered":
+                    target.status = "partial"
                 target.exhausted = False
 
         for record in rejected_list:
@@ -203,6 +218,13 @@ class CoverageLedger:
             if not target.accepted_evidence and not target.partial_evidence and target.status == "unvisited":
                 target.status = "missing"
 
+        useful_evidence_count = len(accepted_list) + len(partial_list)
+        self.no_progress_passes = 0 if useful_evidence_count else self.no_progress_passes + 1
+        quality_summary: dict[str, int] = {}
+        for record in [*accepted_list, *partial_list, *rejected_list, *duplicate_list, *deferred_list]:
+            quality = str(record.quality or record.verdict or "unknown")
+            quality_summary[quality] = quality_summary.get(quality, 0) + 1
+
         self.passes.append(
             {
                 "pass_index": len(self.passes) + 1,
@@ -211,14 +233,18 @@ class CoverageLedger:
                 "frontier_target_ids": frontier,
                 "candidate_count": len(candidate_list),
                 "accepted_count": len(accepted_list),
+                "partial_count": len(partial_list),
                 "rejected_count": len(rejected_list),
                 "duplicate_count": len(duplicate_list),
                 "deferred_count": len(deferred_list),
                 "accepted_evidence": [item.key for item in accepted_list],
+                "partial_evidence": [item.key for item in partial_list],
                 "rejected_evidence": [item.key for item in rejected_list],
                 "deferred_evidence": [item.key for item in deferred_list],
                 "decision": decision,
                 "reason": reason,
+                "useful_evidence_count": useful_evidence_count,
+                "quality_summary": quality_summary,
                 "metadata": metadata or {},
             }
         )
@@ -274,6 +300,30 @@ class CoverageLedger:
                 )
         return out
 
+    def has_unresolved_frontier(self) -> bool:
+        return bool(self.frontier())
+
+    def should_continue(self, *, max_no_progress_passes: int = 2, max_passes: int | None = None) -> bool:
+        if max_passes is not None and len(self.passes) >= max_passes:
+            self.last_stop_reason = f"Reached safety pass limit ({max_passes})."
+            return False
+        if not self.frontier():
+            self.last_stop_reason = "Coverage frontier is resolved."
+            return False
+        if self.no_progress_passes >= max_no_progress_passes:
+            self.last_stop_reason = f"Stopped after {self.no_progress_passes} pass(es) without useful evidence."
+            return False
+        self.last_stop_reason = "Frontier still has unresolved useful work."
+        return True
+
+    def convergence_snapshot(self) -> dict[str, Any]:
+        return {
+            "no_progress_passes": self.no_progress_passes,
+            "last_stop_reason": self.last_stop_reason,
+            "last_pass_useful_evidence_count": (self.passes[-1].get("useful_evidence_count") if self.passes else 0),
+            "frontier_open": bool(self.frontier()),
+        }
+
     def to_dict(self) -> CoverageLedgerSnapshot:
         unresolved = self.frontier()
         exhausted_count = sum(1 for target in self.targets.values() if target.exhausted or target.status == "exhausted")
@@ -296,4 +346,5 @@ class CoverageLedger:
             "passes": self.passes,
             "evidence": {key: record.to_dict() for key, record in self.evidence.items()},
             "notes": self.notes,
+            "convergence": self.convergence_snapshot(),
         }

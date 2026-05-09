@@ -100,3 +100,65 @@ def test_coverage_ledger_tracks_deferred_frontier_for_later_passes():
     assert "f:ch_99" in payload["targets"]["target_b"]["deferred_evidence"]
     assert payload["frontier"][0]["target_id"] == "target_b"
     assert payload["passes"][0]["deferred_count"] == 1
+
+
+def test_coverage_ledger_tracks_partial_quality_and_convergence():
+    ledger = CoverageLedger.from_entries(
+        domain="test_domain",
+        workflow_id="test_workflow",
+        entries=[DomainMapEntry(entry_id="target_c", entry_type="generic_entry", title="Target C")],
+        source_map_kind="test_map",
+        max_chunks_per_pass=24,
+    )
+    partial = EvidenceRecord(
+        file_id="f",
+        chunk_id="ch_3",
+        chunk_index=3,
+        target_ids=("target_c",),
+        source_kind="retrieved",
+        verdict="partial",
+        quality="partial",
+        relevance_score=2.5,
+        matched_signals=("anchor",),
+    )
+    ledger.record_pass(
+        pass_type="reference_frontier",
+        frontier_target_ids=["target_c"],
+        candidates=[partial],
+        partial=[partial],
+        decision="partial",
+        reason="partial evidence only",
+    )
+    payload = ledger.to_dict()
+    assert payload["targets"]["target_c"]["status"] == "partial"
+    assert "f:ch_3" in payload["targets"]["target_c"]["partial_evidence"]
+    assert payload["passes"][0]["partial_count"] == 1
+    assert payload["passes"][0]["useful_evidence_count"] == 1
+    assert payload["passes"][0]["quality_summary"]["partial"] == 1
+
+
+def test_coverage_ledger_stops_after_no_progress_passes():
+    ledger = CoverageLedger.from_entries(
+        domain="test_domain",
+        workflow_id="test_workflow",
+        entries=[DomainMapEntry(entry_id="target_d", entry_type="generic_entry", title="Target D")],
+        source_map_kind="test_map",
+        max_chunks_per_pass=24,
+    )
+    rejected = EvidenceRecord(
+        file_id="f",
+        chunk_id="ch_4",
+        target_ids=("target_d",),
+        verdict="rejected",
+        quality="irrelevant",
+    )
+    ledger.record_pass(
+        pass_type="targeted_query",
+        frontier_target_ids=["target_d"],
+        candidates=[rejected],
+        rejected=[rejected],
+        decision="exhausted",
+        reason="no useful evidence",
+    )
+    assert ledger.should_continue(max_no_progress_passes=1) is False
+    assert "without useful evidence" in ledger.convergence_snapshot()["last_stop_reason"]

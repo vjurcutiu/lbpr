@@ -14,6 +14,7 @@ CoverageStatus = Literal[
     "exhausted",
 ]
 EvidenceVerdict = Literal["accepted", "partial", "rejected", "deferred", "duplicate", "not_retrieved"]
+EvidenceQuality = Literal["strong", "partial", "weak", "irrelevant", "duplicate", "unavailable"]
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,9 @@ class EvidenceRecord:
     target_ids: tuple[str, ...] = ()
     verdict: EvidenceVerdict = "accepted"
     reason: str = ""
+    quality: EvidenceQuality | None = None
+    relevance_score: float | None = None
+    matched_signals: tuple[str, ...] = ()
 
     @property
     def key(self) -> str:
@@ -97,6 +101,9 @@ class EvidenceRecord:
             "target_ids": list(self.target_ids),
             "verdict": self.verdict,
             "reason": self.reason,
+            "quality": self.quality,
+            "relevance_score": self.relevance_score,
+            "matched_signals": list(self.matched_signals),
         }
 
 
@@ -125,12 +132,16 @@ class CoveragePassSnapshot(TypedDict, total=False):
     accepted_count: int
     rejected_count: int
     duplicate_count: int
+    partial_count: int
     deferred_count: int
     accepted_evidence: list[str]
+    partial_evidence: list[str]
     rejected_evidence: list[str]
     deferred_evidence: list[str]
     decision: str
     reason: str
+    useful_evidence_count: int
+    quality_summary: dict[str, int]
     metadata: dict[str, Any]
 
 
@@ -151,3 +162,4 @@ class CoverageLedgerSnapshot(TypedDict, total=False):
     passes: list[CoveragePassSnapshot]
     evidence: dict[str, dict[str, Any]]
     notes: list[str]
+    convergence: dict[str, Any]

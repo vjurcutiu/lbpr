@@ -82,3 +82,31 @@ def test_clause_map_signal_is_sufficient_when_entries_have_anchored_chunks():
     assert signal["sufficient"] is True
     assert signal["selected_entry_count"] == 1
     assert signal["selected_chunk_count"] == 1
+
+from features.rag.context_agent import _merge_clause_entries_for_frontier, _query_quality_for_chunk
+
+
+def test_legal_frontier_merges_available_entries_after_initial_selection():
+    selected = [{"entry_id": "payment", "source_spans": [{"file_id": "f", "chunk_id": "ch_1"}]}]
+    selection = {
+        "available_entries": [
+            {"entry_id": "payment", "source_spans": [{"file_id": "f", "chunk_id": "ch_1"}]},
+            {"entry_id": "termination", "source_spans": [{"file_id": "f", "chunk_id": "ch_2"}]},
+        ]
+    }
+    frontier = _merge_clause_entries_for_frontier(selected, selection)
+    assert [item["entry_id"] for item in frontier] == ["payment", "termination"]
+    assert frontier[0]["_frontier_origin"] == "selected"
+    assert frontier[1]["_frontier_origin"] == "available"
+
+
+def test_query_quality_rejects_low_signal_reference_candidates():
+    good = ContextChunk(file_id="f", chunk_id="ch_1", chunk_index=1, text="EXHIBIT K: NCQA Requirements and responsibilities apply.", score=0.2)
+    bad = ContextChunk(file_id="f", chunk_id="ch_2", chunk_index=2, text="The parties discuss unrelated confidentiality terms.", score=0.9)
+
+    good_quality, _, good_hits = _query_quality_for_chunk("Exhibit K", good)
+    bad_quality, _, bad_hits = _query_quality_for_chunk("Exhibit K", bad)
+
+    assert good_quality == "strong"
+    assert "exhibit k" in good_hits
+    assert bad_quality in {"weak", "irrelevant"}

@@ -1314,6 +1314,7 @@ def select_clause_map_entries_for_workflow(
         "selected_entries": selected,
         "selected_entry_count": len(selected),
         "available_entry_count": len(catalog),
+        "available_entries": catalog,
     }
 
 

@@ -476,7 +476,7 @@ def _retrieve_focus_chunks(
             "clause_map_selection": {
                 key: value
                 for key, value in (clause_map_selection or {}).items()
-                if key != "selected_entries"
+                if key not in {"selected_entries", "available_entries"}
             } if clause_map_selection else {},
             "selected_clause_map_entries": [
                 {

@@ -520,6 +520,178 @@ def _unaccepted_chunks(candidates: Iterable[ContextChunk], accepted: Iterable[Co
     return [chunk for chunk in candidates if chunk.key not in accepted_keys]
 
 
+def _entry_id(entry: dict[str, Any]) -> str:
+    return str(entry.get("entry_id") or entry.get("clause_family") or entry.get("normalized_type") or "").strip()
+
+
+def _merge_clause_entries_for_frontier(selected_entries: list[dict[str, Any]], selection_meta: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return selected entries first, then unselected available entries as deferred frontier.
+
+    The model/nano selector chooses the best opening frontier, but broad legal
+    workflows may need to continue across the source map when 24 chunks cannot
+    cover enough of the document. Keeping the remaining catalog entries here lets
+    the ledger open further abstract passes without exposing this internal detail
+    to the user-facing workflow output.
+    """
+    out: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for entry in selected_entries or []:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = _entry_id(entry)
+        if not entry_id or entry_id in seen_ids:
+            continue
+        copied = dict(entry)
+        copied.setdefault("_frontier_origin", "selected")
+        out.append(copied)
+        seen_ids.add(entry_id)
+    available = selection_meta.get("available_entries")
+    if not isinstance(available, list):
+        return out
+    for entry in available:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = _entry_id(entry)
+        if not entry_id or entry_id in seen_ids:
+            continue
+        copied = dict(entry)
+        copied.setdefault("_frontier_origin", "available")
+        out.append(copied)
+        seen_ids.add(entry_id)
+    return out
+
+
+def _entry_batches_by_span_budget(entries: list[dict[str, Any]], *, span_budget: int) -> list[list[dict[str, Any]]]:
+    if span_budget <= 0:
+        return [entries]
+    batches: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_spans = 0
+    for entry in entries:
+        spans = [span for span in (entry.get("source_spans") or []) if isinstance(span, dict) and span.get("chunk_id")]
+        span_count = max(1, len({str(span.get("chunk_id")) for span in spans}))
+        if current and current_spans + span_count > span_budget:
+            batches.append(current)
+            current = []
+            current_spans = 0
+        current.append(entry)
+        current_spans += span_count
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _query_quality_for_chunk(query: str, chunk: ContextChunk) -> tuple[str, float, tuple[str, ...]]:
+    lowered_text = (chunk.text or "").lower()
+    clean_query = re.sub(r"\s+", " ", str(query or "").strip().lower())
+    terms = _token_terms(query)[:16]
+    matched: list[str] = []
+    score = 0.0
+    if clean_query and len(clean_query) > 3 and clean_query in lowered_text:
+        matched.append(clean_query)
+        score += 4.0
+    # For short references like Exhibit K, preserve the phrase and letter together.
+    ref_match = re.search(r"\b(?:exhibit|schedule|section|article|appendix)\s+[a-z0-9][a-z0-9.\-]*\b", clean_query)
+    if ref_match and ref_match.group(0) in lowered_text and ref_match.group(0) not in matched:
+        matched.append(ref_match.group(0))
+        score += 5.0
+    for term in terms:
+        if _term_present(term, lowered_text):
+            matched.append(term)
+            score += 1.0
+    if chunk.score:
+        # Keep vector score as a small tie-breaker; exact terms decide usefulness.
+        score += min(float(chunk.score), 1.0)
+    unique_matched = tuple(dict.fromkeys(matched))
+    if score >= 5 or (ref_match and ref_match.group(0) in unique_matched):
+        return "strong", score, unique_matched
+    if score >= 2:
+        return "partial", score, unique_matched
+    if score > 0:
+        return "weak", score, unique_matched
+    return "irrelevant", score, unique_matched
+
+
+def _evidence_record_with_quality(
+    chunk: ContextChunk,
+    *,
+    verdict: str,
+    reason: str,
+    quality: str | None = None,
+    relevance_score: float | None = None,
+    matched_signals: Iterable[str] = (),
+    target_ids: Iterable[str] | None = None,
+) -> EvidenceRecord:
+    return EvidenceRecord(
+        file_id=chunk.file_id,
+        chunk_id=chunk.chunk_id,
+        chunk_index=chunk.chunk_index,
+        source_kind=chunk.source,
+        score=chunk.score,
+        target_ids=tuple(str(item) for item in (target_ids if target_ids is not None else _chunk_target_ids(chunk)) if str(item).strip()),
+        verdict=verdict,  # type: ignore[arg-type]
+        reason=reason,
+        quality=quality,  # type: ignore[arg-type]
+        relevance_score=relevance_score,
+        matched_signals=tuple(str(item) for item in matched_signals if str(item).strip()),
+    )
+
+
+def _grade_query_candidates_for_pass(
+    selected: list[ContextChunk],
+    seen: set[tuple[str, str]],
+    candidates: Iterable[ContextChunk],
+    *,
+    query: str,
+    target_ids: Iterable[str],
+    per_pass_limit: int,
+) -> tuple[list[ContextChunk], list[ContextChunk], list[EvidenceRecord], list[EvidenceRecord], list[EvidenceRecord], list[EvidenceRecord]]:
+    accepted_chunks: list[ContextChunk] = []
+    partial_chunks: list[ContextChunk] = []
+    accepted_records: list[EvidenceRecord] = []
+    partial_records: list[EvidenceRecord] = []
+    rejected_records: list[EvidenceRecord] = []
+    duplicate_records: list[EvidenceRecord] = []
+    useful_count = 0
+    for chunk in candidates:
+        quality, relevance_score, matched = _query_quality_for_chunk(query, chunk)
+        if chunk.key in seen:
+            duplicate_records.append(_evidence_record_with_quality(
+                chunk, verdict="duplicate", quality="duplicate", relevance_score=relevance_score, matched_signals=matched,
+                reason="Candidate already accepted in earlier pass.", target_ids=target_ids,
+            ))
+            continue
+        if quality in {"irrelevant", "weak"}:
+            rejected_records.append(_evidence_record_with_quality(
+                chunk, verdict="rejected", quality=quality, relevance_score=relevance_score, matched_signals=matched,
+                reason="Candidate did not contain enough target-specific signal.", target_ids=target_ids,
+            ))
+            continue
+        if useful_count >= per_pass_limit:
+            rejected_records.append(_evidence_record_with_quality(
+                chunk, verdict="deferred", quality=quality, relevance_score=relevance_score, matched_signals=matched,
+                reason="Candidate deferred by per-pass working budget.", target_ids=target_ids,
+            ))
+            continue
+        seen.add(chunk.key)
+        selected.append(chunk)
+        useful_count += 1
+        chunk.metadata = {**(chunk.metadata or {}), "evidence_quality": quality, "evidence_relevance_score": relevance_score, "matched_signals": list(matched)}
+        if quality == "strong":
+            accepted_chunks.append(chunk)
+            accepted_records.append(_evidence_record_with_quality(
+                chunk, verdict="accepted", quality=quality, relevance_score=relevance_score, matched_signals=matched,
+                reason="Accepted as strong target-specific evidence.", target_ids=target_ids,
+            ))
+        else:
+            partial_chunks.append(chunk)
+            partial_records.append(_evidence_record_with_quality(
+                chunk, verdict="partial", quality=quality, relevance_score=relevance_score, matched_signals=matched,
+                reason="Accepted as partial target-specific evidence.", target_ids=target_ids,
+            ))
+    return accepted_chunks, partial_chunks, accepted_records, partial_records, rejected_records, duplicate_records
+
+
 def _reference_target_id(query: str) -> str:
     clean = re.sub(r"[^A-Za-z0-9]+", "_", str(query or "").strip()).strip("_").lower()
     return f"reference:{clean or 'unknown'}"
@@ -947,66 +1119,87 @@ def build_context_bundle(
 
     if using_clause_map:
         selection_meta = dict(clause_map_selection or {})
-        adapter = LegalClauseMapAdapter.from_selection(entries=clause_map_entries or [], selection=selection_meta)
+        selected_clause_entries = [item for item in (clause_map_entries or []) if isinstance(item, dict)]
+        frontier_clause_entries = _merge_clause_entries_for_frontier(selected_clause_entries, selection_meta)
+        adapter = LegalClauseMapAdapter.from_selection(entries=frontier_clause_entries, selection=selection_meta)
         coverage_ledger = CoverageLedger.from_entries(
             domain=adapter.domain_id,
             workflow_id=workflow_id,
             entries=adapter.map_entries(),
             source_map_kind=adapter.source_map_kind,
             max_chunks_per_pass=active_profile.max_chunks,
-            source_map_summary=adapter.source_map_summary(),
+            source_map_summary={
+                **adapter.source_map_summary(),
+                "initial_selected_entry_count": len(selected_clause_entries),
+                "frontier_entry_count": len(frontier_clause_entries),
+                "additional_available_entry_count": max(0, len(frontier_clause_entries) - len(selected_clause_entries)),
+                "frontier_mode": "ledger_driven_available_source_map",
+            },
         )
-        source_chunks = _chunks_from_clause_map_entries(uid, entries=clause_map_entries or [], files_by_id=files_by_id)
-        target_ids = _target_ids_from_clause_entries(clause_map_entries or [])
-        source_batches = _chunk_batches(source_chunks, batch_size=active_profile.max_chunks)
+        target_ids = _target_ids_from_clause_entries(frontier_clause_entries)
+        entry_batches = _entry_batches_by_span_budget(frontier_clause_entries, span_budget=active_profile.max_chunks)
         total_added_source: list[ContextChunk] = []
         total_rejected_source: list[ContextChunk] = []
-        for batch_index, batch in enumerate(source_batches, start=1):
-            added = _add_chunks_for_pass(selected, seen, batch, per_pass_limit=active_profile.max_chunks)
-            rejected_source_chunks = _unaccepted_chunks(batch, added)
+        total_source_candidates: list[ContextChunk] = []
+        selected_id_set = {_entry_id(entry) for entry in selected_clause_entries}
+        for batch_index, entry_batch in enumerate(entry_batches, start=1):
+            batch_target_ids = _target_ids_from_clause_entries(entry_batch)
+            source_chunks = _chunks_from_clause_map_entries(uid, entries=entry_batch, files_by_id=files_by_id)
+            total_source_candidates.extend(source_chunks)
+            added = _add_chunks_for_pass(selected, seen, source_chunks, per_pass_limit=active_profile.max_chunks)
+            rejected_source_chunks = _unaccepted_chunks(source_chunks, added)
             total_added_source.extend(added)
             total_rejected_source.extend(rejected_source_chunks)
-            pass_target_ids = _target_ids_from_chunks(batch) or target_ids
+            batch_origins = [str(entry.get("_frontier_origin") or ("selected" if _entry_id(entry) in selected_id_set else "available")) for entry in entry_batch]
             coverage_ledger.record_pass(
                 pass_type="source_map_frontier",
-                frontier_target_ids=pass_target_ids,
-                candidates=_evidence_records_from_chunks(batch, reason="Source-map candidate span"),
+                frontier_target_ids=batch_target_ids or target_ids,
+                candidates=_evidence_records_from_chunks(source_chunks, reason="Source-map candidate span"),
                 accepted=_evidence_records_from_chunks(added, reason="Accepted source-map anchored chunk"),
-                rejected=_evidence_records_from_chunks(rejected_source_chunks, verdict="rejected", reason="Source-map candidate was duplicate, empty, or not useful for this pass"),
-                decision="continue" if batch_index < len(source_batches) else "covered",
-                reason="Abstract coverage pass over unresolved source-map spans.",
+                duplicates=_evidence_records_from_chunks(rejected_source_chunks, verdict="duplicate", reason="Source-map candidate was already accepted via an earlier frontier pass"),
+                decision="continue" if batch_index < len(entry_batches) else "covered",
+                reason="Ledger-driven abstract coverage pass over source-map spans.",
                 metadata={
                     "abstract_pass": batch_index,
                     "frontier_kind": "source_map_entries",
-                    "batch_size": len(batch),
-                    "remaining_source_chunks": max(0, len(source_chunks) - batch_index * active_profile.max_chunks),
+                    "frontier_origins": sorted(set(batch_origins)),
+                    "selected_entry_count": sum(1 for origin in batch_origins if origin == "selected"),
+                    "additional_available_entry_count": sum(1 for origin in batch_origins if origin != "selected"),
+                    "entry_count": len(entry_batch),
+                    "candidate_count": len(source_chunks),
+                    "remaining_frontier_entries": max(0, len(frontier_clause_entries) - sum(len(batch) for batch in entry_batches[:batch_index])),
                     "max_chunks_per_pass": active_profile.max_chunks,
+                    "ledger_frontier_open_before_pass": coverage_ledger.has_unresolved_frontier(),
                 },
             )
+            duplicate_target_ids = _target_ids_from_chunks(rejected_source_chunks)
+            if duplicate_target_ids:
+                coverage_ledger.mark_covered(duplicate_target_ids, reason="Source-map span was already accepted through a shared chunk.")
             trace.append(RetrievalStep(
                 step=len(trace) + 1,
                 type="clause_map_source_fetch",
-                reason="Abstract coverage pass over selected clause-map spans",
+                reason="Ledger-driven abstract coverage pass over source-map spans",
                 chunk_ids=_chunk_ids(added),
                 chunks_added=len(added),
             ))
             if batch_index > 1:
                 add_decision(
                     stage="coverage_pass",
-                    decision="Continue source-map coverage in another bounded pass",
-                    rationale="The first bounded pass did not cover all selected source-map spans, so the ledger kept the unresolved frontier open.",
-                    action="Fetch the next batch of exact chunks cited by selected map entries",
-                    observation=f"Source-map coverage pass {batch_index}/{len(source_batches)}.",
+                    decision="Continue source-map coverage from the unresolved ledger frontier",
+                    rationale="The context agent treats 24 chunks as a per-pass working budget; when selected or available source-map entries remain, the ledger opens the next abstract pass.",
+                    action="Fetch the next source-map frontier batch",
+                    observation=f"Source-map coverage pass {batch_index}/{len(entry_batches)}.",
                     outcome=f"Added {len(added)} additional exact chunk(s).",
                     metadata={
                         "abstract_pass": batch_index,
                         "chunk_ids": _chunk_ids(added),
-                        "remaining_source_chunks": max(0, len(source_chunks) - batch_index * active_profile.max_chunks),
+                        "frontier_origins": sorted(set(batch_origins)),
+                        "remaining_frontier_entries": max(0, len(frontier_clause_entries) - sum(len(batch) for batch in entry_batches[:batch_index])),
                     },
                 )
 
         # Entries with no retrievable source span should not keep the ledger open forever.
-        span_target_ids = set(_target_ids_from_chunks(source_chunks))
+        span_target_ids = set(_target_ids_from_chunks(total_source_candidates))
         no_source_targets = [target_id for target_id in target_ids if target_id not in span_target_ids]
         if no_source_targets:
             coverage_ledger.mark_exhausted(no_source_targets, reason="No retrievable source span was available for this selected map entry.")
@@ -1018,7 +1211,7 @@ def build_context_bundle(
             rationale="The clause map already contains discovered contract structure and chunk/span anchors, so the agent starts from those entries instead of predefined search terms.",
             action="Fetch exact chunks cited by selected clause-map entries in bounded abstract passes",
             observation=f"{selection_meta.get('selected_entry_count', len(clause_map_entries or []))} clause-map entrie(s) selected by {selection_meta.get('method') or 'unknown'}.",
-            outcome=f"Added {len(total_added_source)} exact clause chunk(s) across {max(1, len(source_batches))} pass(es).",
+            outcome=f"Added {len(total_added_source)} exact clause chunk(s) across {max(1, len(entry_batches))} pass(es).",
             metadata={
                 "selection_method": selection_meta.get("method"),
                 "selection_model": selection_meta.get("model"),
@@ -1028,7 +1221,7 @@ def build_context_bundle(
                 "selected_entry_count": selection_meta.get("selected_entry_count", len(clause_map_entries or [])),
                 "selected_entries": _selected_clause_entry_records(clause_map_entries or []),
                 "chunk_ids": trace_chunk_ids,
-                "abstract_passes": len(source_batches),
+                "abstract_passes": len(entry_batches),
                 "max_chunks_per_pass": active_profile.max_chunks,
                 "deferred_or_rejected_source_chunks": len(total_rejected_source),
             },
@@ -1090,27 +1283,43 @@ def build_context_bundle(
             for candidate in candidates:
                 candidate.source = "reference"
             added_ref_all: list[ContextChunk] = []
-            rejected_ref_all: list[ContextChunk] = []
+            partial_ref_all: list[ContextChunk] = []
+            rejected_ref_all: list[EvidenceRecord] = []
+            duplicate_ref_all: list[EvidenceRecord] = []
             ref_target = _reference_target_id(reference_query)
             coverage_ledger.add_target(target_id=ref_target, target_type="cross_reference", label=reference_query, priority="normal")
             for batch_index, batch in enumerate(_chunk_batches(candidates, batch_size=active_profile.max_chunks), start=1):
-                added_ref = _add_chunks_for_pass(selected, seen, batch, per_pass_limit=active_profile.max_chunks)
-                rejected_refs = _unaccepted_chunks(batch, added_ref)
-                added_ref_all.extend(added_ref)
-                rejected_ref_all.extend(rejected_refs)
+                accepted_chunks, partial_chunks, accepted_records, partial_records, rejected_records, duplicate_records = _grade_query_candidates_for_pass(
+                    selected,
+                    seen,
+                    batch,
+                    query=reference_query,
+                    target_ids=[ref_target],
+                    per_pass_limit=active_profile.max_chunks,
+                )
+                added_ref_all.extend(accepted_chunks)
+                partial_ref_all.extend(partial_chunks)
+                rejected_ref_all.extend(rejected_records)
+                duplicate_ref_all.extend(duplicate_records)
                 coverage_ledger.record_pass(
                     pass_type="reference_frontier",
                     query=reference_query,
                     frontier_target_ids=[ref_target],
                     candidates=_evidence_records_from_chunks(batch, reason="Reference query candidate", target_ids=[ref_target]),
-                    accepted=_evidence_records_from_chunks(added_ref, reason="Accepted reference chunk", target_ids=[ref_target]),
-                    rejected=_evidence_records_from_chunks(rejected_refs, verdict="rejected", reason="Reference candidate duplicate, low value, or not useful for this pass", target_ids=[ref_target]),
-                    decision="covered" if added_ref else "unresolved",
-                    reason="Abstract coverage pass over a referenced definition, section, exhibit, or schedule.",
+                    accepted=accepted_records,
+                    partial=partial_records,
+                    rejected=rejected_records,
+                    duplicates=duplicate_records,
+                    decision="covered" if accepted_records else ("partial" if partial_records else "exhausted"),
+                    reason="Ledger-graded coverage pass over a referenced definition, section, exhibit, or schedule.",
                     metadata={
                         "abstract_pass": batch_index,
                         "query": reference_query,
                         "candidate_count": len(batch),
+                        "accepted_count": len(accepted_records),
+                        "partial_count": len(partial_records),
+                        "rejected_count": len(rejected_records),
+                        "duplicate_count": len(duplicate_records),
                         "remaining_reference_candidates": max(0, len(candidates) - batch_index * active_profile.max_chunks),
                         "max_chunks_per_pass": active_profile.max_chunks,
                     },
@@ -1128,19 +1337,22 @@ def build_context_bundle(
                     metadata={"query": reference_query, "candidate_count": 0},
                 )
                 coverage_ledger.mark_exhausted([ref_target], reason="Reference was not visible in the reviewed material.")
-            elif not added_ref_all and any(candidate.key in before_reference_seen for candidate in candidates):
+            elif not added_ref_all and not partial_ref_all and any(candidate.key in before_reference_seen for candidate in candidates):
                 coverage_ledger.mark_covered([ref_target], reason="Reference candidates were already present in accepted context.")
-            elif not added_ref_all:
+            elif not added_ref_all and not partial_ref_all:
                 coverage_ledger.mark_exhausted([ref_target], reason="Reference candidates were not useful; treat as not visible in reviewed material.")
             else:
-                coverage_ledger.mark_covered([ref_target], reason="Reference evidence was accepted.")
+                if added_ref_all:
+                    coverage_ledger.mark_covered([ref_target], reason="Strong reference evidence was accepted.")
+                else:
+                    coverage_ledger.mark_exhausted([ref_target], reason="Only partial reference evidence was accepted; no stronger target-specific evidence was found.")
             trace.append(RetrievalStep(
                 step=len(trace) + 1,
                 type="reference_query",
                 query=reference_query,
                 reason="Source-map cross-reference or definition lookup",
-                chunk_ids=_chunk_ids(added_ref_all),
-                chunks_added=len(added_ref_all),
+                chunk_ids=_chunk_ids([*added_ref_all, *partial_ref_all]),
+                chunks_added=len(added_ref_all) + len(partial_ref_all),
             ))
             add_decision(
                 stage="reference_fetch",
@@ -1148,18 +1360,40 @@ def build_context_bundle(
                 rationale="RAG is used after source-map selection only to pull referenced context that may live outside the selected source span.",
                 action="Run constrained reference query as an abstract frontier pass",
                 observation=f"Reference query: {reference_query}",
-                outcome=f"Added {len(added_ref_all)} reference chunk(s).",
+                outcome=f"Added {len(added_ref_all) + len(partial_ref_all)} reference chunk(s).",
                 metadata={
                     "query": reference_query,
-                    "chunk_ids": _chunk_ids(added_ref_all),
+                    "chunk_ids": _chunk_ids([*added_ref_all, *partial_ref_all]),
                     "candidate_count": len(candidates),
-                    "rejected_or_duplicate_candidates": len(rejected_ref_all),
-                    "rejection_reason": "no_candidates" if not candidates else ("already_selected" if (not added_ref_all and any(candidate.key in before_reference_seen for candidate in candidates)) else ("not_useful" if not added_ref_all else None)),
+                    "strong_reference_chunks": len(added_ref_all),
+                    "partial_reference_chunks": len(partial_ref_all),
+                    "rejected_or_duplicate_candidates": len(rejected_ref_all) + len(duplicate_ref_all),
+                    "rejection_reason": "no_candidates" if not candidates else ("already_selected" if (not added_ref_all and not partial_ref_all and any(candidate.key in before_reference_seen for candidate in candidates)) else ("low_quality" if not added_ref_all and not partial_ref_all else None)),
                 },
             )
 
-        signal = _clause_map_signal_snapshot(clause_map_entries or [], selected)
-        sufficient = bool(signal.get("sufficient"))
+        ledger_state = coverage_ledger.to_dict() if coverage_ledger is not None else {}
+        signal = _clause_map_signal_snapshot(frontier_clause_entries, selected)
+        signal["coverage_ledger_status"] = ledger_state.get("status")
+        signal["coverage_ledger_sufficient"] = ledger_state.get("sufficient")
+        signal["unresolved_frontier_count"] = ledger_state.get("unresolved_target_count")
+        signal["exhausted_frontier_count"] = ledger_state.get("exhausted_target_count")
+        sufficient = bool(signal.get("sufficient") and ledger_state.get("sufficient", True))
+        add_decision(
+            stage="coverage_ledger",
+            decision="Evaluate source-map coverage ledger",
+            rationale="The agent treats each 24-chunk pass as bounded working context and uses the ledger to decide whether the source-map frontier is covered or exhausted.",
+            action="Check accepted, rejected, deferred, and exhausted evidence targets",
+            observation=f"Unresolved frontier targets: {signal.get('unresolved_frontier_count', 0)}.",
+            outcome="Ledger marked context sufficient." if sufficient else "Ledger still has unresolved frontier.",
+            metadata={
+                "ledger_status": ledger_state.get("status"),
+                "pass_count": ledger_state.get("pass_count"),
+                "unresolved_target_count": ledger_state.get("unresolved_target_count"),
+                "exhausted_target_count": ledger_state.get("exhausted_target_count"),
+                "convergence": ledger_state.get("convergence") or {},
+            },
+        )
     else:
         queried = [plan.search_query]
         coverage_ledger = CoverageLedger(domain=active_profile.name, workflow_id=workflow_id, source_map_kind="semantic_query", max_chunks_per_pass=active_profile.max_chunks, source_map_summary={"query": plan.search_query})
@@ -1348,13 +1582,18 @@ def build_context_bundle(
             f"topic(s) met; threshold {signal.get('threshold', 0)}."
         )
     if len(selected) >= active_profile.max_chunks:
-        coverage_notes.append("Context selection reached the configured chunk limit.")
+        if using_clause_map:
+            coverage_notes.append("Context selection used one or more bounded 24-chunk coverage passes.")
+        else:
+            coverage_notes.append("Context selection reached the configured chunk limit.")
 
     stop_reason = "Context marked sufficient." if sufficient else "Retrieved context may be incomplete for the question."
     if round_no >= active_profile.max_rounds and not sufficient:
         stop_reason = "Reached the configured expansion round limit before sufficiency was reached."
-    elif len(selected) >= active_profile.max_chunks and not sufficient:
+    elif len(selected) >= active_profile.max_chunks and not sufficient and not using_clause_map:
         stop_reason = "Reached the configured chunk limit before sufficiency was reached."
+    elif using_clause_map and not sufficient and coverage_ledger is not None:
+        stop_reason = coverage_ledger.last_stop_reason or "Coverage ledger still has unresolved frontier after bounded context passes."
     add_decision(
         stage="stopping",
         decision="Finalize context bundle",
@@ -1366,8 +1605,10 @@ def build_context_bundle(
     )
 
     if coverage_ledger is not None:
-        if len(selected) >= active_profile.max_chunks:
-            coverage_ledger.add_note("Per-pass chunk budget was reached; unresolved frontier may require another abstract pass.")
+        if using_clause_map and len(selected) >= active_profile.max_chunks:
+            coverage_ledger.add_note("Per-pass context budget was used; completeness was decided by the coverage ledger, not by a global chunk cap.")
+        elif len(selected) >= active_profile.max_chunks:
+            coverage_ledger.add_note("Configured chunk budget was reached.")
         if not sufficient:
             coverage_ledger.add_note(stop_reason)
     ledger_snapshot = coverage_ledger.to_dict() if coverage_ledger is not None else {}
