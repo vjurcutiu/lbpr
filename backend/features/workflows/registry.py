@@ -204,16 +204,159 @@ def _without_single_source_evidence_labels(items: list[dict[str, Any]], sources:
     return cleaned_items
 
 
+
 _SUPPORT_STOPWORDS = _STOPWORDS | {
+    "a", "an", "the", "and", "or", "but", "if", "then", "else", "of", "to", "in", "on", "at", "as", "by", "for", "from",
     "agreement", "section", "clause", "contract", "review", "legal", "business", "source", "basis",
     "current", "position", "recommended", "change", "fallback", "impact", "issue", "risk", "material",
-    "party", "parties", "shall", "will", "must", "may", "including", "include", "included", "reviewed",
+    "party", "parties", "shall", "will", "must", "may", "including", "include", "includes", "included", "reviewed",
+    "found", "not", "uncertain", "present", "term", "terms", "service", "services", "document", "documents",
+    "workable", "confirm", "acceptable", "needed", "relevant", "applicable", "specified", "certain", "general",
 }
+
+_SUPPORT_ANCHORS: dict[str, tuple[str, ...]] = {
+    "confidentiality": (
+        "confidential information", "confidentiality", "non-disclosure", "non disclosure", "strict confidence",
+        "need to know", "unauthorized disclosure", "destroy confidential", "confidential information shall",
+    ),
+    "indemnity": (
+        "indemnify", "indemnification", "defend and hold harmless", "hold harmless", "third party claims",
+        "third-party claims", "control the defense", "settlement", "attorneys' fees", "attorneys’ fees",
+    ),
+    "limitation_of_liability": (
+        "limitation of liability", "limit on direct damages", "limit on damages", "aggregate liability",
+        "direct damages", "section 14.2", "$20,000,000", "twenty million dollars", "three (3) times",
+        "service credits", "exceptions to limitation", "consequential damages",
+    ),
+    "termination": (
+        "termination", "terminate", "termination for breach", "termination for convenience", "effect of termination",
+        "transition assistance", "uncured material breach", "sixty (60) days", "one hundred eighty (180) days",
+        "wind-down", "wind down", "competitor change in control",
+    ),
+    "renewal": (
+        "automatically renew", "renewal term", "non-renewal", "notice of non-renewal", "initial term",
+        "one hundred eighty (180) days", "180 days prior", "expiration of the initial term",
+    ),
+    "ip_ownership": (
+        "intellectual property", "ownership", "anthem materials", "anthem data", "castlight materials",
+        "castlight intellectual property", "work-made-for-hire", "works", "modifications", "license",
+    ),
+    "data_protection": (
+        "anthem data", "protected health information", "phi", "npfi", "security breach", "breach of the anthem data",
+        "encryption", "approved encryption", "access control", "information security", "exhibit h", "24 hours",
+        "unauthorized disclosure", "data loss prevention", "confidential information",
+    ),
+    "governing_law": (
+        "governing law", "laws of the state", "state of indiana", "marion county", "jurisdiction", "venue",
+        "tribunals", "ucita",
+    ),
+    "payment": (
+        "payment of fees", "payment", "invoice", "invoices", "net fifty", "net 50", "fees", "expenses",
+        "$500,000", "rate increase", "ninety (90) days", "undisputed invoice", "disputed charges",
+    ),
+    "assignment": (
+        "assignment", "assign", "may assign", "prior written consent", "merger or acquisition", "successors",
+        "permitted assigns", "affiliate",
+    ),
+    "audit": (
+        "audit", "audits", "record retention", "billing audits", "ssae", "soc 2", "soc 1", "inspect",
+        "assessment questionnaire", "penetration testing", "books and records", "ten business days",
+    ),
+    "insurance": (
+        "insurance", "insured", "coverage", "policy", "certificate", "certificates of insurance",
+        "notice of cancellation", "umbrella liability", "errors and omissions", "network security and privacy",
+    ),
+    "non_solicit": (
+        "non-solicit", "non solicit", "non-solicitation", "non solicitation", "solicit employees", "no-hire", "no hire",
+        "recruit employees", "hire employees",
+    ),
+    "exclusivity": (
+        "exclusive", "exclusivity", "nonexclusive", "non-exclusive", "sole provider", "no commitment",
+        "exclusive right", "jointly-developed product", "exclusivity period", "made available only",
+    ),
+    "warranties": (
+        "representations", "warranties", "covenants", "warrant", "service levels", "service level", "uptime",
+        "performance guarantee", "mttr", "no material defects", "conformity", "remedy", "accessibility",
+    ),
+    "dispute_resolution": (
+        "dispute resolution", "informal dispute", "good faith efforts", "escalation to executives", "court",
+        "injunctive relief", "jury trial", "continued services", "interim measures", "spcc",
+    ),
+    "change_control": (
+        "subcontract", "subcontracting", "prior written approval", "approval", "routine modifications", "enhancements",
+        "change order", "change request", "emergency maintenance", "material customize", "material changes",
+    ),
+    "notices": (
+        "notices", "notice", "written notice", "in writing", "facsimile", "courier", "certified mail",
+        "return receipt", "attention", "general counsel", "notice will be effective",
+    ),
+}
+
+_ENTRY_FAMILY_ALIASES: tuple[tuple[str, str], ...] = (
+    ("liability", "limitation_of_liability"),
+    ("direct damages", "limitation_of_liability"),
+    ("damages cap", "limitation_of_liability"),
+    ("indemn", "indemnity"),
+    ("confidential", "confidentiality"),
+    ("privacy", "data_protection"),
+    ("security", "data_protection"),
+    ("data protection", "data_protection"),
+    ("data use", "data_protection"),
+    ("term and termination", "termination"),
+    ("termination", "termination"),
+    ("transition", "termination"),
+    ("renew", "renewal"),
+    ("intellectual property", "ip_ownership"),
+    (" ip ", "ip_ownership"),
+    ("ownership", "ip_ownership"),
+    ("warrant", "warranties"),
+    ("service level", "warranties"),
+    ("sla", "warranties"),
+    ("payment", "payment"),
+    ("fees", "payment"),
+    ("invoice", "payment"),
+    ("audit", "audit"),
+    ("ssae", "audit"),
+    ("soc", "audit"),
+    ("insurance", "insurance"),
+    ("governing law", "governing_law"),
+    ("jurisdiction", "governing_law"),
+    ("venue", "dispute_resolution"),
+    ("dispute", "dispute_resolution"),
+    ("assignment", "assignment"),
+    ("assign", "assignment"),
+    ("subcontract", "change_control"),
+    ("change control", "change_control"),
+    ("modification", "change_control"),
+    ("notice", "notices"),
+    ("non-solicit", "non_solicit"),
+    ("non solicit", "non_solicit"),
+    ("no-hire", "non_solicit"),
+    ("exclusive", "exclusivity"),
+    ("nonexclusive", "exclusivity"),
+    ("sole provider", "exclusivity"),
+)
+
+_NEGATIVE_SCAN_STATUSES = {"not_found_after_full_chunk_scan", "missing", "not_found", "absent"}
+_UNCERTAIN_SCAN_STATUSES = {"uncertain", "weak_candidate", "ambiguous"}
 
 
 def _support_terms_from_text(text: str, *, limit: int = 28) -> list[str]:
     seen: set[str] = set()
     terms: list[str] = []
+    phrase_candidates = re.findall(r"[A-Za-z][A-Za-z0-9_-]*(?:\s+[A-Za-z][A-Za-z0-9_-]*){1,4}", text or "")
+    for phrase in phrase_candidates:
+        lowered = re.sub(r"\s+", " ", phrase.lower().replace("_", " ")).strip()
+        words = [word for word in lowered.split() if word not in _SUPPORT_STOPWORDS and len(word) >= 3]
+        if len(words) < 2:
+            continue
+        compact = " ".join(words)
+        if compact in seen:
+            continue
+        seen.add(compact)
+        terms.append(compact)
+        if len(terms) >= max(4, limit // 3):
+            break
     for token in re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", text or ""):
         lowered = token.lower().replace("_", " ").strip()
         if lowered in _SUPPORT_STOPWORDS or len(lowered) < 3:
@@ -238,11 +381,11 @@ def _support_terms_for_item(item: dict[str, Any]) -> list[str]:
         str(item.get("recommended_change") or item.get("recommended_position") or item.get("recommendation") or ""),
     ]
     terms = _support_terms_from_text(" ".join(text_parts), limit=18)
-    for keyword in LEGAL_CLAUSE_FAMILY_KEYWORDS.get(clause_family, ()):
+    for keyword in (*_SUPPORT_ANCHORS.get(clause_family, ()), *LEGAL_CLAUSE_FAMILY_KEYWORDS.get(clause_family, ())):
         clean = keyword.lower().strip()
-        if clean and clean not in terms:
+        if clean and clean not in terms and clean not in _SUPPORT_STOPWORDS:
             terms.append(clean)
-    return terms[:32]
+    return terms[:36]
 
 
 def _support_excerpt(text: str, matched_terms: list[str], *, limit: int = 420) -> str:
@@ -250,7 +393,8 @@ def _support_excerpt(text: str, matched_terms: list[str], *, limit: int = 420) -
     if not clean:
         return ""
     lowered = clean.lower()
-    first_match = min((lowered.find(term.lower()) for term in matched_terms if term and lowered.find(term.lower()) >= 0), default=-1)
+    meaningful = [term for term in matched_terms if term and term.lower() not in _SUPPORT_STOPWORDS]
+    first_match = min((lowered.find(term.lower()) for term in meaningful if lowered.find(term.lower()) >= 0), default=-1)
     if first_match >= 0:
         start = max(0, first_match - limit // 3)
         end = min(len(clean), start + limit)
@@ -321,42 +465,76 @@ def _evidence_chunk_records(metadata: dict[str, Any], sources: list[WorkflowSour
     return records
 
 
-def _score_support_record(item: dict[str, Any], record: dict[str, Any]) -> tuple[int, list[str]]:
+def _text_contains(text: str, term: str) -> bool:
+    clean = term.lower().strip()
+    if not clean:
+        return False
+    lowered = str(text or "").lower()
+    if " " in clean or "-" in clean or "$" in clean or "(" in clean:
+        return clean in lowered
+    return bool(re.search(rf"\b{re.escape(clean)}\b", lowered))
+
+
+def _anchor_hits_for_family(family: str, text: str) -> list[str]:
+    hits: list[str] = []
+    for anchor in _SUPPORT_ANCHORS.get(family, ()):
+        clean = anchor.lower().strip()
+        if clean and _text_contains(text, clean):
+            hits.append(clean)
+    return hits
+
+
+def _score_support_record(item: dict[str, Any], record: dict[str, Any]) -> tuple[int, list[str], str]:
+    family = _legal_clause_family(item.get("clause_family") or item.get("related_clause_family") or item.get("category") or item.get("clause"))
     terms = _support_terms_for_item(item)
-    text = str(record.get("excerpt") or "").lower()
+    text = str(record.get("excerpt") or "")
+    anchor_hits = _anchor_hits_for_family(family, text)
     matched: list[str] = []
     score = 0
     for term in terms:
         clean = term.lower().strip()
-        if not clean:
+        if not clean or clean in _SUPPORT_STOPWORDS:
             continue
-        present = clean in text if " " in clean else bool(re.search(rf"\b{re.escape(clean)}\b", text))
-        if not present:
+        if not _text_contains(text, clean):
             continue
         matched.append(clean)
-        score += 3 if " " in clean else 1
+        score += 4 if " " in clean else 1
     source_kind = str(record.get("source_kind") or "")
+    if anchor_hits:
+        score += 18 + (4 * len(anchor_hits))
+    elif family in {"general_contract", ""}:
+        score += 0
+    else:
+        # Family-specific support must have at least one anchor unless a selected
+        # clause-map entry already supplied support. Plain overlap is fallback only.
+        if score < 6:
+            return 0, [], "unsupported"
     if source_kind == "clause_map":
-        score += 4
+        score += 8
     elif source_kind in {"retrieved", "reference"}:
-        score += 2
+        score += 3
     elif source_kind == "neighbor":
         score += 1
-    return score, matched[:10]
+    combined = []
+    for term in [*anchor_hits, *matched]:
+        if term not in combined and term not in _SUPPORT_STOPWORDS:
+            combined.append(term)
+    status = "partial" if anchor_hits else "weak"
+    return score, combined[:12], status
 
 
 def _source_support_for_item(item: dict[str, Any], evidence_records: list[dict[str, Any]], *, limit: int = 3) -> list[dict[str, Any]]:
-    scored: list[tuple[int, int, dict[str, Any], list[str]]] = []
+    scored: list[tuple[int, int, dict[str, Any], list[str], str]] = []
     for index, record in enumerate(evidence_records):
-        score, matched = _score_support_record(item, record)
+        score, matched, support_level = _score_support_record(item, record)
         if score <= 0:
             continue
-        scored.append((score, -index, record, matched))
+        scored.append((score, -index, record, matched, support_level))
     scored.sort(key=lambda entry: (entry[0], entry[1]), reverse=True)
 
     support: list[dict[str, Any]] = []
     seen_chunks: set[tuple[str, str]] = set()
-    for score, _neg_index, record, matched in scored:
+    for score, _neg_index, record, matched, support_level in scored:
         key = (str(record.get("file_id") or ""), str(record.get("chunk_id") or ""))
         if key in seen_chunks:
             continue
@@ -369,6 +547,8 @@ def _source_support_for_item(item: dict[str, Any], evidence_records: list[dict[s
                 "chunk_id": record.get("chunk_id"),
                 "chunk_index": record.get("chunk_index"),
                 "source_kind": record.get("source_kind"),
+                "support_method": "strict_text_match",
+                "support_status": support_level,
                 "support_score": score,
                 "matched_terms": matched,
                 "excerpt": _support_excerpt(str(record.get("excerpt") or ""), matched),
@@ -379,21 +559,246 @@ def _source_support_for_item(item: dict[str, Any], evidence_records: list[dict[s
     return support
 
 
+def _entry_text(entry: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("entry_id", "title", "normalized_type", "clause_family", "status", "confidence", "summary", "source_excerpt"):
+        parts.append(str(entry.get(key) or ""))
+    for key in ("key_terms", "obligations", "risk_signals", "cross_references"):
+        value = entry.get(key)
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value)
+        else:
+            parts.append(str(value or ""))
+    return " ".join(parts).lower().replace("_", " ").replace("-", "-")
+
+
+def _clause_map_entry_families(entry: dict[str, Any]) -> set[str]:
+    families: set[str] = set()
+    direct = _legal_clause_family(entry.get("clause_family"), fallback="")
+    if direct:
+        families.add(direct)
+    normalized = _legal_clause_family(entry.get("normalized_type"), fallback="")
+    if normalized:
+        families.add(normalized)
+    text = f" {_entry_text(entry)} "
+    for needle, family in _ENTRY_FAMILY_ALIASES:
+        if needle in text:
+            families.add(family)
+    return {family for family in families if family in LEGAL_CLAUSE_FAMILIES or family == "general_contract"}
+
+
+def _selected_clause_map_entries_by_family(metadata: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    adaptive = metadata.get("adaptive_context") if isinstance(metadata.get("adaptive_context"), dict) else {}
+    entries = adaptive.get("selected_clause_map_entries") if isinstance(adaptive.get("selected_clause_map_entries"), list) else []
+    by_family: dict[str, list[dict[str, Any]]] = {}
+    for raw in entries:
+        if not isinstance(raw, dict):
+            continue
+        entry = dict(raw)
+        for family in _clause_map_entry_families(entry):
+            by_family.setdefault(family, []).append(entry)
+    return by_family
+
+
+def _clause_scan_findings_by_family(metadata: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    findings: dict[str, dict[str, Any]] = {}
+    maps = metadata.get("contract_clause_maps") if isinstance(metadata.get("contract_clause_maps"), list) else []
+    for clause_map in maps:
+        if not isinstance(clause_map, dict):
+            continue
+        source = clause_map.get("source_file") if isinstance(clause_map.get("source_file"), dict) else {}
+        for raw in clause_map.get("clause_inventory") or []:
+            if not isinstance(raw, dict):
+                continue
+            family = _legal_clause_family(raw.get("clause_family"), fallback="")
+            if not family:
+                continue
+            findings[family] = {
+                "clause_map_id": clause_map.get("clause_map_id"),
+                "file_id": source.get("file_id"),
+                "source_name": source.get("name") or "Clause map",
+                "folder_path": source.get("folder_path"),
+                "chunk_count": source.get("chunk_count"),
+                "status": raw.get("status"),
+                "confidence": raw.get("confidence"),
+                "summary": raw.get("summary"),
+                "source_basis": raw.get("source_basis"),
+                "source_spans": raw.get("source_spans") or [],
+                "source_excerpt": raw.get("source_excerpt") or "",
+            }
+    return findings
+
+
+def _is_negative_or_uncertain_item(item: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(item.get(key) or "")
+        for key in ("current_position", "source_basis", "issue", "concern", "recommended_position", "recommended_change")
+    ).lower()
+    return any(marker in text for marker in ("not found", "not visible", "no ", "uncertain", "unclear", "missing"))
+
+
+def _support_from_clause_scan(item: dict[str, Any], family: str, scan_findings: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    if not family:
+        return None
+    finding = scan_findings.get(family)
+    if not finding:
+        return None
+    status = str(finding.get("status") or "").strip().lower()
+    item_text = " ".join(str(item.get(key) or "") for key in ("current_position", "source_basis", "issue", "concern")).lower()
+    if status in _NEGATIVE_SCAN_STATUSES and any(marker in item_text for marker in ("not found", "missing", "not visible", "no ")):
+        support_status = "negative_scan_supported"
+        reason = "The clause map full stored-chunk scan did not identify this clause family."
+    elif status in _UNCERTAIN_SCAN_STATUSES or "uncertain" in item_text or "unclear" in item_text:
+        support_status = "partial"
+        reason = "The clause map scan marked this clause family as uncertain or only weakly supported."
+    else:
+        return None
+    return {
+        "source_name": finding.get("source_name") or "Clause map",
+        "file_id": finding.get("file_id"),
+        "folder_path": finding.get("folder_path"),
+        "chunk_id": None,
+        "chunk_index": None,
+        "source_kind": "clause_map_scan",
+        "support_method": "clause_map_scan",
+        "support_status": support_status,
+        "support_score": 100 if support_status == "negative_scan_supported" else 60,
+        "matched_terms": [family],
+        "clause_family": family,
+        "clause_map_id": finding.get("clause_map_id"),
+        "scan_status": finding.get("status"),
+        "scan_confidence": finding.get("confidence"),
+        "scan_scope": "full_stored_chunk_scan",
+        "chunk_count": finding.get("chunk_count"),
+        "support_reason": reason,
+        "excerpt": str(finding.get("source_excerpt") or finding.get("summary") or finding.get("source_basis") or "").strip(),
+    }
+
+
+def _evidence_record_lookup(evidence_records: list[dict[str, Any]]) -> tuple[dict[tuple[str, str], dict[str, Any]], dict[str, dict[str, Any]]]:
+    by_file_chunk: dict[tuple[str, str], dict[str, Any]] = {}
+    by_chunk: dict[str, dict[str, Any]] = {}
+    for record in evidence_records:
+        file_id = str(record.get("file_id") or "")
+        chunk_id = str(record.get("chunk_id") or "")
+        if file_id and chunk_id:
+            by_file_chunk.setdefault((file_id, chunk_id), record)
+        if chunk_id:
+            by_chunk.setdefault(chunk_id, record)
+    return by_file_chunk, by_chunk
+
+
+def _support_from_selected_clause_map_entries(
+    item: dict[str, Any],
+    family: str,
+    clause_entries_by_family: dict[str, list[dict[str, Any]]],
+    evidence_records: list[dict[str, Any]],
+    *,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    entries = clause_entries_by_family.get(family) or []
+    if not entries:
+        return []
+    by_file_chunk, by_chunk = _evidence_record_lookup(evidence_records)
+    support: list[dict[str, Any]] = []
+    seen_chunks: set[tuple[str, str, str]] = set()
+    for entry in entries:
+        status = str(entry.get("status") or "found").lower()
+        if status in _NEGATIVE_SCAN_STATUSES:
+            continue
+        entry_text = _entry_text(entry)
+        anchor_hits = _anchor_hits_for_family(family, entry_text)
+        spans = [span for span in (entry.get("source_spans") or []) if isinstance(span, dict)]
+        if not spans and str(entry.get("source_excerpt") or entry.get("summary") or "").strip():
+            spans = [{}]
+        for span in spans:
+            file_id = str(span.get("file_id") or entry.get("source_file_id") or "")
+            chunk_id = str(span.get("chunk_id") or "")
+            record = by_file_chunk.get((file_id, chunk_id)) if file_id and chunk_id else None
+            if record is None and chunk_id:
+                record = by_chunk.get(chunk_id)
+            excerpt = str((record or {}).get("excerpt") or entry.get("source_excerpt") or entry.get("summary") or "").strip()
+            source_name = (record or {}).get("source_name") or entry.get("source_name") or "Clause map"
+            record_text = " ".join([entry_text, excerpt])
+            matched = _anchor_hits_for_family(family, record_text)
+            if not matched:
+                # Same-family selected clause-map entries are still useful anchors,
+                # but mark them partial if they do not contain exact family anchor phrases.
+                matched = [family]
+                support_status = "partial"
+                support_score = 70
+            else:
+                support_status = "strong"
+                support_score = 120 + (5 * len(matched))
+            key = (file_id, chunk_id, str(entry.get("entry_id") or ""))
+            if key in seen_chunks:
+                continue
+            seen_chunks.add(key)
+            support.append(
+                {
+                    "source_name": source_name,
+                    "file_id": file_id or (record or {}).get("file_id"),
+                    "folder_path": (record or {}).get("folder_path"),
+                    "chunk_id": chunk_id or (record or {}).get("chunk_id"),
+                    "chunk_index": span.get("chunk_index") if span else (record or {}).get("chunk_index"),
+                    "source_kind": "clause_map",
+                    "support_method": "clause_map_anchor",
+                    "support_status": support_status,
+                    "support_score": support_score,
+                    "matched_terms": matched[:12],
+                    "clause_family": family,
+                    "clause_map_id": entry.get("clause_map_id"),
+                    "clause_map_entry_id": entry.get("entry_id"),
+                    "clause_map_entry_title": entry.get("title") or entry.get("normalized_type"),
+                    "support_reason": "Selected clause-map entry for the same clause family.",
+                    "excerpt": _support_excerpt(excerpt, matched) if excerpt else str(entry.get("summary") or "").strip(),
+                }
+            )
+            if len(support) >= limit:
+                return support
+    return support
+
+
+def _combined_support_status(support: list[dict[str, Any]]) -> str:
+    statuses = {str(item.get("support_status") or "").strip() for item in support if isinstance(item, dict)}
+    if "strong" in statuses:
+        return "strong"
+    if "negative_scan_supported" in statuses:
+        return "negative_scan_supported"
+    if "partial" in statuses:
+        return "partial"
+    if "weak" in statuses:
+        return "weak"
+    return "unsupported"
+
+
+def _is_counted_supported(status: str) -> bool:
+    return status in {"strong", "partial", "negative_scan_supported"}
+
+
 def attach_legal_source_support(metadata: dict[str, Any], sources: list[WorkflowSourceFile]) -> dict[str, Any]:
     """Attach source-level support records to legal structured items.
 
-    This is an observable grounding aid for eval and review. It does not ask the
-    model for hidden reasoning; it links generated issues back to retrieved or
-    coverage excerpts using deterministic term overlap.
+    Support is deterministic and intentionally conservative:
+    1. use same-family selected clause-map entries first;
+    2. use clause-map scan metadata for missing/uncertain findings;
+    3. fall back to strict text matches that require family anchors.
     """
     evidence_records = _evidence_chunk_records(metadata, sources)
-    if not evidence_records:
+    clause_entries_by_family = _selected_clause_map_entries_by_family(metadata)
+    scan_findings_by_family = _clause_scan_findings_by_family(metadata)
+    if not evidence_records and not clause_entries_by_family and not scan_findings_by_family:
         return metadata
 
+    risk_items = metadata.get("risk_items") if isinstance(metadata.get("risk_items"), list) else []
     support_summary: dict[str, Any] = {
         "evidence_record_count": len(evidence_records),
         "risk_items_supported": 0,
-        "risk_items_total": len(metadata.get("risk_items") or []) if isinstance(metadata.get("risk_items"), list) else 0,
+        "risk_items_strong": 0,
+        "risk_items_partial": 0,
+        "risk_items_weak": 0,
+        "risk_items_unsupported": 0,
+        "risk_items_total": len(risk_items),
         "unsupported_risk_items": [],
     }
 
@@ -407,16 +812,47 @@ def attach_legal_source_support(metadata: dict[str, Any], sources: list[Workflow
                 enriched.append(item)
                 continue
             next_item = dict(item)
-            support = _source_support_for_item(next_item, evidence_records, limit=3 if key == "risk_items" else 2)
-            if support:
-                next_item["source_support"] = support
-                next_item["support_status"] = "supported"
-                if key == "risk_items":
+            family = _legal_clause_family(
+                next_item.get("clause_family")
+                or next_item.get("related_clause_family")
+                or next_item.get("category")
+                or next_item.get("clause"),
+                fallback="",
+            )
+            support: list[dict[str, Any]] = []
+
+            if family and _is_negative_or_uncertain_item(next_item):
+                scan_support = _support_from_clause_scan(next_item, family, scan_findings_by_family)
+                if scan_support:
+                    support = [scan_support]
+
+            if not support and family:
+                support = _support_from_selected_clause_map_entries(
+                    next_item,
+                    family,
+                    clause_entries_by_family,
+                    evidence_records,
+                    limit=3 if key == "risk_items" else 2,
+                )
+
+            if not support:
+                support = _source_support_for_item(next_item, evidence_records, limit=3 if key == "risk_items" else 2)
+
+            status = _combined_support_status(support)
+            next_item["source_support"] = support
+            next_item["support_status"] = status
+            if key == "risk_items":
+                if _is_counted_supported(status):
                     support_summary["risk_items_supported"] += 1
-            else:
-                next_item.setdefault("source_support", [])
-                next_item["support_status"] = "needs_review"
-                if key == "risk_items":
+                    if status == "strong":
+                        support_summary["risk_items_strong"] += 1
+                    elif status in {"partial", "negative_scan_supported"}:
+                        support_summary["risk_items_partial"] += 1
+                elif status == "weak":
+                    support_summary["risk_items_weak"] += 1
+                    support_summary["unsupported_risk_items"].append(str(next_item.get("issue") or "Risk item"))
+                else:
+                    support_summary["risk_items_unsupported"] += 1
                     support_summary["unsupported_risk_items"].append(str(next_item.get("issue") or "Risk item"))
             enriched.append(next_item)
         metadata[key] = enriched

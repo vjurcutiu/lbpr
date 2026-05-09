@@ -117,10 +117,10 @@ function sourceSupportItems(item: LegalMetadataItem): LegalMetadataItem[] {
 }
 
 function SourceSupportList({ item }: { item: LegalMetadataItem }) {
-  const support = sourceSupportItems(item);
+  const status = metadataText(item, ["support_status"]);
+  const support = sourceSupportItems(item).filter((entry) => metadataText(entry, ["support_status"]) !== "weak");
   if (!support.length) {
-    const status = metadataText(item, ["support_status"]);
-    return status === "needs_review" ? <LegalParagraph label="Support" value="Needs source-level confirmation." /> : null;
+    return ["needs_review", "unsupported", "weak"].includes(status) ? <LegalParagraph label="Support" value="Needs source-level confirmation." /> : null;
   }
 
   return (

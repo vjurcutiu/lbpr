@@ -1613,7 +1613,16 @@ function AgentRunReviewPanel({
   const decisions = context?.decision_trace || [];
   const workflowStrategy = String(asRecord(run.structured_metadata)?.source_strategy || "");
   const supportedIssues = getSupportedIssues(run);
-  const supportedIssueCount = supportedIssues.filter((item) => item.source_support.length).length;
+  const isSupportedIssue = (item: SupportedIssueRecord) => ["strong", "partial", "negative_scan_supported"].includes(item.support_status || "") || (!item.support_status && item.source_support.length > 0);
+  const supportBadgeLabel = (status?: string, hasSupport?: boolean) => {
+    if (status === "strong") return "Strong support";
+    if (status === "partial") return "Partial support";
+    if (status === "negative_scan_supported") return "Scan supported";
+    if (status === "weak") return "Weak support";
+    if (status === "unsupported") return "Needs review";
+    return hasSupport ? "Supported" : "Needs review";
+  };
+  const supportedIssueCount = supportedIssues.filter(isSupportedIssue).length;
   const selectedClauseEntries = context?.selected_clause_map_entries || [];
   const clauseSelection = context?.clause_map_selection || {};
   const totalAddedChunks = trace.reduce((total, step) => total + Number(step.chunks_added || 0), 0);
@@ -1721,7 +1730,7 @@ function AgentRunReviewPanel({
                   <div className="break-words font-medium">{issue.issue}</div>
                   <div className="mt-1 text-xs text-muted-foreground">{issue.clause_family || "general"}</div>
                 </div>
-                <Badge variant={issue.source_support.length ? "outline" : "secondary"}>{issue.source_support.length ? "Supported" : "Needs review"}</Badge>
+                <Badge variant={isSupportedIssue(issue) ? "outline" : "secondary"}>{supportBadgeLabel(issue.support_status, issue.source_support.length > 0)}</Badge>
               </div>
               {issue.source_support.length ? (
                 <div className="mt-2 space-y-2">

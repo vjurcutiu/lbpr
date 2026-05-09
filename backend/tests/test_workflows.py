@@ -477,11 +477,12 @@ def test_legal_metadata_normalizes_llm_output_and_synthesizes_fallback_items(aut
     assert risk['source_basis'] == 'Limitation of liability section'
     assert risk['recommended_change'] == 'Add a liability cap tied to fees paid in the prior 12 months.'
     assert risk['requires_human_review'] is True
-    assert risk['support_status'] == 'supported'
+    assert risk['support_status'] in {'strong', 'partial'}
     assert risk['source_support']
     assert risk['source_support'][0]['source_name'] == 'msa.txt'
     assert 'limitation of liability' in risk['source_support'][0]['excerpt'].lower()
     assert metadata['source_support_summary']['risk_items_supported'] >= 1
+    assert metadata['source_support_summary']['risk_items_weak'] == 0
 
     fallback_item = metadata['fallback_items'][0]
     assert fallback_item['clause_family'] == 'limitation_of_liability'
@@ -1108,3 +1109,127 @@ def test_single_source_llm_preview_strips_source_section_and_inline_label(auth_c
     assert 'retrieved evidence' not in result['preview_markdown']
     assert 'Sources used' in result['preview_markdown']
     assert result['preview_markdown'].count('Q1-plan.txt') == 1
+
+
+def test_legal_source_support_prefers_clause_map_family_anchor():
+    metadata = {
+        'adaptive_context': {
+            'selected_clause_map_entries': [
+                {
+                    'clause_map_id': 'cm-1',
+                    'entry_id': 'liability_limits',
+                    'entry_kind': 'discovered_clause',
+                    'source_file_id': 'file-1',
+                    'source_name': 'msa.txt',
+                    'title': 'Limitation of Direct Damages',
+                    'normalized_type': 'liability_limitations',
+                    'status': 'found',
+                    'summary': 'Caps direct damages at $20,000,000 and excludes service credits from the cap.',
+                    'source_spans': [{'file_id': 'file-1', 'chunk_id': 'ch_24', 'chunk_index': 24}],
+                }
+            ],
+            'evidence_chunks': [
+                {
+                    'file_id': 'file-1',
+                    'source_name': 'msa.txt',
+                    'chunk_id': 'ch_24',
+                    'chunk_index': 24,
+                    'source_kind': 'clause_map',
+                    'excerpt': 'Amendment to Section 14.2 Limit on Direct Damages: aggregate liability shall not exceed $20,000,000 and service credits shall not count toward damages.',
+                },
+                {
+                    'file_id': 'file-1',
+                    'source_name': 'msa.txt',
+                    'chunk_id': 'ch_8',
+                    'chunk_index': 8,
+                    'source_kind': 'clause_map',
+                    'excerpt': 'Insurance coverage includes commercial general liability and proof of insurance.',
+                },
+            ],
+        },
+        'risk_items': [
+            {
+                'issue': 'Liability cap may leave meaningful exposure',
+                'clause_family': 'limitation_of_liability',
+                'source_basis': 'Amendment sets a $20,000,000 direct damages cap.',
+            }
+        ],
+    }
+
+    enriched = workflow_registry.attach_legal_source_support(metadata, [])
+    risk = enriched['risk_items'][0]
+
+    assert risk['support_status'] == 'strong'
+    assert risk['source_support'][0]['support_method'] == 'clause_map_anchor'
+    assert risk['source_support'][0]['chunk_id'] == 'ch_24'
+    assert risk['source_support'][0]['clause_map_entry_id'] == 'liability_limits'
+    assert 'the' not in risk['source_support'][0]['matched_terms']
+    assert 'and' not in risk['source_support'][0]['matched_terms']
+    assert enriched['source_support_summary']['risk_items_supported'] == 1
+    assert enriched['source_support_summary']['risk_items_strong'] == 1
+
+
+def test_legal_source_support_uses_clause_scan_for_missing_clause_family():
+    metadata = {
+        'contract_clause_maps': [
+            {
+                'clause_map_id': 'cm-1',
+                'source_file': {'file_id': 'file-1', 'name': 'msa.txt', 'chunk_count': 25},
+                'clause_inventory': [
+                    {
+                        'clause_family': 'non_solicit',
+                        'status': 'not_found_after_full_chunk_scan',
+                        'confidence': 'high',
+                        'summary': 'No non-solicit, no-hire, or recruiting restriction was identified.',
+                    }
+                ],
+            }
+        ],
+        'clause_items': [
+            {
+                'clause_family': 'non_solicit',
+                'current_position': 'Not found in reviewed material.',
+                'source_basis': 'The clause map states no non-solicit clause was found after full stored chunk scan.',
+            }
+        ],
+    }
+
+    enriched = workflow_registry.attach_legal_source_support(metadata, [])
+    item = enriched['clause_items'][0]
+
+    assert item['support_status'] == 'negative_scan_supported'
+    assert item['source_support'][0]['source_kind'] == 'clause_map_scan'
+    assert item['source_support'][0]['chunk_id'] is None
+    assert item['source_support'][0]['scan_scope'] == 'full_stored_chunk_scan'
+
+
+def test_legal_source_support_does_not_count_weak_text_overlap_as_supported():
+    metadata = {
+        'adaptive_context': {
+            'evidence_chunks': [
+                {
+                    'file_id': 'file-1',
+                    'source_name': 'msa.txt',
+                    'chunk_id': 'ch_8',
+                    'chunk_index': 8,
+                    'source_kind': 'clause_map',
+                    'excerpt': 'Commercial general liability insurance is maintained and certificates are provided on request.',
+                }
+            ],
+        },
+        'risk_items': [
+            {
+                'issue': 'Liability cap may leave exposure',
+                'clause_family': 'limitation_of_liability',
+                'source_basis': 'Needs support from limitation of liability language.',
+            }
+        ],
+    }
+
+    enriched = workflow_registry.attach_legal_source_support(metadata, [])
+    risk = enriched['risk_items'][0]
+
+    assert risk['support_status'] == 'unsupported'
+    assert risk['source_support'] == []
+    assert enriched['source_support_summary']['risk_items_supported'] == 0
+    assert enriched['source_support_summary']['risk_items_unsupported'] == 1
