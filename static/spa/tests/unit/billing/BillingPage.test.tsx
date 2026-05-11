@@ -54,9 +54,9 @@ function fakeLimits(plan: "FREE" | "PRO") {
   return {
     plan,
     window: "202510",
-    caps: { messages: plan === "PRO" ? 2000 : 200, upload_tokens: plan === "PRO" ? 20000000 : 200000, workflow_tokens: plan === "PRO" ? 5000000 : 200000 },
+    caps: { messages: plan === "PRO" ? 2000 : 200, upload_tokens: plan === "PRO" ? 20000000 : 200000, workflow_tokens: plan === "PRO" ? 5000000 : 100000 },
     usage: { messages: 3, upload_tokens: 1234, workflow_tokens: 4567 },
-    remaining: { messages: plan === "PRO" ? 1997 : 197, upload_tokens: plan === "PRO" ? (20000000-1234) : (200000-1234), workflow_tokens: plan === "PRO" ? (5000000-4567) : (200000-4567) },
+    remaining: { messages: plan === "PRO" ? 1997 : 197, upload_tokens: plan === "PRO" ? (20000000-1234) : (200000-1234), workflow_tokens: plan === "PRO" ? (5000000-4567) : (100000-4567) },
   };
 }
 

@@ -402,7 +402,7 @@ export default function BillingPage() {
           <ul className="text-sm space-y-2 mb-6 flex-1">
             <li>• 50 messages</li>
             <li>• 100,000 file upload tokens (≈75 pages)</li>
-            <li>• 200,000 workflow tokens</li>
+            <li>• 100,000 workflow tokens</li>
             <li>• 5 minutes transcription</li>
             <li>• 5 OCR images</li>
             <li>• Get started — no credit card</li>

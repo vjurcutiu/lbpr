@@ -337,7 +337,7 @@ function HomePage() {
                 features={[
                   '50 messages',
                   '100,000 file upload tokens (≈75 pages)',
-                  '200,000 workflow tokens',
+                  '100,000 workflow tokens',
                   '5 minutes of transcription',
                   '5 OCR images',
                   'Create an account and get started right away',
