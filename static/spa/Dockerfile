@@ -2,7 +2,7 @@
 # Build stage
 FROM node:20-alpine AS build
 WORKDIR /app
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
 
 # Install dependencies (cached)
 COPY package.json pnpm-lock.yaml ./
