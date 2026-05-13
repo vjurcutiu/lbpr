@@ -11,6 +11,7 @@ const SIGNUP_URL = `${APP_URL}/signup?highlight=email`;
 const BILLING_URL = `${APP_URL}/billing`;
 
 const LegalPage = lazy(() => import('./LegalPage'));
+const LawyersPage = lazy(() => import('./LawyersPage'));
 
 type PlanCardProps = {
   name: string;
@@ -78,6 +79,7 @@ function AppHeader() {
           Lexbot <span>Pro</span>
         </a>
         <nav className="site-nav" aria-label="Primary">
+          <a href="/lawyers">For lawyers</a>
           <a href="/#workflow">How it works</a>
           <a href="/#workflows">Workflows</a>
           <a href="/#platform">Capabilities</a>
@@ -427,20 +429,33 @@ type LegalPathname = keyof typeof legalPageMeta;
 export default function App() {
   const pathname = normalizePathname(window.location.pathname);
   const isLegalPath = pathname in legalPageMeta;
+  const isLawyersPath = pathname === '/lawyers';
 
   useEffect(() => {
     document.title = isLegalPath
       ? legalPageMeta[pathname as LegalPathname]
-      : 'Lexbot Pro | Structured answers for noisy data';
-  }, [isLegalPath, pathname]);
+      : isLawyersPath
+        ? 'Lexbot Pro | AI workflows for lawyers'
+        : 'Lexbot Pro | Structured answers for noisy data';
+  }, [isLegalPath, isLawyersPath, pathname]);
 
-  const page: ReactNode = isLegalPath ? (
-    <Suspense fallback={<main className="legal-page legal-page--loading" />}>
-      <LegalPage pathname={pathname as LegalPathname} />
-    </Suspense>
-  ) : (
-    <HomePage />
-  );
+  let page: ReactNode;
+
+  if (isLegalPath) {
+    page = (
+      <Suspense fallback={<main className="legal-page legal-page--loading" />}>
+        <LegalPage pathname={pathname as LegalPathname} />
+      </Suspense>
+    );
+  } else if (isLawyersPath) {
+    page = (
+      <Suspense fallback={<main className="lawyers-page lawyers-page--loading" />}>
+        <LawyersPage appUrl={APP_URL} signupUrl={SIGNUP_URL} />
+      </Suspense>
+    );
+  } else {
+    page = <HomePage />;
+  }
 
   return (
     <div className="site-root">

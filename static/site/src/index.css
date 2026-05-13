@@ -770,3 +770,242 @@ a {
   }
 }
 
+
+.lawyers-page {
+  min-height: 100vh;
+  padding-top: var(--header-height);
+}
+
+.lawyers-page--loading {
+  min-height: 60vh;
+}
+
+.lawyers-hero {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(5rem, 10vw, 8.5rem) 0 4.5rem;
+}
+
+.lawyers-hero::before {
+  content: '';
+  position: absolute;
+  inset: -20% -10% auto auto;
+  width: min(46rem, 72vw);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(120, 214, 255, 0.18), transparent 62%);
+  pointer-events: none;
+}
+
+.lawyers-hero__grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.04fr) minmax(340px, 0.72fr);
+  gap: clamp(1.5rem, 5vw, 4rem);
+  align-items: center;
+}
+
+.lawyers-hero__copy {
+  display: grid;
+  gap: 1.35rem;
+  max-width: 48rem;
+}
+
+.lawyers-hero__copy h1 {
+  margin: 0;
+  max-width: 46rem;
+  font-size: clamp(3rem, 8vw, 6.4rem);
+  line-height: 0.93;
+  letter-spacing: -0.075em;
+}
+
+.lawyers-hero__copy p {
+  max-width: 43rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: clamp(1.04rem, 2.2vw, 1.28rem);
+  line-height: 1.7;
+}
+
+.lawyers-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  padding-top: 0.4rem;
+}
+
+.lawyers-hero__panel,
+.lawyers-workflow-card {
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(circle at top right, rgba(120, 214, 255, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(10, 18, 34, 0.94), rgba(8, 15, 29, 0.74));
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+}
+
+.lawyers-hero__panel {
+  display: grid;
+  gap: 1.25rem;
+  border-radius: 1.8rem;
+  padding: clamp(1.25rem, 3vw, 1.8rem);
+}
+
+.lawyers-panel__header {
+  display: grid;
+  gap: 0.35rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(115, 145, 184, 0.14);
+}
+
+.lawyers-panel__header span,
+.lawyers-panel__label {
+  color: var(--accent);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lawyers-panel__header strong {
+  color: #f7fbff;
+  font-size: 1.55rem;
+  letter-spacing: -0.04em;
+}
+
+.lawyers-panel__section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.lawyers-panel__section ul,
+.lawyers-check-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lawyers-panel__section li,
+.lawyers-check-list li {
+  position: relative;
+  padding-left: 1.45rem;
+  color: var(--muted-strong);
+  line-height: 1.55;
+}
+
+.lawyers-panel__section li::before,
+.lawyers-check-list li::before {
+  content: '•';
+  position: absolute;
+  inset: 0 auto auto 0;
+  color: var(--accent);
+}
+
+.lawyers-panel__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.lawyers-panel__chips span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.1rem;
+  padding: 0.45rem 0.72rem;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 214, 255, 0.2);
+  background: rgba(10, 22, 41, 0.7);
+  color: rgba(224, 238, 255, 0.9);
+  font-size: 0.86rem;
+}
+
+.lawyers-strip {
+  border-block: 1px solid rgba(115, 145, 184, 0.12);
+  background: rgba(5, 12, 25, 0.38);
+}
+
+.lawyers-strip__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  padding-block: 1rem;
+}
+
+.lawyers-strip__grid div {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.6rem 0;
+}
+
+.lawyers-strip__grid strong {
+  color: #f7fbff;
+}
+
+.lawyers-strip__grid span {
+  color: var(--muted);
+}
+
+.lawyers-section--muted {
+  background: linear-gradient(180deg, rgba(8, 15, 29, 0.2), rgba(7, 14, 26, 0.46));
+}
+
+.lawyers-value-card {
+  min-height: 100%;
+}
+
+.lawyers-workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.lawyers-workflow-card {
+  min-height: 100%;
+  padding: 1.35rem;
+  border-radius: 1.35rem;
+}
+
+.lawyers-workflow-card h3 {
+  margin: 0 0 0.65rem;
+  font-size: 1.08rem;
+}
+
+.lawyers-workflow-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.lawyers-use-case-panel {
+  align-self: stretch;
+}
+
+.lawyers-cta-panel {
+  background:
+    radial-gradient(circle at top right, rgba(120, 214, 255, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(10, 18, 34, 0.92), rgba(8, 15, 29, 0.7));
+}
+
+@media (max-width: 940px) {
+  .lawyers-hero__grid,
+  .lawyers-strip__grid,
+  .lawyers-workflow-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .lawyers-hero {
+    padding-top: 4rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .lawyers-hero {
+    padding-bottom: 3.25rem;
+  }
+
+  .lawyers-hero__panel,
+  .lawyers-workflow-card {
+    padding: 1.25rem;
+  }
+}
