@@ -59,6 +59,7 @@ export default function LawyersPage({ appUrl, signupUrl }: LawyersPageProps) {
   return (
     <>
       <SignalInNoiseHero
+        className="signal-hero--lawyers"
         eyebrow="For lawyers and legal teams"
         title="AI workflows for contract-heavy legal work"
         description="Turn contracts, client files, and supporting documents into structured reviews, sourced summaries, risk matrices, and handoff-ready outputs."

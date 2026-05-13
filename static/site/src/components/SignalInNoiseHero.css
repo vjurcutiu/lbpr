@@ -302,3 +302,59 @@
     transition: none;
   }
 }
+
+.signal-hero--lawyers .signal-hero__title {
+  max-width: 12ch;
+}
+
+.signal-hero--lawyers .signal-hero__description {
+  max-width: 62ch;
+}
+
+@media (max-width: 1080px) {
+  .signal-hero--lawyers .signal-hero__inner {
+    gap: 1.75rem;
+  }
+
+  .signal-hero--lawyers .signal-hero__aside {
+    min-height: 15rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .signal-hero--lawyers .signal-hero__title {
+    max-width: 13ch;
+    font-size: clamp(2.55rem, 13vw, 3.7rem);
+    letter-spacing: -0.065em;
+  }
+
+  .signal-hero--lawyers .signal-hero__eyebrow {
+    max-width: 100%;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 520px) {
+  .signal-hero__inner {
+    padding-inline: 0.85rem;
+  }
+
+  .signal-hero__title {
+    max-width: 11ch;
+    font-size: clamp(2.45rem, 13.5vw, 3.25rem);
+  }
+
+  .signal-hero--lawyers .signal-hero__title {
+    max-width: 12ch;
+  }
+
+  .signal-hero__eyebrow {
+    padding: 0.48rem 0.72rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+  }
+
+  .signal-hero__actions {
+    gap: 0.7rem;
+  }
+}

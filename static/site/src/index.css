@@ -26,6 +26,7 @@ html {
 body {
   margin: 0;
   min-width: 320px;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at top, rgba(69, 125, 255, 0.12), transparent 34%),
     linear-gradient(180deg, #050a15 0%, #040914 45%, #050912 100%);
@@ -56,6 +57,7 @@ a {
 
 .site-root {
   min-height: 100vh;
+  overflow-x: clip;
 }
 
 .site-shell {
@@ -691,7 +693,6 @@ a {
 }
 
 @media (max-width: 940px) {
-  .site-header__inner,
   .site-footer__inner,
   .cta-panel,
   .two-column-layout,
@@ -701,16 +702,21 @@ a {
     align-items: stretch;
   }
 
+  .site-header__inner {
+    min-height: var(--header-height);
+  }
+
   .site-nav {
     display: none;
   }
 
   .site-header__actions {
-    width: 100%;
+    width: auto;
+    flex: 0 0 auto;
   }
 
   .site-header__actions .button {
-    flex: 1 1 0;
+    flex: 0 0 auto;
   }
 
   .info-grid--three,
@@ -767,6 +773,21 @@ a {
   .pricing-stack {
     display: grid;
     gap: 0.85rem;
+  }
+}
+
+
+@media (max-width: 520px) {
+  .site-header__inner {
+    gap: 0.65rem;
+  }
+
+  .brand {
+    font-size: 1rem;
+  }
+
+  .site-header__actions .button--ghost {
+    display: none;
   }
 }
 
@@ -988,23 +1009,43 @@ a {
 }
 
 @media (max-width: 940px) {
-  .lawyers-hero__grid,
   .lawyers-strip__grid,
   .lawyers-workflow-grid {
     grid-template-columns: 1fr;
   }
 
-  .lawyers-hero {
-    padding-top: 4rem;
+  .lawyers-strip__grid {
+    gap: 0;
+  }
+
+  .lawyers-strip__grid div + div {
+    border-top: 1px solid rgba(115, 145, 184, 0.12);
+  }
+}
+
+@media (max-width: 720px) {
+  .lawyers-page {
+    padding-top: 0;
+  }
+
+  .lawyers-strip__grid {
+    padding-block: 0.55rem;
+  }
+
+  .lawyers-strip__grid div {
+    padding: 0.8rem 0;
+  }
+
+  .lawyers-workflow-grid {
+    gap: 0.85rem;
+  }
+
+  .lawyers-use-case-panel {
+    align-self: auto;
   }
 }
 
 @media (max-width: 640px) {
-  .lawyers-hero {
-    padding-bottom: 3.25rem;
-  }
-
-  .lawyers-hero__panel,
   .lawyers-workflow-card {
     padding: 1.25rem;
   }

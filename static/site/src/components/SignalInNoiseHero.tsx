@@ -7,6 +7,7 @@ export type HeroMetric = {
 };
 
 type SignalInNoiseHeroProps = {
+  className?: string;
   eyebrow?: string;
   title?: string;
   description?: string;
@@ -49,6 +50,7 @@ const defaultMetrics: HeroMetric[] = [
 ];
 
 export function SignalInNoiseHero({
+  className,
   eyebrow = 'Signal systems',
   title = 'Turn ambient noise into usable signal',
   description = 'A premium, mouse-reactive hero that reveals structure inside moving data. Built for technical products that need to feel deliberate, not decorative.',
@@ -363,8 +365,10 @@ export function SignalInNoiseHero({
     };
   }, []);
 
+  const sectionClassName = ['signal-hero', className].filter(Boolean).join(' ');
+
   return (
-    <section className="signal-hero" ref={containerRef}>
+    <section className={sectionClassName} ref={containerRef}>
       <div className="signal-hero__backdrop" />
       <canvas className="signal-hero__canvas" ref={canvasRef} aria-hidden="true" />
       <div className="signal-hero__glow" />
