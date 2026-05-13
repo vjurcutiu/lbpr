@@ -79,7 +79,6 @@ function AppHeader() {
           Lexbot <span>Pro</span>
         </a>
         <nav className="site-nav" aria-label="Primary">
-          <a href="/lawyers">For lawyers</a>
           <a href="/#workflow">How it works</a>
           <a href="/#workflows">Workflows</a>
           <a href="/#platform">Capabilities</a>
@@ -429,7 +428,8 @@ type LegalPathname = keyof typeof legalPageMeta;
 export default function App() {
   const pathname = normalizePathname(window.location.pathname);
   const isLegalPath = pathname in legalPageMeta;
-  const isLawyersPath = pathname === '/lawyers';
+  const tryVariant = new URLSearchParams(window.location.search).get('try');
+  const isLawyersPath = tryVariant === 'legal';
 
   useEffect(() => {
     document.title = isLegalPath
