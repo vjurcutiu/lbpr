@@ -435,7 +435,7 @@ export default function App() {
     document.title = isLegalPath
       ? legalPageMeta[pathname as LegalPathname]
       : isLawyersPath
-        ? 'Lexbot Pro | AI workflows for lawyers'
+        ? 'Lexbot Pro | Document search and legal workflows for lawyers'
         : 'Lexbot Pro | Structured answers for noisy data';
   }, [isLegalPath, isLawyersPath, pathname]);
 

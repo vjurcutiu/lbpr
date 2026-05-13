@@ -975,6 +975,56 @@ a {
   min-height: 100%;
 }
 
+
+.lawyers-product-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.lawyers-product-card {
+  min-height: 100%;
+  padding: clamp(1.35rem, 3vw, 1.8rem);
+  border-radius: 1.55rem;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(10, 18, 34, 0.92), rgba(8, 15, 29, 0.7));
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+}
+
+.lawyers-product-card--featured {
+  background:
+    radial-gradient(circle at top right, rgba(120, 214, 255, 0.13), transparent 34%),
+    linear-gradient(180deg, rgba(10, 18, 34, 0.94), rgba(8, 15, 29, 0.72));
+}
+
+.lawyers-product-card h3 {
+  margin: 0 0 0.8rem;
+  font-size: clamp(1.35rem, 2.4vw, 1.9rem);
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+}
+
+.lawyers-product-card p {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.lawyers-check-list--compact {
+  gap: 0.62rem;
+}
+
+.lawyers-search-layout {
+  align-items: center;
+}
+
+.lawyers-search-panel {
+  background:
+    radial-gradient(circle at top right, rgba(120, 214, 255, 0.1), transparent 34%),
+    linear-gradient(180deg, rgba(10, 18, 34, 0.92), rgba(8, 15, 29, 0.7));
+}
+
 .lawyers-workflow-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1010,6 +1060,7 @@ a {
 
 @media (max-width: 940px) {
   .lawyers-strip__grid,
+  .lawyers-product-split,
   .lawyers-workflow-grid {
     grid-template-columns: 1fr;
   }
@@ -1046,6 +1097,7 @@ a {
 }
 
 @media (max-width: 640px) {
+  .lawyers-product-card,
   .lawyers-workflow-card {
     padding: 1.25rem;
   }
