@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 type Props = {
+  embedded?: boolean;
+  className?: string;
   uploading: boolean;
   busy: boolean;
   runningTasks: boolean;
@@ -44,12 +46,19 @@ export function FilesTopBar({
   onClearFilter,
   onRefresh,
   onToggleTransfers,
+  embedded = false,
+  className,
 }: Props) {
   const hasActiveTasks = uploading || runningTasks;
 
-  return (
-    <div className="sticky top-0 z-10 border-b bg-background/85 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/65">
-      <div className="flex flex-wrap items-center gap-2 rounded-2xl border bg-card/90 p-2 shadow-sm shadow-primary/5">
+  const commandBar = (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-2 rounded-2xl border border-primary/10 bg-background/75 p-2 shadow-inner shadow-primary/5",
+        embedded ? "" : "bg-card/90 shadow-sm",
+        className
+      )}
+    >
         <Button variant="outline" size="sm" className="md:hidden" onClick={onOpenFolders} title="Browse folders">
           <Folder className="h-4 w-4" />
           <span className="ml-1.5">Folders</span>
@@ -123,6 +132,13 @@ export function FilesTopBar({
           </Button>
         </div>
       </div>
+    );
+
+  if (embedded) return commandBar;
+
+  return (
+    <div className="sticky top-0 z-10 border-b bg-background/85 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/65">
+      {commandBar}
     </div>
   );
 }

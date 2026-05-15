@@ -2083,26 +2083,6 @@ const breadcrumb = useMemo(() => {
   const bgRefresh = () => refresh();
   return (
     <div ref={rootRef} className="files-page-shell h-full min-h-0 flex flex-col relative">
-      {/* Top bar */}
-      <FilesTopBar
-        uploading={uploading}
-        busy={busy}
-        runningTasks={runningUploads}
-        filter={filter}
-        inputRef={inputRef}
-        transcribeInputRef={transcribeInputRef}
-        ocrInputRef={ocrInputRef}
-        onOpenFolders={() => setMobileFoldersOpen(true)}
-        onUpload={() => startUploadTo(selectedFolder)}
-        onNewFolder={() => requestNewFolder(selectedFolder)}
-        onChange={onChange}
-        onPickTranscribeFile={onPickTranscribeFile}
-        onPickOcrFile={onPickOcrFile}
-        onFilterChange={setFilter}
-        onClearFilter={() => setFilter("")}
-        onRefresh={refresh}
-        onToggleTransfers={() => setTrackerOpen((v) => !v)}
-      />
 {/* Main split */}
 <DndContext
   sensors={sensors}
@@ -2278,6 +2258,28 @@ const breadcrumb = useMemo(() => {
                 folderCount={currentFolders.length}
                 fileCount={currentFiles.length}
                 totalSize={currentFolderSize}
+                toolbar={
+                  <FilesTopBar
+                    embedded
+                    uploading={uploading}
+                    busy={busy}
+                    runningTasks={runningUploads}
+                    filter={filter}
+                    inputRef={inputRef}
+                    transcribeInputRef={transcribeInputRef}
+                    ocrInputRef={ocrInputRef}
+                    onOpenFolders={() => setMobileFoldersOpen(true)}
+                    onUpload={() => startUploadTo(selectedFolder)}
+                    onNewFolder={() => requestNewFolder(selectedFolder)}
+                    onChange={onChange}
+                    onPickTranscribeFile={onPickTranscribeFile}
+                    onPickOcrFile={onPickOcrFile}
+                    onFilterChange={setFilter}
+                    onClearFilter={() => setFilter("")}
+                    onRefresh={refresh}
+                    onToggleTransfers={() => setTrackerOpen((value) => !value)}
+                  />
+                }
                 onGoUp={() => setSelectedFolder(parentPath(selectedFolder))}
                 onSelectFolder={setSelectedFolder}
               />
@@ -2436,7 +2438,7 @@ const breadcrumb = useMemo(() => {
                 }}
               >
                 <div ref={listScrollRef} className="absolute inset-0 overflow-auto">
-                  <div className="px-4 py-4">
+                  <div className="px-4 pb-4 pt-3">
                     <div className="overflow-hidden rounded-2xl border border-primary/10 bg-card/95 shadow-sm shadow-primary/5">
                       {/* Header */}
                       <div className="hidden md:grid grid-cols-[1.5rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-3 border-b border-primary/10 bg-muted/35 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
