@@ -2,7 +2,8 @@
 import type { ReactNode } from "react"
 import { useEffect, useMemo, useState } from "react"
 import { Link, NavLink, useLocation } from "react-router-dom"
-import { Menu, Sun, Moon } from "lucide-react"
+import { Menu, Moon, Sun } from "lucide-react"
+import { RiRobotLine } from "react-icons/ri"
 
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -13,11 +14,11 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
-import { RiRobotLine } from "react-icons/ri";
-
-import { useAuthContext } from "@/features/auth/AuthProvider";
-import { auth } from "@/features/auth/firebase";
-import PhoneLoginInfoModal from "@/features/auth/PhoneLoginInfoModal";
+import PhoneLoginInfoModal from "@/features/auth/PhoneLoginInfoModal"
+import { useAuthContext } from "@/features/auth/AuthProvider"
+import { auth } from "@/features/auth/firebase"
+import ProfileMenu from "@/features/profile/ProfileMenu"
+import { cn } from "@/lib/utils"
 
 type NavItem = { to: string; label: string; where?: "top" | "mobile" | "both" }
 
@@ -29,67 +30,69 @@ type AppShellProps = {
   fullBleed?: boolean
 }
 
+const PRIMARY_NAV_PATHS = new Set(["/files", "/chat", "/workflows"])
+
 export default function AppShell({
   children,
   appName = "LexBot PRO",
   navItems = [],
   fullBleed = false,
 }: AppShellProps) {
-  const { user, loading } = useAuthContext();
-  const location = useLocation();
-  const [phoneModalOpen, setPhoneModalOpen] = useState(false);
+  const { user, loading } = useAuthContext()
+  const location = useLocation()
+  const [phoneModalOpen, setPhoneModalOpen] = useState(false)
 
   const phoneModalStorageKey = useMemo(() => {
-    const fb = auth.currentUser;
-    const uid = fb?.uid;
-    return uid ? `lexbot:onboarding:phone-login:v1:dismissed:${uid}` : null;
-  }, [user?.uid]);
+    const fb = auth.currentUser
+    const uid = fb?.uid
+    return uid ? `lexbot:onboarding:phone-login:v1:dismissed:${uid}` : null
+  }, [user?.uid])
 
   const shouldShowPhoneModal = useMemo(() => {
-    if (loading || !user) return false;
-    const fb = auth.currentUser;
-    if (!fb) return false;
+    if (loading || !user) return false
+    const fb = auth.currentUser
+    if (!fb) return false
 
-    const phone = fb.phoneNumber;
-    if (!phone) return false;
+    const phone = fb.phoneNumber
+    if (!phone) return false
 
-    const providerIds = new Set(fb.providerData?.map((p) => p.providerId) ?? []);
+    const providerIds = new Set(fb.providerData?.map((p) => p.providerId) ?? [])
     // Some custom-token logins don't include "phone" in providerData even if the user has a phoneNumber.
-    if (fb.phoneNumber) providerIds.add("phone");
+    if (fb.phoneNumber) providerIds.add("phone")
 
-    const hasOtherProvider = providerIds.has("google.com") || providerIds.has("password");
-    const hasEmail = !!fb.email;
+    const hasOtherProvider = providerIds.has("google.com") || providerIds.has("password")
+    const hasEmail = !!fb.email
 
     // Only show for phone-only accounts (the ones provisioned via SMS magic link).
-    const isPhoneOnly = !!phone && !hasEmail && !hasOtherProvider;
-    if (!isPhoneOnly) return false;
+    const isPhoneOnly = !!phone && !hasEmail && !hasOtherProvider
+    if (!isPhoneOnly) return false
 
     // Avoid auto-opening while already on the Profile page (where the CTA would be redundant).
-    if (location.pathname.startsWith("/profile")) return false;
+    if (location.pathname.startsWith("/profile")) return false
 
     // One-time per user per device.
-    if (!phoneModalStorageKey) return false;
+    if (!phoneModalStorageKey) return false
     try {
-      return !localStorage.getItem(phoneModalStorageKey);
+      return !localStorage.getItem(phoneModalStorageKey)
     } catch {
-      return true;
+      return true
     }
-  }, [loading, user, location.pathname, phoneModalStorageKey]);
+  }, [loading, user, location.pathname, phoneModalStorageKey])
 
   useEffect(() => {
-    if (shouldShowPhoneModal) setPhoneModalOpen(true);
-  }, [shouldShowPhoneModal]);
+    if (shouldShowPhoneModal) setPhoneModalOpen(true)
+  }, [shouldShowPhoneModal])
 
   const onPhoneModalOpenChange = (open: boolean) => {
-    setPhoneModalOpen(open);
+    setPhoneModalOpen(open)
     if (!open && phoneModalStorageKey) {
       try {
-        localStorage.setItem(phoneModalStorageKey, "1");
+        localStorage.setItem(phoneModalStorageKey, "1")
       } catch {
         // ignore
       }
     }
-  };
+  }
 
   return (
     // Use dynamic viewport height and prevent outer-page scrolling.
@@ -106,9 +109,7 @@ export default function AppShell({
 
       {fullBleed ? (
         // Full-bleed: content manages its own padding; keep it height-constrained
-        <main className="flex-1 min-h-0 overflow-hidden">
-          {children}
-        </main>
+        <main className="flex-1 min-h-0 overflow-hidden">{children}</main>
       ) : (
         // Non-full-bleed pages may still need page scroll, so keep overflow-auto here.
         <main className="flex-1 overflow-auto">
@@ -122,27 +123,25 @@ export default function AppShell({
 /* ----------------------------- Top Navigation ----------------------------- */
 
 function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] }) {
-  const topNav = navItems.filter(i => i.where === "top" || i.where === "both")
+  const topNav = navItems.filter(
+    (item) =>
+      (item.where === "top" || item.where === "both") && PRIMARY_NAV_PATHS.has(item.to)
+  )
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b backdrop-blur bg-background/90 supports-[backdrop-filter]:bg-background/70 shadow-sm shadow-primary/5">
-      <div className="container mx-auto h-14 px-4 flex items-center gap-3">
+    <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/90 shadow-sm shadow-primary/5 backdrop-blur-xl supports-[backdrop-filter]:bg-background/75">
+      <div className="flex h-16 w-full items-center px-4 sm:px-5 lg:px-6">
         {/* Mobile: Drawer Trigger */}
-        <div className="lg:hidden">
+        <div className="mr-2 flex lg:hidden">
           <MobileNav appName={appName} navItems={navItems} />
         </div>
 
         {/* Logo */}
-        <Link to="/" className="hidden lg:flex items-center gap-2 font-semibold">
-          <div className="h-7 w-7 rounded-lg grid place-items-center">
-            <RiRobotLine size={24} />
-          </div>
-          <span>{appName}</span>
-        </Link>
+        <BrandLockup appName={appName} />
 
         {/* Primary Nav (Desktop) */}
-        <nav className="hidden lg:flex items-center gap-1 ml-2">
-          {topNav.map(item => (
+        <nav className="ml-8 hidden items-center rounded-full border border-border/70 bg-card/50 p-1 shadow-sm shadow-primary/5 lg:flex">
+          {topNav.map((item) => (
             <TopLink key={item.to} to={item.to} label={item.label} />
           ))}
         </nav>
@@ -151,11 +150,41 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
         <div className="flex-1" />
 
         {/* Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded-full border border-border/60 bg-card/50 p-1 shadow-sm shadow-primary/5">
           <ThemeToggle />
+          <div className="h-6 w-px bg-border/80" />
+          <ProfileMenu />
         </div>
       </div>
     </header>
+  )
+}
+
+function BrandLockup({ appName }: { appName: string }) {
+  const tierMatch = appName.match(/\s+(PRO|TEAM|ENTERPRISE)$/i)
+  const tier = tierMatch?.[1]?.toUpperCase()
+  const productName = tier ? appName.replace(/\s+(PRO|TEAM|ENTERPRISE)$/i, "") : appName
+
+  return (
+    <Link
+      to="/files"
+      className="group flex min-w-0 items-center gap-2.5 rounded-2xl pr-2 transition-opacity hover:opacity-90"
+      aria-label={`${appName} home`}
+    >
+      <span className="grid size-9 place-items-center rounded-2xl border border-primary/15 bg-primary/10 text-primary shadow-sm shadow-primary/10 transition-colors group-hover:bg-primary/15">
+        <RiRobotLine size={21} />
+      </span>
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-[15px] font-semibold tracking-[-0.015em] text-foreground sm:text-base">
+          {productName}
+        </span>
+        {tier ? (
+          <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-primary shadow-sm shadow-primary/5 sm:text-[11px]">
+            {tier}
+          </span>
+        ) : null}
+      </span>
+    </Link>
   )
 }
 
@@ -166,12 +195,13 @@ function TopLink({ to, label }: { to: string; label: string }) {
     <NavLink
       to={to}
       className={({ isActive }) =>
-        [
-          "px-3 py-2 text-sm rounded-md transition-colors",
+        cn(
+          "relative inline-flex h-9 items-center rounded-full px-4 text-sm font-medium transition-all duration-200",
+          "focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-0",
           isActive
-            ? "bg-primary/15 text-primary shadow-sm shadow-primary/10"
-            : "text-muted-foreground hover:text-foreground hover:bg-primary/10",
-        ].join(" ")
+            ? "bg-primary/10 text-primary shadow-sm shadow-primary/10"
+            : "text-muted-foreground hover:bg-primary/10 hover:text-foreground"
+        )
       }
     >
       {label}
@@ -188,38 +218,35 @@ function MobileNav({
   appName: string
   navItems: NavItem[]
 }) {
-  const mobileNav = navItems.filter(i => i.where === "mobile" || i.where === "both")
+  const mobileNav = navItems.filter((i) => i.where === "mobile" || i.where === "both")
 
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="Open menu">
+        <Button variant="ghost" size="icon" className="rounded-full" aria-label="Open menu">
           <Menu className="h-5 w-5" />
         </Button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-80">
+      <SheetContent side="left" className="w-80 border-r bg-background/95 backdrop-blur-xl">
         <SheetHeader className="text-left">
-          <SheetTitle className="flex items-center gap-2">
-            <div className="h-6 w-6 rounded-lg bg-primary/10 grid place-items-center">
-              <div className="h-3 w-3 rounded-sm bg-primary" />
-            </div>
-            {appName}
+          <SheetTitle className="text-left">
+            <BrandLockup appName={appName} />
           </SheetTitle>
         </SheetHeader>
 
         <div className="mt-6 flex flex-col gap-4">
           <Separator />
 
-          <div className="flex flex-col">
-            {mobileNav.map(item => (
+          <div className="flex flex-col gap-1">
+            {mobileNav.map((item) => (
               <MobileLink key={item.to} to={item.to} label={item.label} />
             ))}
           </div>
 
           <Separator />
 
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Theme</span>
+          <div className="flex items-center justify-between rounded-2xl border border-border/70 bg-card/60 p-3">
+            <span className="text-sm font-medium text-foreground">Theme</span>
             <ThemeToggle compact />
           </div>
         </div>
@@ -233,10 +260,12 @@ function MobileLink({ to, label }: { to: string; label: string }) {
     <NavLink
       to={to}
       className={({ isActive }) =>
-        [
-          "px-3 py-2 rounded-md text-sm",
-          isActive ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
-        ].join(" ")
+        cn(
+          "rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+          isActive
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+        )
       }
     >
       {label}
@@ -255,9 +284,7 @@ function ThemeToggle({ compact = false }: { compact?: boolean }) {
       const saved = localStorage.getItem("theme")
       if (saved === "dark") document.documentElement.classList.add("dark")
       if (saved === "light") document.documentElement.classList.remove("dark")
-      setIsDark(
-        saved ? saved === "dark" : document.documentElement.classList.contains("dark")
-      )
+      setIsDark(saved ? saved === "dark" : document.documentElement.classList.contains("dark"))
     } catch {
       setIsDark(document.documentElement.classList.contains("dark"))
     }
@@ -278,15 +305,21 @@ function ThemeToggle({ compact = false }: { compact?: boolean }) {
 
   if (compact) {
     return (
-      <Button variant="outline" size="sm" onClick={toggle}>
+      <Button variant="outline" size="sm" className="rounded-full" onClick={toggle}>
         {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       </Button>
     )
   }
 
   return (
-    <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
-      {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-8 rounded-full text-muted-foreground hover:bg-primary/10 hover:text-foreground"
+      onClick={toggle}
+      aria-label="Toggle theme"
+    >
+      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </Button>
   )
 }
