@@ -34,36 +34,40 @@ export function FilesFolderHeader({
 }: Props) {
   const folderTitle = selectedFolder ? breadcrumb[breadcrumb.length - 1]?.label || selectedFolder : "Files";
 
-  return (
-    <div className="border-b border-primary/10 bg-background/50 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/40">
-      <div className="rounded-[1.35rem] border border-primary/10 bg-card/90 p-3 shadow-sm shadow-primary/5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0 space-y-2">
-            <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-              {breadcrumb.map((crumb, idx) => (
-                <div key={crumb.path || "root"} className="flex min-w-0 items-center">
-                  <button
-                    className={cn(
-                      "max-w-[32vw] truncate rounded-md px-1 py-0.5 hover:bg-primary/10 hover:text-foreground md:max-w-[18rem]",
-                      idx === breadcrumb.length - 1 && "font-medium text-foreground"
-                    )}
-                    onClick={() => onSelectFolder(crumb.path)}
-                    title={crumb.path || "Root"}
-                    type="button"
-                  >
-                    {crumb.label}
-                  </button>
-                  {idx < breadcrumb.length - 1 ? <ChevronRight className="mx-0.5 h-3.5 w-3.5 opacity-60" /> : null}
-                </div>
-              ))}
-            </div>
+  const showBreadcrumb = breadcrumb.length > 1;
 
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-primary/15 bg-primary/10 text-primary shadow-sm shadow-primary/10">
-                <FolderOpen className="h-5 w-5" />
+  return (
+    <div className="border-b border-primary/10 bg-background/50 px-4 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/40">
+      <div className="rounded-[1.25rem] border border-primary/10 bg-card/90 p-2.5 shadow-sm shadow-primary/5 sm:p-3">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 space-y-1">
+            {showBreadcrumb ? (
+              <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+                {breadcrumb.map((crumb, idx) => (
+                  <div key={crumb.path || "root"} className="flex min-w-0 items-center">
+                    <button
+                      className={cn(
+                        "max-w-[32vw] truncate rounded-md px-1 py-0.5 hover:bg-primary/10 hover:text-foreground md:max-w-[18rem]",
+                        idx === breadcrumb.length - 1 && "font-medium text-foreground"
+                      )}
+                      onClick={() => onSelectFolder(crumb.path)}
+                      title={crumb.path || "Root"}
+                      type="button"
+                    >
+                      {crumb.label}
+                    </button>
+                    {idx < breadcrumb.length - 1 ? <ChevronRight className="mx-0.5 h-3 w-3 opacity-60" /> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-primary/15 bg-primary/10 text-primary shadow-sm shadow-primary/10">
+                <FolderOpen className="h-4 w-4" />
               </div>
               <div className="min-w-0">
-                <h1 className="truncate text-2xl font-semibold tracking-tight text-foreground">{folderTitle}</h1>
+                <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">{folderTitle}</h1>
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   {folderCount} folder{folderCount === 1 ? "" : "s"} · {fileCount} file{fileCount === 1 ? "" : "s"} · {fmtSize(totalSize)}
                 </p>
@@ -71,13 +75,13 @@ export function FilesFolderHeader({
             </div>
           </div>
 
-          <Button variant="outline" size="sm" onClick={onGoUp} disabled={!selectedFolder} title="Up" className="w-fit bg-background/75">
+          <Button variant="outline" size="sm" onClick={onGoUp} disabled={!selectedFolder} title="Up" className="h-8 w-fit bg-background/75">
             <ArrowUp className="h-4 w-4" />
             <span className="ml-1.5">Up one level</span>
           </Button>
         </div>
 
-        {toolbar ? <div className="mt-3 border-t border-primary/10 pt-3">{toolbar}</div> : null}
+        {toolbar ? <div className="mt-2 border-t border-primary/10 pt-2">{toolbar}</div> : null}
       </div>
     </div>
   );
