@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, ChevronRight, CornerDownRight, GitBranch, MoreVertical, Pencil, Search, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowRight, CheckCircle2, ChevronRight, CornerDownRight, FileText, GitBranch, ListFilter, Loader2, MoreVertical, PanelLeftClose, PanelLeftOpen, Pencil, Search, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -347,6 +347,123 @@ function matchesSearch(run: WorkflowRun, query: string) {
   return haystack.includes(needle);
 }
 
+type RunFilter = "all" | "active" | "completed" | "drafts" | "failed";
+
+type RunTimeGroup = {
+  id: "today" | "week" | "earlier";
+  label: string;
+  runs: WorkflowRun[];
+};
+
+const RUN_FILTERS: Array<{ id: RunFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "active", label: "Active" },
+  { id: "completed", label: "Completed" },
+  { id: "drafts", label: "Drafts" },
+  { id: "failed", label: "Failed" },
+];
+
+function workflowCapabilityAccentClass(capability: WorkflowCapability) {
+  switch (capability) {
+    case "summarize":
+      return "bg-primary/60";
+    case "compare":
+      return "bg-sky-500/60";
+    case "extract":
+      return "bg-amber-500/70";
+    case "draft":
+      return "bg-fuchsia-500/60";
+    case "report":
+      return "bg-violet-500/60";
+    case "plan":
+      return "bg-emerald-500/60";
+    default:
+      return "bg-muted-foreground/40";
+  }
+}
+
+function workflowCapabilityPillClass(capability: WorkflowCapability) {
+  switch (capability) {
+    case "summarize":
+      return "border-primary/15 bg-primary/10 text-primary";
+    case "compare":
+      return "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:text-sky-300";
+    case "extract":
+      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    case "draft":
+      return "border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-700 dark:text-fuchsia-300";
+    case "report":
+      return "border-violet-500/20 bg-violet-500/10 text-violet-700 dark:text-violet-300";
+    case "plan":
+      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+    default:
+      return "border-border bg-muted/50 text-muted-foreground";
+  }
+}
+
+function startOfLocalDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function getRunTimeGroupId(iso: string, now = new Date()): RunTimeGroup["id"] {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "earlier";
+  if (sameLocalDay(iso, now)) return "today";
+
+  const dayMs = 24 * 60 * 60 * 1000;
+  const diffDays = Math.floor((startOfLocalDay(now).getTime() - startOfLocalDay(date).getTime()) / dayMs);
+  return diffDays >= 0 && diffDays < 7 ? "week" : "earlier";
+}
+
+function groupWorkflowRunsByTime(runs: WorkflowRun[]): RunTimeGroup[] {
+  const groups: RunTimeGroup[] = [
+    { id: "today", label: "Today", runs: [] },
+    { id: "week", label: "This week", runs: [] },
+    { id: "earlier", label: "Earlier", runs: [] },
+  ];
+  const groupById = new Map(groups.map((group) => [group.id, group]));
+  for (const run of runs) {
+    groupById.get(getRunTimeGroupId(run.updated_at))?.runs.push(run);
+  }
+  return groups.filter((group) => group.runs.length);
+}
+
+function runMatchesFilter(
+  run: WorkflowRun,
+  filter: RunFilter,
+  refiningRunId: string | null,
+  draftRunIds: Set<string>
+) {
+  if (filter === "all") return true;
+  if (filter === "drafts") return draftRunIds.has(run.id);
+
+  const status = workflowDisplayStatus(run, refiningRunId);
+  if (filter === "active") return status === "queued" || status === "running";
+  return status === filter;
+}
+
+function workflowRunFilterCopy(filter: RunFilter) {
+  switch (filter) {
+    case "active":
+      return "No active workflow runs right now.";
+    case "completed":
+      return "No completed workflow runs yet.";
+    case "drafts":
+      return "No edited drafts yet.";
+    case "failed":
+      return "No failed workflow runs.";
+    default:
+      return "No workflow runs yet. Start one from the workflow list.";
+  }
+}
+
+function workflowRunsSubtitle(totalRuns: number, inFlight: number) {
+  if (inFlight) {
+    return `${inFlight} active • ${totalRuns} saved output${totalRuns === 1 ? "" : "s"}`;
+  }
+  return `${totalRuns} saved output${totalRuns === 1 ? "" : "s"}`;
+}
+
 function PaneScroller({
   mobile,
   className,
@@ -358,6 +475,82 @@ function PaneScroller({
 }) {
   if (mobile) return <div className={className}>{children}</div>;
   return <ScrollArea className={cn("h-full", className)}>{children}</ScrollArea>;
+}
+
+function WorkflowRunsLoadingState() {
+  return (
+    <div className="space-y-3 p-3" aria-label="Loading workflow runs">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div key={index} className="rounded-2xl border border-border/60 bg-background/80 p-3">
+          <div className="flex items-start gap-3">
+            <div className="h-5 w-5 animate-pulse rounded-full bg-muted" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="h-3.5 w-3/4 animate-pulse rounded-full bg-muted" />
+              <div className="h-3 w-1/2 animate-pulse rounded-full bg-muted/80" />
+              <div className="flex gap-2 pt-1">
+                <div className="h-5 w-16 animate-pulse rounded-full bg-muted/70" />
+                <div className="h-5 w-20 animate-pulse rounded-full bg-muted/70" />
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WorkflowRunsEmptyState({
+  searchActive,
+  filter,
+  onClear,
+}: {
+  searchActive: boolean;
+  filter: RunFilter;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-[220px] items-center justify-center px-4 py-8 text-center">
+      <div className="max-w-[240px] space-y-3">
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-muted-foreground">
+          {searchActive ? <Search className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+        </div>
+        <div>
+          <div className="text-sm font-medium text-foreground">
+            {searchActive ? "No matching runs" : workflowRunFilterCopy(filter)}
+          </div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {searchActive
+              ? "Try a different search or clear the current filter."
+              : "Launch a workflow to keep the finished output here."}
+          </p>
+        </div>
+        {(searchActive || filter !== "all") ? (
+          <Button type="button" variant="outline" size="sm" className="h-8 rounded-full" onClick={onClear}>
+            Clear view
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function WorkflowRunsErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex h-full min-h-[220px] items-center justify-center px-4 py-8 text-center">
+      <div className="max-w-[240px] space-y-3">
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl border border-destructive/20 bg-destructive/10 text-destructive">
+          <AlertCircle className="h-5 w-5" />
+        </div>
+        <div>
+          <div className="text-sm font-medium text-foreground">Workflow runs could not load</div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Refresh the list and try again.</p>
+        </div>
+        <Button type="button" variant="outline" size="sm" className="h-8 rounded-full" onClick={onRetry}>
+          Retry
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function RunListItem({
@@ -382,98 +575,190 @@ function RunListItem({
   const displayStatus = status || run.status;
   const visualStatus = workflowVisualStatus(displayStatus, { hasDraft: hasEditDraft, busy: editDraftBusy });
   const statusLabel = workflowStatusLabel(visualStatus);
+  const selectionLabel = formatSelection(run);
+  const folderLabel = run.selection.current_folder || "Root";
 
   return (
-    <div
-      className={cn(
-        "group w-full min-w-0 max-w-full overflow-hidden border-l-2 px-3 py-3 text-left transition-colors",
-        active ? "border-l-primary bg-primary/5" : "border-l-transparent hover:bg-muted/30"
-      )}
-    >
-      <div className="flex w-full min-w-0 max-w-full items-start gap-2 overflow-hidden">
-        <button
-          type="button"
-          onClick={() => onSelect(run.id)}
-          className="block min-w-0 flex-1 basis-0 overflow-hidden text-left"
-          title={run.title || "Untitled workflow"}
-        >
-          <div className="flex w-full min-w-0 items-start gap-2 overflow-hidden">
-            <div
-              className={cn(
-                "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition-colors",
-                workflowStatusAccentClass(visualStatus)
-              )}
-              aria-label={`Workflow status: ${statusLabel}`}
-              title={statusLabel}
-            >
-              <WorkflowStatusIcon status={visualStatus} className="h-4 w-4" />
-            </div>
+    <div className="px-2 py-1.5">
+      <div
+        className={cn(
+          "group/card relative w-full min-w-0 max-w-full overflow-hidden rounded-2xl border bg-background/80 text-left transition-all",
+          active
+            ? "border-primary/35 bg-primary/[0.045] shadow-sm ring-1 ring-primary/15"
+            : "border-border/70 hover:border-primary/20 hover:bg-background hover:shadow-sm"
+        )}
+      >
+        <div
+          className={cn(
+            "absolute inset-y-3 left-0 w-1 rounded-r-full",
+            active ? "bg-primary" : workflowCapabilityAccentClass(run.capability)
+          )}
+          aria-hidden="true"
+        />
 
-            <div className="w-0 min-w-0 flex-1 overflow-hidden">
-              <div className="min-w-0 overflow-hidden">
-                <div className="truncate text-sm font-medium leading-5 text-foreground">{run.title || "Untitled workflow"}</div>
-                <div className="mt-0.5 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden text-[11px] text-muted-foreground">
-                  <span className="min-w-0 flex-1 basis-0 truncate">{formatCapability(run.capability)}</span>
+        <div className="flex w-full min-w-0 items-start gap-2.5 px-3 py-3 pl-4">
+          <button
+            type="button"
+            onClick={() => onSelect(run.id)}
+            className="block min-w-0 flex-1 basis-0 overflow-hidden text-left"
+            title={run.title || "Untitled workflow"}
+          >
+            <div className="flex w-full min-w-0 items-start gap-2.5">
+              <span
+                className={cn(
+                  "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border bg-background transition-colors",
+                  workflowStatusAccentClass(visualStatus)
+                )}
+                aria-label={`Workflow status: ${statusLabel}`}
+                title={statusLabel}
+              >
+                <WorkflowStatusIcon status={visualStatus} className="h-3.5 w-3.5" />
+              </span>
+
+              <span className="w-0 min-w-0 flex-1 overflow-hidden">
+                <span className="block truncate text-sm font-semibold leading-5 text-foreground">
+                  {run.title || "Untitled workflow"}
+                </span>
+
+                <span className="mt-1 flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden text-[11px] text-muted-foreground">
+                  <span className="min-w-0 max-w-[8.5rem] truncate">{formatCapability(run.capability)}</span>
                   <span className="h-1 w-1 shrink-0 rounded-full bg-border" />
                   <span className="shrink-0 truncate">{formatRelativeTime(run.updated_at)}</span>
-                </div>
-              </div>
+                </span>
 
-              <div className="mt-1.5 flex w-full min-w-0 items-center gap-x-2 gap-y-1 overflow-hidden text-xs text-muted-foreground">
-                <span className="min-w-0 flex-1 basis-0 truncate">{formatSelection(run)}</span>
-                {run.selection.current_folder ? (
-                  <>
-                    <span className="h-1 w-1 shrink-0 rounded-full bg-border" />
-                    <span className="min-w-0 flex-1 basis-0 truncate">{run.selection.current_folder}</span>
-                  </>
-                ) : null}
-              </div>
+                <span className="mt-2 flex w-full min-w-0 flex-wrap items-center gap-1.5 overflow-hidden text-[11px]">
+                  <span
+                    className={cn(
+                      "inline-flex max-w-full items-center rounded-full border px-2 py-0.5 font-medium",
+                      workflowCapabilityPillClass(run.capability)
+                    )}
+                  >
+                    <span className="truncate">{selectionLabel}</span>
+                  </span>
+                  <span className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-muted/35 px-2 py-0.5 text-muted-foreground">
+                    <span className="truncate">{folderLabel}</span>
+                  </span>
+                </span>
+              </span>
             </div>
-          </div>
-        </button>
+          </button>
 
-        <div className="shrink-0">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground opacity-100 transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="Workflow actions"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <MoreVertical className="h-4 w-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={6} className="min-w-[170px] rounded-2xl border-border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.16)]">
-              <DropdownMenuItem
-                className="cursor-pointer rounded-xl px-2.5 py-2"
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onRename(run);
-                }}
-              >
-                <Pencil className="h-4 w-4" />
-                Rename
-              </DropdownMenuItem>
-              <DropdownMenuSeparator className="my-1 bg-border/70" />
-              <DropdownMenuItem
-                variant="destructive"
-                className="cursor-pointer rounded-xl px-2.5 py-2"
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onDelete(run);
-                }}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <div className="shrink-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground opacity-100 transition-all hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:opacity-0 md:group-focus-within/card:opacity-100 md:group-hover/card:opacity-100",
+                    active && "md:opacity-100"
+                  )}
+                  aria-label="Workflow actions"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={6} className="min-w-[170px] rounded-2xl border-border p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.16)]">
+                <DropdownMenuItem
+                  className="cursor-pointer rounded-xl px-2.5 py-2"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onRename(run);
+                  }}
+                >
+                  <Pencil className="h-4 w-4" />
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="my-1 bg-border/70" />
+                <DropdownMenuItem
+                  variant="destructive"
+                  className="cursor-pointer rounded-xl px-2.5 py-2"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onDelete(run);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
     </div>
   );
 }
+
+function CollapsedRunsRail({
+  runs,
+  selectedRunId,
+  refiningRunId,
+  draftRunIds,
+  onSelect,
+  onExpand,
+}: {
+  runs: WorkflowRun[];
+  selectedRunId: string | null;
+  refiningRunId: string | null;
+  draftRunIds: Set<string>;
+  onSelect: (runId: string) => void;
+  onExpand: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col items-center border-r border-border/70 bg-background/95 py-3">
+      <button
+        type="button"
+        onClick={onExpand}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-border/70 bg-background text-muted-foreground transition-colors hover:border-primary/25 hover:bg-primary/5 hover:text-primary"
+        aria-label="Expand workflow runs panel"
+        title="Expand workflow runs"
+      >
+        <PanelLeftOpen className="h-4 w-4" />
+      </button>
+
+      <div className="mt-3 h-px w-8 bg-border/70" />
+
+      <PaneScroller mobile={false} className="mt-2 w-full flex-1">
+        <div className="flex flex-col items-center gap-2 px-2 py-1">
+          {runs.length ? runs.map((run) => {
+            const visualStatus = workflowVisualStatus(workflowDisplayStatus(run, refiningRunId), {
+              hasDraft: draftRunIds.has(run.id),
+            });
+            const active = run.id === selectedRunId;
+
+            return (
+              <button
+                key={run.id}
+                type="button"
+                onClick={() => onSelect(run.id)}
+                title={run.title || "Untitled workflow"}
+                className={cn(
+                  "relative inline-flex h-10 w-10 items-center justify-center rounded-2xl border bg-background transition-all hover:border-primary/25 hover:bg-primary/5",
+                  active ? "border-primary/35 bg-primary/10 text-primary ring-1 ring-primary/20" : "border-border/70 text-muted-foreground"
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute left-1 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full",
+                    active ? "bg-primary" : workflowCapabilityAccentClass(run.capability)
+                  )}
+                  aria-hidden="true"
+                />
+                <WorkflowStatusIcon status={visualStatus} className="h-4 w-4" />
+              </button>
+            );
+          }) : (
+            <div className="mt-2 flex h-10 w-10 items-center justify-center rounded-2xl border border-dashed border-border/70 text-muted-foreground">
+              <FileText className="h-4 w-4" />
+            </div>
+          )}
+        </div>
+      </PaneScroller>
+    </div>
+  );
+}
+
 
 
 function WorkflowCatalogItem({
@@ -597,13 +882,16 @@ export default function WorkflowsPage() {
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("inbox");
   const workflowPanelsRef = useRef<HTMLDivElement>(null);
   const [runsPaneWidth, setRunsPaneWidth] = useState(310);
+  const [runsPaneCollapsed, setRunsPaneCollapsed] = useState(false);
   const [flowsPaneWidth, setFlowsPaneWidth] = useState(300);
   const [resizingPane, setResizingPane] = useState<"runs" | "flows" | null>(null);
   const [catalog, setCatalog] = useState<WorkflowManifest[]>([]);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [, setRefreshing] = useState(false);
+  const [runsLoadError, setRunsLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(null);
@@ -700,6 +988,7 @@ export default function WorkflowsPage() {
 
     try {
       const [catalogRes, runsRes] = await Promise.all([listWorkflows(), listWorkflowRuns(24)]);
+      setRunsLoadError(null);
       setCatalog(catalogRes || []);
       setRuns((prev) => {
         const incoming = runsRes.items || [];
@@ -710,7 +999,9 @@ export default function WorkflowsPage() {
       });
     } catch (err) {
       console.error("[workflows] load error", err);
-      toast.error("Failed to load workflows", { description: parseErr(err) });
+      const message = parseErr(err);
+      if (!silent) setRunsLoadError(message);
+      toast.error("Failed to load workflows", { description: message });
     } finally {
       if (silent) setRefreshing(false);
       else setLoading(false);
@@ -1284,6 +1575,10 @@ export default function WorkflowsPage() {
   }, [isMobile]);
 
   useEffect(() => {
+    if (isMobile && runsPaneCollapsed) setRunsPaneCollapsed(false);
+  }, [isMobile, runsPaneCollapsed]);
+
+  useEffect(() => {
     if (expandedWorkflowTable && expandedWorkflowTable.runId !== selectedRunId) {
       setExpandedWorkflowTable(null);
     }
@@ -1375,10 +1670,40 @@ export default function WorkflowsPage() {
   }, [refiningRunId, runs]);
 
 
+  const draftRunIds = useMemo(() => {
+    return new Set(Object.values(outputEditDrafts).map((draft) => draft.runId));
+  }, [outputEditDrafts]);
+
+  const runFilterCounts = useMemo(() => {
+    const counts: Record<RunFilter, number> = {
+      all: runs.length,
+      active: 0,
+      completed: 0,
+      drafts: 0,
+      failed: 0,
+    };
+
+    for (const run of runs) {
+      const status = workflowDisplayStatus(run, refiningRunId);
+      if (status === "queued" || status === "running") counts.active += 1;
+      if (status === "completed") counts.completed += 1;
+      if (status === "failed") counts.failed += 1;
+      if (draftRunIds.has(run.id)) counts.drafts += 1;
+    }
+
+    return counts;
+  }, [draftRunIds, refiningRunId, runs]);
 
   const visibleRuns = useMemo(() => {
-    return runs.filter((run) => matchesSearch(run, search));
-  }, [runs, search]);
+    return runs.filter((run) => matchesSearch(run, search) && runMatchesFilter(run, runFilter, refiningRunId, draftRunIds));
+  }, [draftRunIds, refiningRunId, runFilter, runs, search]);
+
+  const visibleRunGroups = useMemo(() => groupWorkflowRunsByTime(visibleRuns), [visibleRuns]);
+
+  const clearRunsView = useCallback(() => {
+    setSearch("");
+    setRunFilter("all");
+  }, []);
 
   const coreCatalog = useMemo(() => catalog.filter(isCoreWorkflow), [catalog]);
   const visibleProPackGroups = useMemo(() => getVisibleProPackGroups(), []);
@@ -1577,58 +1902,138 @@ export default function WorkflowsPage() {
             isMobile
               ? "border-t-0"
               : isCompactDesktop && !outputFocusActive
-                ? "grid h-full min-h-0 grid-cols-[minmax(260px,32vw)_minmax(0,1fr)] grid-rows-[minmax(180px,42%)_minmax(180px,58%)] overflow-hidden"
+                ? cn(
+                  "grid h-full min-h-0 grid-rows-[minmax(180px,42%)_minmax(180px,58%)] overflow-hidden",
+                  runsPaneCollapsed ? "grid-cols-[68px_minmax(0,1fr)]" : "grid-cols-[minmax(260px,32vw)_minmax(0,1fr)]"
+                )
                 : "flex h-full min-h-0 flex-row overflow-hidden"
           )}
         >
         <section
           className={cn(
-            "flex min-h-[220px] min-w-0 flex-col overflow-hidden border-border/70",
+            "flex min-h-[220px] min-w-0 flex-col overflow-hidden border-border/70 bg-muted/[0.03]",
             isMobile && "border-b",
             isCompactDesktop && "min-h-0 border-r border-b [grid-column:1] [grid-row:1]",
             !isMobile && !isCompactDesktop && "min-h-0",
             !showInbox && "hidden"
           )}
-          style={isResizableDesktop ? { flex: `0 0 ${runsPaneWidth}px`, width: runsPaneWidth } : undefined}
+          style={isResizableDesktop ? { flex: `0 0 ${runsPaneCollapsed ? 68 : runsPaneWidth}px`, width: runsPaneCollapsed ? 68 : runsPaneWidth } : undefined}
         >
-          <div className="shrink-0 border-b border-border/70 px-3 py-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search runs"
-                className="h-8 rounded-full border-border/80 bg-background pl-8 text-sm shadow-none"
-              />
-            </div>
-          </div>
-          <div className="min-h-0 flex-1 overflow-hidden">
-            {loading ? (
-              <div className="p-3 text-sm text-muted-foreground">Loading workflow runs…</div>
-            ) : visibleRuns.length ? (
-              <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full w-full min-w-0 max-w-full overflow-hidden"}>
-                <div className="w-full min-w-0 max-w-full overflow-hidden divide-y divide-border/70">
-                  {visibleRuns.map((run) => (
-                    <RunListItem
-                      key={run.id}
-                      run={run}
-                      active={run.id === selectedRunId}
-                      status={workflowDisplayStatus(run, refiningRunId)}
-                      hasEditDraft={!!draftRunState.get(run.id)?.hasDraft}
-                      editDraftBusy={!!draftRunState.get(run.id)?.busy}
-                      onSelect={handleSelectRun}
-                      onRename={startRenamingRun}
-                      onDelete={startDeletingRun}
-                    />
-                  ))}
+          {runsPaneCollapsed && !isMobile ? (
+            <CollapsedRunsRail
+              runs={visibleRuns.length || search.trim() || runFilter !== "all" ? visibleRuns : runs}
+              selectedRunId={selectedRunId}
+              refiningRunId={refiningRunId}
+              draftRunIds={draftRunIds}
+              onSelect={handleSelectRun}
+              onExpand={() => setRunsPaneCollapsed(false)}
+            />
+          ) : (
+            <>
+              <div className="shrink-0 border-b border-border/70 bg-background/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground/80">
+                      <ListFilter className="h-3.5 w-3.5" />
+                      Workflow runs
+                    </div>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {workflowRunsSubtitle(runs.length, stats.inFlight)}
+                    </p>
+                  </div>
+                  {!isMobile ? (
+                    <button
+                      type="button"
+                      onClick={() => setRunsPaneCollapsed(true)}
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      aria-label="Collapse workflow runs panel"
+                      title="Collapse workflow runs"
+                    >
+                      <PanelLeftClose className="h-4 w-4" />
+                    </button>
+                  ) : null}
                 </div>
-              </PaneScroller>
-            ) : (
-              <div className="p-3 text-sm leading-5 text-muted-foreground">
-                {search.trim() ? "No workflow runs match this search yet." : "No workflow runs yet. Start one from the workflow list."}
+
+                <div className="relative mt-3">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search runs"
+                    className="h-9 rounded-2xl border-border/80 bg-background pl-8 text-sm shadow-none focus-visible:ring-primary/20"
+                  />
+                </div>
+
+                <div className="mt-3 flex min-w-0 gap-1 overflow-x-auto pb-0.5">
+                  {RUN_FILTERS.map((filter) => {
+                    const active = runFilter === filter.id;
+                    const count = runFilterCounts[filter.id];
+
+                    return (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        onClick={() => setRunFilter(filter.id)}
+                        className={cn(
+                          "inline-flex h-7 shrink-0 items-center gap-1 rounded-full border px-2.5 text-[11px] font-medium transition-colors",
+                          active
+                            ? "border-primary/25 bg-primary/10 text-primary"
+                            : "border-border/70 bg-background text-muted-foreground hover:border-primary/20 hover:bg-primary/5 hover:text-foreground"
+                        )}
+                        aria-pressed={active}
+                      >
+                        {filter.id === "active" && count ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                        {filter.id === "completed" && count ? <CheckCircle2 className="h-3 w-3" /> : null}
+                        <span>{filter.label}</span>
+                        <span className={cn("rounded-full px-1.5 py-px text-[10px]", active ? "bg-primary/15" : "bg-muted/70")}>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            )}
-          </div>
+
+              <div className="min-h-0 flex-1 overflow-hidden">
+                {loading ? (
+                  <WorkflowRunsLoadingState />
+                ) : runsLoadError && !runs.length ? (
+                  <WorkflowRunsErrorState onRetry={() => loadPage()} />
+                ) : visibleRuns.length ? (
+                  <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full w-full min-w-0 max-w-full overflow-hidden"}>
+                    <div className="w-full min-w-0 max-w-full overflow-hidden py-2">
+                      {visibleRunGroups.map((group) => (
+                        <div key={group.id} className="pb-1">
+                          <div className="sticky top-0 z-10 bg-background/95 px-4 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                            {group.label}
+                          </div>
+                          <div>
+                            {group.runs.map((run) => (
+                              <RunListItem
+                                key={run.id}
+                                run={run}
+                                active={run.id === selectedRunId}
+                                status={workflowDisplayStatus(run, refiningRunId)}
+                                hasEditDraft={!!draftRunState.get(run.id)?.hasDraft}
+                                editDraftBusy={!!draftRunState.get(run.id)?.busy}
+                                onSelect={handleSelectRun}
+                                onRename={startRenamingRun}
+                                onDelete={startDeletingRun}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </PaneScroller>
+                ) : (
+                  <WorkflowRunsEmptyState
+                    searchActive={!!search.trim()}
+                    filter={runFilter}
+                    onClear={clearRunsView}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </section>
 
         <div
@@ -1642,7 +2047,7 @@ export default function WorkflowsPage() {
           className={cn(
             "hidden w-1 shrink-0 cursor-col-resize bg-border/70 transition-colors hover:bg-primary/20 xl:block",
             resizingPane === "runs" && "bg-primary/30",
-            (!showInbox || outputFocusActive) && "!hidden"
+            (runsPaneCollapsed || !showInbox || outputFocusActive) && "!hidden"
           )}
           title="Drag to resize"
         />
