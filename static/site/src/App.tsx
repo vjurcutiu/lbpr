@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, type ReactNode } from 'react';
-import { SignalInNoiseHero } from './components/SignalInNoiseHero';
+import { SignalInNoiseBackground, SignalInNoiseHero } from './components/SignalInNoiseHero';
 
 const DEFAULT_APP_URL =
   typeof window !== 'undefined' && window.location.hostname === 'localhost'
@@ -225,8 +225,11 @@ function PricingMatrix() {
 
 function HomePage() {
   return (
-    <>
+    <div className="home-page home-page--parallax">
+      <SignalInNoiseBackground fixed className="home-page__background" />
       <SignalInNoiseHero
+        className="signal-hero--home-parallax"
+        disableBackground
         eyebrow="Legal document intelligence"
         title="Document Intelligence for Legal Teams"
         description="A legal search engine and customizable workflow layer for teams that need to search uploaded documents, analyze long matters, refine drafts, and turn dense contracts into client-ready work product."
@@ -241,7 +244,7 @@ function HomePage() {
         onSecondaryClick={() => document.getElementById('workflow')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
       />
 
-      <main>
+      <main className="landing-main">
         <section id="workflow" className="page-section page-section--dense">
           <div className="site-shell">
             <SectionHeading
@@ -417,7 +420,7 @@ function HomePage() {
         </section>
       </main>
 
-      <footer className="site-footer">
+      <footer className="site-footer home-page__footer">
         <div className="site-shell site-footer__inner">
           <div>
             <div className="brand brand--footer">
@@ -433,7 +436,7 @@ function HomePage() {
           </div>
         </div>
       </footer>
-    </>
+    </div>
   );
 }
 

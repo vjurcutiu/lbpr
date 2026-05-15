@@ -1115,3 +1115,99 @@ a {
     padding: 1.25rem;
   }
 }
+
+.home-page--parallax {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  overflow-x: clip;
+  background: #040914;
+}
+
+.home-page--parallax::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 16% 18%, rgba(67, 135, 255, 0.14), transparent 34%),
+    radial-gradient(circle at 82% 8%, rgba(120, 214, 255, 0.08), transparent 30%),
+    linear-gradient(180deg, rgba(3, 8, 18, 0.74), rgba(4, 9, 20, 0.82));
+}
+
+.home-page__background {
+  opacity: 1;
+}
+
+.home-page__background::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(4, 9, 20, 0.36) 0%, rgba(4, 9, 20, 0.04) 42%, rgba(4, 9, 20, 0.34) 100%),
+    linear-gradient(180deg, rgba(3, 8, 18, 0.08) 0%, rgba(3, 8, 18, 0.02) 42%, rgba(4, 9, 20, 0.16) 100%);
+}
+
+.home-page--parallax .site-footer,
+.landing-main,
+.home-page--parallax .signal-hero {
+  position: relative;
+}
+
+.landing-main {
+  z-index: 2;
+  margin-top: clamp(-8rem, -10vw, -4.75rem);
+  padding-top: clamp(5rem, 8vw, 8.25rem);
+  background: transparent;
+}
+
+.landing-main::before {
+  content: none;
+}
+
+.home-page__footer {
+  position: relative;
+  z-index: 2;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.home-page--parallax .page-section {
+  scroll-margin-top: calc(var(--header-height) + 1.25rem);
+  background: transparent;
+}
+
+.home-page--parallax #workflow.page-section--dense {
+  padding-top: clamp(6.5rem, 10vw, 9.25rem);
+}
+
+.home-page--parallax .page-section:nth-of-type(n + 3) {
+  background: transparent;
+}
+
+.home-page--parallax .info-card,
+.home-page--parallax .workflow-card,
+.home-page--parallax .workflow-panel,
+.home-page--parallax .platform-panel,
+.home-page--parallax .cta-panel,
+.home-page--parallax .price-card,
+.home-page--parallax .pricing-table,
+.home-page--parallax .pricing-stack__card {
+  background: linear-gradient(180deg, rgba(10, 18, 34, 0.74), rgba(8, 15, 29, 0.46));
+  backdrop-filter: blur(18px);
+}
+
+@media (max-width: 720px) {
+  .landing-main {
+    margin-top: -3rem;
+    padding-top: 3.75rem;
+    background: transparent;
+  }
+
+  .home-page--parallax #workflow.page-section--dense {
+    padding-top: 4.75rem;
+  }
+}

@@ -16,6 +16,12 @@ type SignalInNoiseHeroProps = {
   metrics?: HeroMetric[];
   onPrimaryClick?: () => void;
   onSecondaryClick?: () => void;
+  disableBackground?: boolean;
+};
+
+type SignalInNoiseBackgroundProps = {
+  className?: string;
+  fixed?: boolean;
 };
 
 type Particle = {
@@ -49,31 +55,9 @@ const defaultMetrics: HeroMetric[] = [
   { value: 'Ops-ready', label: 'telemetry and limits' },
 ];
 
-export function SignalInNoiseHero({
-  className,
-  eyebrow = 'Signal systems',
-  title = 'Turn ambient noise into usable signal',
-  description = 'A premium, mouse-reactive hero that reveals structure inside moving data. Built for technical products that need to feel deliberate, not decorative.',
-  primaryCtaLabel = 'Start now',
-  secondaryCtaLabel = 'See how it works',
-  metrics = defaultMetrics,
-  onPrimaryClick,
-  onSecondaryClick,
-}: SignalInNoiseHeroProps) {
+export function SignalInNoiseBackground({ className, fixed = false }: SignalInNoiseBackgroundProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const containerRef = useRef<HTMLElement | null>(null);
-
-  const titleParts = useMemo(() => {
-    const words = title.split(' ');
-    if (words.length < 4) {
-      return { leading: title, trailing: '' };
-    }
-
-    return {
-      leading: words.slice(0, -2).join(' '),
-      trailing: words.slice(-2).join(' '),
-    };
-  }, [title]);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -146,8 +130,8 @@ export function SignalInNoiseHero({
 
     const resize = () => {
       const bounds = container.getBoundingClientRect();
-      width = bounds.width;
-      height = bounds.height;
+      width = fixed ? window.innerWidth : bounds.width;
+      height = fixed ? window.innerHeight : bounds.height;
       isCompactMode = width < 840 || coarsePointerQuery.matches || saveData || lowCpuDevice;
       shouldDrawConnections = !isCompactMode && !reduceMotionQuery.matches;
       dpr = Math.min(window.devicePixelRatio || 1, isCompactMode ? 1.25 : 2);
@@ -163,6 +147,7 @@ export function SignalInNoiseHero({
 
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(container);
+    window.addEventListener('resize', resize, { passive: true });
     resize();
 
     const getSignalY = (x: number, time: number, channel: number) => {
@@ -310,8 +295,8 @@ export function SignalInNoiseHero({
 
     const handlePointerMove = (event: PointerEvent) => {
       const bounds = container.getBoundingClientRect();
-      pointer.targetX = event.clientX - bounds.left;
-      pointer.targetY = event.clientY - bounds.top;
+      pointer.targetX = fixed ? event.clientX : event.clientX - bounds.left;
+      pointer.targetY = fixed ? event.clientY : event.clientY - bounds.top;
       pointer.active = true;
     };
 
@@ -331,48 +316,88 @@ export function SignalInNoiseHero({
     };
 
     if (!coarsePointerQuery.matches) {
-      container.addEventListener('pointermove', handlePointerMove, { passive: true });
-      container.addEventListener('pointerleave', handlePointerLeave);
+      window.addEventListener('pointermove', handlePointerMove, { passive: true });
+      window.addEventListener('pointerleave', handlePointerLeave);
     }
 
-    observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry) return;
+    if (fixed) {
+      lastTime = performance.now();
+      rafId = window.requestAnimationFrame(animate);
+    } else {
+      observer = new IntersectionObserver(
+        ([entry]) => {
+          if (!entry) return;
 
-        if (entry.isIntersecting && !document.hidden) {
-          window.cancelAnimationFrame(rafId);
-          lastTime = performance.now();
-          rafId = window.requestAnimationFrame(animate);
-        } else {
-          window.cancelAnimationFrame(rafId);
-        }
-      },
-      { threshold: 0.08 },
-    );
+          if (entry.isIntersecting && !document.hidden) {
+            window.cancelAnimationFrame(rafId);
+            lastTime = performance.now();
+            rafId = window.requestAnimationFrame(animate);
+          } else {
+            window.cancelAnimationFrame(rafId);
+          }
+        },
+        { threshold: 0.08 },
+      );
 
-    observer.observe(container);
+      observer.observe(container);
+      rafId = window.requestAnimationFrame(animate);
+    }
+
     document.addEventListener('visibilitychange', handleVisibility);
     handlePointerLeave();
-    rafId = window.requestAnimationFrame(animate);
 
     return () => {
       resizeObserver.disconnect();
+      window.removeEventListener('resize', resize);
       observer?.disconnect();
-      container.removeEventListener('pointermove', handlePointerMove);
-      container.removeEventListener('pointerleave', handlePointerLeave);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerleave', handlePointerLeave);
       document.removeEventListener('visibilitychange', handleVisibility);
       window.cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [fixed]);
+
+  const backgroundClassName = ['signal-hero-bg', fixed ? 'signal-hero-bg--fixed' : '', className].filter(Boolean).join(' ');
+
+  return (
+    <div className={backgroundClassName} ref={containerRef} aria-hidden="true">
+      <div className="signal-hero__backdrop" />
+      <canvas className="signal-hero__canvas" ref={canvasRef} />
+      <div className="signal-hero__glow" />
+      <div className="signal-hero__noise" />
+    </div>
+  );
+}
+
+export function SignalInNoiseHero({
+  className,
+  eyebrow = 'Signal systems',
+  title = 'Turn ambient noise into usable signal',
+  description = 'A premium, mouse-reactive hero that reveals structure inside moving data. Built for technical products that need to feel deliberate, not decorative.',
+  primaryCtaLabel = 'Start now',
+  secondaryCtaLabel = 'See how it works',
+  metrics = defaultMetrics,
+  onPrimaryClick,
+  onSecondaryClick,
+  disableBackground = false,
+}: SignalInNoiseHeroProps) {
+  const titleParts = useMemo(() => {
+    const words = title.split(' ');
+    if (words.length < 4) {
+      return { leading: title, trailing: '' };
+    }
+
+    return {
+      leading: words.slice(0, -2).join(' '),
+      trailing: words.slice(-2).join(' '),
+    };
+  }, [title]);
 
   const sectionClassName = ['signal-hero', className].filter(Boolean).join(' ');
 
   return (
-    <section className={sectionClassName} ref={containerRef}>
-      <div className="signal-hero__backdrop" />
-      <canvas className="signal-hero__canvas" ref={canvasRef} aria-hidden="true" />
-      <div className="signal-hero__glow" />
-      <div className="signal-hero__noise" />
+    <section className={sectionClassName}>
+      {disableBackground ? null : <SignalInNoiseBackground />}
 
       <div className="signal-hero__inner">
         <div className="signal-hero__content">

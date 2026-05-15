@@ -368,3 +368,64 @@
     gap: 0.7rem;
   }
 }
+
+.signal-hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.signal-hero-bg--fixed {
+  position: fixed;
+  z-index: 0;
+}
+
+.signal-hero-bg .signal-hero__backdrop {
+  z-index: 0;
+}
+
+.signal-hero-bg .signal-hero__canvas {
+  z-index: 1;
+}
+
+.signal-hero-bg .signal-hero__glow {
+  z-index: 2;
+}
+
+.signal-hero-bg .signal-hero__noise {
+  z-index: 3;
+}
+
+.signal-hero--home-parallax {
+  z-index: 3;
+  overflow: visible;
+  isolation: auto;
+  background: transparent;
+}
+
+.signal-hero--home-parallax::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 52%;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(3, 8, 18, 0.36), rgba(3, 8, 18, 0));
+}
+
+.signal-hero--home-parallax::after {
+  content: none;
+}
+
+.signal-hero--home-parallax .signal-hero__inner {
+  z-index: 2;
+}
+
+@media (max-width: 720px) {
+  .signal-hero--home-parallax::after {
+    bottom: -7rem;
+    height: 16rem;
+  }
+}
