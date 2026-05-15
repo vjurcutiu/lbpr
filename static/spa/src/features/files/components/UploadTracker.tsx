@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { ArrowUpRight, CheckCircle2, Loader2, MoreHorizontal, XCircle } from "lucide-react";
+import { CheckCircle2, Loader2, MoreHorizontal, XCircle } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -11,11 +10,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { listWorkflowRuns } from "@/features/workflows/api";
-import { WorkflowStatusBadge } from "@/features/workflows/components/WorkflowStatusBadge";
-import { WorkflowStatusIcon, workflowStatusAccentClass } from "@/features/workflows/components/WorkflowStatusIcon";
-import type { WorkflowRun } from "@/features/workflows/types";
-import { mergeWorkflowRuns } from "@/features/workflows/utils/runs";
 
 import { clearUploadJobs, listUploadJobs, type UploadJob } from "../uploadTrackerApi";
 
@@ -70,26 +64,6 @@ function formatRelativeTime(iso: string) {
   return rtf.format(days, "day");
 }
 
-function formatWorkflowSelection(run: WorkflowRun) {
-  const files = run.selection.file_ids.length;
-  const folders = run.selection.folder_paths.length;
-  const parts: string[] = [];
-  if (files) parts.push(`${files} file${files === 1 ? "" : "s"}`);
-  if (folders) parts.push(`${folders} folder${folders === 1 ? "" : "s"}`);
-  if (run.selection.current_folder) parts.push(run.selection.current_folder);
-  return parts.join(" • ") || "No source selection";
-}
-
-
-function workflowCompletionDescription(run: WorkflowRun) {
-  const artifactName = String(run.artifact?.file_name || "").trim();
-  return artifactName ? `${artifactName} is ready to review.` : "The output is ready to review.";
-}
-
-function workflowRunPath(runId: string) {
-  return `/workflows?run=${encodeURIComponent(runId)}`;
-}
-
 function uploadStatusLabel(status: UploadJob["status"]) {
   switch (status) {
     case "done":
@@ -137,7 +111,6 @@ export function UploadTrackerPanel({
   batchFilenames = [],
   showHistory = false,
   seedFetched = [],
-  seedWorkflowRuns = [],
 }: {
   open: boolean;
   onClose: () => void;
@@ -149,17 +122,10 @@ export function UploadTrackerPanel({
   batchFilenames?: string[];
   showHistory?: boolean;
   seedFetched?: UploadJob[];
-  seedWorkflowRuns?: WorkflowRun[];
 }) {
   const [jobsFetched, setJobsFetched] = useState<UploadJob[]>(seedFetched || []);
-  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>(seedWorkflowRuns || []);
   const [manualRefreshBusy, setManualRefreshBusy] = useState(false);
   const prevStatusRef = useRef<Map<string, UploadJob["status"]>>(new Map());
-  const prevWorkflowStatusRef = useRef<Map<string, WorkflowRun["status"]>>(new Map());
-  const hasHydratedWorkflowStatusesRef = useRef(false);
-  const latestWorkflowRunsRef = useRef<Map<string, WorkflowRun>>(new Map());
-  const terminalWorkflowToastRef = useRef<Map<string, WorkflowRun["status"]>>(new Map());
-  const pendingWorkflowFailureToastRef = useRef<Map<string, number>>(new Map());
   const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
@@ -171,84 +137,6 @@ export function UploadTrackerPanel({
     }
   }, [seedFetched]);
 
-  useEffect(() => {
-    if (seedWorkflowRuns && seedWorkflowRuns.length > 0) {
-      setWorkflowRuns((prev) => mergeWorkflowRuns(prev, seedWorkflowRuns, 12));
-    }
-  }, [seedWorkflowRuns]);
-
-  useEffect(() => {
-    return () => {
-      for (const timerId of pendingWorkflowFailureToastRef.current.values()) {
-        window.clearTimeout(timerId);
-      }
-      pendingWorkflowFailureToastRef.current.clear();
-    };
-  }, []);
-
-  useEffect(() => {
-    const latestRunMap = new Map<string, WorkflowRun>();
-    const nextMap = new Map<string, WorkflowRun["status"]>();
-    for (const run of workflowRuns) {
-      latestRunMap.set(run.id, run);
-      nextMap.set(run.id, run.status);
-    }
-    latestWorkflowRunsRef.current = latestRunMap;
-
-    if (!hasHydratedWorkflowStatusesRef.current) {
-      prevWorkflowStatusRef.current = nextMap;
-      hasHydratedWorkflowStatusesRef.current = true;
-      return;
-    }
-
-    const prev = prevWorkflowStatusRef.current;
-    const completed = workflowRuns.filter((run) => {
-      const before = prev.get(run.id);
-      return (before === "queued" || before === "running") && run.status === "completed";
-    });
-    const failed = workflowRuns.filter((run) => {
-      const before = prev.get(run.id);
-      return (before === "queued" || before === "running") && run.status === "failed";
-    });
-
-    prevWorkflowStatusRef.current = nextMap;
-
-    for (const run of completed) {
-      const pendingFailureToast = pendingWorkflowFailureToastRef.current.get(run.id);
-      if (pendingFailureToast) {
-        window.clearTimeout(pendingFailureToast);
-        pendingWorkflowFailureToastRef.current.delete(run.id);
-      }
-
-      if (terminalWorkflowToastRef.current.get(run.id) === "completed") continue;
-      terminalWorkflowToastRef.current.set(run.id, "completed");
-      toast.success(`${run.title} finished`, {
-        id: `workflow-run-${run.id}`,
-        description: workflowCompletionDescription(run),
-      });
-    }
-
-    for (const run of failed) {
-      if (terminalWorkflowToastRef.current.has(run.id) || pendingWorkflowFailureToastRef.current.has(run.id)) {
-        continue;
-      }
-
-      const timerId = window.setTimeout(() => {
-        pendingWorkflowFailureToastRef.current.delete(run.id);
-        const latest = latestWorkflowRunsRef.current.get(run.id);
-        if (!latest || latest.status !== "failed" || terminalWorkflowToastRef.current.has(run.id)) {
-          return;
-        }
-
-        terminalWorkflowToastRef.current.set(run.id, "failed");
-        toast.error(`${latest.title} failed`, {
-          id: `workflow-run-${latest.id}`,
-          description: latest.error?.trim() || "Open Workflows to review the error.",
-        });
-      }, 2500);
-      pendingWorkflowFailureToastRef.current.set(run.id, timerId);
-    }
-  }, [workflowRuns]);
   const refresh = useCallback(
     async (options?: { showBusy?: boolean }) => {
       const showBusy = !!options?.showBusy;
@@ -257,7 +145,7 @@ export function UploadTrackerPanel({
       if (!refreshInFlightRef.current) {
         refreshInFlightRef.current = (async () => {
           try {
-            const [items, workflowRes] = await Promise.all([listUploadJobs(), listWorkflowRuns(12)]);
+            const items = await listUploadJobs();
             const prev = prevStatusRef.current;
             const newly: UploadJob[] = [];
             for (const j of items) {
@@ -272,7 +160,6 @@ export function UploadTrackerPanel({
             prevStatusRef.current = nextMap;
 
             setJobsFetched(items);
-            setWorkflowRuns((prev) => mergeWorkflowRuns(prev, workflowRes.items || [], 12));
             if (newly.length > 0) onAnyComplete?.(newly);
           } catch (e) {
             console.error("[taskTracker] list error", e);
@@ -334,19 +221,10 @@ export function UploadTrackerPanel({
     return arr.sort((a, b) => b.updated_at - a.updated_at);
   }, [optimistic, jobsFetched, batchFilenames, showHistory]);
 
-  const anyActive = useMemo(
-    () =>
-      mergedJobs.some((j) => j.status === "running") ||
-      workflowRuns.some((run) => run.status === "queued" || run.status === "running"),
-    [mergedJobs, workflowRuns]
-  );
+  const anyActive = useMemo(() => mergedJobs.some((j) => j.status === "running"), [mergedJobs]);
 
   const hasActiveOptimisticJobs = useMemo(() => optimistic.some((j) => j.status === "running"), [optimistic]);
-  const hasActiveSeedWorkflowRuns = useMemo(
-    () => seedWorkflowRuns.some((run) => run.status === "queued" || run.status === "running"),
-    [seedWorkflowRuns]
-  );
-  const shouldTrack = open || anyActive || hasActiveOptimisticJobs || hasActiveSeedWorkflowRuns;
+  const shouldTrack = open || anyActive || hasActiveOptimisticJobs;
 
   useEffect(() => {
     if (shouldTrack) void refresh();
@@ -382,20 +260,6 @@ export function UploadTrackerPanel({
     return { all, done };
   }, [mergedJobs]);
 
-  const workflowTotals = useMemo(() => {
-    const all = workflowRuns.length;
-    const done = workflowRuns.filter((run) => run.status === "completed" || run.status === "failed").length;
-    return { all, done };
-  }, [workflowRuns]);
-
-  const totals = useMemo(
-    () => ({
-      all: uploadTotals.all + workflowTotals.all,
-      done: uploadTotals.done + workflowTotals.done,
-    }),
-    [uploadTotals, workflowTotals]
-  );
-
   const doClear = async (scope: "done" | "all") => {
     try {
       const { removed } = await clearUploadJobs(scope);
@@ -430,8 +294,7 @@ export function UploadTrackerPanel({
   };
 
   const hasUploads = mergedJobs.length > 0;
-  const hasWorkflows = workflowRuns.length > 0;
-  const isEmpty = !hasUploads && !hasWorkflows;
+  const isEmpty = !hasUploads;
 
   return (
     <div
@@ -447,9 +310,9 @@ export function UploadTrackerPanel({
     >
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <div>
-          <div className="text-sm font-medium">Tasks</div>
+          <div className="text-sm font-medium">Uploads</div>
           <div className="text-xs text-muted-foreground">
-            {totals.all > 0 ? `(${totals.done}/${totals.all} complete)` : "Uploads and workflows in one place"}
+            {uploadTotals.all > 0 ? `(${uploadTotals.done}/${uploadTotals.all} complete)` : "Upload activity"}
           </div>
         </div>
         <div className="flex-1" />
@@ -577,54 +440,6 @@ export function UploadTrackerPanel({
           </section>
         ) : null}
 
-        {hasWorkflows ? (
-          <section className="space-y-2">
-            <div className="flex items-center justify-between gap-2 px-1">
-              <div>
-                <div className="text-sm font-medium">Workflows</div>
-                <div className="text-xs text-muted-foreground">
-                  {workflowTotals.all} tracked • {workflowTotals.done} complete
-                </div>
-              </div>
-              <Button asChild variant="ghost" size="sm" className="h-8 rounded-full px-3 text-xs">
-                <Link to="/workflows">
-                  Open
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </Link>
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              {workflowRuns.map((run) => {
-                return (
-                  <Link
-                    key={run.id}
-                    to={workflowRunPath(run.id)}
-                    onClick={onClose}
-                    className="block rounded-xl border p-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    aria-label={`Open workflow ${run.title}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start gap-3">
-                          <div className={cn("mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border", workflowStatusAccentClass(run.status))}>
-                            <WorkflowStatusIcon status={run.status} className="h-4 w-4" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium text-foreground">{run.title}</div>
-                            <div className="mt-1 text-xs text-muted-foreground">{formatWorkflowSelection(run)}</div>
-                          </div>
-                        </div>
-                      </div>
-                      <WorkflowStatusBadge status={run.status} className="shrink-0" />
-                    </div>
-                    <div className="mt-2 text-[11px] text-muted-foreground">Updated {formatRelativeTime(run.updated_at)}</div>
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        ) : null}
       </div>
     </div>
   );

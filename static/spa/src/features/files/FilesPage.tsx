@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   DndContext,
   DragOverlay,
@@ -118,12 +117,6 @@ import {
   applyOptimisticFileMoveState,
   type ClipboardState,
 } from "./utils/pageHelpers";
-import { WorkflowActionBar } from "@/features/workflows/components/WorkflowActionBar";
-import { WorkflowLauncher } from "@/features/workflows/components/WorkflowLauncher";
-import { useWorkflowSelection } from "@/features/workflows/hooks/useWorkflowSelection";
-import { createWorkflowRun, listWorkflowRuns, listWorkflows } from "@/features/workflows/api";
-import type { WorkflowManifest, WorkflowRun, WorkflowSelection } from "@/features/workflows/types";
-import { mergeWorkflowRuns } from "@/features/workflows/utils/runs";
 import { listUploadJobs, type UploadJob } from "./uploadTrackerApi";
 import { API_BASE, getJSON } from "@/shared/api";
 import { loadBool, saveBool, loadJSON, saveJSON } from "@/shared/persist";
@@ -151,15 +144,6 @@ function uploadStartDescription(files: Array<File | UploadTargetFile>, defaultFo
   }
 
   return `Preserving folder structure across ${folderCount} folders.`;
-}
-
-function summarizeWorkflowSelectionLabel(selection: WorkflowSelection) {
-  const files = selection.file_ids.length;
-  const folders = selection.folder_paths.length;
-  const parts: string[] = [];
-  if (files) parts.push(`${files} file${files === 1 ? "" : "s"}`);
-  if (folders) parts.push(`${folders} folder${folders === 1 ? "" : "s"}`);
-  return parts.join(" • ") || "the current selection";
 }
 
 function formatViewerDate(value?: string | null) {
@@ -222,20 +206,6 @@ export default function FilesPage() {
   const [clipboard, setClipboard] = useState<ClipboardState | null>(null);
   const clipboardHasItems = !!clipboard && (clipboard.folders.length > 0 || clipboard.files.length > 0);
   const hasSelection = selectedFolderRowPaths.length > 0 || selectedFileIds.length > 0;
-  const workflowSelectionInput = useMemo(
-    () => ({
-      file_ids: selectedFileIds,
-      folder_paths: selectedFolderRowPaths,
-      current_folder: selectedFolder,
-    }),
-    [selectedFileIds, selectedFolderRowPaths, selectedFolder]
-  );
-  const workflowSelection = useWorkflowSelection(workflowSelectionInput);
-  const [workflowCatalog, setWorkflowCatalog] = useState<WorkflowManifest[]>([]);
-  const [workflowLoading, setWorkflowLoading] = useState(false);
-  const [workflowSubmitting, setWorkflowSubmitting] = useState(false);
-  const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
-  const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(null);
 // Internal drag (dnd-kit)
 const suppressClickUntilRef = useRef<number>(0);
 // After a marquee drag ends, browsers may still emit a synthetic `click` on the viewport.
@@ -466,7 +436,6 @@ const internalDragPreviewLabels = useMemo(() => {
   const [optimisticJobs, setOptimisticJobs] = useState<UploadJob[]>([]);
   const [batchFilenames, setBatchFilenames] = useState<string[]>([]);
   const [seedFetched, setSeedFetched] = useState<UploadJob[]>([]);
-  const [seedWorkflowRuns, setSeedWorkflowRuns] = useState<WorkflowRun[]>([]);
   // Close mobile folders drawer automatically on desktop
   useEffect(() => {
     if (!isMobile) setMobileFoldersOpen(false);
@@ -493,10 +462,9 @@ const internalDragPreviewLabels = useMemo(() => {
     const bf = loadJSON<string[]>(LS_BATCH, []);
     if (bf.length) setBatchFilenames(bf);
     if (open) {
-      Promise.all([listUploadJobs(), listWorkflowRuns(12)])
-        .then(([uploads, workflowRes]) => {
+      listUploadJobs()
+        .then((uploads) => {
           setSeedFetched(uploads);
-          setSeedWorkflowRuns((prev) => mergeWorkflowRuns(prev, workflowRes.items || [], 12));
         })
         .catch(() => {});
       setTrackerRefreshKey(Date.now());
@@ -517,21 +485,6 @@ const internalDragPreviewLabels = useMemo(() => {
     setSeedFetched((prev) => prev.filter((j) => j.status === "running"));
   }, []);
 
-  const refreshWorkflowTracker = useCallback(async () => {
-    try {
-      const res = await listWorkflowRuns(12);
-      setSeedWorkflowRuns((prev) => mergeWorkflowRuns(prev, res.items || [], 12));
-    } catch (err) {
-      console.error("[files.workflow] tracker refresh error", err);
-    }
-  }, []);
-  useEffect(() => {
-    refreshWorkflowTracker();
-    const id = window.setInterval(() => {
-      refreshWorkflowTracker();
-    }, 5000);
-    return () => window.clearInterval(id);
-  }, [refreshWorkflowTracker]);
   // Persist OCR settings
   useEffect(() => saveJSON(LS_OCR_LANGUAGES, ocrLanguages), [ocrLanguages]);
   useEffect(() => saveBool(LS_OCR_DOCMODE, ocrDocMode), [ocrDocMode]);
@@ -563,58 +516,6 @@ const internalDragPreviewLabels = useMemo(() => {
   useEffect(() => {
     refresh();
   }, [refresh]);
-  const loadWorkflowInfra = useCallback(async () => {
-    setWorkflowLoading(true);
-    try {
-      const catalog = await listWorkflows();
-      setWorkflowCatalog(catalog);
-    } catch (err) {
-      console.error("[files.workflow] load error", err);
-      toast.error("Failed to load workflow starters", { description: parseErr(err) });
-    } finally {
-      setWorkflowLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    loadWorkflowInfra();
-  }, [loadWorkflowInfra]);
-  const openWorkflowLauncher = useCallback((workflow: WorkflowManifest) => {
-    setActiveWorkflow(workflow);
-    setWorkflowLauncherOpen(true);
-  }, []);
-  const handleRunWorkflow = useCallback(
-    async (workflow: WorkflowManifest, inputs: Record<string, unknown>, selection: WorkflowSelection) => {
-      const toastId = `files-workflow-start-${workflow.workflow_id}-${Date.now()}`;
-      setWorkflowSubmitting(true);
-      toast.loading(`Starting ${workflow.title}`, {
-        id: toastId,
-        description: `Preparing ${summarizeWorkflowSelectionLabel(selection)}.`,
-      });
-
-      try {
-        const run = await createWorkflowRun({
-          workflow_id: workflow.workflow_id,
-          selection,
-          inputs,
-        });
-        setSeedWorkflowRuns((prev) => mergeWorkflowRuns(prev, [run], 12));
-        setTrackerOpen(true);
-        setTrackerRefreshKey(Date.now());
-        setWorkflowLauncherOpen(false);
-        setActiveWorkflow(null);
-        toast.success(`${workflow.title} started`, {
-          id: toastId,
-          description: `Follow it in Tasks and review the finished output in Workflows.`,
-        });
-      } catch (err) {
-        console.error("[files.workflow] run error", err);
-        toast.error(`Failed to start ${workflow.title}`, { id: toastId, description: parseErr(err) });
-      } finally {
-        setWorkflowSubmitting(false);
-      }
-    },
-    []
-  );
   const setClipboardFromSelection = useCallback(
     (op: "copy" | "move") => {
       const folders = reduceNestedFolderPaths(selectedFolderRowPaths);
@@ -1000,10 +901,6 @@ const internalDragPreviewLabels = useMemo(() => {
   }, [clearExternalDrag, handleExternalDrop, selectedFolder]);
   const totalSize = useMemo(() => files.reduce((acc, f) => acc + (f.size || 0), 0), [files]);
   const runningUploads = useMemo(() => optimisticJobs.some((j) => j.status === "running"), [optimisticJobs]);
-  const runningWorkflows = useMemo(
-    () => seedWorkflowRuns.some((run) => run.status === "queued" || run.status === "running"),
-    [seedWorkflowRuns]
-  );
   const treeForFolders = useMemo(() => {
     if (!tree) return null;
     // tree already includes folders+files; FileTree filters to folders
@@ -2188,7 +2085,7 @@ const breadcrumb = useMemo(() => {
         selectedFolder={selectedFolder}
         uploading={uploading}
         busy={busy}
-        runningTasks={runningUploads || workflowSubmitting || runningWorkflows}
+        runningTasks={runningUploads}
         filesCount={files.length}
         totalSize={totalSize}
         filter={filter}
@@ -2205,12 +2102,6 @@ const breadcrumb = useMemo(() => {
         onClearFilter={() => setFilter("")}
         onRefresh={refresh}
         onToggleTransfers={() => setTrackerOpen((v) => !v)}
-      />
-      <WorkflowActionBar
-        workflows={workflowCatalog}
-        selection={workflowSelection}
-        loading={workflowLoading || workflowSubmitting}
-        onLaunch={openWorkflowLauncher}
       />
 {/* Main split */}
 <DndContext
@@ -3426,14 +3317,6 @@ const breadcrumb = useMemo(() => {
           </div>
         </DialogContent>
       </Dialog>
-      <WorkflowLauncher
-        open={workflowLauncherOpen}
-        workflow={activeWorkflow}
-        selection={workflowSelection}
-        submitting={workflowSubmitting}
-        onOpenChange={setWorkflowLauncherOpen}
-        onRun={handleRunWorkflow}
-      />
       <UploadTrackerPanel
         open={trackerOpen}
         onClose={() => setTrackerOpen(false)}
@@ -3445,7 +3328,6 @@ const breadcrumb = useMemo(() => {
         batchFilenames={batchFilenames}
         showHistory={true}
         seedFetched={seedFetched}
-        seedWorkflowRuns={seedWorkflowRuns}
       />
     </div>
   );
