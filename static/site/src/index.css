@@ -1176,7 +1176,9 @@ a {
 }
 
 .home-page--parallax .page-section {
-  scroll-margin-top: calc(var(--header-height) + 1.25rem);
+  /* Sections already have generous top padding, so anchor jumps should not add
+     another header-height offset on top of that padding. */
+  scroll-margin-top: 0;
   background: transparent;
 }
 
