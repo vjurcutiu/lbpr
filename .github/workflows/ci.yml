@@ -62,14 +62,6 @@ jobs:
             echo "DOPPLER_CONFIG is not set" >&2
             exit 1
           fi
-          if [ -z "${{ secrets.GRAFANA_URL }}" ]; then
-            echo "GRAFANA_URL is not set" >&2
-            exit 1
-          fi
-          if [ -z "${{ secrets.GRAFANA_AUTH }}" ]; then
-            echo "GRAFANA_AUTH is not set" >&2
-            exit 1
-          fi
 
       - name: Compute image tags (sha-*)
         id: tags
@@ -278,16 +270,6 @@ jobs:
 
           bash ops/deploy/deploy.sh
 
-      - name: Apply Grafana dashboards
-        working-directory: infra/terraform/grafana
-        env:
-          TF_VAR_grafana_url: ${{ secrets.GRAFANA_URL }}
-          TF_VAR_grafana_auth: ${{ secrets.GRAFANA_AUTH }}
-        run: |
-          set -euo pipefail
-          terraform init
-          terraform apply -auto-approve
-
       - name: Post-deploy API health check
         working-directory: ${{ env.LOCAL_DEPLOY_DIR }}
         run: |
@@ -302,5 +284,43 @@ jobs:
           fi
 
           echo "No PROD_HEALTHCHECK_URL set; using internal Docker health check"
-          docker compose -f docker-compose.yml -f ops/deploy/docker-compose.deploy.yml exec -T api             wget -qO- http://127.0.0.1:8000/healthz >/dev/null
+          docker compose -f docker-compose.yml -f ops/deploy/docker-compose.deploy.yml exec -T api \
+            wget -qO- http://127.0.0.1:8000/healthz >/dev/null
           echo "Internal API health check OK"
+
+      - name: Apply Grafana dashboards
+        working-directory: infra/terraform/grafana
+        env:
+          TF_VAR_grafana_url: ${{ secrets.GRAFANA_URL }}
+          TF_VAR_grafana_auth: ${{ secrets.GRAFANA_AUTH }}
+          GRAFANA_TF_STATE_DIR: ${{ env.LOCAL_DEPLOY_DIR }}/.terraform-state
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TF_VAR_grafana_url:-}" ] || [ -z "${TF_VAR_grafana_auth:-}" ]; then
+            echo "::warning::GRAFANA_URL or GRAFANA_AUTH is not set. Skipping Grafana dashboard apply."
+            exit 0
+          fi
+
+          mkdir -p "${GRAFANA_TF_STATE_DIR}"
+          STATE_FILE="${GRAFANA_TF_STATE_DIR}/grafana.tfstate"
+
+          terraform init \
+            -input=false \
+            -reconfigure \
+            -backend-config="path=${STATE_FILE}"
+
+          for attempt in 1 2 3; do
+            echo "Applying Grafana dashboards, attempt ${attempt}/3"
+            if terraform apply -input=false -auto-approve; then
+              echo "Grafana dashboards applied successfully"
+              exit 0
+            fi
+
+            if [ "${attempt}" = "3" ]; then
+              echo "::warning::Grafana dashboard apply failed after 3 attempts. App deploy and health check already completed; rerun the workflow or run make grafana-apply manually."
+              exit 0
+            fi
+
+            sleep $((attempt * 20))
+          done

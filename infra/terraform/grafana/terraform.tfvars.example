@@ -1,3 +1,4 @@
 grafana_url         = "https://your-stack.grafana.net/"
 grafana_auth        = "glsa_replace_me"
 grafana_folder_title = "LBPR"
+grafana_folder_uid   = "lbpr"

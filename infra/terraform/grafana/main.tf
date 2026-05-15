@@ -3,6 +3,7 @@ locals {
 }
 
 resource "grafana_folder" "lbpr" {
+  uid   = var.grafana_folder_uid
   title = var.grafana_folder_title
 }
 

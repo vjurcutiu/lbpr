@@ -14,3 +14,10 @@ variable "grafana_folder_title" {
   type        = string
   default     = "LBPR"
 }
+
+
+variable "grafana_folder_uid" {
+  description = "Stable Grafana folder UID for the LBPR dashboards. Keep this stable so Terraform can manage the same folder across CI runs."
+  type        = string
+  default     = "lbpr"
+}
