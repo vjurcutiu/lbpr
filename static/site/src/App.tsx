@@ -31,39 +31,59 @@ type ComparisonRow = {
   pro: string;
 };
 
+type WorkflowCard = {
+  tier: 'Core' | 'Pro';
+  title: string;
+  description: string;
+};
+
 const comparisonRows: ComparisonRow[] = [
   { label: 'Messages', free: '50 included', pro: '2,000 per month' },
-  { label: 'Uploads', free: '100,000 tokens (~75 pages)', pro: '20,000,000 tokens (~15,000 pages)' },
-  { label: 'Workflow tokens', free: '200,000 per month', pro: '5,000,000 per month' },
+  { label: 'File processing', free: '100,000 tokens (~75 pages)', pro: '20,000,000 tokens (~15,000 pages)' },
+  { label: 'Workflow tokens', free: '100,000 included', pro: '5,000,000 per month' },
   { label: 'Transcription', free: '5 minutes', pro: '1,000 minutes per month' },
   { label: 'OCR', free: '5 images', pro: '1,000 images per month' },
   { label: 'Privacy support', free: 'Standard workspace controls', pro: 'PII pseudonymization' },
   { label: 'Help', free: 'Self-serve', pro: 'Phone and email support (≤24h SLA)' },
 ];
 
-const workflowCards = [
+const workflowCards: WorkflowCard[] = [
   {
-    title: 'Summarize',
-    description: 'Turn one file or a whole set of files into a clean brief with key points, risks, and next steps.',
+    tier: 'Core',
+    title: 'Summarize large documents',
+    description: 'Condense long contracts, research packs, pleadings, transcripts, or 300+ page files into a useful brief with key points and open questions.',
   },
   {
-    title: 'Compare',
-    description: 'See what changed between two documents without manually scanning every page and clause.',
+    tier: 'Core',
+    title: 'Search across uploaded material',
+    description: 'Find exact clauses, dates, language, and source passages across PDFs, audio transcripts, handwritten scanned documents, and large text files.',
   },
   {
-    title: 'Extract info',
-    description: 'Pull out dates, names, obligations, totals, or custom fields from unstructured source material.',
+    tier: 'Core',
+    title: 'Extract legal information',
+    description: 'Pull out parties, obligations, deadlines, governing law, clause language, and other structured fields from messy source material.',
   },
   {
-    title: 'Generate report',
-    description: 'Package findings into a shareable update, brief, or handoff that is grounded in the original files.',
+    tier: 'Pro',
+    title: 'Contract review',
+    description: 'Unearth clauses, commercial risks, missing protections, negotiation points, and further actions in an editable output that can be refined for a client.',
+  },
+  {
+    tier: 'Pro',
+    title: 'Risk matrix and negotiation brief',
+    description: 'Turn dense agreements into client-ready risk summaries, fallback positions, and practical negotiation notes without rebuilding the analysis from scratch.',
+  },
+  {
+    tier: 'Pro',
+    title: 'Matter handoff and presentations',
+    description: 'Package review work into clear next steps, approval notes, and polished presentation-style outputs for colleagues, partners, or clients.',
   },
 ];
 
 const workflowSteps = [
-  'Select the files you want to work with.',
-  'Choose a workflow instead of starting from a blank prompt.',
-  'Review a structured result with sources and next actions.',
+  'Upload contracts, scans, transcripts, research files, or matter documents.',
+  'Search naturally or choose a workflow to process the selected material.',
+  'Review a cited, editable output that can become a draft, brief, matrix, or presentation.',
 ];
 
 function normalizePathname(pathname: string): string {
@@ -207,15 +227,15 @@ function HomePage() {
   return (
     <>
       <SignalInNoiseHero
-        eyebrow="Answers grounded in your content"
-        title="Find the signal across your documents"
-        description="Upload files, process messy source material, and give your team a faster way to get reliable answers from the information they already have."
+        eyebrow="Legal document intelligence"
+        title="Document Intelligence for Legal Teams"
+        description="A legal search engine and customizable workflow layer for teams that need to search uploaded documents, analyze long matters, refine drafts, and turn dense contracts into client-ready work product."
         primaryCtaLabel="Start free"
         secondaryCtaLabel="See how it works"
         metrics={[
-          { value: 'Minutes', label: 'from upload to answer' },
-          { value: 'Hybrid', label: 'search + reasoning' },
-          { value: 'One place', label: 'files, chat, and usage' },
+          { value: 'Search engine', label: 'for exact clauses and source language' },
+          { value: 'Workflows', label: 'for reviews, briefs, and presentations' },
+          { value: '300+ pages', label: 'analyze large documents naturally' },
         ]}
         onPrimaryClick={() => window.location.assign(SIGNUP_URL)}
         onSecondaryClick={() => document.getElementById('workflow')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
@@ -226,18 +246,18 @@ function HomePage() {
           <div className="site-shell">
             <SectionHeading
               eyebrow="How it works"
-              title="Go from raw files to reliable answers"
-              description="Lexbot Pro helps teams move from scattered documents and media to searchable knowledge and grounded responses without adding friction to the workflow."
+              title="Upload legal material. Search it. Process it."
+              description="Lexbot Pro helps legal teams move from scattered matter documents to cited answers and repeatable outputs, reducing repetitive document work by several hours each week."
             />
             <div className="info-grid info-grid--three">
-              <InfoCard title="1. Bring everything in">
-                Upload documents, scans, images, or audio so the material your team depends on lives in one place.
+              <InfoCard title="1. Bring the matter in">
+                Upload contracts, exhibits, scanned pages, handwritten notes, transcripts, research files, and large text documents into one searchable workspace.
               </InfoCard>
-              <InfoCard title="2. Process the messy parts">
-                Use OCR, transcription, chunking, and retrieval to turn hard-to-search source material into usable context.
+              <InfoCard title="2. Search through the evidence">
+                Ask natural-language questions, find exact clauses, and retrieve the source language your team needs before drafting, reviewing, or advising.
               </InfoCard>
-              <InfoCard title="3. Ask better questions">
-                Get fast answers grounded in your content so research, operations, and client work move forward with less hunting around.
+              <InfoCard title="3. Run structured workflows">
+                Process the same material into summaries, contract reviews, risk matrices, negotiation briefs, handoffs, and client-ready presentations.
               </InfoCard>
             </div>
           </div>
@@ -247,15 +267,15 @@ function HomePage() {
           <div className="site-shell">
             <SectionHeading
               eyebrow="Workflows"
-              title="Launch repeatable work without starting from scratch"
-              description="Lexbot Pro gives teams guided workflows for the jobs they run again and again, so they can go from file selection to a structured output faster than a blank chat or manual review."
+              title="Core search tasks and Pro legal work product"
+              description="Use core workflows for fast document understanding, then move into Pro workflows when the output needs to identify clauses, risks, approvals, fallback language, and next actions."
             />
 
             <div className="workflow-layout">
               <div className="workflow-card-grid">
                 {workflowCards.map((card) => (
                   <article key={card.title} className="workflow-card">
-                    <div className="workflow-card__badge">Workflow</div>
+                    <div className={`workflow-card__badge workflow-card__badge--${card.tier.toLowerCase()}`}>{card.tier}</div>
                     <h3>{card.title}</h3>
                     <p>{card.description}</p>
                   </article>
@@ -263,14 +283,14 @@ function HomePage() {
               </div>
 
               <aside className="workflow-panel">
-                <div className="workflow-panel__label">How teams use them</div>
+                <div className="workflow-panel__label">How legal teams use them</div>
                 <ol className="workflow-step-list">
                   {workflowSteps.map((step) => (
                     <li key={step}>{step}</li>
                   ))}
                 </ol>
                 <p className="workflow-panel__note">
-                  Start with summarizing and extraction, then move into reporting, handoffs, and other higher-value flows as the workload grows.
+                  Junior team members can start from structured workflows instead of blank prompts, then refine the output with AI prompts before a senior lawyer reviews or sends it onward.
                 </p>
               </aside>
             </div>
@@ -282,40 +302,40 @@ function HomePage() {
             <div>
               <SectionHeading
                 eyebrow="Capabilities"
-                title="Built for real-world knowledge work"
-                description="From multilingual files to scanned pages and recorded conversations, Lexbot Pro is designed for the kinds of inputs teams actually deal with every day."
+                title="Built for the documents lawyers actually handle"
+                description="From scanned exhibits to recorded calls and multilingual contracts, Lexbot Pro gives legal teams a practical way to search, analyze, and reuse the material already sitting in their files."
               />
               <div className="stack-list">
                 <div>
                   <strong>Document and media intake</strong>
-                  <span>Handle PDFs, notes, scans, images, and audio without forcing your team into a rigid format.</span>
+                  <span>Handle PDFs, large documents, handwritten scanned pages, images, transcripts, and audio without forcing legal material into a rigid format.</span>
                 </div>
                 <div>
-                  <strong>Grounded search and chat</strong>
-                  <span>Retrieve relevant context first, then generate answers that stay anchored to your workspace content.</span>
+                  <strong>Grounded legal search and chat</strong>
+                  <span>Ask questions across uploaded files and keep answers anchored to source passages, exact clause language, and cited context.</span>
                 </div>
                 <div>
-                  <strong>Controls for teams</strong>
-                  <span>Keep usage visible, manage plans in one place, and move from trial workflows to day-to-day production use.</span>
+                  <strong>Editable work product</strong>
+                  <span>Refine contract reviews, drafts, negotiation briefs, risk notes, and presentations using prompts instead of manually rebuilding the same analysis.</span>
                 </div>
               </div>
             </div>
             <aside className="platform-panel">
-              <div className="platform-panel__label">Common use cases</div>
+              <div className="platform-panel__label">Legal use cases</div>
               <div className="platform-panel__row">
-                <span>Operations</span>
-                <strong>SOPs, process docs, internal handbooks</strong>
+                <span>Contract review</span>
+                <strong>Clauses, risks, approval notes, fallback positions</strong>
+              </div>
+              <div className="platform-panel__row">
+                <span>Matter research</span>
+                <strong>Large files, transcripts, scanned exhibits, source passages</strong>
               </div>
               <div className="platform-panel__row">
                 <span>Client delivery</span>
-                <strong>Research packs, transcripts, and source files</strong>
-              </div>
-              <div className="platform-panel__row">
-                <span>Global teams</span>
-                <strong>Multilingual content in one searchable workspace</strong>
+                <strong>Briefs, summaries, negotiation notes, presentations</strong>
               </div>
               <div className="platform-panel__note">
-                Start with a simple free workflow, then scale into higher usage, stronger privacy features, and faster support when the workload grows.
+                The goal is not just faster answers. It is faster movement from source material to a clearer draft, review, or client-facing deliverable.
               </div>
             </aside>
           </div>
@@ -325,8 +345,8 @@ function HomePage() {
           <div className="site-shell">
             <SectionHeading
               eyebrow="Pricing"
-              title="Start free. Upgrade when the workload grows"
-              description="The free plan is built to validate the workflow quickly. Pro adds the capacity and support teams need when Lexbot becomes part of everyday work."
+              title="Start free. Upgrade when legal document work becomes recurring."
+              description="The free plan is built to test real files quickly. Pro adds the monthly capacity, privacy support, OCR, transcription, and workflow usage needed for everyday legal work."
             />
 
             <div className="pricing-grid">
@@ -334,14 +354,14 @@ function HomePage() {
                 name="Free"
                 price="€0"
                 period="per month"
-                summary="A simple way to test the workflow with no credit card required."
+                summary="A simple way to test legal search and document workflows with real material. No credit card required."
                 features={[
-                  '50 messages',
-                  '100,000 file upload tokens (≈75 pages)',
+                  '50 messages included',
+                  '100,000 file processing tokens (≈75 pages)',
                   '100,000 workflow tokens',
                   '5 minutes of transcription',
                   '5 OCR images',
-                  'Create an account and get started right away',
+                  'Create an account and start with real legal files',
                 ]}
                 ctaLabel="Create free account"
                 ctaHref={SIGNUP_URL}
@@ -351,10 +371,10 @@ function HomePage() {
                 name="Pro"
                 price="Monthly"
                 period="billing"
-                summary="More capacity, stronger privacy features, and direct support for teams using it every day."
+                summary="More capacity, stronger privacy support, and direct help for teams using legal search and workflows every day."
                 features={[
                   '2,000 messages per month',
-                  '20,000,000 file upload tokens (≈15,000 pages) per month',
+                  '20,000,000 file processing tokens (≈15,000 pages) per month',
                   '5,000,000 workflow tokens per month',
                   '1,000 minutes of transcription per month',
                   '1,000 OCR images per month',
@@ -363,7 +383,7 @@ function HomePage() {
                 ctaLabel="See Pro in the app"
                 ctaHref={SIGNUP_URL}
                 featured
-                footnote="The Pro rate is managed in-app so your checkout always reflects the current live price."
+                footnote="The Pro rate is managed in-app so checkout always reflects the current live price."
               />
             </div>
 
@@ -380,9 +400,9 @@ function HomePage() {
           <div className="site-shell cta-panel">
             <div>
               <div className="eyebrow-pill">Ready to try it</div>
-              <h2>Upload something real and see how quickly it becomes useful</h2>
+              <h2>Upload a real legal document and see how quickly it becomes useful</h2>
               <p>
-                The fastest way to evaluate the workflow is with one of your own files. Start free, ask a question, and see how the answer quality feels in practice.
+                The fastest way to evaluate Lexbot Pro is with one of your own files. Start free, search for a clause, run a workflow, and see how the output feels in practice.
               </p>
             </div>
             <div className="cta-panel__actions">
@@ -403,7 +423,7 @@ function HomePage() {
             <div className="brand brand--footer">
               Lexbot <span>Pro</span>
             </div>
-            <p>Structured answers for noisy data.</p>
+            <p>Document intelligence for legal teams.</p>
           </div>
           <div className="site-footer__links">
             <a href="/privacy">Privacy</a>
@@ -436,7 +456,7 @@ export default function App() {
       ? legalPageMeta[pathname as LegalPathname]
       : isLawyersPath
         ? 'Lexbot Pro | Document search and legal workflows for lawyers'
-        : 'Lexbot Pro | Structured answers for noisy data';
+        : 'Lexbot Pro | Document intelligence for legal teams';
   }, [isLegalPath, isLawyersPath, pathname]);
 
   let page: ReactNode;
