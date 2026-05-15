@@ -76,12 +76,8 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthLayout title="Welcome back" subtitle="Sign in to get back to your files, chats, and answers.">
+    <AuthLayout title="Sign in" subtitle="Access your account.">
       <div className="mx-auto max-w-sm space-y-5">
-        <div className="rounded-2xl border border-slate-200 bg-slate-50/90 p-4 text-sm text-slate-600">
-          Your files, chats, and answers stay in one place. Sign in to pick up where you left off.
-        </div>
-
         <form className="space-y-4" onSubmit={onSubmit}>
           <label className="block space-y-2">
             <span className="text-sm font-medium text-slate-700">Email</span>
@@ -119,19 +115,12 @@ export default function LoginPage() {
           </div>
 
           <div className="text-center text-sm leading-6 text-slate-600">
-            New here?{" "}
+            Need an account?{" "}
             <Link to={`/signup?returnTo=${encodeURIComponent(returnTo)}`} className="font-medium text-slate-950 underline decoration-slate-300 underline-offset-4 transition hover:decoration-slate-950">
-              Create your free workspace
+              Create account
             </Link>
-            .
           </div>
         </form>
-
-        <div className="grid gap-2 rounded-2xl border border-slate-200/80 bg-white/70 p-4 text-xs text-slate-500 sm:grid-cols-3 sm:gap-3 sm:text-center">
-          <div>Search across your files</div>
-          <div>Answers with sources</div>
-          <div>Private by default</div>
-        </div>
       </div>
     </AuthLayout>
   );

@@ -97,7 +97,7 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthLayout title="Create your workspace" subtitle="Start free with 50 messages and roughly 75 pages of uploads included.">
+    <AuthLayout title="Create account" subtitle="Set up your sign-in details.">
       {sent ? (
         <div className="mx-auto max-w-sm space-y-4">
           <div className="rounded-2xl border border-sky-200 bg-sky-50/90 p-4">
@@ -151,10 +151,6 @@ export default function SignupPage() {
         </div>
       ) : (
         <div className="mx-auto max-w-sm space-y-5">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50/90 p-4 text-sm text-slate-600">
-            Upload documents, notes, audio, or images and get answers you can trace back to the source.
-          </div>
-
           <form className="space-y-4" onSubmit={onSubmit}>
             <label className="relative block space-y-2">
               <span className="text-sm font-medium text-slate-700">Email</span>
@@ -219,7 +215,7 @@ export default function SignupPage() {
             ) : null}
 
             <button type="submit" disabled={loading} className={primaryButtonClass}>
-              {loading ? "Creating workspace…" : "Create free workspace"}
+              {loading ? "Creating account…" : "Create account"}
             </button>
 
             <button
@@ -249,12 +245,6 @@ export default function SignupPage() {
               </Link>
             </div>
           </form>
-
-          <div className="grid gap-2 rounded-2xl border border-slate-200/80 bg-white/70 p-4 text-xs text-slate-500 sm:grid-cols-3 sm:gap-3 sm:text-center">
-            <div>Free plan available</div>
-            <div>No credit card</div>
-            <div>Answers with sources</div>
-          </div>
         </div>
       )}
     </AuthLayout>
