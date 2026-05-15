@@ -1,4 +1,9 @@
-
 /* Hide scrollbars cross-browser on tab scroller */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+.files-page-shell {
+  background:
+    radial-gradient(circle at top left, hsl(var(--primary) / 0.08), transparent 28rem),
+    linear-gradient(180deg, hsl(var(--background)), hsl(var(--muted) / 0.42));
+}

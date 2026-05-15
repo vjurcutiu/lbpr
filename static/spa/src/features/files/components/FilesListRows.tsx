@@ -47,6 +47,46 @@ import type { TreeNode } from "../utils/fileTree";
 import { ctxEvtSummary, ctxLog, safeAction } from "../utils/contextMenuDebug";
 import { FileIconByName } from "./FileIconByName";
 
+
+function formatFileType(file: FileItem) {
+  const contentType = (file.content_type || "").split(";")[0].trim().toLowerCase();
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+
+  if (contentType.includes("pdf") || ext === "pdf") return "PDF";
+  if (contentType.includes("word") || ["doc", "docx"].includes(ext)) return "Word";
+  if (contentType.includes("markdown") || ["md", "markdown"].includes(ext)) return "Markdown";
+  if (contentType.startsWith("text/") || ["txt", "csv", "json", "xml", "yaml", "yml"].includes(ext)) {
+    if (ext === "csv") return "CSV";
+    if (ext === "json") return "JSON";
+    if (["yaml", "yml"].includes(ext)) return "YAML";
+    return "Text";
+  }
+  if (contentType.startsWith("image/")) return "Image";
+  if (contentType.startsWith("audio/")) return "Audio";
+  return ext ? ext.toUpperCase() : "File";
+}
+
+function formatCreatedAt(value?: string | null) {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsed);
+}
+
+function typeChip(label: string) {
+  return (
+    <span className="inline-flex max-w-full items-center rounded-full border border-primary/10 bg-primary/5 px-2 py-0.5 text-xs font-medium text-muted-foreground">
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
 type SharedRowProps = {
   onBeforeMenuOpen?: () => void;
   canPaste: boolean;
@@ -206,9 +246,9 @@ export function FolderRow({
             ref={setDragRef}
             style={style}
             className={cn(
-              "group grid grid-cols-[1.25rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default select-none",
-              "hover:bg-muted/40",
-              selected && "bg-muted/60",
+              "group grid grid-cols-[1.5rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-3 px-4 py-3 text-sm cursor-default select-none",
+              "hover:bg-primary/5",
+              selected && "bg-primary/10 text-primary",
               "transition-opacity",
               pending && "opacity-60 cursor-wait",
               isDragging && (multiDrag ? "opacity-0" : "opacity-60"),
@@ -223,7 +263,7 @@ export function FolderRow({
                 aria-label="Drag folder"
                 className={cn(
                   "inline-flex h-5 w-5 items-center justify-center rounded",
-                  "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
+                  "text-muted-foreground/45 opacity-60 hover:text-foreground hover:bg-muted/60 group-hover:opacity-100",
                   pending ? "cursor-wait" : "cursor-grab active:cursor-grabbing touch-none select-none"
                 )}
                 disabled={pending}
@@ -237,13 +277,13 @@ export function FolderRow({
             </div>
 
             <div className="min-w-0 flex items-center gap-2">
-              {pending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : <Folder className="h-4 w-4 shrink-0" />}
-              <span className="truncate font-medium">{node.name}</span>
+              {pending ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-muted-foreground" /> : <Folder className="h-5 w-5 shrink-0 text-primary/80" />}
+              <span className="truncate font-medium text-foreground group-hover:text-primary">{node.name}</span>
               {pending ? <span className="shrink-0 text-xs text-muted-foreground">Moving…</span> : null}
             </div>
 
             <div className="text-right text-muted-foreground">—</div>
-            <div className="text-muted-foreground">Folder</div>
+            <div>{typeChip("Folder")}</div>
             <div className="text-muted-foreground">—</div>
           </div>
         </div>
@@ -376,9 +416,9 @@ export function FileRow({
           ref={setNodeRef}
           style={style}
           className={cn(
-            "group grid grid-cols-[1.25rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-2 text-sm cursor-default select-none",
-            "hover:bg-muted/40",
-            selected && "bg-muted/60",
+            "group grid grid-cols-[1.5rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-3 px-4 py-3 text-sm cursor-default select-none",
+            "hover:bg-primary/5",
+            selected && "bg-primary/10 text-primary",
             "transition-opacity",
               pending && "opacity-60 cursor-wait",
             isDragging && (multiDrag ? "opacity-0" : "opacity-60"),
@@ -422,7 +462,7 @@ export function FileRow({
               aria-label="Drag file"
               className={cn(
                 "inline-flex h-5 w-5 items-center justify-center rounded",
-                "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
+                "text-muted-foreground/45 opacity-60 hover:text-foreground hover:bg-muted/60 group-hover:opacity-100",
                 pending ? "cursor-wait" : "cursor-grab active:cursor-grabbing touch-none select-none"
               )}
               disabled={pending}
@@ -436,13 +476,13 @@ export function FileRow({
           </div>
 
           <div className="min-w-0 flex items-center gap-2">
-            <FileIconByName name={node.name} className="h-4 w-4 shrink-0" />
-            <span className="truncate">{node.name}</span>
+            <FileIconByName name={node.name} className="h-5 w-5 shrink-0 text-primary/80" />
+            <span className="truncate font-medium text-foreground group-hover:text-primary">{node.name}</span>
           </div>
 
           <div className="text-right text-muted-foreground">{fmtSize(file.size || 0)}</div>
-          <div className="text-muted-foreground truncate">{(file.content_type || "").split(";")[0] || "File"}</div>
-          <div className="text-muted-foreground truncate">{file.created_at ? new Date(file.created_at).toLocaleString() : "—"}</div>
+          <div className="min-w-0">{typeChip(formatFileType(file))}</div>
+          <div className="truncate text-muted-foreground">{formatCreatedAt(file.created_at)}</div>
         </div>
       </ContextMenuTrigger>
 

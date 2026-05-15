@@ -899,7 +899,6 @@ const internalDragPreviewLabels = useMemo(() => {
       window.removeEventListener("dragend", onWindowDragEnd);
     };
   }, [clearExternalDrag, handleExternalDrop, selectedFolder]);
-  const totalSize = useMemo(() => files.reduce((acc, f) => acc + (f.size || 0), 0), [files]);
   const runningUploads = useMemo(() => optimisticJobs.some((j) => j.status === "running"), [optimisticJobs]);
   const treeForFolders = useMemo(() => {
     if (!tree) return null;
@@ -944,6 +943,10 @@ const internalDragPreviewLabels = useMemo(() => {
   const currentNode = useMemo(() => findNode(tree, selectedFolder) || tree, [tree, selectedFolder]);
   const currentFolders = useMemo(() => (currentNode?.children || []).filter((c) => c.type === "folder"), [currentNode]);
   const currentFiles = useMemo(() => (currentNode?.children || []).filter((c) => c.type === "file"), [currentNode]);
+  const currentFolderSize = useMemo(
+    () => currentFiles.reduce((acc, node) => acc + (node.file?.size || 0), 0),
+    [currentFiles]
+  );
   // Global index for search (folders + files). Used when the search box has a query.
   const allFolders = useMemo(() => {
     const out: TreeNode[] = [];
@@ -2079,15 +2082,12 @@ const breadcrumb = useMemo(() => {
   const bgNewFolder = () => requestNewFolder(selectedFolder);
   const bgRefresh = () => refresh();
   return (
-    <div ref={rootRef} className="h-full min-h-0 flex flex-col relative">
+    <div ref={rootRef} className="files-page-shell h-full min-h-0 flex flex-col relative">
       {/* Top bar */}
       <FilesTopBar
-        selectedFolder={selectedFolder}
         uploading={uploading}
         busy={busy}
         runningTasks={runningUploads}
-        filesCount={files.length}
-        totalSize={totalSize}
         filter={filter}
         inputRef={inputRef}
         transcribeInputRef={transcribeInputRef}
@@ -2190,8 +2190,13 @@ const breadcrumb = useMemo(() => {
             }}
           >
             {/* LEFT: folders */}
-            <aside className="hidden md:block shrink-0 overflow-hidden border-r bg-muted/20" style={{ width: sidebarWidth }}>
-              <div className="h-full overflow-auto px-1 py-2">
+            <aside className="hidden md:block shrink-0 overflow-hidden border-r border-primary/10 bg-card/55 backdrop-blur" style={{ width: sidebarWidth }}>
+              <div className="flex h-full flex-col overflow-hidden">
+                <div className="border-b border-primary/10 px-4 py-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Workspace</div>
+                  <div className="mt-1 text-sm font-medium text-foreground">Folders</div>
+                </div>
+                <div className="min-h-0 flex-1 overflow-auto px-2 py-3">
                 <FileTreeAny
                   loading={busy && (!tree || files.length === 0)}
                   node={treeForFolders}
@@ -2242,6 +2247,7 @@ const breadcrumb = useMemo(() => {
                     void handleExternalDrop(dataTransfer, folderPath);
                   }}
                 />
+                </div>
               </div>
             </aside>
             {/* RESIZE HANDLE */}
@@ -2269,8 +2275,9 @@ const breadcrumb = useMemo(() => {
               <FilesFolderHeader
                 selectedFolder={selectedFolder}
                 breadcrumb={breadcrumb}
-                folderCount={filteredCurrentFolders.length}
-                fileCount={filteredCurrentFiles.length}
+                folderCount={currentFolders.length}
+                fileCount={currentFiles.length}
+                totalSize={currentFolderSize}
                 onGoUp={() => setSelectedFolder(parentPath(selectedFolder))}
                 onSelectFolder={setSelectedFolder}
               />
@@ -2429,24 +2436,25 @@ const breadcrumb = useMemo(() => {
                 }}
               >
                 <div ref={listScrollRef} className="absolute inset-0 overflow-auto">
-                  <div className="px-2 py-2">
-                    {/* Header */}
-                    <div className="hidden md:grid grid-cols-[1.25rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-2 px-2 py-1 text-xs text-muted-foreground">
-                      <div />
-                      <div>Name</div>
-                      <div className="text-right">Size</div>
-                      <div>Type</div>
-                      <div>Created</div>
-                    </div>
-                    <div ref={listBoxRef} className="border rounded-md overflow-hidden relative">
+                  <div className="px-4 py-4">
+                    <div className="overflow-hidden rounded-2xl border border-primary/10 bg-card/95 shadow-sm shadow-primary/5">
+                      {/* Header */}
+                      <div className="hidden md:grid grid-cols-[1.5rem_minmax(12rem,1fr)_8rem_9rem_10rem] gap-3 border-b border-primary/10 bg-muted/35 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        <div />
+                        <div>Name</div>
+                        <div className="text-right">Size</div>
+                        <div>Type</div>
+                        <div>Created</div>
+                      </div>
+                      <div ref={listBoxRef} className="relative min-h-[12rem]">
                     {filteredCurrentFolders.length === 0 && filteredCurrentFiles.length === 0 ? (
-                      <div className="p-6 text-sm text-muted-foreground">
+                      <div className="grid min-h-[12rem] place-items-center p-8 text-center text-sm text-muted-foreground">
                         {filter.trim()
-                          ? <>No results for <span className="font-medium">“{filter.trim()}”</span>.</>
+                          ? <>No results for <span className="font-medium text-foreground">“{filter.trim()}”</span>.</>
                           : <>This folder is empty. Right-click to create a folder or upload files.</>}
                       </div>
                     ) : (
-                      <div className="divide-y">
+                      <div className="divide-y divide-border/70">
                         {filteredCurrentFolders.map((n) => (
                           <FolderRow
                             key={n.path}
@@ -2502,6 +2510,7 @@ const breadcrumb = useMemo(() => {
                         ))}
                       </div>
                     )}
+                      </div>
                     </div>
                   </div>
                 </div>

@@ -15,11 +15,11 @@
     "Segoe UI Emoji", "Segoe UI Symbol";
 
   /* Surfaces */
-  --background: 0 0% 100%;
+  --background: 250 70% 99%;
   --foreground: 222.2 47% 11%;
 
   /* Muted / Subtle */
-  --muted: 210 40% 96%;
+  --muted: 250 42% 96%;
   --muted-foreground: 215 16% 47%;
 
   /* Card / Popover */
@@ -33,7 +33,7 @@
   --primary-foreground: 0 0% 100%;
 
   /* Secondary / Accent */
-  --secondary: 240 5% 96%;
+  --secondary: 250 36% 96%;
   --secondary-foreground: 222.2 47% 11%;
   --accent: 248 100% 97%;
   --accent-foreground: 252 65% 22%;
@@ -43,8 +43,8 @@
   --destructive-foreground: 0 0% 100%;
 
   /* Borders / Inputs / Rings */
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
+  --border: 247 32% 89%;
+  --input: 247 32% 89%;
   --ring: 252 86% 60%;
 
   /* Radius */
@@ -89,15 +89,15 @@ html {
 
 .dark {
   color-scheme: dark;
-  --background: 240 10% 4%;
+  --background: 248 18% 6%;
   --foreground: 210 20% 98%;
 
-  --muted: 240 3% 15%;
+  --muted: 248 12% 15%;
   --muted-foreground: 217 12% 65%;
 
-  --card: 240 10% 6%;
+  --card: 248 16% 8%;
   --card-foreground: 210 20% 98%;
-  --popover: 240 10% 6%;
+  --popover: 248 16% 8%;
   --popover-foreground: 210 20% 98%;
 
   --primary: 252 86% 66%;
@@ -112,8 +112,8 @@ html {
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
 
-  --border: 240 4% 20%;
-  --input: 240 4% 20%;
+  --border: 248 12% 22%;
+  --input: 248 12% 22%;
   --ring: 252 86% 66%;
   --sidebar: hsl(240 5.9% 10%);
   --sidebar-foreground: hsl(240 4.8% 95.9%);

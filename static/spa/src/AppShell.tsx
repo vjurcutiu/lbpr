@@ -115,7 +115,6 @@ export default function AppShell({
           <div className="container mx-auto px-4 py-6">{children}</div>
         </main>
       )}
-      <SiteFooter appName={appName} />
     </div>
   )
 }
@@ -126,7 +125,7 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
   const topNav = navItems.filter(i => i.where === "top" || i.where === "both")
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b backdrop-blur bg-gradient-to-r from-primary/10 via-accent/10 to-secondary/10 supports-[backdrop-filter]:bg-background/40">
+    <header className="sticky top-0 z-50 w-full border-b backdrop-blur bg-background/90 supports-[backdrop-filter]:bg-background/70 shadow-sm shadow-primary/5">
       <div className="container mx-auto h-14 px-4 flex items-center gap-3">
         {/* Mobile: Drawer Trigger */}
         <div className="lg:hidden">
@@ -170,7 +169,7 @@ function TopLink({ to, label }: { to: string; label: string }) {
         [
           "px-3 py-2 text-sm rounded-md transition-colors",
           isActive
-            ? "bg-primary/30 text-accent-foreground"
+            ? "bg-primary/15 text-primary shadow-sm shadow-primary/10"
             : "text-muted-foreground hover:text-foreground hover:bg-primary/10",
         ].join(" ")
       }
@@ -289,22 +288,5 @@ function ThemeToggle({ compact = false }: { compact?: boolean }) {
     <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
       {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
     </Button>
-  )
-}
-
-/* --------------------------------- Footer -------------------------------- */
-
-function SiteFooter({ appName }: { appName: string }) {
-  return (
-    <footer className="border-t">
-      <div className="container mx-auto px-4 py-3 text-sm text-muted-foreground flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>© {new Date().getFullYear()} {appName}. All rights reserved.</div>
-        <div className="flex items-center gap-4">
-          <Link to="/privacy" className="hover:text-foreground">Privacy</Link>
-          <Link to="/terms" className="hover:text-foreground">Terms</Link>
-          <Link to="/dpa" className="hover:text-foreground">DPA</Link>
-        </div>
-      </div>
-    </footer>
   )
 }

@@ -77,6 +77,13 @@ function folderPrefixes(p: string) {
   return out;
 }
 
+
+function countFiles(node: TreeNode): number {
+  let count = node.type === "file" ? 1 : 0;
+  for (const child of node.children || []) count += countFiles(child);
+  return count;
+}
+
 function isSameOrDescendantFolder(root: string, path: string) {
   const r = normPath(root);
   const p = normPath(path);
@@ -258,6 +265,7 @@ function FolderRow({
   const hasChildren = children.length > 0;
   const selected = selectedKey === folderKey(node.path);
   const pending = !isRoot && pendingFolderPaths.some((root) => isSameOrDescendantFolder(root, node.path));
+  const fileCount = countFiles(node);
 
   const {
     attributes,
@@ -359,9 +367,9 @@ function FolderRow({
               ref={setDragRef}
               style={rowStyle}
               className={cn(
-                "w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-left select-none",
-                "hover:bg-muted/40",
-                selected && "bg-muted/50",
+                "group w-full flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-left select-none transition-colors",
+                "hover:bg-primary/5",
+                selected && "bg-primary/10 text-primary shadow-sm shadow-primary/5",
                 pending && "opacity-60 cursor-wait",
                 isDragging && "opacity-60"
               )}
@@ -376,7 +384,7 @@ function FolderRow({
                   aria-label="Drag folder"
                   className={cn(
                     "inline-flex h-5 w-5 items-center justify-center rounded",
-                    "text-muted-foreground/70 hover:text-foreground hover:bg-muted/60",
+                    "text-muted-foreground/40 opacity-0 hover:text-foreground hover:bg-muted/60 group-hover:opacity-100",
                     pending ? "cursor-wait" : "cursor-grab active:cursor-grabbing touch-none select-none"
                   )}
                   disabled={pending}
@@ -421,8 +429,16 @@ function FolderRow({
                   activateFolder();
                 }}
               >
-                {pending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : <Folder className="h-4 w-4 shrink-0" />}
-                <span className={cn("truncate", isRoot && "font-medium")}>{node.name || "Root"}</span>
+                {pending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : <Folder className={cn("h-4 w-4 shrink-0", selected ? "text-primary" : "text-primary/70")} />}
+                <span className={cn("truncate", isRoot && "font-medium", selected && "text-primary")}>{node.name || "Root"}</span>
+                {fileCount > 0 ? (
+                  <span className={cn(
+                    "ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-[0.65rem] leading-none",
+                    selected ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
+                  )}>
+                    {fileCount}
+                  </span>
+                ) : null}
                 {pending ? <span className="shrink-0 text-xs text-muted-foreground">Moving…</span> : null}
               </button>
             </div>
