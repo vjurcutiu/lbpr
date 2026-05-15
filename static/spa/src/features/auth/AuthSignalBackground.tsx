@@ -75,15 +75,15 @@ export default function AuthSignalBackground() {
       navigator.hardwareConcurrency <= 4;
 
     const palette = {
-      trail: "rgba(71, 138, 255, 0.13)",
-      point: "rgba(175, 222, 255, 0.6)",
-      pulse: "rgba(120, 229, 255, 0.95)",
-      bright: "rgba(238, 247, 255, 0.98)",
+      trail: "rgba(86, 160, 255, 0.2)",
+      point: "rgba(198, 234, 255, 0.82)",
+      pulse: "rgba(136, 236, 255, 1)",
+      bright: "rgba(246, 251, 255, 1)",
     };
 
     const buildParticles = () => {
-      const density = isCompactMode ? 0.000026 : 0.000072;
-      const total = Math.max(42, Math.round(width * height * density));
+      const density = isCompactMode ? 0.00004 : 0.000108;
+      const total = Math.max(68, Math.round(width * height * density));
       particles = Array.from({ length: total }, () => {
         const seedX = Math.random() * width;
         const seedY = Math.random() * height;
@@ -96,8 +96,8 @@ export default function AuthSignalBackground() {
           vy: (Math.random() - 0.5) * 0.12,
           drift: 0.2 + Math.random() * 0.8,
           phase: Math.random() * Math.PI * 2,
-          size: 0.65 + Math.random() * 1.85,
-          signal: Math.random() * 0.12,
+          size: 0.75 + Math.random() * 2.05,
+          signal: Math.random() * 0.16,
         };
       });
     };
@@ -142,9 +142,9 @@ export default function AuthSignalBackground() {
 
       for (let channel = 0; channel < totalChannels; channel += 1) {
         const gradient = context.createLinearGradient(0, 0, width, height);
-        gradient.addColorStop(0, `rgba(102, 166, 255, ${0.05 + channel * 0.012})`);
-        gradient.addColorStop(0.5, `rgba(115, 228, 255, ${0.1 + channel * 0.02})`);
-        gradient.addColorStop(1, `rgba(136, 115, 255, ${0.05 + channel * 0.012})`);
+        gradient.addColorStop(0, `rgba(112, 176, 255, ${0.072 + channel * 0.016})`);
+        gradient.addColorStop(0.5, `rgba(126, 234, 255, ${0.14 + channel * 0.024})`);
+        gradient.addColorStop(1, `rgba(148, 128, 255, ${0.072 + channel * 0.016})`);
 
         context.beginPath();
         for (let x = 0; x <= width; x += isCompactMode ? 22 : 14) {
@@ -157,9 +157,9 @@ export default function AuthSignalBackground() {
         }
 
         context.strokeStyle = gradient;
-        context.lineWidth = 1.2 + channel * 0.35;
-        context.shadowBlur = 18 + channel * 6;
-        context.shadowColor = `rgba(118, 196, 255, ${0.12 + channel * 0.04})`;
+        context.lineWidth = 1.35 + channel * 0.4;
+        context.shadowBlur = 22 + channel * 7;
+        context.shadowColor = `rgba(132, 210, 255, ${0.18 + channel * 0.048})`;
         context.stroke();
       }
 
@@ -191,9 +191,9 @@ export default function AuthSignalBackground() {
           if (distanceSq > maxDistanceSq || particleB.signal < 0.34) continue;
 
           const distance = Math.sqrt(distanceSq);
-          const alpha = (1 - distance / maxDistance) * Math.min(particleA.signal, particleB.signal) * 0.28;
-          context.strokeStyle = `rgba(136, 205, 255, ${alpha})`;
-          context.lineWidth = 0.65;
+          const alpha = (1 - distance / maxDistance) * Math.min(particleA.signal, particleB.signal) * 0.38;
+          context.strokeStyle = `rgba(156, 220, 255, ${alpha})`;
+          context.lineWidth = 0.75;
           context.beginPath();
           context.moveTo(particleA.x, particleA.y);
           context.lineTo(particleB.x, particleB.y);
@@ -246,15 +246,15 @@ export default function AuthSignalBackground() {
           particle.y -= (pointerDy / pointerDistance) * repel * delta * 2.2;
         }
 
-        const radius = particle.size + particle.signal * 1.6;
-        const alpha = 0.14 + particle.signal * 0.72;
+        const radius = particle.size + particle.signal * 1.8;
+        const alpha = 0.22 + particle.signal * 0.78;
 
         context.beginPath();
         context.arc(particle.x, particle.y, radius, 0, Math.PI * 2);
         context.fillStyle = particle.signal > 0.6 ? palette.pulse : palette.point;
         context.globalAlpha = alpha;
-        context.shadowBlur = particle.signal > 0.42 ? 14 : 0;
-        context.shadowColor = particle.signal > 0.42 ? palette.bright : palette.trail;
+        context.shadowBlur = particle.signal > 0.36 ? 18 : 0;
+        context.shadowColor = particle.signal > 0.36 ? palette.bright : palette.trail;
         context.fill();
       }
 

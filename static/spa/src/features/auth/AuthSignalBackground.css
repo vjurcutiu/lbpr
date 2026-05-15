@@ -3,8 +3,8 @@
   inset: 0;
   overflow: hidden;
   background:
-    radial-gradient(circle at 15% 20%, rgba(90, 150, 255, 0.18), transparent 24%),
-    radial-gradient(circle at 80% 15%, rgba(108, 214, 255, 0.12), transparent 22%),
+    radial-gradient(circle at 15% 20%, rgba(96, 165, 255, 0.24), transparent 24%),
+    radial-gradient(circle at 80% 15%, rgba(122, 226, 255, 0.18), transparent 22%),
     linear-gradient(135deg, rgba(7, 13, 26, 0.98), rgba(3, 8, 18, 1));
   isolation: isolate;
   pointer-events: none;
@@ -21,20 +21,20 @@
 .auth-signal-bg__backdrop {
   z-index: -3;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
   background-size: 72px 72px;
   mask-image: radial-gradient(circle at center, black, transparent 82%);
-  opacity: 0.18;
+  opacity: 0.22;
 }
 
 .auth-signal-bg__backdrop::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at center, rgba(60, 124, 245, 0.18), transparent 54%);
+  background: radial-gradient(circle at center, rgba(76, 146, 255, 0.24), transparent 54%);
   filter: blur(32px);
-  opacity: 0.7;
+  opacity: 0.82;
 }
 
 .auth-signal-bg__canvas {
@@ -54,20 +54,20 @@
 .auth-signal-bg__glow--one {
   inset: auto auto -18% -10%;
   width: min(40rem, 70vw);
-  background: radial-gradient(circle, rgba(67, 151, 255, 0.22), transparent 62%);
+  background: radial-gradient(circle, rgba(76, 164, 255, 0.3), transparent 62%);
   filter: blur(32px);
 }
 
 .auth-signal-bg__glow--two {
   inset: -18% -16% auto auto;
   width: min(34rem, 62vw);
-  background: radial-gradient(circle, rgba(116, 229, 255, 0.14), transparent 64%);
+  background: radial-gradient(circle, rgba(128, 235, 255, 0.22), transparent 64%);
   filter: blur(40px);
 }
 
 .auth-signal-bg__noise {
   z-index: 0;
-  opacity: 0.06;
+  opacity: 0.1;
   background-image:
     radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.55) 0 1px, transparent 1.5px),
     radial-gradient(circle at 80% 35%, rgba(255, 255, 255, 0.45) 0 1px, transparent 1.5px),
@@ -79,19 +79,19 @@
 .auth-signal-bg__veil {
   z-index: 1;
   background:
-    radial-gradient(circle at center, rgba(4, 9, 20, 0.1), rgba(4, 9, 20, 0.38) 62%, rgba(4, 9, 20, 0.76) 100%),
-    linear-gradient(180deg, rgba(4, 9, 20, 0.12), rgba(4, 9, 20, 0.56));
+    radial-gradient(circle at center, rgba(4, 9, 20, 0.06), rgba(4, 9, 20, 0.3) 62%, rgba(4, 9, 20, 0.68) 100%),
+    linear-gradient(180deg, rgba(4, 9, 20, 0.08), rgba(4, 9, 20, 0.46));
 }
 
 @media (max-width: 720px) {
   .auth-signal-bg__backdrop {
     background-size: 56px 56px;
-    opacity: 0.14;
+    opacity: 0.18;
   }
 
   .auth-signal-bg__veil {
     background:
-      radial-gradient(circle at center, rgba(4, 9, 20, 0.22), rgba(4, 9, 20, 0.66) 72%, rgba(4, 9, 20, 0.88) 100%),
-      linear-gradient(180deg, rgba(4, 9, 20, 0.24), rgba(4, 9, 20, 0.68));
+      radial-gradient(circle at center, rgba(4, 9, 20, 0.16), rgba(4, 9, 20, 0.6) 72%, rgba(4, 9, 20, 0.84) 100%),
+      linear-gradient(180deg, rgba(4, 9, 20, 0.18), rgba(4, 9, 20, 0.62));
   }
 }
