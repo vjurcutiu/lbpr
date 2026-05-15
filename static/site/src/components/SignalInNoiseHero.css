@@ -68,18 +68,18 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 640px) minmax(0, 1fr);
-  gap: clamp(2rem, 6vw, 5rem);
+  grid-template-columns: minmax(0, 720px) minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 4rem);
   align-items: center;
-  min-height: 100vh;
+  min-height: min(100vh, 54rem);
   max-width: 1240px;
   margin: 0 auto;
-  padding: max(7rem, clamp(1.5rem, 3vw, 2.5rem)) clamp(1.25rem, 4vw, 3rem) clamp(2rem, 3vw, 3rem);
+  padding: max(6rem, clamp(1.5rem, 3vw, 2.5rem)) clamp(1.25rem, 4vw, 3rem) clamp(2.5rem, 4vw, 4rem);
 }
 
 .signal-hero__content {
   display: grid;
-  gap: 1.35rem;
+  gap: 1.15rem;
   align-self: center;
 }
 
@@ -109,17 +109,25 @@
 
 .signal-hero__title {
   margin: 0;
-  font-size: clamp(3rem, 6vw, 5.85rem);
-  line-height: 0.96;
+  padding-bottom: 0.18em;
+  overflow: visible;
+  font-size: clamp(3rem, 5.45vw, 5.35rem);
+  line-height: 1.1;
   letter-spacing: -0.06em;
-  max-width: 11ch;
+  max-width: 12.2ch;
 }
 
 .signal-hero__highlight {
   display: block;
+  width: fit-content;
+  margin-bottom: -0.12em;
+  padding-bottom: 0.16em;
+  overflow: visible;
+  line-height: 1.08;
   background: linear-gradient(135deg, #eef4ff 0%, #74cfff 45%, #8d6eff 100%);
   -webkit-background-clip: text;
   background-clip: text;
+  -webkit-text-fill-color: transparent;
   color: transparent;
 }
 
@@ -127,8 +135,8 @@
   max-width: 58ch;
   margin: 0;
   color: rgba(218, 228, 245, 0.8);
-  font-size: clamp(1rem, 1.45vw, 1.16rem);
-  line-height: 1.75;
+  font-size: clamp(1.02rem, 1.5vw, 1.2rem);
+  line-height: 1.68;
 }
 
 .signal-hero__actions {
@@ -143,8 +151,10 @@
   border: 0;
   border-radius: 999px;
   cursor: pointer;
-  padding: 0.95rem 1.35rem;
-  min-width: 10rem;
+  padding: 1.1rem 1.75rem;
+  min-width: 12.5rem;
+  min-height: 3.85rem;
+  font-size: 1rem;
   font-weight: 600;
   transition:
     transform 220ms ease,
