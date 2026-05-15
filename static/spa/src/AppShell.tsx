@@ -3,7 +3,6 @@ import type { ReactNode } from "react"
 import { useEffect, useMemo, useState } from "react"
 import { Link, NavLink, useLocation } from "react-router-dom"
 import { Menu, Moon, Sun } from "lucide-react"
-import { RiRobotLine } from "react-icons/ri"
 
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -130,30 +129,30 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/70 bg-background/90 shadow-sm shadow-primary/5 backdrop-blur-xl supports-[backdrop-filter]:bg-background/75">
-      <div className="flex h-16 w-full items-center px-4 sm:px-5 lg:px-6">
-        {/* Mobile: Drawer Trigger */}
-        <div className="mr-2 flex lg:hidden">
-          <MobileNav appName={appName} navItems={navItems} />
+      <div className="grid h-16 w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4 sm:px-5 lg:px-6">
+        <div className="flex min-w-0 items-center">
+          {/* Mobile: Drawer Trigger */}
+          <div className="mr-2 flex lg:hidden">
+            <MobileNav appName={appName} navItems={navItems} />
+          </div>
+
+          <BrandLockup appName={appName} />
         </div>
 
-        {/* Logo */}
-        <BrandLockup appName={appName} />
-
         {/* Primary Nav (Desktop) */}
-        <nav className="ml-8 hidden items-center rounded-full border border-border/70 bg-card/50 p-1 shadow-sm shadow-primary/5 lg:flex">
+        <nav className="hidden h-full items-center justify-center gap-9 lg:flex" aria-label="Primary">
           {topNav.map((item) => (
             <TopLink key={item.to} to={item.to} label={item.label} />
           ))}
         </nav>
 
-        {/* Spacer to push actions right */}
-        <div className="flex-1" />
-
         {/* Actions */}
-        <div className="flex items-center gap-2 rounded-full border border-border/60 bg-card/50 p-1 shadow-sm shadow-primary/5">
-          <ThemeToggle />
-          <div className="h-6 w-px bg-border/80" />
-          <ProfileMenu />
+        <div className="flex min-w-0 justify-end">
+          <div className="flex items-center gap-2 rounded-full border border-border/60 bg-card/50 p-1 shadow-sm shadow-primary/5">
+            <ThemeToggle />
+            <div className="h-6 w-px bg-border/80" />
+            <ProfileMenu />
+          </div>
         </div>
       </div>
     </header>
@@ -162,28 +161,27 @@ function TopNav({ appName, navItems }: { appName: string; navItems: NavItem[] })
 
 function BrandLockup({ appName }: { appName: string }) {
   const tierMatch = appName.match(/\s+(PRO|TEAM|ENTERPRISE)$/i)
-  const tier = tierMatch?.[1]?.toUpperCase()
+  const tier = tierMatch?.[1]
   const productName = tier ? appName.replace(/\s+(PRO|TEAM|ENTERPRISE)$/i, "") : appName
+  const normalizedProductName = productName.replace(/LexBot/i, "Lexbot")
+  const displayTier = tier
+    ? tier.charAt(0).toUpperCase() + tier.slice(1).toLowerCase()
+    : null
 
   return (
     <Link
       to="/files"
-      className="group flex min-w-0 items-center gap-2.5 rounded-2xl pr-2 transition-opacity hover:opacity-90"
+      className="group inline-flex min-w-0 items-baseline gap-1.5 rounded-xl transition-opacity hover:opacity-90"
       aria-label={`${appName} home`}
     >
-      <span className="grid size-9 place-items-center rounded-2xl border border-primary/15 bg-primary/10 text-primary shadow-sm shadow-primary/10 transition-colors group-hover:bg-primary/15">
-        <RiRobotLine size={21} />
+      <span className="truncate text-[20px] font-extrabold leading-none tracking-[-0.04em] text-slate-950 dark:text-white sm:text-[21px]">
+        {normalizedProductName}
       </span>
-      <span className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-[15px] font-semibold tracking-[-0.015em] text-foreground sm:text-base">
-          {productName}
+      {displayTier ? (
+        <span className="text-[20px] font-extrabold leading-none tracking-[-0.04em] text-primary sm:text-[21px]">
+          {displayTier}
         </span>
-        {tier ? (
-          <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-primary shadow-sm shadow-primary/5 sm:text-[11px]">
-            {tier}
-          </span>
-        ) : null}
-      </span>
+      ) : null}
     </Link>
   )
 }
@@ -196,11 +194,12 @@ function TopLink({ to, label }: { to: string; label: string }) {
       to={to}
       className={({ isActive }) =>
         cn(
-          "relative inline-flex h-9 items-center rounded-full px-4 text-sm font-medium transition-all duration-200",
-          "focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-0",
+          "relative inline-flex h-full items-center px-1 text-[15px] font-semibold transition-colors duration-200",
+          "after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:rounded-full after:bg-primary after:opacity-0 after:transition-opacity after:duration-200",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-0",
           isActive
-            ? "bg-primary/10 text-primary shadow-sm shadow-primary/10"
-            : "text-muted-foreground hover:bg-primary/10 hover:text-foreground"
+            ? "text-foreground after:opacity-100"
+            : "text-muted-foreground hover:text-foreground"
         )
       }
     >
