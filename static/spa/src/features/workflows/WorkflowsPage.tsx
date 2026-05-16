@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ArrowRight, CheckCircle2, ChevronRight, CornerDownRight, FileText, GitBranch, ListFilter, Loader2, MoreVertical, PanelLeftClose, PanelLeftOpen, Pencil, Search, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowRight, CheckCircle2, ChevronRight, CornerDownRight, FileText, GitBranch, ListFilter, Loader2, MoreVertical, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -453,7 +453,7 @@ function workflowRunFilterCopy(filter: RunFilter) {
     case "failed":
       return "No failed workflow runs.";
     default:
-      return "No workflow runs yet. Start one from the workflow list.";
+      return "No workflow runs yet. Start a new workflow to create your first output.";
   }
 }
 
@@ -697,6 +697,7 @@ function CollapsedRunsRail({
   draftRunIds,
   onSelect,
   onExpand,
+  onNewWorkflow,
 }: {
   runs: WorkflowRun[];
   selectedRunId: string | null;
@@ -704,6 +705,7 @@ function CollapsedRunsRail({
   draftRunIds: Set<string>;
   onSelect: (runId: string) => void;
   onExpand: () => void;
+  onNewWorkflow: () => void;
 }) {
   return (
     <div className="flex h-full min-h-0 w-full flex-col items-center border-r border-border/70 bg-background/95 py-3">
@@ -715,6 +717,16 @@ function CollapsedRunsRail({
         title="Expand workflow runs"
       >
         <PanelLeftOpen className="h-4 w-4" />
+      </button>
+
+      <button
+        type="button"
+        onClick={onNewWorkflow}
+        className="mt-2 inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary transition-colors hover:border-primary/30 hover:bg-primary/15"
+        aria-label="New workflow"
+        title="New workflow"
+      >
+        <Plus className="h-4 w-4" />
       </button>
 
       <div className="mt-3 h-px w-8 bg-border/70" />
@@ -856,8 +868,111 @@ function ProPackAccordion({
   );
 }
 
-type MobilePanel = "inbox" | "details" | "flows";
 type WorkflowLibraryView = "core" | "pro";
+
+function WorkflowCatalogDialog({
+  open,
+  workflowLibraryView,
+  onOpenChange,
+  onLibraryViewChange,
+  catalog,
+  coreCatalog,
+  proPackGroups,
+  proPackCount,
+  activeCoreWorkflowId,
+  activeProPackId,
+  disabled = false,
+  onCoreLaunch,
+  onProLaunch,
+}: {
+  open: boolean;
+  workflowLibraryView: WorkflowLibraryView;
+  onOpenChange: (open: boolean) => void;
+  onLibraryViewChange: (value: WorkflowLibraryView) => void;
+  catalog: WorkflowManifest[];
+  coreCatalog: WorkflowManifest[];
+  proPackGroups: ProPackGroup[];
+  proPackCount: number;
+  activeCoreWorkflowId: string | null;
+  activeProPackId: string | null;
+  disabled?: boolean;
+  onCoreLaunch: (workflow: WorkflowManifest) => void;
+  onProLaunch: (group: ProPackGroup, pack: ProPackItem, workflow: WorkflowManifest) => void;
+}) {
+  const totalCount = coreCatalog.length + proPackCount;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[88vh] max-w-3xl overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_80px_rgba(15,23,42,0.18)]">
+        <DialogHeader className="border-b border-border/70 px-5 pb-4 pt-5 sm:px-6">
+          <DialogTitle className="text-lg font-semibold">New workflow</DialogTitle>
+          <DialogDescription>
+            Choose a workflow, then select the files or folders you want to process.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 px-4 pb-4 pt-4 sm:px-5">
+          <Tabs value={workflowLibraryView} onValueChange={(value) => onLibraryViewChange(value as WorkflowLibraryView)}>
+            <TabsList className="grid h-auto w-full grid-cols-2 rounded-full bg-muted/40 p-1">
+              <TabsTrigger value="core" className="h-9 rounded-full px-3 text-xs">
+                Core <span className="ml-1 text-muted-foreground">{coreCatalog.length}</span>
+              </TabsTrigger>
+              <TabsTrigger value="pro" className="h-9 rounded-full px-3 text-xs">
+                Pro <span className="ml-1 text-muted-foreground">{proPackCount}</span>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          <div className="mt-4 overflow-hidden rounded-2xl border border-border/70 bg-background">
+            {totalCount ? (
+              <ScrollArea className="h-[58vh] max-h-[540px]">
+                <div className="p-2.5">
+                  {workflowLibraryView === "core" ? (
+                    coreCatalog.length ? (
+                      <div className="space-y-1.5">
+                        {coreCatalog.map((workflow) => (
+                          <WorkflowCatalogItem
+                            key={workflow.workflow_id}
+                            workflow={workflow}
+                            active={activeCoreWorkflowId === workflow.workflow_id}
+                            onLaunch={onCoreLaunch}
+                            disabled={disabled}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="px-3 py-8 text-center text-sm leading-6 text-muted-foreground">
+                        Core workflows will appear here once the catalog loads.
+                      </div>
+                    )
+                  ) : proPackCount ? (
+                    <ProPackAccordion
+                      catalog={catalog}
+                      groups={proPackGroups}
+                      activePackId={activeProPackId}
+                      disabled={disabled}
+                      onLaunch={onProLaunch}
+                    />
+                  ) : (
+                    <div className="px-3 py-8 text-center text-sm leading-6 text-muted-foreground">
+                      Pro workflows will appear here once the catalog loads.
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            ) : (
+              <div className="px-3 py-8 text-center text-sm leading-6 text-muted-foreground">
+                Workflows will appear here once the catalog loads.
+              </div>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type MobilePanel = "inbox" | "details";
 
 const WORKFLOW_SIDE_PANE_MIN_WIDTH = 240;
 const WORKFLOW_SIDE_PANE_MAX_WIDTH = 560;
@@ -874,7 +989,6 @@ function clampWorkflowSidePaneWidth(value: number, maxAvailable: number) {
 
 export default function WorkflowsPage() {
   const isMobile = useMediaQuery("(max-width: 767px)");
-  const isCompactDesktop = useMediaQuery("(min-width: 768px) and (max-width: 1279px)");
   const isResizableDesktop = useMediaQuery("(min-width: 1280px)");
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedRunId = searchParams.get("run")?.trim() || null;
@@ -883,8 +997,7 @@ export default function WorkflowsPage() {
   const workflowPanelsRef = useRef<HTMLDivElement>(null);
   const [runsPaneWidth, setRunsPaneWidth] = useState(310);
   const [runsPaneCollapsed, setRunsPaneCollapsed] = useState(false);
-  const [flowsPaneWidth, setFlowsPaneWidth] = useState(300);
-  const [resizingPane, setResizingPane] = useState<"runs" | "flows" | null>(null);
+  const [resizingPane, setResizingPane] = useState<"runs" | null>(null);
   const [catalog, setCatalog] = useState<WorkflowManifest[]>([]);
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -893,6 +1006,7 @@ export default function WorkflowsPage() {
   const [search, setSearch] = useState("");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [workflowCatalogOpen, setWorkflowCatalogOpen] = useState(false);
   const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(null);
   const [workflowLibraryView, setWorkflowLibraryView] = useState<WorkflowLibraryView>("core");
@@ -1038,6 +1152,7 @@ export default function WorkflowsPage() {
     (workflow: WorkflowManifest) => {
       setActiveCoreWorkflowId(workflow.workflow_id);
       setActiveProPackId(null);
+      setWorkflowCatalogOpen(false);
       openWorkflowLauncher(workflow);
     },
     [openWorkflowLauncher]
@@ -1047,6 +1162,7 @@ export default function WorkflowsPage() {
     (group: ProPackGroup, pack: ProPackItem, workflow: WorkflowManifest) => {
       setActiveCoreWorkflowId(null);
       setActiveProPackId(pack.id);
+      setWorkflowCatalogOpen(false);
       openWorkflowLauncher(workflow, {
         initialInputs: buildProPackInputs(group, pack),
       });
@@ -1596,24 +1712,15 @@ export default function WorkflowsPage() {
 
     const clampCurrentWidths = () => {
       const rect = panels.getBoundingClientRect();
-      const availableForSidePanes = rect.width - WORKFLOW_DETAIL_MIN_WIDTH - WORKFLOW_RESIZE_HANDLE_ALLOWANCE;
-      const sidePaneBudget = Math.max(WORKFLOW_SIDE_PANE_MIN_WIDTH * 2, availableForSidePanes);
-
-      setRunsPaneWidth((currentRunsWidth) => {
-        const maxAvailable = sidePaneBudget - flowsPaneWidth;
-        return clampWorkflowSidePaneWidth(currentRunsWidth, maxAvailable);
-      });
-      setFlowsPaneWidth((currentFlowsWidth) => {
-        const maxAvailable = sidePaneBudget - runsPaneWidth;
-        return clampWorkflowSidePaneWidth(currentFlowsWidth, maxAvailable);
-      });
+      const maxAvailable = rect.width - WORKFLOW_DETAIL_MIN_WIDTH - WORKFLOW_RESIZE_HANDLE_ALLOWANCE;
+      setRunsPaneWidth((currentRunsWidth) => clampWorkflowSidePaneWidth(currentRunsWidth, maxAvailable));
     };
 
     clampCurrentWidths();
     const observer = new ResizeObserver(clampCurrentWidths);
     observer.observe(panels);
     return () => observer.disconnect();
-  }, [flowsPaneWidth, isResizableDesktop, runsPaneWidth]);
+  }, [isResizableDesktop]);
 
   useEffect(() => {
     if (!isResizableDesktop || !resizingPane) return;
@@ -1627,14 +1734,8 @@ export default function WorkflowsPage() {
       const rect = workflowPanelsRef.current?.getBoundingClientRect();
       if (!rect) return;
 
-      if (resizingPane === "runs") {
-        const maxAvailable = rect.width - flowsPaneWidth - WORKFLOW_DETAIL_MIN_WIDTH - WORKFLOW_RESIZE_HANDLE_ALLOWANCE;
-        setRunsPaneWidth(clampWorkflowSidePaneWidth(event.clientX - rect.left, maxAvailable));
-        return;
-      }
-
-      const maxAvailable = rect.width - runsPaneWidth - WORKFLOW_DETAIL_MIN_WIDTH - WORKFLOW_RESIZE_HANDLE_ALLOWANCE;
-      setFlowsPaneWidth(clampWorkflowSidePaneWidth(rect.right - event.clientX, maxAvailable));
+      const maxAvailable = rect.width - WORKFLOW_DETAIL_MIN_WIDTH - WORKFLOW_RESIZE_HANDLE_ALLOWANCE;
+      setRunsPaneWidth(clampWorkflowSidePaneWidth(event.clientX - rect.left, maxAvailable));
     };
 
     const onUp = () => setResizingPane(null);
@@ -1647,7 +1748,7 @@ export default function WorkflowsPage() {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, [flowsPaneWidth, isResizableDesktop, resizingPane, runsPaneWidth]);
+  }, [isResizableDesktop, resizingPane]);
 
   const stats = useMemo(() => {
     const completed = runs.filter((run) => workflowDisplayStatus(run, refiningRunId) === "completed");
@@ -1866,7 +1967,6 @@ export default function WorkflowsPage() {
   const outputFocusActive = false;
   const showInbox = (!isMobile && !outputFocusActive) || mobilePanel === "inbox";
   const showDetails = !isMobile || mobilePanel === "details";
-  const showFlows = (!isMobile && !outputFocusActive) || mobilePanel === "flows";
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -1880,14 +1980,22 @@ export default function WorkflowsPage() {
                   {stats.inFlight ? `${stats.inFlight} active run${stats.inFlight === 1 ? "" : "s"}` : "Run document workflows and review finished outputs."}
                 </div>
               </div>
+              <Button
+                type="button"
+                size="sm"
+                className="h-9 shrink-0 rounded-2xl"
+                onClick={() => setWorkflowCatalogOpen(true)}
+              >
+                <Plus className="h-4 w-4" />
+                New
+              </Button>
             </div>
           </div>
           <div className="px-4 py-3">
             <Tabs value={mobilePanel} onValueChange={(value) => setMobilePanel(value as MobilePanel)}>
-              <TabsList className="grid h-auto w-full grid-cols-3 rounded-full bg-muted/40 p-1">
+              <TabsList className="grid h-auto w-full grid-cols-2 rounded-full bg-muted/40 p-1">
                 <TabsTrigger value="inbox" className="h-8 rounded-full px-2 text-xs">Runs {runs.length}</TabsTrigger>
                 <TabsTrigger value="details" className="h-8 rounded-full px-2 text-xs">Details</TabsTrigger>
-                <TabsTrigger value="flows" className="h-8 rounded-full px-2 text-xs">Workflows {coreCatalog.length + proPackCount}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -1901,23 +2009,17 @@ export default function WorkflowsPage() {
             "border border-border/70 bg-background shadow-sm",
             isMobile
               ? "border-t-0"
-              : isCompactDesktop && !outputFocusActive
-                ? cn(
-                  "grid h-full min-h-0 grid-rows-[minmax(180px,42%)_minmax(180px,58%)] overflow-hidden",
-                  runsPaneCollapsed ? "grid-cols-[68px_minmax(0,1fr)]" : "grid-cols-[minmax(260px,32vw)_minmax(0,1fr)]"
-                )
-                : "flex h-full min-h-0 flex-row overflow-hidden"
+              : "flex h-full min-h-0 flex-row overflow-hidden"
           )}
         >
         <section
           className={cn(
             "flex min-h-[220px] min-w-0 flex-col overflow-hidden border-border/70 bg-muted/[0.03]",
             isMobile && "border-b",
-            isCompactDesktop && "min-h-0 border-r border-b [grid-column:1] [grid-row:1]",
-            !isMobile && !isCompactDesktop && "min-h-0",
+            !isMobile && "min-h-0",
             !showInbox && "hidden"
           )}
-          style={isResizableDesktop ? { flex: `0 0 ${runsPaneCollapsed ? 68 : runsPaneWidth}px`, width: runsPaneCollapsed ? 68 : runsPaneWidth } : undefined}
+          style={!isMobile ? { flex: `0 0 ${runsPaneCollapsed ? 68 : isResizableDesktop ? runsPaneWidth : 310}px`, width: runsPaneCollapsed ? 68 : isResizableDesktop ? runsPaneWidth : 310 } : undefined}
         >
           {runsPaneCollapsed && !isMobile ? (
             <CollapsedRunsRail
@@ -1927,6 +2029,7 @@ export default function WorkflowsPage() {
               draftRunIds={draftRunIds}
               onSelect={handleSelectRun}
               onExpand={() => setRunsPaneCollapsed(false)}
+              onNewWorkflow={() => setWorkflowCatalogOpen(true)}
             />
           ) : (
             <>
@@ -1953,6 +2056,15 @@ export default function WorkflowsPage() {
                     </button>
                   ) : null}
                 </div>
+
+                <Button
+                  type="button"
+                  className="mt-3 h-9 w-full rounded-2xl shadow-sm"
+                  onClick={() => setWorkflowCatalogOpen(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  New workflow
+                </Button>
 
                 <div className="relative mt-3">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -2056,11 +2168,10 @@ export default function WorkflowsPage() {
           className={cn(
             "flex min-h-[320px] min-w-0 flex-col border-border/70",
             isMobile && "border-b",
-            isCompactDesktop && !outputFocusActive && "min-h-0 [grid-column:2] [grid-row:1_/_span_2]",
-            !isMobile && (!isCompactDesktop || outputFocusActive) && "min-h-0",
+            !isMobile && "min-h-0",
             !showDetails && "hidden"
           )}
-          style={isResizableDesktop || outputFocusActive ? { flex: "1 1 0", minWidth: 0 } : undefined}
+          style={!isMobile ? { flex: "1 1 0", minWidth: 0 } : undefined}
         >
 
           {selectedRun ? (
@@ -2197,85 +2308,29 @@ export default function WorkflowsPage() {
             </div>
           ) : (
             <div className="p-5 text-sm leading-6 text-muted-foreground md:px-8 md:py-6">
-              {isMobile
-                ? "Choose a run to review it, or open the Workflows tab to start a new one."
-                : "Start a workflow from the right panel, or choose a run to review its result."}
+              Choose a run to review it, or start a new workflow.
             </div>
           )}
         </section>
 
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize workflow list panel"
-          onMouseDown={(event) => {
-            event.preventDefault();
-            setResizingPane("flows");
-          }}
-          className={cn(
-            "hidden w-1 shrink-0 cursor-col-resize bg-border/70 transition-colors hover:bg-primary/20 xl:block",
-            resizingPane === "flows" && "bg-primary/30",
-            (!showFlows || outputFocusActive) && "!hidden"
-          )}
-          title="Drag to resize"
-        />
-
-        <section
-          className={cn(
-            "flex min-h-[220px] min-w-0 flex-col",
-            isCompactDesktop && "min-h-0 border-r border-border/70 [grid-column:1] [grid-row:2]",
-            !isMobile && !isCompactDesktop && "min-h-0",
-            !showFlows && "hidden"
-          )}
-          style={isResizableDesktop ? { flex: `0 0 ${flowsPaneWidth}px`, width: flowsPaneWidth } : undefined}
-        >
-          <div className="min-h-0 flex-1 overflow-hidden">
-            {catalog.length ? (
-              <PaneScroller mobile={isMobile} className={isMobile ? undefined : "h-full"}>
-                <div className="min-w-0">
-                  <div className="border-b border-border/70 px-3 py-3">
-                    <Tabs value={workflowLibraryView} onValueChange={(value) => setWorkflowLibraryView(value as WorkflowLibraryView)}>
-                      <TabsList className="grid h-auto w-full grid-cols-2 rounded-full bg-muted/40 p-1">
-                        <TabsTrigger value="core" className="h-8 rounded-full px-2 text-xs">Core</TabsTrigger>
-                        <TabsTrigger value="pro" className="h-8 rounded-full px-2 text-xs">Pro</TabsTrigger>
-                      </TabsList>
-                    </Tabs>
-                  </div>
-
-                  {workflowLibraryView === "core" ? (
-                    <div className="border-t border-border/70 px-3 py-3">
-                      <div className="space-y-1.5">
-                        {coreCatalog.map((workflow) => (
-                          <WorkflowCatalogItem
-                            key={workflow.workflow_id}
-                            workflow={workflow}
-                            active={activeCoreWorkflowId === workflow.workflow_id}
-                            onLaunch={handleCoreWorkflowLaunch}
-                            disabled={workflowSubmitting}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <ProPackAccordion
-                      catalog={catalog}
-                      groups={visibleProPackGroups}
-                      activePackId={activeProPackId}
-                      disabled={workflowSubmitting}
-                      onLaunch={handleProPackLaunch}
-                    />
-                  )}
-                </div>
-              </PaneScroller>
-            ) : (
-              <div className="p-3 text-sm leading-5 text-muted-foreground">
-                Workflows will appear here once the catalog loads.
-              </div>
-            )}
-          </div>
-        </section>
         </div>
       </div>
+
+      <WorkflowCatalogDialog
+        open={workflowCatalogOpen}
+        workflowLibraryView={workflowLibraryView}
+        onOpenChange={setWorkflowCatalogOpen}
+        onLibraryViewChange={setWorkflowLibraryView}
+        catalog={catalog}
+        coreCatalog={coreCatalog}
+        proPackGroups={visibleProPackGroups}
+        proPackCount={proPackCount}
+        activeCoreWorkflowId={activeCoreWorkflowId}
+        activeProPackId={activeProPackId}
+        disabled={workflowSubmitting}
+        onCoreLaunch={handleCoreWorkflowLaunch}
+        onProLaunch={handleProPackLaunch}
+      />
 
       <Dialog open={!!renamingRunId} onOpenChange={(open) => {
         if (!open) cancelRenamingRun();
