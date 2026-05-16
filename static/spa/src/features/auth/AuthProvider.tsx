@@ -8,10 +8,16 @@ type User = {
   email?: string;
   name?: string;
   picture?: string;
+  phoneNumber?: string;
+};
+
+type RawSessionUser = Omit<User, "phoneNumber"> & {
+  phoneNumber?: string;
+  phone_number?: string;
 };
 
 type SessionResponse = {
-  user: User | null;
+  user: RawSessionUser | null;
 };
 
 type SyncFromFirebaseOptions = {
@@ -32,6 +38,17 @@ const SESSION_LOAD_TIMEOUT_MS = 10000;
 const SESSION_EXCHANGE_TIMEOUT_MS = 15000;
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
+function normalizeSessionUser(user: RawSessionUser | null | undefined): User | null {
+  if (!user) return null;
+  return {
+    uid: user.uid,
+    email: user.email || undefined,
+    name: user.name || undefined,
+    picture: user.picture || undefined,
+    phoneNumber: user.phoneNumber || user.phone_number || undefined,
+  };
+}
 
 let sharedSessionExchangeInFlight: Promise<boolean> | null = null;
 let sharedLastSessionExchange: { uid: string | null; idToken: string | null } = {
@@ -59,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const load = useCallback(async (): Promise<User | null> => {
     try {
       const data = await getJSON<SessionResponse>("/session", { timeoutMs: SESSION_LOAD_TIMEOUT_MS });
-      const nextUser = data?.user ?? null;
+      const nextUser = normalizeSessionUser(data?.user);
       serverUserRef.current = nextUser;
       setUser(nextUser);
       return nextUser;

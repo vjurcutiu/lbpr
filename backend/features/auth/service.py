@@ -21,11 +21,25 @@ class FirebaseAuthService:
         decoded = self._auth.verify_id_token(id_token)
         # email_verified is present on Firebase ID tokens; default to False
         ev = bool(decoded.get("email_verified", False))
+        uid = decoded["uid"]
+        phone_number = decoded.get("phone_number")
+
+        # Custom-token sign-ins for phone-provisioned users do not always expose
+        # phone_number in the decoded ID token, so fall back to the Firebase user
+        # record when there is no email identity to display in the UI.
+        if not phone_number and not decoded.get("email"):
+            try:
+                user_record = self._auth.get_user(uid)
+                phone_number = getattr(user_record, "phone_number", None)
+            except Exception:
+                phone_number = None
+
         return SessionOut(
-            uid=decoded["uid"],
+            uid=uid,
             email=decoded.get("email"),
             name=decoded.get("name"),
             picture=decoded.get("picture"),
+            phone_number=phone_number,
             email_verified=ev,
         )
 
@@ -53,7 +67,7 @@ class FakeAuthService:
     def verify_id_token(self, id_token: str) -> SessionOut:
         if id_token != "good-token":
             raise ValueError("bad token")
-        return SessionOut(uid="u_test", email="test@example.com", name="Testy McTestface", picture=None, email_verified=True)
+        return SessionOut(uid="u_test", email="test@example.com", name="Testy McTestface", picture=None, phone_number="+40712345678", email_verified=True)
 
     def revoke_user(self, uid: str) -> None:
         return  # no-op in tests

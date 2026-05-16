@@ -73,13 +73,14 @@ def _save_profile_overrides(uid: str, *, name: Optional[str], picture: Optional[
 @router.get("/me", response_model=ProfileOut)
 def read_me(user: SessionOut = Depends(get_current_user)) -> ProfileOut:
     """Return the current user's profile (uid/email from session; name/picture with Firestore overrides)."""
-    ensure_user_doc(user.uid, email=user.email, name=user.name, picture=user.picture, email_verified=user.email_verified)
+    ensure_user_doc(user.uid, email=user.email, name=user.name, picture=user.picture, phone_number=user.phone_number, email_verified=user.email_verified)
     overrides = _load_profile_overrides(user.uid)
     return ProfileOut(
         uid=user.uid,
         email=user.email,
         name=overrides.get("name") or user.name,
         picture=overrides.get("picture") or user.picture,
+        phone_number=user.phone_number,
     )
 
 
@@ -103,7 +104,7 @@ def update_me(req: Request, payload: ProfileUpdateIn, user: SessionOut = Depends
     # Compose response merging updated fields with current session
     new_name = name if name is not None else user.name
     new_picture = picture if picture is not None else user.picture
-    return ProfileOut(uid=user.uid, email=user.email, name=new_name, picture=new_picture)
+    return ProfileOut(uid=user.uid, email=user.email, name=new_name, picture=new_picture, phone_number=user.phone_number)
 
 
 @router.post("/me/delete-account", response_model=DeleteAccountOut)

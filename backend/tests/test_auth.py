@@ -31,6 +31,7 @@ def test_create_session_and_read(client):
     data = r2.json()
     # NOTE: the fake returns uid="u_test"
     assert data["user"]["uid"] == "u_test"
+    assert data["user"]["phone_number"] == "+40712345678"
 
 
 def test_create_session_provisions_user_doc(client, monkeypatch):
@@ -47,6 +48,7 @@ def test_create_session_provisions_user_doc(client, monkeypatch):
     assert captured["uid"] == "u_test"
     assert captured["email"] == "test@example.com"
     assert captured["name"] == "Testy McTestface"
+    assert captured["phone_number"] == "+40712345678"
     assert captured["email_verified"] is True
 
 def test_bad_id_token(client):

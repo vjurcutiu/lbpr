@@ -101,6 +101,7 @@ class SessionStore:
                 "email": user.email or "",
                 "name": user.name or "",
                 "picture": user.picture or "",
+                "phone_number": user.phone_number or "",
                 "email_verified": "1" if (user.email_verified is True) else ("0" if user.email_verified is False else ""),
             })
             if ttl_seconds:
@@ -131,6 +132,7 @@ class SessionStore:
                 email=data.get("email") or None,
                 name=data.get("name") or None,
                 picture=data.get("picture") or None,
+                phone_number=data.get("phone_number") or None,
                 email_verified=ev_val,
             )
         rec = self._r.get(sid)
@@ -142,7 +144,7 @@ class SessionStore:
         if self.kind == "redis":
             key = f"s:{sid}"
             mapping = {}
-            for k in ("email", "name", "picture", "email_verified"):
+            for k in ("email", "name", "picture", "phone_number", "email_verified"):
                 if k in fields and fields[k] is not None:
                     v = fields[k]
                     if k == "email_verified":

@@ -49,10 +49,10 @@ def _default_magic_ttl_seconds() -> int:
         return 86400
 
 
-def _provision_user_doc(uid: str, *, email: str | None, name: str | None, picture: str | None, email_verified: bool | None) -> None:
+def _provision_user_doc(uid: str, *, email: str | None, name: str | None, picture: str | None, phone_number: str | None, email_verified: bool | None) -> None:
     started = time.perf_counter()
     try:
-        ensure_user_doc(uid, email=email, name=name, picture=picture, email_verified=email_verified)
+        ensure_user_doc(uid, email=email, name=name, picture=picture, phone_number=phone_number, email_verified=email_verified)
         log.info("auth_user_doc_provisioned", uid=uid, dur_ms=round((time.perf_counter() - started) * 1000, 2))
     except Exception:
         log.exception("auth_user_doc_provision_failed", uid=uid, dur_ms=round((time.perf_counter() - started) * 1000, 2))
@@ -86,6 +86,7 @@ def create_session(resp: Response, payload: CreateSessionIn, background_tasks: B
         email=user.email,
         name=user.name,
         picture=user.picture,
+        phone_number=user.phone_number,
         email_verified=user.email_verified,
     )
 

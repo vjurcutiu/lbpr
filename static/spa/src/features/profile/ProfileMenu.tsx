@@ -16,13 +16,37 @@ import { logoutFirebase } from "@/features/auth/firebase";
 import { cn } from "@/lib/utils";
 import { postJSON } from "@/shared/api";
 
+function emailNamePart(email: string) {
+  const localPart = email.split("@")[0]?.trim();
+  return localPart || "";
+}
+
+function ProfileAvatar({ picture, name, size }: { picture?: string; name: string; size: "sm" | "md" }) {
+  const isSmall = size === "sm";
+
+  return (
+    <Avatar className={cn(isSmall ? "size-6" : "size-9", "border border-border/80 shadow-sm")}>
+      {picture ? <AvatarImage src={picture} alt={name} /> : null}
+      <AvatarFallback
+        className={cn(
+          "bg-primary/10 text-primary",
+          isSmall ? "text-[11px]" : "text-sm"
+        )}
+      >
+        <UserRound className={isSmall ? "size-3.5" : "size-5"} aria-hidden="true" />
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
 export default function ProfileMenu() {
   const { user, clear } = useAuthContext();
   const navigate = useNavigate();
-  const email = user?.email || "—";
-  const name = user?.name || email.split("@")[0] || "User";
-  const pic = user?.picture || "";
-  const initials = (name || email || "U").slice(0, 1).toUpperCase();
+  const email = user?.email?.trim() || "";
+  const phoneNumber = user?.phoneNumber?.trim() || "";
+  const name = user?.name?.trim() || emailNamePart(email) || phoneNumber || "User";
+  const contact = email || phoneNumber || "Signed in";
+  const pic = user?.picture?.trim() || "";
 
   async function signOut() {
     try {
@@ -46,12 +70,7 @@ export default function ProfileMenu() {
           )}
           aria-label="Open account menu"
         >
-          <Avatar className="size-6 border border-border/80 shadow-sm">
-            <AvatarImage src={pic} alt={name} />
-            <AvatarFallback className="bg-primary/10 text-[11px] font-semibold text-primary">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
+          <ProfileAvatar picture={pic} name={name} size="sm" />
           <span className="hidden max-w-28 truncate text-xs font-medium xl:inline">
             {name}
           </span>
@@ -61,15 +80,10 @@ export default function ProfileMenu() {
       <DropdownMenuContent align="end" sideOffset={10} className="w-64 rounded-2xl p-2 shadow-xl shadow-primary/5">
         <DropdownMenuLabel className="px-2 py-2">
           <div className="flex items-center gap-3">
-            <Avatar className="size-9 border border-border/80 shadow-sm">
-              <AvatarImage src={pic} alt={name} />
-              <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
+            <ProfileAvatar picture={pic} name={name} size="md" />
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-foreground">{name}</div>
-              <div className="truncate text-xs font-normal text-muted-foreground">{email}</div>
+              <div className="truncate text-xs font-normal text-muted-foreground">{contact}</div>
             </div>
           </div>
         </DropdownMenuLabel>

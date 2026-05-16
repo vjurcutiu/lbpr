@@ -2,7 +2,7 @@
 response.ok = true
 
 [GET./session]
-200.user = { uid = "string", email = "string?", name = "string?", picture = "string?" }
+200.user = { uid = "string", email = "string?", name = "string?", picture = "string?", phone_number = "string?" }
 401.detail = "No session" # or "Invalid or expired session"
 
 [POST./auth/session]

@@ -10,6 +10,7 @@ class ProfileOut(BaseModel):
     email: Optional[str] = None
     name: Optional[str] = None
     picture: Optional[str] = None
+    phone_number: Optional[str] = None
 
 
 class ProfileUpdateIn(BaseModel):

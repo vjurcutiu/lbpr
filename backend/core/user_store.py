@@ -25,6 +25,7 @@ def ensure_user_doc(
     email: Optional[str] = None,
     name: Optional[str] = None,
     picture: Optional[str] = None,
+    phone_number: Optional[str] = None,
     email_verified: Optional[bool] = None,
 ) -> None:
     uid = str(uid or "").strip()
@@ -45,6 +46,8 @@ def ensure_user_doc(
         payload["name"] = str(name or "").strip() or None
     if picture is not None:
         payload["picture"] = str(picture or "").strip() or None
+    if phone_number is not None:
+        payload["phone_number"] = str(phone_number or "").strip() or None
     if email_verified is not None:
         payload["email_verified"] = bool(email_verified)
 
