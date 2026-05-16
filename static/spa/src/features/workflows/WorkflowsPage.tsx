@@ -11,9 +11,11 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronRight,
+  ClipboardList,
   CornerDownRight,
   FileText,
   GitBranch,
+  Scale,
   ListFilter,
   Loader2,
   MoreVertical,
@@ -960,24 +962,40 @@ function WorkflowCatalogItem({
       onClick={() => onLaunch(workflow)}
       disabled={disabled}
       className={cn(
-        "flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
-        active ? "bg-primary/10" : "",
+        "group flex w-full items-center justify-between gap-4 rounded-2xl border bg-background px-4 py-3 text-left transition-all duration-200 hover:-translate-y-px hover:border-primary/25 hover:bg-primary/[0.035] hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-none",
+        active
+          ? "border-primary/30 bg-primary/[0.055] shadow-[0_12px_30px_rgba(99,102,241,0.12)]"
+          : "border-border/70",
       )}
     >
-      <span className="min-w-0">
+      <span className="flex min-w-0 items-start gap-3">
         <span
           className={cn(
-            "block truncate text-sm font-medium",
-            active ? "text-primary" : "text-foreground",
+            "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition-colors",
+            active
+              ? "border-primary/25 bg-primary/15 text-primary"
+              : "border-border/70 bg-muted/35 text-muted-foreground group-hover:border-primary/20 group-hover:bg-primary/10 group-hover:text-primary",
           )}
         >
-          {workflow.title}
+          <FileText className="h-[18px] w-[18px]" />
         </span>
-        <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-          {workflow.description}
+        <span className="min-w-0">
+          <span
+            className={cn(
+              "block truncate text-sm font-semibold",
+              active ? "text-primary" : "text-foreground",
+            )}
+          >
+            {workflow.title}
+          </span>
+          <span className="mt-1.5 block line-clamp-2 text-xs leading-5 text-muted-foreground">
+            {workflow.description}
+          </span>
         </span>
       </span>
-      <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground transition-all group-hover:border-primary/20 group-hover:text-primary">
+        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+      </span>
     </button>
   );
 }
@@ -1015,24 +1033,40 @@ function ProPackAccordion({
         disabled={disabled || !workflow}
         onClick={() => workflow && onLaunch(group, pack, workflow)}
         className={cn(
-          "flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60",
-          isActive ? "bg-primary/10" : "",
+          "group flex w-full items-center justify-between gap-4 rounded-2xl border bg-background px-4 py-3 text-left transition-all duration-200 hover:-translate-y-px hover:border-primary/25 hover:bg-primary/[0.035] hover:shadow-[0_12px_30px_rgba(15,23,42,0.08)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-none",
+          isActive
+            ? "border-primary/30 bg-primary/[0.055] shadow-[0_12px_30px_rgba(99,102,241,0.12)]"
+            : "border-border/70",
         )}
       >
-        <span className="min-w-0">
+        <span className="flex min-w-0 items-start gap-3">
           <span
             className={cn(
-              "block truncate text-sm font-medium",
-              isActive ? "text-primary" : "text-foreground",
+              "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition-colors",
+              isActive
+                ? "border-primary/25 bg-primary/15 text-primary"
+                : "border-border/70 bg-muted/35 text-muted-foreground group-hover:border-primary/20 group-hover:bg-primary/10 group-hover:text-primary",
             )}
           >
-            {pack.title}
+            <Scale className="h-[18px] w-[18px]" />
           </span>
-          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-            {pack.description}
+          <span className="min-w-0">
+            <span
+              className={cn(
+                "block truncate text-sm font-semibold",
+                isActive ? "text-primary" : "text-foreground",
+              )}
+            >
+              {pack.title}
+            </span>
+            <span className="mt-1.5 block line-clamp-2 text-xs leading-5 text-muted-foreground">
+              {pack.description}
+            </span>
           </span>
         </span>
-        <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background text-muted-foreground transition-all group-hover:border-primary/20 group-hover:text-primary">
+          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+        </span>
       </button>
     );
   };
@@ -1040,8 +1074,8 @@ function ProPackAccordion({
   if (!PRO_PACK_LIBRARY_VIEW.showGroupLabels && groups.length === 1) {
     const [group] = groups;
     return (
-      <div className="border-t border-border/70 px-3 py-3">
-        <div className="space-y-1.5">
+      <div className="px-3 py-3">
+        <div className="space-y-2">
           {group.packs.map((pack) => renderPackButton(group, pack))}
         </div>
       </div>
@@ -1052,15 +1086,15 @@ function ProPackAccordion({
     <Accordion
       type="multiple"
       defaultValue={groups.map((group) => group.id)}
-      className="divide-y divide-border/70 border-t border-border/70"
+      className="divide-y divide-border/70"
     >
       {groups.map((group) => (
         <AccordionItem key={group.id} value={group.id} className="border-0">
-          <AccordionTrigger className="px-3 py-3 text-sm font-medium text-foreground hover:no-underline">
+          <AccordionTrigger className="px-3 py-3 text-sm font-semibold text-foreground hover:no-underline">
             {group.title}
           </AccordionTrigger>
           <AccordionContent className="px-3 pb-3">
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {group.packs.map((pack) => renderPackButton(group, pack))}
             </div>
           </AccordionContent>
@@ -1078,7 +1112,7 @@ function WorkflowCatalogStepIndicator({ step }: { step: WorkflowCatalogStep }) {
   const steps = ["Type", "Workflow", "Details"];
 
   return (
-    <div className="mt-4 flex items-center gap-2 text-xs">
+    <div className="mt-5 flex items-center gap-2 text-xs">
       {steps.map((label, index) => {
         const complete = index < activeIndex;
         const active = index === activeIndex;
@@ -1087,12 +1121,12 @@ function WorkflowCatalogStepIndicator({ step }: { step: WorkflowCatalogStep }) {
           <div key={label} className="flex min-w-0 flex-1 items-center gap-2">
             <div
               className={cn(
-                "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold transition-colors",
+                "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold transition-all",
                 complete
-                  ? "border-primary/25 bg-primary/10 text-primary"
+                  ? "border-primary/20 bg-primary/10 text-primary"
                   : active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border/70 bg-muted/30 text-muted-foreground",
+                    ? "border-primary bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(99,102,241,0.22)]"
+                    : "border-border/70 bg-background text-muted-foreground",
               )}
             >
               {complete ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}
@@ -1100,15 +1134,19 @@ function WorkflowCatalogStepIndicator({ step }: { step: WorkflowCatalogStep }) {
             <span
               className={cn(
                 "truncate font-medium",
-                active || complete
-                  ? "text-foreground"
-                  : "text-muted-foreground",
+                active ? "text-foreground" : "text-muted-foreground",
               )}
             >
               {label}
             </span>
             {index < steps.length - 1 ? (
-              <div className="h-px flex-1 bg-border/70" aria-hidden="true" />
+              <div
+                className={cn(
+                  "h-px flex-1",
+                  complete ? "bg-primary/30" : "bg-border/70",
+                )}
+                aria-hidden="true"
+              />
             ) : null}
           </div>
         );
@@ -1132,35 +1170,66 @@ function WorkflowLibraryCard({
   disabled?: boolean;
   onSelect: (value: WorkflowLibraryView) => void;
 }) {
-  const Icon = value === "core" ? FileText : GitBranch;
+  const isLegal = value === "pro";
+  const Icon = isLegal ? Scale : ClipboardList;
 
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() => onSelect(value)}
-      className="group flex min-h-[156px] flex-col items-start rounded-3xl border border-border/70 bg-background p-5 text-left transition-all hover:border-primary/30 hover:bg-primary/[0.035] hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+      className={cn(
+        "group relative flex min-h-[190px] overflow-hidden rounded-[1.75rem] border bg-background p-5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_20px_48px_rgba(15,23,42,0.12)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-none",
+        isLegal
+          ? "border-violet-200/70 hover:bg-violet-50/45 dark:border-violet-900/40 dark:hover:bg-violet-950/20"
+          : "border-indigo-200/70 hover:bg-indigo-50/45 dark:border-indigo-900/40 dark:hover:bg-indigo-950/20",
+      )}
     >
-      <span className="flex w-full items-start justify-between gap-3">
-        <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/15 bg-primary/10 text-primary transition-colors group-hover:border-primary/25 group-hover:bg-primary/15">
-          <Icon className="h-5 w-5" />
+      <span
+        className={cn(
+          "pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full blur-3xl transition-opacity group-hover:opacity-100",
+          isLegal ? "bg-violet-300/25" : "bg-indigo-300/25",
+        )}
+        aria-hidden="true"
+      />
+      <span className="relative flex min-h-full w-full flex-col">
+        <span className="flex w-full items-start justify-between gap-4">
+          <span
+            className={cn(
+              "flex h-12 w-12 items-center justify-center rounded-2xl border shadow-sm transition-all group-hover:scale-[1.03]",
+              isLegal
+                ? "border-violet-200 bg-violet-100 text-violet-700 dark:border-violet-800 dark:bg-violet-950/70 dark:text-violet-300"
+                : "border-indigo-200 bg-indigo-100 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/70 dark:text-indigo-300",
+            )}
+          >
+            <Icon className="h-5 w-5" />
+          </span>
+          <Badge
+            variant="outline"
+            className="rounded-full border-border/70 bg-background/80 px-2.5 py-1 text-[11px] font-semibold shadow-sm backdrop-blur"
+          >
+            {count} workflow{count === 1 ? "" : "s"}
+          </Badge>
         </span>
-        <Badge
-          variant="outline"
-          className="rounded-full bg-background px-2.5 py-1 text-[11px] font-medium"
+
+        <span className="mt-5 block text-lg font-semibold tracking-[-0.01em] text-foreground">
+          {title}
+        </span>
+        <span className="mt-2 block max-w-[23rem] text-sm leading-6 text-muted-foreground">
+          {description}
+        </span>
+
+        <span
+          className={cn(
+            "mt-auto inline-flex w-fit items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-semibold transition-all group-hover:translate-x-0.5",
+            isLegal
+              ? "border-violet-200 bg-violet-100/70 text-violet-700 group-hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950/60 dark:text-violet-300"
+              : "border-indigo-200 bg-indigo-100/70 text-indigo-700 group-hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300",
+          )}
         >
-          {count} workflow{count === 1 ? "" : "s"}
-        </Badge>
-      </span>
-      <span className="mt-4 block text-base font-semibold text-foreground">
-        {title}
-      </span>
-      <span className="mt-2 block text-sm leading-6 text-muted-foreground">
-        {description}
-      </span>
-      <span className="mt-auto flex items-center gap-1.5 pt-4 text-sm font-medium text-primary">
-        Choose {title}
-        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          Choose {title}
+          <ArrowRight className="h-4 w-4" />
+        </span>
       </span>
     </button>
   );
@@ -1201,11 +1270,12 @@ function WorkflowCatalogDialog({
 }) {
   const [step, setStep] = useState<WorkflowCatalogStep>("library");
   const totalCount = coreCatalog.length + proPackCount;
-  const selectedLibraryTitle = workflowLibraryView === "core" ? "General" : "Legal";
+  const selectedLibraryTitle =
+    workflowLibraryView === "core" ? "General" : "Legal";
   const selectedLibraryDescription =
     workflowLibraryView === "core"
-      ? "General document workflows for summaries, extraction, comparison, and reports."
-      : "Legal workflows for contract review, risk analysis, negotiation, and matter-ready outputs.";
+      ? "Reusable workflows for summaries, comparisons, extraction, and reports."
+      : "Contract-focused workflows for review, risk analysis, negotiation, and matter-ready outputs.";
 
   useEffect(() => {
     if (open) setStep("library");
@@ -1237,29 +1307,38 @@ function WorkflowCatalogDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-3xl overflow-hidden rounded-3xl border-border p-0 shadow-[0_32px_80px_rgba(15,23,42,0.18)]">
-        <DialogHeader className="border-b border-border/70 px-5 pb-4 pt-5 sm:px-6">
-          <DialogTitle className="text-lg font-semibold">
+      <DialogContent
+        overlayClassName="bg-slate-950/55 backdrop-blur-[3px]"
+        className="max-h-[88vh] overflow-hidden rounded-[2rem] border-border/80 p-0 shadow-[0_36px_100px_rgba(15,23,42,0.30)] sm:max-w-[860px]"
+      >
+        <DialogHeader className="relative overflow-hidden border-b border-border/70 bg-gradient-to-br from-background via-background to-primary/[0.035] px-6 pb-5 pt-6 sm:px-7">
+          <span
+            className="pointer-events-none absolute -right-20 -top-24 h-48 w-48 rounded-full bg-primary/10 blur-3xl"
+            aria-hidden="true"
+          />
+          <DialogTitle className="relative text-xl font-semibold tracking-[-0.02em]">
             {step === "library"
               ? "New workflow"
               : `Choose ${selectedLibraryTitle} workflow`}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="relative max-w-[34rem] text-sm leading-6">
             {step === "library"
-              ? "Choose a workflow type first. The next step will show the available workflows."
-              : "Choose the workflow you want to run. File selection and workflow settings come next."}
+              ? "Start with a workflow type. You’ll choose the exact workflow and files next."
+              : "Choose the workflow you want to run. File selection and settings come next."}
           </DialogDescription>
-          <WorkflowCatalogStepIndicator step={step} />
+          <div className="relative">
+            <WorkflowCatalogStepIndicator step={step} />
+          </div>
         </DialogHeader>
 
-        <div className="min-h-0 px-4 pb-4 pt-4 sm:px-5">
+        <div className="min-h-0 px-5 pb-5 pt-5 sm:px-6">
           {step === "library" ? (
             <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <WorkflowLibraryCard
                   value="core"
                   title="General"
-                  description="Fast, reusable workflows for common document tasks."
+                  description="Reusable workflows for summaries, comparisons, extraction, and reports."
                   count={coreCatalog.length}
                   disabled={disabled || !coreCatalog.length}
                   onSelect={handleLibrarySelect}
@@ -1267,7 +1346,7 @@ function WorkflowCatalogDialog({
                 <WorkflowLibraryCard
                   value="pro"
                   title="Legal"
-                  description="Purpose-built legal workflows for review, negotiation, and client-ready outputs."
+                  description="Contract-focused workflows for review, risk analysis, negotiation, and matter-ready outputs."
                   count={proPackCount}
                   disabled={disabled || !proPackCount}
                   onSelect={handleLibrarySelect}
@@ -1281,23 +1360,23 @@ function WorkflowCatalogDialog({
               ) : null}
             </div>
           ) : (
-            <div className="overflow-hidden rounded-2xl border border-border/70 bg-background">
-              <div className="flex items-start justify-between gap-3 border-b border-border/70 bg-muted/20 px-3 py-3 sm:px-4">
+            <div className="overflow-hidden rounded-[1.75rem] border border-border/70 bg-background shadow-[0_18px_44px_rgba(15,23,42,0.08)]">
+              <div className="flex items-start justify-between gap-4 border-b border-border/70 bg-gradient-to-r from-muted/45 via-background to-primary/[0.035] px-4 py-4 sm:px-5">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge
                       variant="outline"
-                      className="rounded-full bg-background px-2.5 py-1 text-[11px] font-medium"
+                      className="rounded-full border-primary/20 bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary"
                     >
                       {selectedLibraryTitle}
                     </Badge>
-                    <span className="text-sm font-medium text-foreground">
+                    <span className="text-sm font-semibold text-foreground">
                       {workflowLibraryView === "core"
                         ? `${coreCatalog.length} workflow${coreCatalog.length === 1 ? "" : "s"}`
                         : `${proPackCount} workflow${proPackCount === 1 ? "" : "s"}`}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  <p className="mt-1.5 max-w-[34rem] text-xs leading-5 text-muted-foreground">
                     {selectedLibraryDescription}
                   </p>
                 </div>
@@ -1305,7 +1384,7 @@ function WorkflowCatalogDialog({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-8 shrink-0 rounded-xl px-2.5"
+                  className="h-8 shrink-0 rounded-full border border-border/70 bg-background px-3 shadow-sm hover:bg-muted/70"
                   onClick={() => setStep("library")}
                 >
                   Back
@@ -1313,11 +1392,11 @@ function WorkflowCatalogDialog({
               </div>
 
               {totalCount ? (
-                <ScrollArea className="h-[52vh] max-h-[500px]">
-                  <div className="p-2.5">
+                <ScrollArea className="h-[52vh] max-h-[520px]">
+                  <div className="p-3">
                     {workflowLibraryView === "core" ? (
                       coreCatalog.length ? (
-                        <div className="space-y-1.5">
+                        <div className="space-y-2">
                           {coreCatalog.map((workflow) => (
                             <WorkflowCatalogItem
                               key={workflow.workflow_id}
@@ -1357,8 +1436,8 @@ function WorkflowCatalogDialog({
                 </div>
               )}
 
-              <div className="border-t border-border/70 bg-muted/20 px-4 py-3 text-xs leading-5 text-muted-foreground">
-                Next: choose files, folders, and workflow-specific settings.
+              <div className="border-t border-border/70 bg-muted/25 px-5 py-3 text-xs leading-5 text-muted-foreground">
+                Next: choose files, folders, and workflow settings.
               </div>
             </div>
           )}
