@@ -1201,11 +1201,11 @@ function WorkflowCatalogDialog({
 }) {
   const [step, setStep] = useState<WorkflowCatalogStep>("library");
   const totalCount = coreCatalog.length + proPackCount;
-  const selectedLibraryTitle = workflowLibraryView === "core" ? "Core" : "Pro";
+  const selectedLibraryTitle = workflowLibraryView === "core" ? "General" : "Legal";
   const selectedLibraryDescription =
     workflowLibraryView === "core"
       ? "General document workflows for summaries, extraction, comparison, and reports."
-      : "Specialized workflow packs for higher-value review and presentation outputs.";
+      : "Legal workflows for contract review, risk analysis, negotiation, and matter-ready outputs.";
 
   useEffect(() => {
     if (open) setStep("library");
@@ -1258,7 +1258,7 @@ function WorkflowCatalogDialog({
               <div className="grid gap-3 sm:grid-cols-2">
                 <WorkflowLibraryCard
                   value="core"
-                  title="Core"
+                  title="General"
                   description="Fast, reusable workflows for common document tasks."
                   count={coreCatalog.length}
                   disabled={disabled || !coreCatalog.length}
@@ -1266,8 +1266,8 @@ function WorkflowCatalogDialog({
                 />
                 <WorkflowLibraryCard
                   value="pro"
-                  title="Pro"
-                  description="Purpose-built workflow packs for polished, specialized outputs."
+                  title="Legal"
+                  description="Purpose-built legal workflows for review, negotiation, and client-ready outputs."
                   count={proPackCount}
                   disabled={disabled || !proPackCount}
                   onSelect={handleLibrarySelect}
@@ -1332,7 +1332,7 @@ function WorkflowCatalogDialog({
                         </div>
                       ) : (
                         <div className="px-3 py-8 text-center text-sm leading-6 text-muted-foreground">
-                          Core workflows will appear here once the catalog
+                          General workflows will appear here once the catalog
                           loads.
                         </div>
                       )
@@ -1346,7 +1346,7 @@ function WorkflowCatalogDialog({
                       />
                     ) : (
                       <div className="px-3 py-8 text-center text-sm leading-6 text-muted-foreground">
-                        Pro workflows will appear here once the catalog loads.
+                        Legal workflows will appear here once the catalog loads.
                       </div>
                     )}
                   </div>
