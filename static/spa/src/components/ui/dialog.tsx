@@ -4,6 +4,18 @@ import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
+const dialogOverlayClassName = "bg-slate-950/55 backdrop-blur-[3px]"
+
+const dialogSurfaceEffectClassName =
+  "overflow-hidden border-border/80 bg-background shadow-[0_36px_100px_rgba(15,23,42,0.28)] dark:shadow-[0_36px_100px_rgba(0,0,0,0.46)]"
+
+const dialogSurfaceFallbackClassName = "bg-background shadow-lg"
+
+const dialogSurfaceEffectStyle: React.CSSProperties = {
+  backgroundImage:
+    "radial-gradient(circle at 92% 8%, hsl(var(--primary) / 0.16), transparent 24rem), radial-gradient(circle at 50% -18%, hsl(var(--muted) / 0.76), transparent 24rem), radial-gradient(circle at 0% 100%, hsl(var(--primary) / 0.08), transparent 28rem)",
+}
+
 function Dialog({
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Root>) {
@@ -36,7 +48,8 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50",
+        dialogOverlayClassName,
         className
       )}
       {...props}
@@ -49,10 +62,13 @@ function DialogContent({
   children,
   showCloseButton = true,
   overlayClassName,
+  surfaceEffect = true,
+  style,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
   overlayClassName?: string
+  surfaceEffect?: boolean
 }) {
   return (
     <DialogPortal data-slot="dialog-portal">
@@ -60,16 +76,20 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 duration-200 sm:max-w-lg",
+          surfaceEffect
+            ? dialogSurfaceEffectClassName
+            : dialogSurfaceFallbackClassName,
           className
         )}
+        style={surfaceEffect ? { ...dialogSurfaceEffectStyle, ...style } : style}
         {...props}
       >
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground opacity-80 transition-colors hover:bg-muted hover:text-foreground hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground opacity-80 transition-colors hover:bg-muted hover:text-foreground hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
             <span className="sr-only">Close</span>

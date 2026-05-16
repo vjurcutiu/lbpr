@@ -4,6 +4,18 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
 
+const alertDialogOverlayClassName = "bg-slate-950/55 backdrop-blur-[3px]"
+
+const alertDialogSurfaceEffectClassName =
+  "overflow-hidden border-border/80 bg-background shadow-[0_36px_100px_rgba(15,23,42,0.28)] dark:shadow-[0_36px_100px_rgba(0,0,0,0.46)]"
+
+const alertDialogSurfaceFallbackClassName = "bg-background shadow-lg"
+
+const alertDialogSurfaceEffectStyle: React.CSSProperties = {
+  backgroundImage:
+    "radial-gradient(circle at 92% 8%, hsl(var(--primary) / 0.16), transparent 24rem), radial-gradient(circle at 50% -18%, hsl(var(--muted) / 0.76), transparent 24rem), radial-gradient(circle at 0% 100%, hsl(var(--primary) / 0.08), transparent 28rem)",
+}
+
 function AlertDialog({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
@@ -34,7 +46,8 @@ function AlertDialogOverlay({
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50",
+        alertDialogOverlayClassName,
         className
       )}
       {...props}
@@ -44,17 +57,25 @@ function AlertDialogOverlay({
 
 function AlertDialogContent({
   className,
+  surfaceEffect = true,
+  style,
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
+}: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
+  surfaceEffect?: boolean
+}) {
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
       <AlertDialogPrimitive.Content
         data-slot="alert-dialog-content"
         className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 duration-200 sm:max-w-lg",
+          surfaceEffect
+            ? alertDialogSurfaceEffectClassName
+            : alertDialogSurfaceFallbackClassName,
           className
         )}
+        style={surfaceEffect ? { ...alertDialogSurfaceEffectStyle, ...style } : style}
         {...props}
       />
     </AlertDialogPortal>
