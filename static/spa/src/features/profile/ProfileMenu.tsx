@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { ChevronDown, CreditCard, HelpCircle, LogOut, UserRound } from "lucide-react";
+import { ChevronDown, CreditCard, LogOut, UserRound } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -98,12 +98,6 @@ export default function ProfileMenu() {
           <Link to="/billing">
             <CreditCard className="size-4" />
             Billing
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild className="rounded-xl px-2.5 py-2">
-          <Link to="/support">
-            <HelpCircle className="size-4" />
-            Support
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
