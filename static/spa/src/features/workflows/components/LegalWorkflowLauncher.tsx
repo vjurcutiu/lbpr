@@ -743,7 +743,6 @@ export function LegalWorkflowLauncher({
   chainSource,
   onOpenChange,
   onRun,
-  onBack,
 }: Props) {
   const config = useMemo(() => workflowUiConfig(workflow), [workflow]);
   const [focus, setFocus] = useState(() => defaultFocus(initialInputs));
@@ -788,10 +787,6 @@ export function LegalWorkflowLauncher({
   };
 
   const handleCancel = () => {
-    if (onBack) {
-      onBack();
-      return;
-    }
     onOpenChange(false);
   };
 
