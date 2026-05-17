@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, CornerDownRight, FileText, History, Scale, SlidersHorizontal } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, CornerDownRight, FileText, History, Scale, SlidersHorizontal } from "lucide-react";
 
 import {
   Dialog,
@@ -751,6 +751,11 @@ export function LegalWorkflowLauncher({
   const [editableSelection, setEditableSelection] = useState<WorkflowSelection>(selection);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => defaultFieldValues(workflow, config, initialInputs));
   const [customValues, setCustomValues] = useState<Record<string, string>>(() => defaultCustomValues(config, initialInputs));
+  const [activeStep, setActiveStep] = useState(0);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const sourceStepRef = useRef<HTMLElement | null>(null);
+  const contextStepRef = useRef<HTMLElement | null>(null);
+  const settingsStepRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setFocus(defaultFocus(initialInputs));
@@ -758,6 +763,8 @@ export function LegalWorkflowLauncher({
     setEditableSelection(selection);
     setFieldValues(defaultFieldValues(workflow, config, initialInputs));
     setCustomValues(defaultCustomValues(config, initialInputs));
+    setActiveStep(0);
+    window.requestAnimationFrame(() => scrollContainerRef.current?.scrollTo({ top: 0 }));
   }, [open, selection, workflow, selectionMode, initialInputs, config]);
 
   const fields = useMemo(() => orderedLegalFields(workflow, config), [workflow, config]);
@@ -769,6 +776,62 @@ export function LegalWorkflowLauncher({
   const hasSettings = fields.length > 0 || customFields.length > 0 || !!config.lockedBadges?.length;
   const headerSummaryItems = legalHeaderSummaryItems(fields, fieldValues, customFields, customValues, activeSelection.label);
   const footerStatus = workflowReadyStatus(canRun, activeSelection, selectionMessage);
+  const stepItems = useMemo(
+    () => [
+      { key: "source", label: "Source" },
+      { key: "context", label: "Context" },
+      ...(hasSettings ? [{ key: "settings", label: "Settings" }] : []),
+    ],
+    [hasSettings],
+  );
+  const currentStepIndex = Math.min(activeStep, Math.max(stepItems.length - 1, 0));
+  const isLastStep = currentStepIndex >= stepItems.length - 1;
+
+  const getStepElement = (index: number) => {
+    const step = stepItems[index];
+    if (!step) return null;
+    if (step.key === "source") return sourceStepRef.current;
+    if (step.key === "context") return contextStepRef.current;
+    if (step.key === "settings") return settingsStepRef.current;
+    return null;
+  };
+
+  const scrollToStep = (index: number) => {
+    const nextIndex = Math.max(0, Math.min(index, stepItems.length - 1));
+    const container = scrollContainerRef.current;
+    const element = getStepElement(nextIndex);
+    setActiveStep(nextIndex);
+    if (!container || !element) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    container.scrollTo({
+      top: container.scrollTop + elementRect.top - containerRect.top - 16,
+      behavior: "smooth",
+    });
+  };
+
+  const handleContentScroll = () => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const anchorY = containerRect.top + containerRect.height * 0.38;
+    let closestIndex = 0;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    stepItems.forEach((_, index) => {
+      const element = getStepElement(index);
+      if (!element) return;
+      const distance = Math.abs(element.getBoundingClientRect().top - anchorY);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestIndex = index;
+      }
+    });
+
+    setActiveStep((previous) => (previous === closestIndex ? previous : closestIndex));
+  };
 
   const submitWorkflow = () => {
     if (!workflow) return;
@@ -797,8 +860,8 @@ export function LegalWorkflowLauncher({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex w-[calc(100vw-2rem)] max-w-6xl max-h-[calc(100vh-2rem)] flex-col gap-0 overflow-hidden rounded-[2rem] p-0 sm:max-w-6xl">
-        <DialogHeader className="border-b border-border/70 bg-gradient-to-br from-background via-background to-primary/[0.045] px-5 pb-5 pt-5 pr-14 sm:px-6 sm:pr-14">
+      <DialogContent className="flex h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-4xl flex-col gap-0 overflow-hidden rounded-[2rem] p-0 sm:max-w-4xl">
+        <DialogHeader className="border-b border-border/70 bg-gradient-to-br from-background via-background to-primary/[0.045] px-5 pb-4 pt-5 pr-14 sm:px-6 sm:pr-14">
           <div className="space-y-4">
             {onBack ? (
               <Button
@@ -837,54 +900,89 @@ export function LegalWorkflowLauncher({
                 </DialogDescription>
               </div>
             </div>
+
+            <div className={cn("grid gap-2", hasSettings ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+              {stepItems.map((step, index) => {
+                const active = index === currentStepIndex;
+                const complete = index < currentStepIndex;
+                return (
+                  <button
+                    key={step.key}
+                    type="button"
+                    className={cn(
+                      "group flex min-w-0 items-center gap-2 rounded-2xl border px-3 py-2 text-left text-xs transition",
+                      active
+                        ? "border-primary/35 bg-primary/10 text-primary shadow-sm"
+                        : "border-border/70 bg-background/70 text-muted-foreground hover:border-primary/20 hover:bg-background hover:text-foreground",
+                    )}
+                    onClick={() => scrollToStep(index)}
+                    disabled={submitting}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold",
+                        active || complete ? "border-primary/30 bg-primary text-primary-foreground" : "border-border bg-muted/40 text-muted-foreground",
+                      )}
+                    >
+                      {complete ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}
+                    </span>
+                    <span className="truncate font-medium">{step.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
-          <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
-            <div className="space-y-4">
-              {chainSource ? (
-                <div className="rounded-3xl border border-primary/15 bg-primary/5 p-4 shadow-sm">
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
-                    <CornerDownRight className="h-3.5 w-3.5" />
-                    Built from {chainSource.parent_workflow_title}
-                    {chainSource.action_label ? (
-                      <Badge variant="outline" className="rounded-full border-primary/20 bg-background px-2 py-0 text-[10px] font-normal text-foreground">
-                        {chainSource.action_label}
+        <div ref={scrollContainerRef} onScroll={handleContentScroll} className="flex-1 overflow-y-auto scroll-smooth px-5 py-5 sm:px-6">
+          <div className="mx-auto flex w-full max-w-3xl snap-y snap-mandatory flex-col gap-5 pb-5">
+            <section
+              ref={sourceStepRef}
+              className="flex min-h-[calc(100vh-24rem)] snap-start scroll-mt-5 flex-col rounded-3xl border border-border/80 bg-background/85 p-5 shadow-sm backdrop-blur-sm sm:p-6"
+            >
+              <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
+                    <FileText className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/75">Step 1</div>
+                    <h3 className="text-base font-semibold">Source material</h3>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      Choose the files this workflow should review.
+                    </p>
+                  </div>
+                </div>
+                <Badge variant={canRun ? "default" : "outline"} className="rounded-full">
+                  {canRun ? "Ready" : "Needs files"}
+                </Badge>
+              </div>
+
+              <div className="my-auto space-y-4">
+                {chainSource ? (
+                  <div className="rounded-3xl border border-primary/15 bg-primary/5 p-4 shadow-sm">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
+                      <CornerDownRight className="h-3.5 w-3.5" />
+                      Built from {chainSource.parent_workflow_title}
+                      {chainSource.action_label ? (
+                        <Badge variant="outline" className="rounded-full border-primary/20 bg-background px-2 py-0 text-[10px] font-normal text-foreground">
+                          {chainSource.action_label}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline" className="rounded-full">{chainSource.parent_title}</Badge>
+                      {chainSource.selection_label ? <Badge variant="outline" className="rounded-full">{chainSource.selection_label}</Badge> : null}
+                      <Badge variant="outline" className="rounded-full">
+                        <History className="mr-1 h-3 w-3" />
+                        Updated {formatRelativeTime(chainSource.parent_updated_at)}
                       </Badge>
+                    </div>
+                    {chainSource.summary ? (
+                      <p className="mt-2 line-clamp-3 text-sm leading-6 text-foreground/85">{chainSource.summary}</p>
                     ) : null}
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <Badge variant="outline" className="rounded-full">{chainSource.parent_title}</Badge>
-                    {chainSource.selection_label ? <Badge variant="outline" className="rounded-full">{chainSource.selection_label}</Badge> : null}
-                    <Badge variant="outline" className="rounded-full">
-                      <History className="mr-1 h-3 w-3" />
-                      Updated {formatRelativeTime(chainSource.parent_updated_at)}
-                    </Badge>
-                  </div>
-                  {chainSource.summary ? (
-                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-foreground/85">{chainSource.summary}</p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <section className="rounded-3xl border border-border/80 bg-background/80 p-4 shadow-sm backdrop-blur-sm">
-                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
-                      <FileText className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-semibold">Source material</h3>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        Choose the files this workflow should review.
-                      </p>
-                    </div>
-                  </div>
-                  <Badge variant={canRun ? "default" : "outline"} className="rounded-full">
-                    {canRun ? "Ready" : "Needs files"}
-                  </Badge>
-                </div>
+                ) : null}
 
                 {selectionMode === "picker" ? (
                   <WorkflowFilePicker
@@ -905,95 +1003,103 @@ export function LegalWorkflowLauncher({
                   </div>
                 )}
 
-                <div className="mt-3 rounded-2xl border border-dashed border-border/70 bg-muted/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
                   {selectionMessage}
                 </div>
-              </section>
+              </div>
+            </section>
 
-              <section className="rounded-3xl border border-border/80 bg-background/80 p-4 shadow-sm backdrop-blur-sm">
-                <div className="mb-4 flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
-                    <Scale className="h-4 w-4" />
+            <section
+              ref={contextStepRef}
+              className="flex min-h-[calc(100vh-24rem)] snap-start scroll-mt-5 flex-col rounded-3xl border border-border/80 bg-background/85 p-5 shadow-sm backdrop-blur-sm sm:p-6"
+            >
+              <div className="mb-5 flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
+                  <Scale className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/75">Step 2</div>
+                  <h3 className="text-base font-semibold">Review context</h3>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    Add business context or narrow the review without changing the workflow.
+                  </p>
+                </div>
+              </div>
+
+              <div className="my-auto space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Matter context</label>
+                  <Input
+                    placeholder="Counterparty, deal stage, reviewer, jurisdiction, or approval context"
+                    value={matterContext}
+                    onChange={(event) => setMatterContext(event.target.value)}
+                    disabled={submitting}
+                    className="rounded-2xl bg-background/90"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">{config.focusLabel}</label>
+                  <Textarea
+                    rows={5}
+                    placeholder={config.focusPlaceholder}
+                    value={focus}
+                    onChange={(event) => setFocus(event.target.value)}
+                    disabled={submitting}
+                    className="min-h-[128px] rounded-2xl bg-background/90"
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">{config.focusHelp}</p>
+                </div>
+
+                {!!suggestions.length && (
+                  <div className="rounded-2xl border border-border/70 bg-muted/10 p-3">
+                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                      {config.suggestionLabel || "Common focuses"}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {suggestions.map((suggestion) => {
+                        const active = focus === suggestion;
+                        return (
+                          <Button
+                            key={suggestion}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className={cn("rounded-full bg-background/80", active && "border-primary/40 bg-primary/10 text-primary")}
+                            onClick={() => setFocus(suggestion)}
+                            disabled={submitting}
+                          >
+                            {suggestion}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {hasSettings ? (
+              <section
+                ref={settingsStepRef}
+                className="flex min-h-[calc(100vh-24rem)] snap-start scroll-mt-5 flex-col rounded-3xl border border-border/80 bg-background/85 p-5 shadow-sm backdrop-blur-sm sm:p-6"
+              >
+                <div className="mb-5 flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
+                    <SlidersHorizontal className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-sm font-semibold">Review context</h3>
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                      Add business context or narrow the review without changing the workflow.
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/75">Step 3</div>
+                    <h3 className="text-base font-semibold">{config.settingsTitle}</h3>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      Tune how this workflow reads the material and shapes the output.
                     </p>
                   </div>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Matter context</label>
-                    <Input
-                      placeholder="Counterparty, deal stage, reviewer, jurisdiction, or approval context"
-                      value={matterContext}
-                      onChange={(event) => setMatterContext(event.target.value)}
-                      disabled={submitting}
-                      className="rounded-2xl bg-background/90"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">{config.focusLabel}</label>
-                    <Textarea
-                      rows={5}
-                      placeholder={config.focusPlaceholder}
-                      value={focus}
-                      onChange={(event) => setFocus(event.target.value)}
-                      disabled={submitting}
-                      className="min-h-[128px] rounded-2xl bg-background/90"
-                    />
-                    <p className="text-xs leading-5 text-muted-foreground">{config.focusHelp}</p>
-                  </div>
-
-                  {!!suggestions.length && (
-                    <div className="rounded-2xl border border-border/70 bg-muted/10 p-3">
-                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                        {config.suggestionLabel || "Common focuses"}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {suggestions.map((suggestion) => {
-                          const active = focus === suggestion;
-                          return (
-                            <Button
-                              key={suggestion}
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className={cn("rounded-full bg-background/80", active && "border-primary/40 bg-primary/10 text-primary")}
-                              onClick={() => setFocus(suggestion)}
-                              disabled={submitting}
-                            >
-                              {suggestion}
-                            </Button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </section>
-            </div>
-
-            <aside className="space-y-4 lg:sticky lg:top-5">
-              {hasSettings ? (
-                <section className="rounded-3xl border border-border/80 bg-background/80 p-4 shadow-sm backdrop-blur-sm">
-                  <div className="mb-4 flex items-start gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
-                      <SlidersHorizontal className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-semibold">{config.settingsTitle}</h3>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        Tune how this workflow reads the material and shapes the output.
-                      </p>
-                    </div>
-                  </div>
-
+                <div className="my-auto space-y-4">
                   {!!config.lockedBadges?.length && (
-                    <div className="mb-4 flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {config.lockedBadges.map((badge) => (
                         <Badge key={`${badge.label}-${badge.value}`} variant="secondary" className="rounded-full px-2 py-1 text-[11px] font-normal">
                           {badge.label}: {badge.value}
@@ -1002,50 +1108,48 @@ export function LegalWorkflowLauncher({
                     </div>
                   )}
 
-                  <div className="space-y-4">
-                    {fields.map((field) => {
-                      const value = fieldValues[field.key] || field.default_value || field.options[0]?.value || "";
-                      const description = selectedOptionDescription(field, value);
-                      return (
-                        <div key={field.key} className="space-y-2">
-                          <label className="text-sm font-medium">{field.label}</label>
-                          <Select
-                            value={value}
-                            onValueChange={(nextValue) => setFieldValues((prev) => ({ ...prev, [field.key]: nextValue }))}
-                            disabled={submitting}
-                          >
-                            <SelectTrigger className="rounded-2xl bg-background/90">
-                              <SelectValue placeholder={field.placeholder || `Select ${field.label.toLowerCase()}`} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {field.options.map((option) => (
-                                <SelectItem key={`${field.key}-${option.value}`} value={option.value}>
-                                  {option.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {description ? <p className="text-xs leading-5 text-muted-foreground">{description}</p> : null}
-                        </div>
-                      );
-                    })}
-
-                    {customFields.map((field) => (
+                  {fields.map((field) => {
+                    const value = fieldValues[field.key] || field.default_value || field.options[0]?.value || "";
+                    const description = selectedOptionDescription(field, value);
+                    return (
                       <div key={field.key} className="space-y-2">
                         <label className="text-sm font-medium">{field.label}</label>
-                        {renderCustomField(
-                          field,
-                          customValues[field.key] || field.defaultValue || "",
-                          (nextValue) => setCustomValues((prev) => ({ ...prev, [field.key]: nextValue })),
-                          submitting,
-                        )}
-                        {field.helper ? <p className="text-xs leading-5 text-muted-foreground">{field.helper}</p> : null}
+                        <Select
+                          value={value}
+                          onValueChange={(nextValue) => setFieldValues((prev) => ({ ...prev, [field.key]: nextValue }))}
+                          disabled={submitting}
+                        >
+                          <SelectTrigger className="rounded-2xl bg-background/90">
+                            <SelectValue placeholder={field.placeholder || `Select ${field.label.toLowerCase()}`} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {field.options.map((option) => (
+                              <SelectItem key={`${field.key}-${option.value}`} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {description ? <p className="text-xs leading-5 text-muted-foreground">{description}</p> : null}
                       </div>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-            </aside>
+                    );
+                  })}
+
+                  {customFields.map((field) => (
+                    <div key={field.key} className="space-y-2">
+                      <label className="text-sm font-medium">{field.label}</label>
+                      {renderCustomField(
+                        field,
+                        customValues[field.key] || field.defaultValue || "",
+                        (nextValue) => setCustomValues((prev) => ({ ...prev, [field.key]: nextValue })),
+                        submitting,
+                      )}
+                      {field.helper ? <p className="text-xs leading-5 text-muted-foreground">{field.helper}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
         </div>
 
@@ -1058,9 +1162,20 @@ export function LegalWorkflowLauncher({
             <Button variant="outline" className="rounded-full" onClick={() => onOpenChange(false)} disabled={submitting}>
               Cancel
             </Button>
-            <Button className="rounded-full px-5" onClick={submitWorkflow} disabled={!canRun || submitting}>
-              {workflow?.launcher.submit_label ?? "Run workflow"}
+            <Button variant="outline" className="rounded-full" onClick={() => scrollToStep(currentStepIndex - 1)} disabled={submitting || currentStepIndex === 0}>
+              <ChevronLeft className="mr-1 h-4 w-4" />
+              Back
             </Button>
+            {!isLastStep ? (
+              <Button className="rounded-full px-5" onClick={() => scrollToStep(currentStepIndex + 1)} disabled={submitting}>
+                Next
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            ) : (
+              <Button className="rounded-full px-5" onClick={submitWorkflow} disabled={!canRun || submitting}>
+                {workflow?.launcher.submit_label ?? "Run workflow"}
+              </Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>
