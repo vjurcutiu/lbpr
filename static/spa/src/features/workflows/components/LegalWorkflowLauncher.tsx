@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Scale, BriefcaseBusiness, CornerDownRight, FileCheck2, History, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CornerDownRight, FileText, History, Scale, SlidersHorizontal } from "lucide-react";
 
 import {
   Dialog,
@@ -39,6 +39,7 @@ type Props = {
   chainSource?: WorkflowChainSource | null;
   onOpenChange: (open: boolean) => void;
   onRun: (workflow: WorkflowManifest, inputs: Record<string, unknown>, selection: WorkflowSelection) => void;
+  onBack?: () => void;
 };
 
 type LegalCustomFieldKind = "select" | "text" | "textarea" | "chips";
@@ -575,6 +576,45 @@ function workflowKicker(workflow: WorkflowManifest | null) {
   return "Legal review";
 }
 
+function selectedLauncherFieldLabel(field: WorkflowLauncherField, value: string) {
+  const option = field.options.find((item) => item.value === value);
+  return option?.label || value.replace(/_/g, " ");
+}
+
+function legalHeaderSummaryItems(
+  fields: WorkflowLauncherField[],
+  fieldValues: Record<string, string>,
+  customFields: LegalCustomField[],
+  customValues: Record<string, string>,
+  selectionLabel: string,
+) {
+  const items = [selectionLabel].filter(Boolean);
+
+  for (const field of fields) {
+    if (!["document_type", "review_mode", "risk_tolerance"].includes(field.key)) continue;
+    const value = fieldValues[field.key] || field.default_value || field.options[0]?.value || "";
+    if (value) items.push(selectedLauncherFieldLabel(field, value));
+    if (items.length >= 4) return items;
+  }
+
+  for (const field of customFields) {
+    if (!["deal_stage", "review_audience", "matrix_purpose", "agreement_side", "nda_direction", "brief_audience"].includes(field.key)) continue;
+    const value = customValues[field.key] || field.defaultValue || "";
+    if (value) items.push(optionLabel(field.options, value));
+    if (items.length >= 4) return items;
+  }
+
+  return items;
+}
+
+function workflowReadyStatus(canRun: boolean, activeSelection: WorkflowSelectionSummary, selectionMessage: string) {
+  if (!canRun) return selectionMessage;
+  if (activeSelection.fileCount > 0) {
+    return `Ready to run on ${activeSelection.fileCount} file${activeSelection.fileCount === 1 ? "" : "s"}`;
+  }
+  return "Ready to run";
+}
+
 function chipValues(value: string) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
@@ -703,6 +743,7 @@ export function LegalWorkflowLauncher({
   chainSource,
   onOpenChange,
   onRun,
+  onBack,
 }: Props) {
   const config = useMemo(() => workflowUiConfig(workflow), [workflow]);
   const [focus, setFocus] = useState(() => defaultFocus(initialInputs));
@@ -726,6 +767,8 @@ export function LegalWorkflowLauncher({
   const selectionMessage = workflow ? getWorkflowSelectionMessage(workflow, activeSelection) : "Select a workflow.";
   const canRun = !!workflow && isWorkflowSelectionValid(workflow, activeSelection) && !(selectionMode === "picker" && filesLoading);
   const hasSettings = fields.length > 0 || customFields.length > 0 || !!config.lockedBadges?.length;
+  const headerSummaryItems = legalHeaderSummaryItems(fields, fieldValues, customFields, customValues, activeSelection.label);
+  const footerStatus = workflowReadyStatus(canRun, activeSelection, selectionMessage);
 
   const submitWorkflow = () => {
     if (!workflow) return;
@@ -754,51 +797,54 @@ export function LegalWorkflowLauncher({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex w-[calc(100vw-2rem)] max-w-5xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden p-0 sm:max-w-5xl">
-        <DialogHeader className="border-b bg-gradient-to-br from-background via-background to-primary/5 px-6 py-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <DialogContent className="flex w-[calc(100vw-2rem)] max-w-6xl max-h-[calc(100vh-2rem)] flex-col gap-0 overflow-hidden rounded-[2rem] p-0 sm:max-w-6xl">
+        <DialogHeader className="border-b border-border/70 bg-gradient-to-br from-background via-background to-primary/[0.045] px-5 pb-5 pt-5 pr-14 sm:px-6 sm:pr-14">
+          <div className="space-y-4">
+            {onBack ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 w-fit rounded-full border border-border/70 bg-background/75 px-3 text-xs font-medium text-muted-foreground shadow-sm hover:bg-background hover:text-foreground"
+                onClick={onBack}
+                disabled={submitting}
+              >
+                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
+                Legal workflows
+              </Button>
+            ) : null}
+
             <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border bg-primary/5 text-primary shadow-sm">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-sm">
                 <Scale className="h-5 w-5" />
               </div>
-              <div className="min-w-0 space-y-1">
+              <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" className="rounded-full border-primary/20 bg-background/80 text-[11px] text-primary">
+                  <Badge variant="outline" className="rounded-full border-primary/20 bg-background/80 text-[11px] font-medium text-primary">
                     {workflowKicker(workflow)}
                   </Badge>
-                  <Badge variant="outline" className="rounded-full bg-background/80 text-[11px] text-muted-foreground">
-                    {activeSelection.label}
-                  </Badge>
+                  {headerSummaryItems.map((item, index) => (
+                    <Badge key={`${item}-${index}`} variant="outline" className="rounded-full bg-background/70 text-[11px] font-normal text-muted-foreground">
+                      {item}
+                    </Badge>
+                  ))}
                 </div>
-                <DialogTitle className="text-xl">{workflow?.title ?? "Legal workflow"}</DialogTitle>
-                <DialogDescription className="max-w-2xl leading-6">
+                <DialogTitle className="text-xl font-semibold tracking-[-0.02em] sm:text-2xl">
+                  {workflow?.title ?? "Legal workflow"}
+                </DialogTitle>
+                <DialogDescription className="max-w-3xl text-sm leading-6">
                   {workflow?.description ?? "Choose legal materials and workflow settings."}
                 </DialogDescription>
-              </div>
-            </div>
-
-            <div className="grid min-w-[220px] grid-cols-3 gap-2 text-center text-[11px] text-muted-foreground">
-              <div className="rounded-2xl border bg-background/80 px-2 py-2">
-                <FileCheck2 className="mx-auto mb-1 h-4 w-4 text-primary" />
-                Sources
-              </div>
-              <div className="rounded-2xl border bg-background/80 px-2 py-2">
-                <ShieldCheck className="mx-auto mb-1 h-4 w-4 text-primary" />
-                Settings
-              </div>
-              <div className="rounded-2xl border bg-background/80 px-2 py-2">
-                <BriefcaseBusiness className="mx-auto mb-1 h-4 w-4 text-primary" />
-                Output
               </div>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5">
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1.05fr)_minmax(300px,0.95fr)]">
+        <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+          <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
             <div className="space-y-4">
               {chainSource ? (
-                <div className="rounded-2xl border border-primary/15 bg-primary/5 p-3">
+                <div className="rounded-3xl border border-primary/15 bg-primary/5 p-4 shadow-sm">
                   <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
                     <CornerDownRight className="h-3.5 w-3.5" />
                     Built from {chainSource.parent_workflow_title}
@@ -822,62 +868,132 @@ export function LegalWorkflowLauncher({
                 </div>
               ) : null}
 
-              {selectionMode === "picker" ? (
-                <WorkflowFilePicker
-                  files={availableFiles}
-                  selection={editableSelection}
-                  loading={filesLoading}
-                  disabled={submitting}
-                  onSelectionChange={setEditableSelection}
-                />
-              ) : null}
-
-              <div className="rounded-2xl border bg-muted/15 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Selection</div>
+              <section className="rounded-3xl border border-border/80 bg-background/80 p-4 shadow-sm backdrop-blur-sm">
+                <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold">Source material</h3>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Choose the files this workflow should review.
+                      </p>
+                    </div>
+                  </div>
                   <Badge variant={canRun ? "default" : "outline"} className="rounded-full">
                     {canRun ? "Ready" : "Needs files"}
                   </Badge>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  <Badge variant="outline" className="rounded-full">{activeSelection.label}</Badge>
-                  {activeSelection.current_folder ? (
-                    <Badge variant="outline" className="rounded-full">Folder: {activeSelection.current_folder}</Badge>
-                  ) : null}
+
+                {selectionMode === "picker" ? (
+                  <WorkflowFilePicker
+                    files={availableFiles}
+                    selection={editableSelection}
+                    loading={filesLoading}
+                    disabled={submitting}
+                    onSelectionChange={setEditableSelection}
+                  />
+                ) : (
+                  <div className="rounded-2xl border border-border/70 bg-muted/15 px-3 py-3">
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline" className="rounded-full">{activeSelection.label}</Badge>
+                      {activeSelection.current_folder ? (
+                        <Badge variant="outline" className="rounded-full">Folder: {activeSelection.current_folder}</Badge>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-3 rounded-2xl border border-dashed border-border/70 bg-muted/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  {selectionMessage}
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">{selectionMessage}</p>
-              </div>
+              </section>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Matter context</label>
-                <Input
-                  placeholder="Counterparty, deal stage, reviewer, jurisdiction, or approval context"
-                  value={matterContext}
-                  onChange={(event) => setMatterContext(event.target.value)}
-                  disabled={submitting}
-                  className="rounded-2xl"
-                />
-              </div>
+              <section className="rounded-3xl border border-border/80 bg-background/80 p-4 shadow-sm backdrop-blur-sm">
+                <div className="mb-4 flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
+                    <Scale className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold">Review context</h3>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Add business context or narrow the review without changing the workflow.
+                    </p>
+                  </div>
+                </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">{config.focusLabel}</label>
-                <Textarea
-                  rows={5}
-                  placeholder={config.focusPlaceholder}
-                  value={focus}
-                  onChange={(event) => setFocus(event.target.value)}
-                  disabled={submitting}
-                />
-                <p className="text-xs text-muted-foreground">{config.focusHelp}</p>
-              </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Matter context</label>
+                    <Input
+                      placeholder="Counterparty, deal stage, reviewer, jurisdiction, or approval context"
+                      value={matterContext}
+                      onChange={(event) => setMatterContext(event.target.value)}
+                      disabled={submitting}
+                      className="rounded-2xl bg-background/90"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">{config.focusLabel}</label>
+                    <Textarea
+                      rows={5}
+                      placeholder={config.focusPlaceholder}
+                      value={focus}
+                      onChange={(event) => setFocus(event.target.value)}
+                      disabled={submitting}
+                      className="min-h-[128px] rounded-2xl bg-background/90"
+                    />
+                    <p className="text-xs leading-5 text-muted-foreground">{config.focusHelp}</p>
+                  </div>
+
+                  {!!suggestions.length && (
+                    <div className="rounded-2xl border border-border/70 bg-muted/10 p-3">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        {config.suggestionLabel || "Common focuses"}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {suggestions.map((suggestion) => {
+                          const active = focus === suggestion;
+                          return (
+                            <Button
+                              key={suggestion}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className={cn("rounded-full bg-background/80", active && "border-primary/40 bg-primary/10 text-primary")}
+                              onClick={() => setFocus(suggestion)}
+                              disabled={submitting}
+                            >
+                              {suggestion}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
 
-            <div className="space-y-4">
+            <aside className="space-y-4 lg:sticky lg:top-5">
               {hasSettings ? (
-                <div className="rounded-3xl border bg-background p-4 shadow-sm">
-                  <div className="mb-3 text-sm font-semibold">{config.settingsTitle}</div>
+                <section className="rounded-3xl border border-border/80 bg-background/80 p-4 shadow-sm backdrop-blur-sm">
+                  <div className="mb-4 flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
+                      <SlidersHorizontal className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold">{config.settingsTitle}</h3>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Tune how this workflow reads the material and shapes the output.
+                      </p>
+                    </div>
+                  </div>
+
                   {!!config.lockedBadges?.length && (
-                    <div className="mb-3 flex flex-wrap gap-2">
+                    <div className="mb-4 flex flex-wrap gap-2">
                       {config.lockedBadges.map((badge) => (
                         <Badge key={`${badge.label}-${badge.value}`} variant="secondary" className="rounded-full px-2 py-1 text-[11px] font-normal">
                           {badge.label}: {badge.value}
@@ -885,6 +1001,7 @@ export function LegalWorkflowLauncher({
                       ))}
                     </div>
                   )}
+
                   <div className="space-y-4">
                     {fields.map((field) => {
                       const value = fieldValues[field.key] || field.default_value || field.options[0]?.value || "";
@@ -897,7 +1014,7 @@ export function LegalWorkflowLauncher({
                             onValueChange={(nextValue) => setFieldValues((prev) => ({ ...prev, [field.key]: nextValue }))}
                             disabled={submitting}
                           >
-                            <SelectTrigger className="rounded-2xl">
+                            <SelectTrigger className="rounded-2xl bg-background/90">
                               <SelectValue placeholder={field.placeholder || `Select ${field.label.toLowerCase()}`} />
                             </SelectTrigger>
                             <SelectContent>
@@ -926,45 +1043,25 @@ export function LegalWorkflowLauncher({
                       </div>
                     ))}
                   </div>
-                </div>
+                </section>
               ) : null}
-
-              {!!suggestions.length && (
-                <div className="rounded-3xl border bg-muted/10 p-4">
-                  <div className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    {config.suggestionLabel || "Common focuses"}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {suggestions.map((suggestion) => {
-                      const active = focus === suggestion;
-                      return (
-                        <Button
-                          key={suggestion}
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className={cn("rounded-full", active && "border-primary/40 bg-primary/10 text-primary")}
-                          onClick={() => setFocus(suggestion)}
-                          disabled={submitting}
-                        >
-                          {suggestion}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
+            </aside>
           </div>
         </div>
 
-        <DialogFooter className="border-t px-6 py-4">
-          <Button variant="outline" className="rounded-full" onClick={() => onOpenChange(false)} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button className="rounded-full" onClick={submitWorkflow} disabled={!canRun || submitting}>
-            {workflow?.launcher.submit_label ?? "Run workflow"}
-          </Button>
+        <DialogFooter className="flex-col items-stretch justify-between gap-3 border-t border-border/70 bg-background/75 px-5 py-4 backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex min-w-0 items-center gap-2 text-xs leading-5 text-muted-foreground">
+            <CheckCircle2 className={cn("h-4 w-4 shrink-0", canRun ? "text-primary" : "text-muted-foreground/70")} />
+            <span className="truncate">{footerStatus}</span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button variant="outline" className="rounded-full" onClick={() => onOpenChange(false)} disabled={submitting}>
+              Cancel
+            </Button>
+            <Button className="rounded-full px-5" onClick={submitWorkflow} disabled={!canRun || submitting}>
+              {workflow?.launcher.submit_label ?? "Run workflow"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

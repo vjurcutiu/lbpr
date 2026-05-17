@@ -1238,6 +1238,7 @@ function WorkflowLibraryCard({
 function WorkflowCatalogDialog({
   open,
   workflowLibraryView,
+  initialStep = "library",
   onOpenChange,
   onLibraryViewChange,
   catalog,
@@ -1252,6 +1253,7 @@ function WorkflowCatalogDialog({
 }: {
   open: boolean;
   workflowLibraryView: WorkflowLibraryView;
+  initialStep?: WorkflowCatalogStep;
   onOpenChange: (open: boolean) => void;
   onLibraryViewChange: (value: WorkflowLibraryView) => void;
   catalog: WorkflowManifest[];
@@ -1278,8 +1280,8 @@ function WorkflowCatalogDialog({
       : "Contract-focused workflows for review, risk analysis, negotiation, and matter-ready outputs.";
 
   useEffect(() => {
-    if (open) setStep("library");
-  }, [open]);
+    if (open) setStep(initialStep);
+  }, [open, initialStep]);
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) setStep("library");
@@ -1482,6 +1484,7 @@ export default function WorkflowsPage() {
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [workflowCatalogOpen, setWorkflowCatalogOpen] = useState(false);
+  const [workflowCatalogInitialStep, setWorkflowCatalogInitialStep] = useState<WorkflowCatalogStep>("library");
   const [workflowLauncherOpen, setWorkflowLauncherOpen] = useState(false);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowManifest | null>(
     null,
@@ -1543,6 +1546,10 @@ export default function WorkflowsPage() {
   >({});
   const [launcherChainSource, setLauncherChainSource] =
     useState<WorkflowChainSource | null>(null);
+
+  useEffect(() => {
+    if (!workflowCatalogOpen) setWorkflowCatalogInitialStep("library");
+  }, [workflowCatalogOpen]);
 
   const updateOutputEditDrafts = useCallback(
     (
@@ -1713,6 +1720,17 @@ export default function WorkflowsPage() {
     },
     [openWorkflowLauncher],
   );
+
+  const handleLegalLauncherBack = useCallback(() => {
+    setWorkflowLauncherOpen(false);
+    setActiveWorkflow(null);
+    setLauncherSelection(emptyLauncherSelection);
+    setLauncherInitialInputs({});
+    setLauncherChainSource(null);
+    setWorkflowLibraryView("pro");
+    setWorkflowCatalogInitialStep("workflow");
+    setWorkflowCatalogOpen(true);
+  }, [emptyLauncherSelection]);
 
   const handleRunWorkflow = useCallback(
     async (
@@ -3326,6 +3344,7 @@ export default function WorkflowsPage() {
       <WorkflowCatalogDialog
         open={workflowCatalogOpen}
         workflowLibraryView={workflowLibraryView}
+        initialStep={workflowCatalogInitialStep}
         onOpenChange={setWorkflowCatalogOpen}
         onLibraryViewChange={setWorkflowLibraryView}
         catalog={catalog}
@@ -3522,6 +3541,7 @@ export default function WorkflowsPage() {
           submitting={workflowSubmitting}
           initialInputs={launcherInitialInputs}
           chainSource={launcherChainSource}
+          onBack={handleLegalLauncherBack}
           onOpenChange={(open) => {
             setWorkflowLauncherOpen(open);
             if (!open) {
