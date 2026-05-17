@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, CornerDownRight, FileText, History, Scale, SlidersHorizontal } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, ChevronLeft, ChevronRight, CornerDownRight, FileText, History, Scale, SlidersHorizontal } from "lucide-react";
 
 import {
   Dialog,
@@ -752,10 +752,6 @@ export function LegalWorkflowLauncher({
   const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => defaultFieldValues(workflow, config, initialInputs));
   const [customValues, setCustomValues] = useState<Record<string, string>>(() => defaultCustomValues(config, initialInputs));
   const [activeStep, setActiveStep] = useState(0);
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const sourceStepRef = useRef<HTMLElement | null>(null);
-  const contextStepRef = useRef<HTMLElement | null>(null);
-  const settingsStepRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     setFocus(defaultFocus(initialInputs));
@@ -764,7 +760,6 @@ export function LegalWorkflowLauncher({
     setFieldValues(defaultFieldValues(workflow, config, initialInputs));
     setCustomValues(defaultCustomValues(config, initialInputs));
     setActiveStep(0);
-    window.requestAnimationFrame(() => scrollContainerRef.current?.scrollTo({ top: 0 }));
   }, [open, selection, workflow, selectionMode, initialInputs, config]);
 
   const fields = useMemo(() => orderedLegalFields(workflow, config), [workflow, config]);
@@ -785,52 +780,19 @@ export function LegalWorkflowLauncher({
     [hasSettings],
   );
   const currentStepIndex = Math.min(activeStep, Math.max(stepItems.length - 1, 0));
+  const currentStepKey = stepItems[currentStepIndex]?.key || "source";
   const isLastStep = currentStepIndex >= stepItems.length - 1;
 
-  const getStepElement = (index: number) => {
-    const step = stepItems[index];
-    if (!step) return null;
-    if (step.key === "source") return sourceStepRef.current;
-    if (step.key === "context") return contextStepRef.current;
-    if (step.key === "settings") return settingsStepRef.current;
-    return null;
+  const goToStep = (index: number) => {
+    setActiveStep(Math.max(0, Math.min(index, stepItems.length - 1)));
   };
 
-  const scrollToStep = (index: number) => {
-    const nextIndex = Math.max(0, Math.min(index, stepItems.length - 1));
-    const container = scrollContainerRef.current;
-    const element = getStepElement(nextIndex);
-    setActiveStep(nextIndex);
-    if (!container || !element) return;
-
-    const containerRect = container.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    container.scrollTo({
-      top: container.scrollTop + elementRect.top - containerRect.top - 16,
-      behavior: "smooth",
-    });
-  };
-
-  const handleContentScroll = () => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    const containerRect = container.getBoundingClientRect();
-    const anchorY = containerRect.top + containerRect.height * 0.38;
-    let closestIndex = 0;
-    let closestDistance = Number.POSITIVE_INFINITY;
-
-    stepItems.forEach((_, index) => {
-      const element = getStepElement(index);
-      if (!element) return;
-      const distance = Math.abs(element.getBoundingClientRect().top - anchorY);
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestIndex = index;
-      }
-    });
-
-    setActiveStep((previous) => (previous === closestIndex ? previous : closestIndex));
+  const handleCancel = () => {
+    if (onBack) {
+      onBack();
+      return;
+    }
+    onOpenChange(false);
   };
 
   const submitWorkflow = () => {
@@ -863,20 +825,6 @@ export function LegalWorkflowLauncher({
       <DialogContent className="flex h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-4xl flex-col gap-0 overflow-hidden rounded-[2rem] p-0 sm:max-w-4xl">
         <DialogHeader className="border-b border-border/70 bg-gradient-to-br from-background via-background to-primary/[0.045] px-5 pb-4 pt-5 pr-14 sm:px-6 sm:pr-14">
           <div className="space-y-4">
-            {onBack ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 w-fit rounded-full border border-border/70 bg-background/75 px-3 text-xs font-medium text-muted-foreground shadow-sm hover:bg-background hover:text-foreground"
-                onClick={onBack}
-                disabled={submitting}
-              >
-                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-                Legal workflows
-              </Button>
-            ) : null}
-
             <div className="flex min-w-0 items-start gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-sm">
                 <Scale className="h-5 w-5" />
@@ -915,7 +863,7 @@ export function LegalWorkflowLauncher({
                         ? "border-primary/35 bg-primary/10 text-primary shadow-sm"
                         : "border-border/70 bg-background/70 text-muted-foreground hover:border-primary/20 hover:bg-background hover:text-foreground",
                     )}
-                    onClick={() => scrollToStep(index)}
+                    onClick={() => goToStep(index)}
                     disabled={submitting}
                   >
                     <span
@@ -934,156 +882,151 @@ export function LegalWorkflowLauncher({
           </div>
         </DialogHeader>
 
-        <div ref={scrollContainerRef} onScroll={handleContentScroll} className="flex-1 overflow-y-auto scroll-smooth px-5 py-5 sm:px-6">
-          <div className="mx-auto flex w-full max-w-3xl snap-y snap-mandatory flex-col gap-5 pb-5">
-            <section
-              ref={sourceStepRef}
-              className="flex min-h-[calc(100vh-24rem)] snap-start scroll-mt-5 flex-col rounded-3xl border border-border/80 bg-background/85 p-5 shadow-sm backdrop-blur-sm sm:p-6"
-            >
-              <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-                <div className="flex min-w-0 items-start gap-3">
+        <div className="flex min-h-0 flex-1 px-5 py-5 sm:px-6">
+          <div className="mx-auto flex min-h-0 w-full max-w-3xl">
+            {currentStepKey === "source" ? (
+              <section className="flex min-h-0 w-full flex-col rounded-3xl border border-border/80 bg-background/85 p-5 shadow-sm backdrop-blur-sm sm:p-6">
+                <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
+                      <FileText className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/75">Step 1</div>
+                      <h3 className="text-base font-semibold">Source material</h3>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        Choose the files this workflow should review.
+                      </p>
+                    </div>
+                  </div>
+                  <Badge variant={canRun ? "default" : "outline"} className="rounded-full">
+                    {canRun ? "Ready" : "Needs files"}
+                  </Badge>
+                </div>
+
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+                  {chainSource ? (
+                    <div className="rounded-3xl border border-primary/15 bg-primary/5 p-4 shadow-sm">
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
+                        <CornerDownRight className="h-3.5 w-3.5" />
+                        Built from {chainSource.parent_workflow_title}
+                        {chainSource.action_label ? (
+                          <Badge variant="outline" className="rounded-full border-primary/20 bg-background px-2 py-0 text-[10px] font-normal text-foreground">
+                            {chainSource.action_label}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <Badge variant="outline" className="rounded-full">{chainSource.parent_title}</Badge>
+                        {chainSource.selection_label ? <Badge variant="outline" className="rounded-full">{chainSource.selection_label}</Badge> : null}
+                        <Badge variant="outline" className="rounded-full">
+                          <History className="mr-1 h-3 w-3" />
+                          Updated {formatRelativeTime(chainSource.parent_updated_at)}
+                        </Badge>
+                      </div>
+                      {chainSource.summary ? (
+                        <p className="mt-2 line-clamp-3 text-sm leading-6 text-foreground/85">{chainSource.summary}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {selectionMode === "picker" ? (
+                    <WorkflowFilePicker
+                      files={availableFiles}
+                      selection={editableSelection}
+                      loading={filesLoading}
+                      disabled={submitting}
+                      onSelectionChange={setEditableSelection}
+                    />
+                  ) : (
+                    <div className="rounded-2xl border border-border/70 bg-muted/15 px-3 py-3">
+                      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        <Badge variant="outline" className="rounded-full">{activeSelection.label}</Badge>
+                        {activeSelection.current_folder ? (
+                          <Badge variant="outline" className="rounded-full">Folder: {activeSelection.current_folder}</Badge>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                    {selectionMessage}
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {currentStepKey === "context" ? (
+              <section className="flex min-h-0 w-full flex-col rounded-3xl border border-border/80 bg-background/85 p-5 shadow-sm backdrop-blur-sm sm:p-6">
+                <div className="mb-5 flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
-                    <FileText className="h-4 w-4" />
+                    <Scale className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/75">Step 1</div>
-                    <h3 className="text-base font-semibold">Source material</h3>
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/75">Step 2</div>
+                    <h3 className="text-base font-semibold">Review context</h3>
                     <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      Choose the files this workflow should review.
+                      Add business context or narrow the review without changing the workflow.
                     </p>
                   </div>
                 </div>
-                <Badge variant={canRun ? "default" : "outline"} className="rounded-full">
-                  {canRun ? "Ready" : "Needs files"}
-                </Badge>
-              </div>
 
-              <div className="my-auto space-y-4">
-                {chainSource ? (
-                  <div className="rounded-3xl border border-primary/15 bg-primary/5 p-4 shadow-sm">
-                    <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
-                      <CornerDownRight className="h-3.5 w-3.5" />
-                      Built from {chainSource.parent_workflow_title}
-                      {chainSource.action_label ? (
-                        <Badge variant="outline" className="rounded-full border-primary/20 bg-background px-2 py-0 text-[10px] font-normal text-foreground">
-                          {chainSource.action_label}
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      <Badge variant="outline" className="rounded-full">{chainSource.parent_title}</Badge>
-                      {chainSource.selection_label ? <Badge variant="outline" className="rounded-full">{chainSource.selection_label}</Badge> : null}
-                      <Badge variant="outline" className="rounded-full">
-                        <History className="mr-1 h-3 w-3" />
-                        Updated {formatRelativeTime(chainSource.parent_updated_at)}
-                      </Badge>
-                    </div>
-                    {chainSource.summary ? (
-                      <p className="mt-2 line-clamp-3 text-sm leading-6 text-foreground/85">{chainSource.summary}</p>
-                    ) : null}
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Matter context</label>
+                    <Input
+                      placeholder="Counterparty, deal stage, reviewer, jurisdiction, or approval context"
+                      value={matterContext}
+                      onChange={(event) => setMatterContext(event.target.value)}
+                      disabled={submitting}
+                      className="rounded-2xl bg-background/90"
+                    />
                   </div>
-                ) : null}
 
-                {selectionMode === "picker" ? (
-                  <WorkflowFilePicker
-                    files={availableFiles}
-                    selection={editableSelection}
-                    loading={filesLoading}
-                    disabled={submitting}
-                    onSelectionChange={setEditableSelection}
-                  />
-                ) : (
-                  <div className="rounded-2xl border border-border/70 bg-muted/15 px-3 py-3">
-                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      <Badge variant="outline" className="rounded-full">{activeSelection.label}</Badge>
-                      {activeSelection.current_folder ? (
-                        <Badge variant="outline" className="rounded-full">Folder: {activeSelection.current_folder}</Badge>
-                      ) : null}
-                    </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">{config.focusLabel}</label>
+                    <Textarea
+                      rows={5}
+                      placeholder={config.focusPlaceholder}
+                      value={focus}
+                      onChange={(event) => setFocus(event.target.value)}
+                      disabled={submitting}
+                      className="min-h-[128px] rounded-2xl bg-background/90"
+                    />
+                    <p className="text-xs leading-5 text-muted-foreground">{config.focusHelp}</p>
                   </div>
-                )}
 
-                <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                  {selectionMessage}
-                </div>
-              </div>
-            </section>
-
-            <section
-              ref={contextStepRef}
-              className="flex min-h-[calc(100vh-24rem)] snap-start scroll-mt-5 flex-col rounded-3xl border border-border/80 bg-background/85 p-5 shadow-sm backdrop-blur-sm sm:p-6"
-            >
-              <div className="mb-5 flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
-                  <Scale className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/75">Step 2</div>
-                  <h3 className="text-base font-semibold">Review context</h3>
-                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    Add business context or narrow the review without changing the workflow.
-                  </p>
-                </div>
-              </div>
-
-              <div className="my-auto space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Matter context</label>
-                  <Input
-                    placeholder="Counterparty, deal stage, reviewer, jurisdiction, or approval context"
-                    value={matterContext}
-                    onChange={(event) => setMatterContext(event.target.value)}
-                    disabled={submitting}
-                    className="rounded-2xl bg-background/90"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">{config.focusLabel}</label>
-                  <Textarea
-                    rows={5}
-                    placeholder={config.focusPlaceholder}
-                    value={focus}
-                    onChange={(event) => setFocus(event.target.value)}
-                    disabled={submitting}
-                    className="min-h-[128px] rounded-2xl bg-background/90"
-                  />
-                  <p className="text-xs leading-5 text-muted-foreground">{config.focusHelp}</p>
-                </div>
-
-                {!!suggestions.length && (
-                  <div className="rounded-2xl border border-border/70 bg-muted/10 p-3">
-                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      {config.suggestionLabel || "Common focuses"}
+                  {!!suggestions.length && (
+                    <div className="rounded-2xl border border-border/70 bg-muted/10 p-3">
+                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        {config.suggestionLabel || "Common focuses"}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {suggestions.map((suggestion) => {
+                          const active = focus === suggestion;
+                          return (
+                            <Button
+                              key={suggestion}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className={cn("rounded-full bg-background/80", active && "border-primary/40 bg-primary/10 text-primary")}
+                              onClick={() => setFocus(suggestion)}
+                              disabled={submitting}
+                            >
+                              {suggestion}
+                            </Button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {suggestions.map((suggestion) => {
-                        const active = focus === suggestion;
-                        return (
-                          <Button
-                            key={suggestion}
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className={cn("rounded-full bg-background/80", active && "border-primary/40 bg-primary/10 text-primary")}
-                            onClick={() => setFocus(suggestion)}
-                            disabled={submitting}
-                          >
-                            {suggestion}
-                          </Button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </section>
+                  )}
+                </div>
+              </section>
+            ) : null}
 
-            {hasSettings ? (
-              <section
-                ref={settingsStepRef}
-                className="flex min-h-[calc(100vh-24rem)] snap-start scroll-mt-5 flex-col rounded-3xl border border-border/80 bg-background/85 p-5 shadow-sm backdrop-blur-sm sm:p-6"
-              >
+            {currentStepKey === "settings" && hasSettings ? (
+              <section className="flex min-h-0 w-full flex-col rounded-3xl border border-border/80 bg-background/85 p-5 shadow-sm backdrop-blur-sm sm:p-6">
                 <div className="mb-5 flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-muted/30 text-primary">
                     <SlidersHorizontal className="h-4 w-4" />
@@ -1097,7 +1040,7 @@ export function LegalWorkflowLauncher({
                   </div>
                 </div>
 
-                <div className="my-auto space-y-4">
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
                   {!!config.lockedBadges?.length && (
                     <div className="flex flex-wrap gap-2">
                       {config.lockedBadges.map((badge) => (
@@ -1159,15 +1102,15 @@ export function LegalWorkflowLauncher({
             <span className="truncate">{footerStatus}</span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button variant="outline" className="rounded-full" onClick={() => onOpenChange(false)} disabled={submitting}>
+            <Button variant="outline" className="rounded-full" onClick={handleCancel} disabled={submitting}>
               Cancel
             </Button>
-            <Button variant="outline" className="rounded-full" onClick={() => scrollToStep(currentStepIndex - 1)} disabled={submitting || currentStepIndex === 0}>
+            <Button variant="outline" className="rounded-full" onClick={() => goToStep(currentStepIndex - 1)} disabled={submitting || currentStepIndex === 0}>
               <ChevronLeft className="mr-1 h-4 w-4" />
               Back
             </Button>
             {!isLastStep ? (
-              <Button className="rounded-full px-5" onClick={() => scrollToStep(currentStepIndex + 1)} disabled={submitting}>
+              <Button className="rounded-full px-5" onClick={() => goToStep(currentStepIndex + 1)} disabled={submitting}>
                 Next
                 <ChevronRight className="ml-1 h-4 w-4" />
               </Button>
