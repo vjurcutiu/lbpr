@@ -74,7 +74,7 @@
   ],
   "subtype": "FIREBASE_AUTH",
   "client": {
-    "apiKey": "REDACTED_FIREBASE_WEB_API_KEY",
+    "apiKey": "REPLACE_WITH_FIREBASE_WEB_API_KEY",
     "permissions": {},
     "firebaseSubdomain": "lexbot-pro"
   },
