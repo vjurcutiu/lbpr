@@ -1,0 +1,26 @@
+# Local credentials and runtime environments
+.env
+.env.local
+.env.development
+.env.staging
+.env.production
+.env.test
+.env.*.local
+
+# Private keys and credential exports
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+root@*
+*firebase-adminsdk*.json
+*service-account*.json
+*service_account*.json
+*credentials*.json
+*secret*.json
+**/certs/**/key.txt
+
+# Generated credential-bearing exports
+doppler_export_*.json
