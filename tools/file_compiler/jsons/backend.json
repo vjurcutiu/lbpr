@@ -1,14 +1,14 @@
- {
-   "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\backend_context.txt",
-    "files": ["C:\\code2\\lbpr\\backend\\main.py",          
-          "C:\\code2\\lbpr\\backend\\core\\config.py",
-          "C:\\code2\\lbpr\\backend\\core\\firebase.py",
-          "C:\\code2\\lbpr\\backend\\.env"
-      ],
-   "recurse_folders": ["C:\\code2\\lbpr\\backend\\core",
-              "C:\\code2\\lbpr\\backend\\routers"
-            ],
-   "include_glob": "*",
-   "dedup": "path"
- }
-
+{
+    "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\backend_context.txt",
+    "files": [
+        "C:\\code2\\lbpr\\backend\\main.py",
+        "C:\\code2\\lbpr\\backend\\core\\config.py",
+        "C:\\code2\\lbpr\\backend\\core\\firebase.py"
+    ],
+    "recurse_folders": [
+        "C:\\code2\\lbpr\\backend\\core",
+        "C:\\code2\\lbpr\\backend\\routers"
+    ],
+    "include_glob": "*",
+    "dedup": "path"
+}
