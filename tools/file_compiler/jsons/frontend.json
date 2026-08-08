@@ -1,26 +1,28 @@
 {
-  "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_context.txt",
-  "files": ["C:\\code2\\lbpr\\static\\spa\\vite.config.ts",
-            "C:\\code2\\lbpr\\static\\spa\\tsconfig.node.json",
-            "C:\\code2\\lbpr\\static\\spa\\tsconfig.json",
-            "C:\\code2\\lbpr\\static\\spa\\tsconfig.app.json",
-            "C:\\code2\\lbpr\\static\\spa\\tailwind.config.ts",
-            "C:\\code2\\lbpr\\static\\spa\\postcss.config.cjs",
-            "C:\\code2\\lbpr\\static\\spa\\package.json",
-            "C:\\code2\\lbpr\\static\\spa\\eslint.config.js",
-            "C:\\code2\\lbpr\\static\\spa\\src\\shared\\api.ts",
-            "C:\\code2\\lbpr\\static\\spa\\src\\routes.tsx",
-            "C:\\code2\\lbpr\\static\\spa\\src\\main.tsx",
-            "C:\\code2\\lbpr\\static\\spa\\src\\index.css",
-            "C:\\code2\\lbpr\\static\\spa\\src\\AppShell.tsx",
-            "C:\\code2\\lbpr\\static\\spa\\src\\App.tsx",
-            "C:\\code2\\lbpr\\static\\spa\\src\\App.css",
-            "C:\\code2\\lbpr\\static\\spa\\.env",
-            "C:\\code2\\lbpr\\static\\spa\\playwright.config.ts",
-            "C:\\code2\\lbpr\\static\\spa\\vitest.config.ts",
-            "C:\\code2\\lbpr\\static\\spa\\index.html",
-            "C:\\code2\\lbpr\\static\\spa\\src\\lib\\initCookiebot.ts",
-            "C:\\code2\\lbpr\\static\\spa\\src\\pages\\TryLandingPage.tsx"
-        ],
-  "recurse_folders": ["C:\\code2\\lbpr\\static\\spa\\src\\lib"]
+    "output": "C:\\code2\\lbpr\\tools\\file_compiler\\contexts\\frontend_context.txt",
+    "files": [
+        "C:\\code2\\lbpr\\static\\spa\\vite.config.ts",
+        "C:\\code2\\lbpr\\static\\spa\\tsconfig.node.json",
+        "C:\\code2\\lbpr\\static\\spa\\tsconfig.json",
+        "C:\\code2\\lbpr\\static\\spa\\tsconfig.app.json",
+        "C:\\code2\\lbpr\\static\\spa\\tailwind.config.ts",
+        "C:\\code2\\lbpr\\static\\spa\\postcss.config.cjs",
+        "C:\\code2\\lbpr\\static\\spa\\package.json",
+        "C:\\code2\\lbpr\\static\\spa\\eslint.config.js",
+        "C:\\code2\\lbpr\\static\\spa\\src\\shared\\api.ts",
+        "C:\\code2\\lbpr\\static\\spa\\src\\routes.tsx",
+        "C:\\code2\\lbpr\\static\\spa\\src\\main.tsx",
+        "C:\\code2\\lbpr\\static\\spa\\src\\index.css",
+        "C:\\code2\\lbpr\\static\\spa\\src\\AppShell.tsx",
+        "C:\\code2\\lbpr\\static\\spa\\src\\App.tsx",
+        "C:\\code2\\lbpr\\static\\spa\\src\\App.css",
+        "C:\\code2\\lbpr\\static\\spa\\playwright.config.ts",
+        "C:\\code2\\lbpr\\static\\spa\\vitest.config.ts",
+        "C:\\code2\\lbpr\\static\\spa\\index.html",
+        "C:\\code2\\lbpr\\static\\spa\\src\\lib\\initCookiebot.ts",
+        "C:\\code2\\lbpr\\static\\spa\\src\\pages\\TryLandingPage.tsx"
+    ],
+    "recurse_folders": [
+        "C:\\code2\\lbpr\\static\\spa\\src\\lib"
+    ]
 }
