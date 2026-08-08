@@ -24,3 +24,7 @@ root@*
 
 # Generated credential-bearing exports
 doppler_export_*.json
+*_key.txt
+*-key.txt
+*_token.txt
+*-token.txt
