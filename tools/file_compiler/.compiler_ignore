@@ -15,3 +15,25 @@ pnpm-lock.yaml
 logs/
 *.log
 logs/*.log
+
+# Never ingest credentials into generated context bundles
+.env
+.env.local
+.env.development
+.env.staging
+.env.production
+.env.test
+.env.*.local
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+root@*
+*firebase-adminsdk*.json
+*service-account*.json
+*service_account*.json
+*credentials*.json
+*secret*.json
+**/certs/**/key.txt
