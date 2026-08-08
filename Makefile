@@ -14,8 +14,8 @@ NET  := $(PROJECT)_appnet
 # Create a .env.local file at repo root (gitignored) with:
 #   DOPPLER_PROJECT=lbpr
 #   DOPPLER_CONFIG=dev
-#   DOPPLER_TOKEN_SPA=dp.st.dev.xxxxxx
-#   DOPPLER_TOKEN_API=dp.st.dev.yyyyyy
+#   DOPPLER_TOKEN_SPA=<service-token>
+#   DOPPLER_TOKEN_API=<service-token>
 -include .env.local
 export
 
