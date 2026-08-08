@@ -37,3 +37,7 @@ root@*
 *credentials*.json
 *secret*.json
 **/certs/**/key.txt
+*_key.txt
+*-key.txt
+*_token.txt
+*-token.txt
